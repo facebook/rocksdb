@@ -14,13 +14,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A thread local context for gathering performance counter efficiently
-// and transparently.
-// Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+/*
+ * NOTE:
+ * Please do not reorder the fields in this structure. If you plan to do that or
+ * add/remove fields to this structure, builds would fail. The way to fix the
+ * builds would be to add the appropriate fields to the
+ * DEF_PERF_CONTEXT_LEVEL_METRICS() macro in the perf_context.cc file.
+ */
 
 // Break down performance counters by level and store per-level perf context in
 // PerfContextByLevel
-struct PerfContextByLevel {
+struct PerfContextByLevelBase {
   // # of times bloom filter has avoided file reads, i.e., negatives.
   uint64_t bloom_filter_useful = 0;
   // # of times bloom FullFilter has not avoided the reads.
@@ -38,37 +42,34 @@ struct PerfContextByLevel {
 
   uint64_t block_cache_hit_count = 0;   // total number of block cache hits
   uint64_t block_cache_miss_count = 0;  // total number of block cache misses
+};
 
+// A thread local context for gathering performance counter efficiently
+// and transparently.
+// Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+
+// Break down performance counters by level and store per-level perf context in
+// PerfContextByLevel
+struct PerfContextByLevel : public PerfContextByLevelBase {
   void Reset();  // reset all performance counters to zero
 };
 
-struct PerfContext {
-  ~PerfContext();
+/*
+ * NOTE:
+ * Please do not reorder the fields in this structure. If you plan to do that or
+ * add/remove fields to this structure, builds would fail. The way to fix the
+ * builds would be to add the appropriate fields to the
+ * DEF_PERF_CONTEXT_METRICS() macro in the perf_context.cc file.
+ */
 
-  PerfContext() {}
-
-  PerfContext(const PerfContext&);
-  PerfContext& operator=(const PerfContext&);
-  PerfContext(PerfContext&&) noexcept;
-
-  void Reset();  // reset all performance counters to zero
-
-  std::string ToString(bool exclude_zero_counters = false) const;
-
-  // enable per level perf context and allocate storage for PerfContextByLevel
-  void EnablePerLevelPerfContext();
-
-  // temporarily disable per level perf context by setting the flag to false
-  void DisablePerLevelPerfContext();
-
-  // free the space for PerfContextByLevel, also disable per level perf context
-  void ClearPerLevelPerfContext();
-
+struct PerfContextBase {
   uint64_t user_key_comparison_count;  // total number of user key comparisons
   uint64_t block_cache_hit_count;      // total number of block cache hits
   uint64_t block_read_count;           // total number of block reads (with IO)
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
+  // total cpu time in nanos spent on block reads
+  uint64_t block_read_cpu_time;
   uint64_t block_cache_index_hit_count;  // total number of index block hits
   // total number of standalone handles lookup from secondary cache
   uint64_t block_cache_standalone_handle_count;
@@ -267,9 +268,34 @@ struct PerfContext {
   uint64_t decrypt_data_nanos;
 
   uint64_t number_async_seek;
+};
+
+struct PerfContext : public PerfContextBase {
+  ~PerfContext();
+
+  PerfContext() {}
+
+  PerfContext(const PerfContext&);
+  PerfContext& operator=(const PerfContext&);
+  PerfContext(PerfContext&&) noexcept;
+
+  void Reset();  // reset all performance counters to zero
+
+  std::string ToString(bool exclude_zero_counters = false) const;
+
+  // enable per level perf context and allocate storage for PerfContextByLevel
+  void EnablePerLevelPerfContext();
+
+  // temporarily disable per level perf context by setting the flag to false
+  void DisablePerLevelPerfContext();
+
+  // free the space for PerfContextByLevel, also disable per level perf context
+  void ClearPerLevelPerfContext();
 
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
+
+  void copyMetrics(const PerfContext* other) noexcept;
 };
 
 // If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,
