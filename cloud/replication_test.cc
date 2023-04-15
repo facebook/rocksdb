@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cinttypes>
+#include <optional>
 
 #include "cloud/filename.h"
 #include "db/column_family.h"
@@ -204,8 +205,11 @@ class ReplicationTest : public testing::Test {
 
   Options leaderOptions() const;
 
+  // catching up follower for `num_records`. If `num_records` not specified,
+  // it will catch up until end of log
+  //
   // Returns the number of log records applied
-  size_t catchUpFollower();
+  size_t catchUpFollower(std::optional<size_t> num_records = std::nullopt);
 
   WriteOptions wo() const {
     WriteOptions w;
@@ -249,6 +253,9 @@ class ReplicationTest : public testing::Test {
 
 protected:
   std::shared_ptr<Logger> info_log_;
+  void resetFollowerSequence(int new_seq) {
+    followerSequence_ = new_seq;
+  }
  private:
   std::string test_dir_;
   FollowerEnv follower_env_;
@@ -369,11 +376,14 @@ DB* ReplicationTest::openFollower(Options options) {
   return db;
 }
 
-size_t ReplicationTest::catchUpFollower() {
+size_t ReplicationTest::catchUpFollower(std::optional<size_t> num_records) {
   MutexLock lock(&log_records_mutex_);
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
   for (; followerSequence_ < (int)log_records_.size(); ++followerSequence_) {
+    if (num_records && ret >= *num_records) {
+      break;
+    }
     auto s = follower_db_->ApplyReplicationLogRecord(
         log_records_[followerSequence_].first,
         log_records_[followerSequence_].second,
@@ -901,6 +911,33 @@ TEST_F(ReplicationTest, FileNumConsistency) {
   catchUpFollower();
 
   EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+}
+
+// Verify that when follower tries to catch up, the file number doesn't
+// go backwards
+TEST_F(ReplicationTest, NextFileNumDoNotGoBackwards){
+  auto leader = openLeader(leaderOptions());
+  leader->Put(wo(), "key1", "val1");
+  leader->Flush({});
+  auto follower = openFollower(leaderOptions());
+  catchUpFollower();
+  auto next_file_number = follower->GetNextFileNumber();
+
+  // catching up again from last memtable switch record
+  resetFollowerSequence(1);
+
+  // memtable switch
+  ASSERT_GT(catchUpFollower(1), 0);
+  EXPECT_EQ(follower->GetNextFileNumber(), next_file_number);
+  // manifest write
+  ASSERT_GT(catchUpFollower(1), 0);
+  EXPECT_EQ(follower->GetNextFileNumber(), next_file_number);
+
+  leader->Put(wo(), "key2", "val2");
+  leader->Flush({});
+  catchUpFollower();
+
+  EXPECT_GT(follower->GetNextFileNumber(), next_file_number);
 }
 
 TEST_F(ReplicationTest, Stress) {
