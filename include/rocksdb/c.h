@@ -62,7 +62,6 @@
 extern "C" {
 #endif
 
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -1719,7 +1718,8 @@ enum {
   rocksdb_blob_checksum_time,
   rocksdb_blob_decompress_time,
   rocksdb_internal_range_del_reseek_count,
-  rocksdb_total_metric_count = 78
+  rocksdb_block_read_cpu_time,
+  rocksdb_total_metric_count = 79
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -2007,20 +2007,26 @@ extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru(
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t*
 rocksdb_cache_create_lru_with_strict_capacity_limit(size_t capacity);
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru_opts(
-    rocksdb_lru_cache_options_t*);
+    const rocksdb_lru_cache_options_t*);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_destroy(rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_disown_data(
     rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_set_capacity(
     rocksdb_cache_t* cache, size_t capacity);
 extern ROCKSDB_LIBRARY_API size_t
-rocksdb_cache_get_capacity(rocksdb_cache_t* cache);
+rocksdb_cache_get_capacity(const rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API size_t
-rocksdb_cache_get_usage(rocksdb_cache_t* cache);
+rocksdb_cache_get_usage(const rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API size_t
-rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache);
+rocksdb_cache_get_pinned_usage(const rocksdb_cache_t* cache);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_cache_get_table_address_count(const rocksdb_cache_t* cache);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache);
 
 /* HyperClockCache */
+
 extern ROCKSDB_LIBRARY_API rocksdb_hyper_clock_cache_options_t*
 rocksdb_hyper_clock_cache_options_create(size_t capacity,
                                          size_t estimated_entry_charge);
@@ -2041,7 +2047,8 @@ rocksdb_hyper_clock_cache_options_set_memory_allocator(
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
     size_t capacity, size_t estimated_entry_charge);
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t*
-rocksdb_cache_create_hyper_clock_opts(rocksdb_hyper_clock_cache_options_t*);
+rocksdb_cache_create_hyper_clock_opts(
+    const rocksdb_hyper_clock_cache_options_t*);
 
 /* DBPath */
 
@@ -2233,6 +2240,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_universal_compaction_options_destroy(
 
 extern ROCKSDB_LIBRARY_API rocksdb_fifo_compaction_options_t*
 rocksdb_fifo_compaction_options_create(void);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_fifo_compaction_options_set_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_fifo_compaction_options_get_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_fifo_compaction_options_set_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
@@ -2535,7 +2548,20 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transaction_multi_get(
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_multi_get_for_update(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** errs);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_multi_get_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** errs);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_multi_get_for_update_cf(
     rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
     const rocksdb_column_family_handle_t* const* column_families,
     size_t num_keys, const char* const* keys_list,

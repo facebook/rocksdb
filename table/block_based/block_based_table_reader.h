@@ -336,10 +336,9 @@ class BlockBasedTable : public TableReader {
   WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, const bool for_compaction,
-      CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, BlockContents* contents,
-      bool async_read) const;
+      bool for_compaction, CachableEntry<TBlocklike>* block_entry,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents, bool async_read) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -350,16 +349,25 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
-      bool use_cache, bool wait_for_cache, bool async_read) const;
+      bool use_cache, bool async_read) const;
+
+  template <typename TBlocklike>
+  WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(
+      const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+      const TBlocklike* parsed_block_value,
+      BlockCacheLookupContext* lookup_context) const;
+
+  void FinishTraceRecord(const BlockCacheLookupContext& lookup_context,
+                         const Slice& block_key, const Slice& referenced_key,
+                         bool does_referenced_key_exist,
+                         uint64_t referenced_data_size) const;
 
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
-          results,
-      char* scratch, const UncompressionDict& uncompression_dict);
+      Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
+      const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
   //
@@ -379,6 +387,9 @@ class BlockBasedTable : public TableReader {
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
+  template <typename TBlocklike>
+  Cache::Priority GetCachePriority() const;
+
   // Read block cache from block caches (if set): block_cache.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
@@ -387,8 +398,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CachableEntry<TBlocklike>* block, const bool wait,
-      GetContext* get_context) const;
+      CachableEntry<TBlocklike>* block, GetContext* get_context) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed
@@ -430,13 +440,13 @@ class BlockBasedTable : public TableReader {
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) const;
+                             const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
@@ -444,7 +454,7 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
@@ -494,6 +504,8 @@ class BlockBasedTable : public TableReader {
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
+
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -595,6 +607,12 @@ struct BlockBasedTable::Rep {
   // the level when the table is opened, could potentially change when trivial
   // move is involved
   int level;
+
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.

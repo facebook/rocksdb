@@ -194,13 +194,20 @@ class SimCacheImpl : public SimCache {
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context,
-                 Priority priority = Priority::LOW, bool wait = true,
+                 Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override {
     HandleLookup(key, stats);
     if (!target_) {
       return nullptr;
     }
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
+    return target_->Lookup(key, helper, create_context, priority, stats);
+  }
+
+  void StartAsyncLookup(AsyncLookupHandle& async_handle) override {
+    HandleLookup(async_handle.key, async_handle.stats);
+    if (target_) {
+      target_->StartAsyncLookup(async_handle);
+    }
   }
 
   bool Ref(Handle* handle) override { return target_->Ref(handle); }

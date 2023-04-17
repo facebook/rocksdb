@@ -19,6 +19,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -608,12 +609,18 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
 
 // Test that db->LockWAL() flushes the WAL after locking, which can fail
 TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(env_));
-  options.env = mock_env.get();
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
   options.disable_auto_compactions = true;
   options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_OK(Put("key0", "value"));
@@ -629,8 +636,13 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   ASSERT_OK(db_->UnlockWAL());
 
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
   // Fail the WAL flush if applicable
-  mock_env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   Status s = Put("key2", "value");
   if (options.manual_wal_flush) {
     ASSERT_OK(s);
@@ -642,7 +654,8 @@ TEST_P(DBWriteTest, LockWALInEffect) {
     ASSERT_OK(db_->LockWAL());
     ASSERT_OK(db_->UnlockWAL());
   }
-  mock_env->SetFilesystemActive(true);
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
   // Writes should work again
   ASSERT_OK(Put("key3", "value"));
   ASSERT_EQ(Get("key3"), "value");

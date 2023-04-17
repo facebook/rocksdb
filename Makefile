@@ -337,7 +337,7 @@ ifneq ($(MACHINE), arm64)
 # linking with jemalloc (as it won't be arm64-compatible) and remove some other options
 # set during platform detection
 DISABLE_JEMALLOC=1
-PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CFLAGS))
+PLATFORM_CCFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CCFLAGS))
 PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CXXFLAGS))
 endif
 endif
@@ -539,7 +539,7 @@ endif
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
-	WARNING_FLAGS += -Wshift-sign-overflow
+	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator
 endif
 
 ifeq ($(PLATFORM), OS_OPENBSD)

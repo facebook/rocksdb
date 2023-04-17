@@ -10,6 +10,7 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/compressed_secondary_cache.cc                           \
   cache/secondary_cache.cc                                      \
+  cache/secondary_cache_adapter.cc                              \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_contents.cc                                      \
@@ -96,6 +97,7 @@ LIB_SOURCES =                                                   \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
+  db/write_stall_stats.cc                                       \
   db/write_thread.cc                                            \
   env/composite_env.cc                                          \
   env/env.cc                                                    \
@@ -382,6 +384,7 @@ TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
+  test_util/secondary_cache_test_util.cc                        \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/agg_merge/test_agg_merge.cc                                 \

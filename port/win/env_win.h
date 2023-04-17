@@ -227,6 +227,7 @@ class WinFileSystem : public FileSystem {
       const FileOptions& file_options) const override;
   FileOptions OptimizeForManifestWrite(
       const FileOptions& file_options) const override;
+  bool use_async_io() override { return false; }
 
  protected:
   static uint64_t FileTimeToUnixTime(const FILETIME& ftTime);

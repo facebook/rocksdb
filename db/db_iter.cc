@@ -131,6 +131,7 @@ void DBIter::Next() {
   assert(valid_);
   assert(status_.ok());
 
+  PERF_COUNTER_ADD(iter_next_count, 1);
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
@@ -521,6 +522,8 @@ bool DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
@@ -635,6 +638,7 @@ void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
 
+  PERF_COUNTER_ADD(iter_prev_count, 1);
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
   ResetBlobValue();
@@ -1159,6 +1163,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   while (true) {
     iter_.Next();
 
@@ -1440,6 +1446,7 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
 }
 
 void DBIter::Seek(const Slice& target) {
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
@@ -1513,6 +1520,7 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
@@ -1586,6 +1594,7 @@ void DBIter::SeekToFirst() {
     Seek(*iterate_lower_bound_);
     return;
   }
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
@@ -1648,6 +1657,7 @@ void DBIter::SeekToLast() {
     return;
   }
 
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.

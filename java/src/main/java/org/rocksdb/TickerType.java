@@ -740,6 +740,20 @@ public enum TickerType {
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that can't find its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_MISS((byte) -0x3A),
+
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that finds its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

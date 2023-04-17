@@ -162,6 +162,13 @@ public enum HistogramType {
 
   ASYNC_READ_BYTES((byte) 0x33),
 
+  /**
+   * Number of bytes read for RocksDB's prefetching contents
+   * (as opposed to file system's prefetch)
+   * from the end of SST table during block based table open
+   */
+  TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x39),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 

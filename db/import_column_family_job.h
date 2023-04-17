@@ -62,9 +62,9 @@ class ImportColumnFamilyJob {
   // Open the external file and populate `file_to_import` with all the
   // external information we need to import this file.
   Status GetIngestedFileInfo(const std::string& external_file,
-                             uint64_t new_file_number,
-                             IngestedFileInfo* file_to_import,
-                             SuperVersion* sv);
+                             uint64_t new_file_number, SuperVersion* sv,
+                             const LiveFileMetaData& file_meta,
+                             IngestedFileInfo* file_to_import);
 
   SystemClock* clock_;
   VersionSet* versions_;

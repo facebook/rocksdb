@@ -91,7 +91,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
-      bool& is_in_sec_cache) override;
+      bool& kept_in_sec_cache) override;
 
   bool SupportForceErase() const override { return true; }
 
@@ -106,7 +106,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override;
 
  private:
-  friend class CompressedSecondaryCacheTest;
+  friend class CompressedSecondaryCacheTestBase;
   static constexpr std::array<uint16_t, 8> malloc_bin_sizes_{
       128, 256, 512, 1024, 2048, 4096, 8192, 16384};
 

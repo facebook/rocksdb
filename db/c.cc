@@ -4064,6 +4064,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_decompress_time;
     case rocksdb_internal_range_del_reseek_count:
       return rep->internal_range_del_reseek_count;
+    case rocksdb_block_read_cpu_time:
+      return rep->block_read_cpu_time;
     default:
       break;
   }
@@ -4679,7 +4681,7 @@ rocksdb_cache_t* rocksdb_cache_create_lru_with_strict_capacity_limit(
 }
 
 rocksdb_cache_t* rocksdb_cache_create_lru_opts(
-    rocksdb_lru_cache_options_t* opt) {
+    const rocksdb_lru_cache_options_t* opt) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(opt->rep);
   return c;
@@ -4726,7 +4728,7 @@ rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
 }
 
 rocksdb_cache_t* rocksdb_cache_create_hyper_clock_opts(
-    rocksdb_hyper_clock_cache_options_t* opts) {
+    const rocksdb_hyper_clock_cache_options_t* opts) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = opts->rep.MakeSharedCache();
   return c;
@@ -4742,16 +4744,24 @@ void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
   cache->rep->SetCapacity(capacity);
 }
 
-size_t rocksdb_cache_get_capacity(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_capacity(const rocksdb_cache_t* cache) {
   return cache->rep->GetCapacity();
 }
 
-size_t rocksdb_cache_get_usage(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_usage(const rocksdb_cache_t* cache) {
   return cache->rep->GetUsage();
 }
 
-size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_pinned_usage(const rocksdb_cache_t* cache) {
   return cache->rep->GetPinnedUsage();
+}
+
+size_t rocksdb_cache_get_table_address_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetTableAddressCount();
+}
+
+size_t rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetOccupancyCount();
 }
 
 rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path,
@@ -5137,6 +5147,16 @@ rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create() {
       new rocksdb_fifo_compaction_options_t;
   result->rep = CompactionOptionsFIFO();
   return result;
+}
+
+void rocksdb_fifo_compaction_options_set_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction) {
+  fifo_opts->rep.allow_compaction = allow_compaction;
+}
+
+unsigned char rocksdb_fifo_compaction_options_get_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.allow_compaction;
 }
 
 void rocksdb_fifo_compaction_options_set_max_table_files_size(
@@ -5843,6 +5863,35 @@ void rocksdb_transaction_multi_get(rocksdb_transaction_t* txn,
   }
 }
 
+void rocksdb_transaction_multi_get_for_update(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses =
+      txn->rep->MultiGetForUpdate(options->rep, keys, &values);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
 void rocksdb_transaction_multi_get_cf(
     rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
     const rocksdb_column_family_handle_t* const* column_families,
@@ -5858,6 +5907,38 @@ void rocksdb_transaction_multi_get_cf(
   std::vector<std::string> values(num_keys);
   std::vector<Status> statuses =
       txn->rep->MultiGet(options->rep, cfs, keys, &values);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
+void rocksdb_transaction_multi_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  std::vector<ColumnFamilyHandle*> cfs(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+    cfs[i] = column_families[i]->rep;
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses =
+      txn->rep->MultiGetForUpdate(options->rep, cfs, keys, &values);
   for (size_t i = 0; i < num_keys; i++) {
     if (statuses[i].ok()) {
       values_list[i] = CopyString(values[i]);

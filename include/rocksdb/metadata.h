@@ -148,6 +148,13 @@ struct SstFileMetaData : public FileStorageInfo {
   // For L0, larger `epoch_number` indicates newer L0 file.
   // 0 if the information is not available.
   uint64_t epoch_number = 0;
+
+  // These bounds define the effective key range for range tombstones
+  // in this file.
+  // Currently only used by CreateColumnFamilyWithImport().
+  std::string smallest{};  // Smallest internal key served by table
+  std::string largest{};   // Largest internal key served by table
+
   // DEPRECATED: The name of the file within its directory with a
   // leading slash (e.g. "/123456.sst"). Use relative_filename from base struct
   // instead.

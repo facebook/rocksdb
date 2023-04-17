@@ -2437,9 +2437,11 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
 }
 
 TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
+  const int kNumKeysPerFlush = 1000;
+
   Options options = CurrentOptions();
-  options.write_buffer_size = 64 * 1024;
-  options.arena_block_size = 4 * 1024;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFlush));
   options.target_file_size_base = 64 * 1024;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
@@ -2475,8 +2477,13 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   int num_inserted = 0;
   for (int key : keys) {
     ASSERT_OK(Put(1, Key(key), "val"));
-    if (++num_inserted % 1000 == 0) {
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    num_inserted++;
+    // The write after each `kNumKeysPerFlush` keys triggers a flush. Always
+    // wait for that flush and any follow-on compactions for deterministic LSM
+    // shape.
+    if (num_inserted > kNumKeysPerFlush &&
+        num_inserted % kNumKeysPerFlush == 1) {
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
   }

@@ -353,7 +353,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
@@ -424,7 +424,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }

@@ -77,15 +77,15 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const UncompressionDict& dict = uncompression_dict.GetValue()
                                         ? *uncompression_dict.GetValue()
                                         : UncompressionDict::GetEmptyDict();
-    s = RetrieveBlock(
-        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
-        get_context, lookup_context, for_compaction,
-        /* use_cache */ true, /* wait_for_cache */ true, async_read);
+    s = RetrieveBlock(prefetch_buffer, ro, handle, dict,
+                      &block.As<IterBlocklike>(), get_context, lookup_context,
+                      for_compaction,
+                      /* use_cache */ true, async_read);
   } else {
     s = RetrieveBlock(
         prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
         &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
-        /* use_cache */ true, /* wait_for_cache */ true, async_read);
+        /* use_cache */ true, async_read);
   }
 
   if (s.IsTryAgain() && async_read) {

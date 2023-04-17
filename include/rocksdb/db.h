@@ -301,6 +301,18 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       std::string trim_ts);
 
+  // Manually, synchronously attempt to resume DB writes after a write failure
+  // to the underlying filesystem. See
+  // https://github.com/facebook/rocksdb/wiki/Background-Error-Handling
+  //
+  // Returns OK if writes are successfully resumed, or there was no
+  // outstanding error to recover from. Returns underlying write error if
+  // it is not recoverable.
+  //
+  // WART: Does not mix well with auto-resume. Will return Busy if an
+  // auto-resume is in progress, without waiting for it to complete.
+  // See DBOptions::max_bgerror_resume_count and
+  // EventListener::OnErrorRecoveryBegin
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -940,6 +952,18 @@ class DB {
     //  "rocksdb.cf-file-histogram" - print out how many file reads to every
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
+
+    // "rocksdb.cf-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on CF-scope write stalls for a given CF
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kCFWriteStallStats;
+
+    // "rocksdb.db-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on DB-scope write stalls
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kDBWriteStallStats;
 
     //  "rocksdb.dbstats" - As a string property, returns a multi-line string
     //      with general database stats, both cumulative (over the db's
@@ -1717,11 +1741,12 @@ class DB {
       const std::vector<IngestExternalFileArg>& args) = 0;
 
   // CreateColumnFamilyWithImport() will create a new column family with
-  // column_family_name and import external SST files specified in metadata into
-  // this column family.
+  // column_family_name and import external SST files specified in `metadata`
+  // into this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB using Checkpoint::ExportColumnFamily.
+  //     an existing DB using Checkpoint::ExportColumnFamily. `metadata` should
+  //     be the output from Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a
@@ -1858,6 +1883,24 @@ class DB {
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
+};
+
+struct WriteStallStatsMapKeys {
+  static const std::string& TotalStops();
+  static const std::string& TotalDelays();
+
+  static const std::string& CFL0FileCountLimitDelaysWithOngoingCompaction();
+  static const std::string& CFL0FileCountLimitStopsWithOngoingCompaction();
+
+  // REQUIRES:
+  // `cause` isn't any of these: `WriteStallCause::kNone`,
+  // `WriteStallCause::kCFScopeWriteStallCauseEnumMax`,
+  // `WriteStallCause::kDBScopeWriteStallCauseEnumMax`
+  //
+  // REQUIRES:
+  // `condition` isn't any of these: `WriteStallCondition::kNormal`
+  static std::string CauseConditionCount(WriteStallCause cause,
+                                         WriteStallCondition condition);
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.

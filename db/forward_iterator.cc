@@ -238,6 +238,9 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
+  if (!cfd_->ioptions()->env->GetFileSystem()->use_async_io()) {
+    read_options_.async_io = false;
+  }
 
   // immutable_status_ is a local aggregation of the
   // status of the immutable Iterators.
