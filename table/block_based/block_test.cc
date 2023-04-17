@@ -871,7 +871,7 @@ TEST_P(DataBlockKVChecksumTest, ChecksumConstructionAndVerification) {
                                  checksum_ptr + i * protection_bytes_per_key,
                                  keys[i], values[i]));
     }
-    std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 10001};
+    std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 0};
 
     // Could just use a boolean flag. Use a counter here just to keep open the
     // possibility of checking the exact number of verifications in the future.
@@ -1222,46 +1222,6 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
       test_step(&DataBlockIter::Prev, seek_key);
       test_step(&DataBlockIter::Next, seek_key);
     }
-
-    if (GetRestartInterval() > 1) {
-      // Test checksum verification for keys read after binary search but before
-      // UpdateKey()
-      SyncPoint::GetInstance()->ClearCallBack("BlockIter::UpdateKey::value");
-      SyncPoint::GetInstance()->SetCallBack(
-          "BlockIter::FindKeyAfterBinarySeek::value", [](void *arg) {
-            char *value = static_cast<char *>(arg);
-            ++value[10];
-          });
-      // Need to seek to some key that is not the first within a restart
-      // interval
-      seek_key = keys[(GetRestartInterval() + 1) / 2];
-      test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
-      test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
-      if (GetDataBlockIndexType() !=
-          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash) {
-        test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
-      }
-    }
-
-    // Test checksum verification in SeekForGetImpl()
-    // Only test when kNumRecords == 1 since otherwise there could be collision
-    // in data_block_hash_index and the callback below will not be called.
-    if (GetDataBlockIndexType() == BlockBasedTableOptions::DataBlockIndexType::
-                                       kDataBlockBinaryAndHash &&
-        kNumRecords == 1) {
-      SyncPoint::GetInstance()->ClearAllCallBacks();
-      SyncPoint::GetInstance()->SetCallBack(
-          "DataBlockIter::SeekForGetImpl::value", [](void *arg) {
-            char *value = static_cast<char *>(arg);
-            ++value[10];
-          });
-      // Need to seek some key that is not the first key in a restart interval
-      // to reach syncpoint.
-      seek_key = keys[kNumRecords];
-      test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
-      SyncPoint::GetInstance()->ClearCallBack(
-          "DataBlockIter::SeekForGetImpl::value");
-    }
   }
 }
 
@@ -1387,24 +1347,6 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
       if (kNumRecords > 1) {
         test_step(&IndexBlockIter::Prev, seek_key);
         test_step(&IndexBlockIter::Next, seek_key);
-      }
-
-      if (GetRestartInterval() > 1) {
-        // Test checksum verification for keys read after binary search but
-        // before UpdateKey()
-        SyncPoint::GetInstance()->ClearCallBack("BlockIter::UpdateKey::value");
-        SyncPoint::GetInstance()->SetCallBack(
-            "BlockIter::FindKeyAfterBinarySeek::value", [](void *arg) {
-              char *value = static_cast<char *>(arg);
-              // value can be delta-encoded with different lengths, so we
-              // corrupt
-              // first bytes here to be safe
-              ++value[0];
-            });
-        // Need to seek to some key that is not the first within a restart
-        // interval
-        seek_key = separators[(GetRestartInterval() + 1) / 2];
-        test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
       }
     }
   }

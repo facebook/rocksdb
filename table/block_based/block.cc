@@ -399,15 +399,9 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // If the loop exits due to CompareCurrentKey(target) >= 0, then current key
     // exists, and its checksum verification will be done in UpdateKey() called
     // in SeekForGet().
-    TEST_SYNC_POINT_CALLBACK("DataBlockIter::SeekForGetImpl::value",
-                             (void*)value_.data());
-    if (!Block::VerifyChecksum(
-            protection_bytes_per_key_,
-            kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
-            raw_key_.GetKey(), value_)) {
-      PerKVChecksumCorruptionError();
-      return true;
-    }
+    // TODO(cbi): If this loop exits with current_ == restart_, per key-value
+    //  checksum will not be verified in UpdateKey() since Valid()
+    //  will return false.
   }
 
   if (current_ == restarts_) {
@@ -765,17 +759,10 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
       max_offset = std::numeric_limits<uint32_t>::max();
     }
     while (true) {
-      TEST_SYNC_POINT_CALLBACK("BlockIter::FindKeyAfterBinarySeek::value",
-                               (void*)value_.data());
-      if (!Block::VerifyChecksum(
-              protection_bytes_per_key_,
-              kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
-              raw_key_.GetKey(), value_)) {
-        PerKVChecksumCorruptionError();
-        break;
-      }
       NextImpl();
       if (!Valid()) {
+        // TODO(cbi): per key-value checksum will not be verified in UpdateKey()
+        //  since Valid() will returns false.
         break;
       }
       if (current_ == max_offset) {
