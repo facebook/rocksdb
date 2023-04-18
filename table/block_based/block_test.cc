@@ -746,11 +746,6 @@ TEST_F(BlockPerKVChecksumTest, UnsupportedOptionValue) {
 TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
   // Make sure that the checksum construction code path does not break
   // when the block is itself already corrupted.
-  std::string invalid_content = "1";
-  Slice raw_block = invalid_content;
-  BlockContents contents;
-  contents.data = raw_block;
-
   Options options = Options();
   BlockBasedTableOptions tbo;
   uint8_t protection_bytes_per_key = 8;
@@ -759,6 +754,10 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
       protection_bytes_per_key, options.comparator};
 
   {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
     std::unique_ptr<Block_kData> data_block;
     create_context.Create(&data_block, std::move(contents));
     std::unique_ptr<DataBlockIter> iter{data_block->NewDataIterator(
@@ -766,6 +765,10 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
     ASSERT_TRUE(iter->status().IsCorruption());
   }
   {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
     std::unique_ptr<Block_kIndex> index_block;
     create_context.Create(&index_block, std::move(contents));
     std::unique_ptr<IndexBlockIter> iter{index_block->NewIndexIterator(
@@ -774,10 +777,107 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
     ASSERT_TRUE(iter->status().IsCorruption());
   }
   {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
     std::unique_ptr<Block_kMetaIndex> meta_block;
     create_context.Create(&meta_block, std::move(contents));
     std::unique_ptr<MetaBlockIter> iter{meta_block->NewMetaIterator(true)};
     ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
+  // Tests that ApproximateMemoryUsage() includes memory used by block kv
+  // checksum.
+  const int kNumRecords = 20;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */,
+                    24 /* padding_size */);
+  std::unique_ptr<BlockBuilder> builder;
+  auto generate_block_content = [&]() {
+    builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+    for (int i = 0; i < kNumRecords; ++i) {
+      builder->Add(keys[i], values[i]);
+    }
+    Slice raw_block = builder->Finish();
+    BlockContents contents;
+    contents.data = raw_block;
+    return contents;
+  };
+
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = 8;
+  BlockCreateContext with_checksum_create_context{
+      &tbo,
+      nullptr /* statistics */,
+      false /* using_zstd */,
+      protection_bytes_per_key,
+      options.comparator,
+      true /* index_value_is_full */};
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      0,    options.comparator,       true /* index_value_is_full */};
+  size_t checksum_size = protection_bytes_per_key * kNumRecords;
+
+  {
+    std::unique_ptr<Block_kData> data_block;
+    create_context.Create(&data_block, generate_block_content());
+    std::unique_ptr<Block_kData> with_checksum_data_block;
+    with_checksum_create_context.Create(&with_checksum_data_block,
+                                        generate_block_content());
+    ASSERT_EQ(with_checksum_data_block->ApproximateMemoryUsage() -
+                  data_block->ApproximateMemoryUsage(),
+              checksum_size);
+  }
+
+  {
+    std::unique_ptr<Block_kData> meta_block;
+    create_context.Create(&meta_block, generate_block_content());
+    std::unique_ptr<Block_kData> with_checksum_meta_block;
+    with_checksum_create_context.Create(&with_checksum_meta_block,
+                                        generate_block_content());
+    ASSERT_EQ(with_checksum_meta_block->ApproximateMemoryUsage() -
+                  meta_block->ApproximateMemoryUsage(),
+              checksum_size);
+  }
+
+  {
+    // Index block has different contents.
+    std::vector<std::string> separators;
+    std::vector<BlockHandle> block_handles;
+    std::vector<std::string> first_keys;
+    GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
+                               kNumRecords);
+    auto generate_index_content = [&]() {
+      builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+      BlockHandle last_encoded_handle;
+      for (int i = 0; i < kNumRecords; ++i) {
+        IndexValue entry(block_handles[i], first_keys[i]);
+        std::string encoded_entry;
+        std::string delta_encoded_entry;
+        entry.EncodeTo(&encoded_entry, false, nullptr);
+        last_encoded_handle = entry.handle;
+        const Slice delta_encoded_entry_slice(delta_encoded_entry);
+        builder->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+      }
+      Slice raw_block = builder->Finish();
+      BlockContents contents;
+      contents.data = raw_block;
+      return contents;
+    };
+
+    std::unique_ptr<Block_kIndex> index_block;
+    create_context.Create(&index_block, generate_index_content());
+    std::unique_ptr<Block_kIndex> with_checksum_index_block;
+    with_checksum_create_context.Create(&with_checksum_index_block,
+                                        generate_index_content());
+    ASSERT_EQ(with_checksum_index_block->ApproximateMemoryUsage() -
+                  index_block->ApproximateMemoryUsage(),
+              checksum_size);
   }
 }
 

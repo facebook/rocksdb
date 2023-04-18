@@ -1091,7 +1091,8 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
       size_t i = 0;
       iter->SeekToFirst();
       while (iter->Valid()) {
@@ -1116,6 +1117,12 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
                                                bool index_has_first_key) {
   protection_bytes_per_key_ = 0;
   if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
+    // Note that `global_seqno` and `key_includes_seq` are hardcoded here. They
+    // do not impact how the index block is parsed. During checksum
+    // construction/verification, we use the entire key buffer from
+    // raw_key_.GetKey() returned by iter->key() as the `key` part of key-value
+    // checksum, and the content of this buffer do not change for different
+    // values of `global_seqno` or `key_includes_seq`.
     std::unique_ptr<IndexBlockIter> iter{NewIndexIterator(
         raw_ucmp, kDisableGlobalSequenceNumber /* global_seqno */, nullptr,
         nullptr /* Statistics */, true /* total_order_seek */,
@@ -1130,7 +1137,8 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
       iter->SeekToFirst();
       size_t i = 0;
       while (iter->Valid()) {
@@ -1163,7 +1171,8 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
+      checksum_size_ = num_keys * protection_bytes_per_key;
+      kv_checksum_ = new char[(size_t)checksum_size_];
       iter->SeekToFirst();
       size_t i = 0;
       while (iter->Valid()) {
@@ -1275,6 +1284,7 @@ size_t Block::ApproximateMemoryUsage() const {
   if (read_amp_bitmap_) {
     usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }
+  usage += checksum_size_;
   return usage;
 }
 

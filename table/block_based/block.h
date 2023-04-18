@@ -278,6 +278,7 @@ class Block {
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   DataBlockHashIndex data_block_hash_index_;
   char* kv_checksum_{nullptr};
+  uint32_t checksum_size_{0};
   // Used by block iterators to calculate current key index within a block
   uint32_t block_restart_interval_{0};
   uint8_t protection_bytes_per_key_{0};
