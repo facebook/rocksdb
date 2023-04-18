@@ -262,17 +262,6 @@ class Block {
   // by NewMetaIterator will verify per key-value checksum for any key it read.
   void InitializeMetaIndexBlockProtectionInfo(uint8_t protection_bytes_per_key);
 
-  static bool VerifyChecksum(uint8_t checksum_len, const char* checksum_ptr,
-                             const Slice& key, const Slice& val) {
-    TEST_SYNC_POINT_CALLBACK("Block::VerifyChecksum::checksum_len",
-                             &checksum_len);
-    if (checksum_len == 0) {
-      return true;
-    }
-    return ProtectionInfo64().ProtectKV(key, val).Verify(checksum_len,
-                                                         checksum_ptr);
-  }
-
   static void GenerateKVChecksum(char* checksum_ptr, uint8_t checksum_len,
                                  const Slice& key, const Slice& value) {
     ProtectionInfo64().ProtectKV(key, value).Encode(checksum_len, checksum_ptr);
@@ -584,11 +573,16 @@ class BlockIter : public InternalIteratorBase<TValue> {
     }
     TEST_SYNC_POINT_CALLBACK("BlockIter::UpdateKey::value",
                              (void*)value_.data());
-    if (!Block::VerifyChecksum(
-            protection_bytes_per_key_,
-            kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
-            raw_key_.GetKey(), value_)) {
-      PerKVChecksumCorruptionError();
+    TEST_SYNC_POINT_CALLBACK("Block::VerifyChecksum::checksum_len",
+                             &protection_bytes_per_key_);
+    if (protection_bytes_per_key_ > 0) {
+      if (!ProtectionInfo64()
+               .ProtectKV(raw_key_.GetKey(), value_)
+               .Verify(
+                   protection_bytes_per_key_,
+                   kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_)) {
+        PerKVChecksumCorruptionError();
+      }
     }
   }
 
