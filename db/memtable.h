@@ -532,6 +532,25 @@ class MemTable {
                                     size_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
+  struct MempurgePiggyback {
+    uint64_t allocated_not_used_file_number = 0;
+    uint64_t allocated_not_used_epoch_number = 0;
+
+    bool IsEmpty() const {
+      return allocated_not_used_file_number == 0 &&
+        allocated_not_used_epoch_number == 0;
+    }
+  };
+  void SetMempurgePiggyback(const MemTable::MempurgePiggyback& p) {
+    mempurge_piggyback_ = p;
+  }
+  const MemTable::MempurgePiggyback& GetMempurgePiggyback() const {
+    return mempurge_piggyback_;
+  }
+  bool IsMempurgeOutput() const {
+    return !mempurge_piggyback_.IsEmpty();
+  }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -613,6 +632,9 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+
+  MemTable::MempurgePiggyback mempurge_piggyback_ =
+    MemTable::MempurgePiggyback{0, 0};
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;

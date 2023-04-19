@@ -2085,6 +2085,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the 2nd writer queue if
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
+  TEST_SYNC_POINT("SwitchMemTable::Start");
   mutex_.AssertHeld();
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;

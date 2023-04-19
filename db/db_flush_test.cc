@@ -1740,6 +1740,178 @@ TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBFlushTest, MempurgeKeepImmutableMemTableListSorted) {
+  // Craft a case where the current MemTable becomes frozen and is pushed to the
+  // immutable MemTable list in the middle of a mempurge
+  // Assert that the list is correctly sorted by seqno in descending order by
+  // conducting a query on it.
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.experimental_mempurge_threshold =
+      1.0;  // Activate the MemPurge prototype
+
+  options.write_buffer_size = 2 << 10;
+  options.max_write_buffer_number = 6;  // get rid of write stall
+  options.min_write_buffer_number_to_merge = 2;
+
+  ASSERT_OK(TryReopen(options));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushJob::Start",
+        "DBFlushTest::MempurgeKeepImmutableMemTableListSorted::"
+        "WaitForMempurgeToStart"},
+       {"DBFlushTest::MempurgeKeepImmutableMemTableListSorted::MempurgeBarrier",
+        "FlushJob::MemPurge::BeforeRelockDBMutex"},
+       {"DBImpl::FlushMemTableToOutputFile:Finish",
+        "DBFlushTest::MempurgeKeepImmutableMemTableListSorted::"
+        "WaitForMempurgeToFinish"}});
+
+  std::atomic<int> memtable_count{1};  // start up with an empty memtable
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SwitchMemTable::Start", [&](void*) { memtable_count++; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const std::string KEY1(options.write_buffer_size / 10, 'k');
+  const std::string KEY2(options.write_buffer_size / 10, 'j');
+  const std::string VALUE1(options.write_buffer_size / 10, 'a');
+  const std::string VALUE2(options.write_buffer_size / 10, 'b');
+
+  // trigger a FlushJob
+  while (memtable_count <= options.min_write_buffer_number_to_merge) {
+    ASSERT_OK(Put(KEY1, VALUE1));
+  }
+  TEST_SYNC_POINT(
+      "DBFlushTest::MempurgeKeepImmutableMemTableListSorted::"
+      "WaitForMempurgeToStart");
+  ASSERT_EQ(Get(KEY1), VALUE1);
+
+  ASSERT_OK(Put(KEY1, VALUE2));
+  ASSERT_EQ(Get(KEY1), VALUE2);  // (a)
+  // insert untill <KEY1, VALUE2> is not in the mutable memtable
+  // so that the next Get(KEY1) will go through the immutable
+  // memtable list, which this test intends to check
+  int cur_memtable_count = memtable_count.load();
+  while (memtable_count == cur_memtable_count) {
+    ASSERT_OK(Put(KEY2, VALUE2));
+  }
+
+  TEST_SYNC_POINT(
+      "DBFlushTest::MempurgeKeepImmutableMemTableListSorted::MempurgeBarrier");
+
+  TEST_SYNC_POINT(
+      "DBFlushTest::MempurgeKeepImmutableMemTableListSorted::"
+      "WaitForMempurgeToFinish");
+  ASSERT_EQ(Get(KEY1), VALUE2);  // should not contradict with (a)
+}
+
+
+TEST_F(DBFlushTest, MempurgeInterleavedWithNormalFlush) {
+  // Craft a case where the 1st FlushJob use mempurge while the 2nd one use
+  // normal flush in addition, ensure that two FlushJob picks different
+  // MemTable. Assert that either flush result can be committed and if a later
+  // FlushJob flushs the output of mempugre to L0, L0 files are correctly sorted
+  // by sequence no.
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.experimental_mempurge_threshold =
+      1.0;  // Activate the MemPurge prototype
+
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 6;  // get rid of write stall
+  options.min_write_buffer_number_to_merge = 2;
+  options.force_consistency_checks = true;  // enable checking
+  options.max_background_jobs =
+      8;  // we need two FlushJob to run parallelly, see GetBGJobLimits()
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"FlushJob::Start",
+       "DBFlushTest::MempurgeInterleavedWithNormalFlush::WaitFor1stFlushJobToStart"},
+
+      // let the 1st FlushJob which uses mempurge blocks until the 2nd FlushJob
+      // which uses normal flush finishes writing to L0
+      {"FlushJob::InstallResults", "FlushJob::MemPurge::BeforeRelockDBMutex"},
+  });
+
+  std::atomic<int> memtable_count{1};  // start up with an empty memtable
+  std::atomic<int> commit_flush_result_count{0};
+  std::atomic<int> sst_count{0};
+  std::atomic<int> mempurge_count{0};
+  std::atomic<int> finished_flush_job_count{0};
+
+  SyncPoint::GetInstance()->SetCallBack("SwitchMemTable::Start",
+                                        [&](void*) { memtable_count++; });
+
+  // If the 1st FlushJob use mempurge, no FlushJob can be committed until
+  // https://github.com/facebook/rocksdb/issues/9022 is fixed
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistency0",
+      [&](void*) { commit_flush_result_count++; });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::FlushJob:SSTFileCreated",
+                                        [&](void*) { sst_count++; });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::FlushJob:MemPurgeSuccessful",
+                                        [&](void*) { mempurge_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:Finish",
+      [&](void*) { finished_flush_job_count++; });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const std::string KEY(options.write_buffer_size / 10, 'k');
+  const std::string VALUE(options.write_buffer_size / 10, 'v');
+  const std::string VALUE2(options.write_buffer_size / 10, 'h');
+
+  // trigger the 1st FlushJob
+  while (memtable_count <= options.min_write_buffer_number_to_merge) {
+    ASSERT_OK(Put(KEY, VALUE));
+  }
+  ASSERT_EQ(Get(KEY), VALUE);
+  auto snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DBFlushTest::MempurgeInterleavedWithNormalFlush::WaitFor1stFlushJobToStart");
+
+  // TODO:
+  // The manual flush, DB::Impl::Flush() has a bug: may hang up if mempurge is used.
+  // See https://github.com/facebook/rocksdb/issues/11250
+  // This function is an workaround for it. Once the bug is fixed, replace
+  // all 'flush_and_wait()' with 'ASSERT_OK(Flush())' in this test and then this test
+  // can be an examination for the bugfix.
+  auto flush_and_wait = [&](int wait_count){
+    FlushOptions no_wait;
+    no_wait.wait = false;
+    ASSERT_OK(dbfull()->Flush(no_wait));
+    while (finished_flush_job_count < wait_count) {
+      for (int i = 0; i < (1 << 15); i++) {}
+    }
+  };
+
+  ASSERT_OK(Put(KEY, VALUE2));
+  flush_and_wait(2);
+  ASSERT_EQ(Get(KEY), VALUE2);  // (a)
+  ASSERT_EQ(finished_flush_job_count, 2);
+  ASSERT_EQ(mempurge_count, 1);
+  ASSERT_EQ(sst_count, 1);                  // from the 2nd FlushJob
+  // no commit yet, because the FlushJob who picks the 1st MemTable uses mempurge
+  ASSERT_EQ(commit_flush_result_count, 0);
+
+
+  ASSERT_OK(Put(KEY + 'a', VALUE));
+  flush_and_wait(3);
+  ASSERT_EQ(finished_flush_job_count, 3);
+  ASSERT_EQ(mempurge_count, 1);
+  ASSERT_GT(sst_count, 1);
+  // If issue 9022 was not fixed, no commit would happen.
+  ASSERT_EQ(commit_flush_result_count, 1);
+
+  db_->ReleaseSnapshot(snap);
+  Reopen(options);
+  ASSERT_EQ(Get(KEY), VALUE2);  // should not contradict with (a)
+}
+
 TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   // Before our bug fix, we noticed that when 2 memtables were
   // being flushed (with one memtable being the output of a

@@ -176,6 +176,7 @@ class FlushJob {
   // We collect FlushJobInfo of all jobs committed by current job and fire
   // OnFlushCompleted for them.
   std::list<std::unique_ptr<FlushJobInfo>> committed_flush_jobs_info_;
+  MemTable *mempurge_output_ = nullptr;
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;
