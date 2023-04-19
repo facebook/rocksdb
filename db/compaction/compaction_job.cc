@@ -192,9 +192,11 @@ CompactionJob::CompactionJob(
   assert(log_buffer_ != nullptr);
 
   const auto* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+  if (cfd) {
+    ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+    ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env);
+    ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+  }
   ReportStartedCompaction(compaction);
 }
 
@@ -205,16 +207,18 @@ CompactionJob::~CompactionJob() {
 
 void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   const auto* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
+  if (cfd) {
+    ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+    ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env);
 
-  ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
-                                               job_id_);
+    ThreadStatusUtil::SetThreadOperationProperty(
+        ThreadStatus::COMPACTION_JOB_ID, job_id_);
 
-  ThreadStatusUtil::SetThreadOperationProperty(
-      ThreadStatus::COMPACTION_INPUT_OUTPUT_LEVEL,
-      (static_cast<uint64_t>(compact_->compaction->start_level()) << 32) +
-          compact_->compaction->output_level());
+    ThreadStatusUtil::SetThreadOperationProperty(
+        ThreadStatus::COMPACTION_INPUT_OUTPUT_LEVEL,
+        (static_cast<uint64_t>(compact_->compaction->start_level()) << 32) +
+            compact_->compaction->output_level());
+  }
 
   // In the current design, a CompactionJob is always created
   // for non-trivial compaction.

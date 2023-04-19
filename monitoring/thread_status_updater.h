@@ -62,10 +62,10 @@ struct ConstantColumnFamilyInfo {
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
 #ifdef ROCKSDB_USING_THREAD_STATUS
-  explicit ThreadStatusData() : enable_tracking(false) {
+  explicit ThreadStatusData() {
+    enable_tracking.store(false);
     thread_id.store(0);
     thread_type.store(ThreadStatus::USER);
-    db_name.store(nullptr);
     cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
     op_start_time.store(0);
@@ -76,11 +76,10 @@ struct ThreadStatusData {
   // in the current thread.
   // If set to false, then SetThreadOperation and SetThreadState
   // will be no-op.
-  bool enable_tracking;
+  std::atomic<bool> enable_tracking;
 
   std::atomic<uint64_t> thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
-  std::atomic<std::string*> db_name;
   std::atomic<void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
   std::atomic<uint64_t> op_start_time;
@@ -118,9 +117,7 @@ class ThreadStatusUpdater {
   // Register the current thread for tracking.
   void RegisterThread(ThreadStatus::ThreadType ttype, uint64_t thread_id);
 
-  // Update the db info of the current thread by setting
-  // its thread-local pointer of ThreadStatusData to the correct entry.
-  void SetDBInfoName(const std::string* db_name);
+  void SetEnableTracking(bool enable_tracking);
 
   // Update the column-family info of the current thread by setting
   // its thread-local pointer of ThreadStatusData to the correct entry.
@@ -223,18 +220,6 @@ class ThreadStatusUpdater {
 
 #else
   static ThreadStatusData* thread_status_data_;
-#endif  // ROCKSDB_USING_THREAD_STATUS
- private:
-#ifdef ROCKSDB_USING_THREAD_STATUS
-  static bool ShouldEnableTracking(const std::string* db_name,
-                                   const void* cf_key) {
-    return (db_name != nullptr) || (cf_key != nullptr);
-  }
-#else
-  static bool ShouldEnableTracking(const std::string* /* db_name */,
-                                   const void* /* cf_key */) {
-    return false;
-  }
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 

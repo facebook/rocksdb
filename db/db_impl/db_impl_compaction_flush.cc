@@ -3432,11 +3432,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                              c->column_family_data());
     // Instrument for event update
     // TODO(yhchiang): add op details for showing trivial-move.
-    ThreadStatusUtil::SetColumnFamily(
-        c->column_family_data(), c->column_family_data()->ioptions()->env,
-        immutable_db_options_.enable_thread_tracking);
-    ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
-
+    if (c->column_family_data()) {
+      ThreadStatusUtil::SetColumnFamily(c->column_family_data(),
+                                      c->column_family_data()->ioptions()->env);
+      ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+    }
+    
     compaction_job_stats.num_input_files = c->num_input_files(0);
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

@@ -1743,8 +1743,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   const bool kSeqPerBatch = true;
   const bool kBatchPerTxn = true;
-  ThreadStatusUtil::SetDB(&dbname, db_options.env,
-                          db_options.enable_thread_tracking);
+  ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
   Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
                           !kSeqPerBatch, kBatchPerTxn);

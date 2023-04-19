@@ -45,19 +45,14 @@ void ThreadStatusUpdater::ResetThreadStatus() {
   ClearThreadState();
   ClearThreadOperation();
   SetColumnFamilyInfoKey(nullptr);
-  SetDBInfoName(nullptr);
 }
 
-void ThreadStatusUpdater::SetDBInfoName(const std::string* db_name) {
+void ThreadStatusUpdater::SetEnableTracking(bool enable_tracking) {
   auto* data = Get();
   if (data == nullptr) {
     return;
   }
-
-  data->enable_tracking = ThreadStatusUpdater::ShouldEnableTracking(
-      db_name, data->cf_key.load(std::memory_order_relaxed));
-  data->db_name.store(const_cast<std::string*>(db_name),
-                      std::memory_order_relaxed);
+  data->enable_tracking.store(enable_tracking, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetColumnFamilyInfoKey(const void* cf_key) {
@@ -65,9 +60,6 @@ void ThreadStatusUpdater::SetColumnFamilyInfoKey(const void* cf_key) {
   if (data == nullptr) {
     return;
   }
-
-  data->enable_tracking = ThreadStatusUpdater::ShouldEnableTracking(
-      data->db_name.load(std::memory_order_relaxed), cf_key);
   data->cf_key.store(const_cast<void*>(cf_key), std::memory_order_relaxed);
 }
 
@@ -195,31 +187,31 @@ Status ThreadStatusUpdater::GetThreadList(
     // use "memory_order_relaxed" to load the cf_key.
     auto cf_key = thread_data->cf_key.load(std::memory_order_relaxed);
 
-    ThreadStatus::OperationType op_type =
-        thread_data->operation_type.load(std::memory_order_acquire);
+    ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
     ThreadStatus::OperationStage op_stage = ThreadStatus::STAGE_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
     uint64_t op_elapsed_micros = 0;
     uint64_t op_props[ThreadStatus::kNumOperationProperties] = {0};
 
-    // display lower-level info only when higher-level info is available.
-    if (op_type != ThreadStatus::OP_UNKNOWN) {
-      op_elapsed_micros = now_micros - thread_data->op_start_time.load(
-                                           std::memory_order_relaxed);
-      op_stage = thread_data->operation_stage.load(std::memory_order_relaxed);
-      state_type = thread_data->state_type.load(std::memory_order_relaxed);
-      for (int i = 0; i < ThreadStatus::kNumOperationProperties; ++i) {
-        op_props[i] =
-            thread_data->op_properties[i].load(std::memory_order_relaxed);
+    auto iter = cf_info_map_.find(cf_key);
+    if (iter != cf_info_map_.end()) {
+      op_type = thread_data->operation_type.load(std::memory_order_acquire);
+      // display lower-level info only when higher-level info is available.
+      if (op_type != ThreadStatus::OP_UNKNOWN) {
+        op_elapsed_micros = now_micros - thread_data->op_start_time.load(
+                                             std::memory_order_relaxed);
+        op_stage = thread_data->operation_stage.load(std::memory_order_relaxed);
+        state_type = thread_data->state_type.load(std::memory_order_relaxed);
+        for (int i = 0; i < ThreadStatus::kNumOperationProperties; ++i) {
+          op_props[i] =
+              thread_data->op_properties[i].load(std::memory_order_relaxed);
+        }
       }
     }
 
-    auto iter = cf_info_map_.find(cf_key);
     thread_list->emplace_back(
         thread_id, thread_type,
-        iter != cf_info_map_.end()
-            ? iter->second.db_name
-            : (thread_data->db_name ? *thread_data->db_name : ""),
+        iter != cf_info_map_.end() ? iter->second.db_name : "",
         iter != cf_info_map_.end() ? iter->second.cf_name : "", op_type,
         op_elapsed_micros, op_stage, op_props, state_type);
   }
@@ -231,10 +223,7 @@ ThreadStatusData* ThreadStatusUpdater::GetLocalThreadStatus() {
   if (thread_status_data_ == nullptr) {
     return nullptr;
   }
-  if (!thread_status_data_->enable_tracking) {
-    assert(!ShouldEnableTracking(
-        thread_status_data_->db_name.load(std::memory_order_relaxed),
-        thread_status_data_->cf_key.load(std::memory_order_relaxed)));
+  if (!thread_status_data_->enable_tracking.load(std::memory_order_relaxed)) {
     return nullptr;
   }
   return thread_status_data_;
