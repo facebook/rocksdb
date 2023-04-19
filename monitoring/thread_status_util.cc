@@ -34,6 +34,9 @@ void ThreadStatusUtil::UnregisterThread() {
 }
 
 void ThreadStatusUtil::SetEnableTracking(bool enable_tracking) {
+  if (thread_updater_local_cache_ == nullptr) {
+    return;
+  }
   thread_updater_local_cache_->SetEnableTracking(enable_tracking);
 }
 
