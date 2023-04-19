@@ -110,6 +110,8 @@ class StopWatchNano {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
 
+  bool IsStarted() { return start_ != 0; }
+
  private:
   SystemClock* clock_;
   uint64_t start_;

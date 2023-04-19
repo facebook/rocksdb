@@ -201,6 +201,7 @@ enum Tickers : uint32_t {
   NUMBER_BLOCK_COMPRESSED,
   NUMBER_BLOCK_DECOMPRESSED,
 
+  // DEPRECATED / unused (see NUMBER_BLOCK_COMPRESSION_*)
   NUMBER_BLOCK_NOT_COMPRESSED,
   MERGE_OPERATION_TOTAL_TIME,
   FILTER_OPERATION_TOTAL_TIME,
@@ -435,6 +436,27 @@ enum Tickers : uint32_t {
   // # of times timestamps can successfully help skip the table access
   TIMESTAMP_FILTER_TABLE_FILTERED,
 
+  // Number of input bytes (uncompressed) to compression for SST blocks that
+  // are stored compressed.
+  BYTES_COMPRESSED_FROM,
+  // Number of output bytes (compressed) from compression for SST blocks that
+  // are stored compressed.
+  BYTES_COMPRESSED_TO,
+  // Number of uncompressed bytes for SST blocks that are stored uncompressed
+  // because compression type is kNoCompression, or some error case caused
+  // compression not to run or produce an output. Index blocks are only counted
+  // if enable_index_compression is true.
+  BYTES_COMPRESSION_BYPASSED,
+  // Number of input bytes (uncompressed) to compression for SST blocks that
+  // are stored uncompressed because the compression result was rejected,
+  // either because the ratio was not acceptable (see
+  // CompressionOptions::max_compressed_bytes_per_kb) or found invalid by the
+  // `verify_compression` option.
+  BYTES_COMPRESSION_REJECTED,
+
+  NUMBER_BLOCK_COMPRESSION_BYPASSED,
+  NUMBER_BLOCK_COMPRESSION_REJECTED,
+
   TICKER_ENUM_MAX
 };
 
@@ -480,9 +502,9 @@ enum Histograms : uint32_t {
   BYTES_PER_WRITE,
   BYTES_PER_MULTIGET,
 
-  // number of bytes compressed/decompressed
-  // number of bytes is when uncompressed; i.e. before/after respectively
-  BYTES_COMPRESSED,
+  BYTES_COMPRESSED,  // DEPRECATED / unused (see BYTES_COMPRESSED_{FROM,TO})
+  // Number of output bytes (uncompressed) from decompressing SST blocks in
+  // reads, including compaction reads.
   BYTES_DECOMPRESSED,
   COMPRESSION_TIMES_NANOS,
   DECOMPRESSION_TIMES_NANOS,
