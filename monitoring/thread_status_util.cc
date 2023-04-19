@@ -40,19 +40,16 @@ void ThreadStatusUtil::SetEnableTracking(bool enable_tracking) {
   thread_updater_local_cache_->SetEnableTracking(enable_tracking);
 }
 
-void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd,
-                                       const Env* env) {
-  if (!MaybeInitThreadLocalUpdater(env)) {
+void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
+  if (thread_updater_local_cache_ == nullptr) {
     return;
   }
-  assert(thread_updater_local_cache_ && cfd);
+  assert(cfd);
   thread_updater_local_cache_->SetColumnFamilyInfoKey(cfd);
 }
 
 void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
   if (thread_updater_local_cache_ == nullptr) {
-    // thread_updater_local_cache_ must be set in SetColumnFamily
-    // or other ThreadStatusUtil functions.
     return;
   }
 
@@ -178,8 +175,7 @@ bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* /*env*/) {
   return false;
 }
 
-void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* /*cfd*/,
-                                       const Env* /*env*/) {}
+void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* /*cfd*/) {}
 
 void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType /*op*/) {}
 
@@ -194,7 +190,7 @@ void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType /*state*/) {}
 void ThreadStatusUtil::NewColumnFamilyInfo(const DB* /*db*/,
                                            const ColumnFamilyData* /*cfd*/,
                                            const std::string& /*cf_name*/,
-                                           const Env* /*env*/) {}
+                                           const Env* env) {}
 
 void ThreadStatusUtil::EraseColumnFamilyInfo(const ColumnFamilyData* /*cfd*/) {}
 

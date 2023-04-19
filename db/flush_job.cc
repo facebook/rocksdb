@@ -141,13 +141,11 @@ FlushJob::FlushJob(
 FlushJob::~FlushJob() { ThreadStatusUtil::ResetThreadStatus(); }
 
 void FlushJob::ReportStartedFlush() {
-  if (cfd_) {
-    ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
-    ThreadStatusUtil::SetColumnFamily(cfd_, cfd_->ioptions()->env);
-    ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
-    ThreadStatusUtil::SetThreadOperationProperty(
-        ThreadStatus::COMPACTION_JOB_ID, job_context_->job_id);
-  }
+  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
+                                               job_context_->job_id);
 
   IOSTATS_RESET(bytes_written);
 }

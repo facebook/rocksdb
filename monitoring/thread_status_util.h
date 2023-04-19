@@ -58,7 +58,7 @@ class ThreadStatusUtil {
   // something related to the specified column family.
   //
   // REQUIRES: cfd != nullptr
-  static void SetColumnFamily(const ColumnFamilyData* cfd, const Env* env);
+  static void SetColumnFamily(const ColumnFamilyData* cfd);
 
   static void SetThreadOperation(ThreadStatus::OperationType type);
 
