@@ -276,12 +276,12 @@ class Block {
   uint32_t restart_offset_;  // Offset in data_ of restart array
   uint32_t num_restarts_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
-  DataBlockHashIndex data_block_hash_index_;
   char* kv_checksum_{nullptr};
   uint32_t checksum_size_{0};
   // Used by block iterators to calculate current key index within a block
   uint32_t block_restart_interval_{0};
   uint8_t protection_bytes_per_key_{0};
+  DataBlockHashIndex data_block_hash_index_;
 };
 
 // A `BlockIter` iterates over the entries in a `Block`'s data buffer. The

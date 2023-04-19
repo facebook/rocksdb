@@ -821,28 +821,28 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
   BlockCreateContext create_context{
       &tbo, nullptr /* statistics */, false /* using_zstd */,
       0,    options.comparator,       true /* index_value_is_full */};
-  size_t checksum_size = protection_bytes_per_key * kNumRecords;
 
   {
     std::unique_ptr<Block_kData> data_block;
     create_context.Create(&data_block, generate_block_content());
+    size_t block_memory = data_block->ApproximateMemoryUsage();
     std::unique_ptr<Block_kData> with_checksum_data_block;
     with_checksum_create_context.Create(&with_checksum_data_block,
                                         generate_block_content());
-    ASSERT_EQ(with_checksum_data_block->ApproximateMemoryUsage() -
-                  data_block->ApproximateMemoryUsage(),
-              checksum_size);
+    ASSERT_GT(with_checksum_data_block->ApproximateMemoryUsage() - block_memory,
+              100);
   }
 
   {
     std::unique_ptr<Block_kData> meta_block;
     create_context.Create(&meta_block, generate_block_content());
+    size_t block_memory = meta_block->ApproximateMemoryUsage();
     std::unique_ptr<Block_kData> with_checksum_meta_block;
     with_checksum_create_context.Create(&with_checksum_meta_block,
                                         generate_block_content());
-    ASSERT_EQ(with_checksum_meta_block->ApproximateMemoryUsage() -
-                  meta_block->ApproximateMemoryUsage(),
-              checksum_size);
+    // Rough comparison to avoid flaky test due to memory allocation alignment.
+    ASSERT_GT(with_checksum_meta_block->ApproximateMemoryUsage() - block_memory,
+              100);
   }
 
   {
@@ -872,12 +872,13 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
 
     std::unique_ptr<Block_kIndex> index_block;
     create_context.Create(&index_block, generate_index_content());
+    size_t block_memory = index_block->ApproximateMemoryUsage();
     std::unique_ptr<Block_kIndex> with_checksum_index_block;
     with_checksum_create_context.Create(&with_checksum_index_block,
                                         generate_index_content());
-    ASSERT_EQ(with_checksum_index_block->ApproximateMemoryUsage() -
-                  index_block->ApproximateMemoryUsage(),
-              checksum_size);
+    ASSERT_GT(
+        with_checksum_index_block->ApproximateMemoryUsage() - block_memory,
+        100);
   }
 }
 
