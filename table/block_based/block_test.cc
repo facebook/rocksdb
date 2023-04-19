@@ -693,8 +693,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
     if (!checksum_len) {
       return checksum_ptr == nullptr;
     }
-    return ProtectionInfo64().ProtectKV(key, val).Verify(checksum_len,
-                                                         checksum_ptr);
+    return ProtectionInfo64().ProtectKV(key, val).Verify(
+        static_cast<uint8_t>(checksum_len), checksum_ptr);
   }
 };
 
