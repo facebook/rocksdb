@@ -173,23 +173,27 @@ void UnpredictableUniqueIdGen::Reset() {
 
 void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower,
                                             uint64_t extra_entropy) {
-  std::array<uint64_t, 8> hash_inputs;
-  // This one input (position 0) is sufficient to ensure unique hash inputs.
-  hash_inputs[0] = pool_[0].fetch_add(1, std::memory_order_relaxed);
-  // The rest are to accumulate / adapt the entropy. They do not need to be
-  // read consistently between thread.
-  for (size_t i = 1; i < 8; ++i) {
-    hash_inputs[i] = pool_[i].load(std::memory_order_relaxed);
-  }
-  // Compute results
-  Hash2x64(reinterpret_cast<const char*>(&hash_inputs), sizeof(hash_inputs),
-           /*seed*/ extra_entropy, upper, lower);
-  // Add back into pool. Reserve position 0 for counter and 5, 6, and 7 for
-  // unchanging data. We don't really care that there's a race in storing
-  // the result back and another thread computing another result.
-  size_t i = 1 + (hash_inputs[0] & 1) * 2;
+  // To efficiently ensure unique inputs to the hash function in the presence
+  // of multithreading, we do not require atomicity on the whole entropy pool,
+  // but instead only a piece of it (a 64-bit counter at position 0) that is
+  // sufficient to guarantee uniqueness.
+  uint64_t uniq = pool_[0].fetch_add(1, std::memory_order_relaxed);
+  // Hash the rest of the pool with that. We don't need to worry about data
+  // races in accessing the pool.
+  const char* begin = reinterpret_cast<const char*>(&pool_[1]);
+  const char* end = reinterpret_cast<const char*>(&pool_ + 1);
+  // Uses XXH128
+  Hash2x64(begin, end - begin, /*seed*/ uniq, upper, lower);
+  // Use it again to integrate extra entropy.
+  BijectiveHash2x64(*upper ^ extra_entropy, *lower, upper, lower);
+
+  // Add back into pool. Reserve position 0 for counter. Reserve positions
+  // 1, 2, and 3 for unchanging data, to reduce risk of degenerate hash
+  // funnels or cycles. We don't really care that there's a race in storing
+  // the result back and another thread computing the next value. It's just
+  // an entropy pool.
+  size_t i = 4 + (static_cast<size_t>(uniq) & 3);
   pool_[i].fetch_add(*upper, std::memory_order_relaxed);
-  pool_[i + 1].fetch_add(*lower, std::memory_order_relaxed);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1569,7 +1569,9 @@ void BlockBasedTableBuilder::WriteIndexBlock(
 // DB session id and file number based on read access to logs or DB
 // files. The adversary would also need to predict this salt in order
 // to influence the checksum result toward collision with another
-// SST file's checksum.
+// SST file's checksum. Note that the salt is written *after* the
+// key-value data, so that an adversary with read access to storage
+// doesn't have timely access to the salt.
 void BlockBasedTableBuilder::WriteSalt() {
   if (!ok()) {
     return;

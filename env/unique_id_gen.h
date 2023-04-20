@@ -70,10 +70,10 @@ class SemiStructuredUniqueIdGen {
 };
 
 // A unique id generator that should provide reasonable security against
-// predicting the output from previous outputs, but is not known to be
+// predicting the output from previous outputs, but is NOT known to be
 // cryptographically secure. Unlike std::random_device, this is guaranteed
 // not to block once initialized, but does depend on adding entropy yourself
-// for the best security.
+// (`extra entropy`) for the best security.
 class UnpredictableUniqueIdGen {
  public:
   // Initializes with random starting state (from several GenerateRawUniqueId)
