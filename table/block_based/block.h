@@ -527,11 +527,18 @@ class DataBlockIter final : public BlockIter<Slice> {
     return value_;
   }
 
+  // SeekForGet returns true if the target key may exist in the block.
+  // There could be false positives. It returns false if the target key
+  // is definitely not in the block.
   inline bool SeekForGet(const Slice& target) {
     if (!data_block_hash_index_) {
       SeekImpl(target);
       UpdateKey();
-      return true;
+      // The iterator could be valid and still result in a false positive.
+      // This is because Seek positions the iterator at the first key >=
+      // the target key. Rather than add an extra key comparison here, we'll
+      // let the caller call SaveValue() to take care of it.
+      return Valid() ? true : false;
     }
     bool res = SeekForGetImpl(target);
     UpdateKey();

@@ -2899,6 +2899,63 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
 INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
                         testing::Values(true, false));
 
+TEST_F(DBBasicTest, PointLookupNoSuperfluousReads) {
+  env_->count_random_reads_ = true;
+
+  class MyFlushBlockPolicy : public FlushBlockPolicy {
+   public:
+    explicit MyFlushBlockPolicy() {}
+
+    bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+      // Flush after every key - 1 key per data block
+      static bool first_key = true;
+      if (first_key) {
+        first_key = false;
+        return false;
+      }
+      return true;
+    }
+  };
+
+  class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+   public:
+    MyFlushBlockPolicyFactory() {}
+
+    virtual const char* Name() const override {
+      return "MyFlushBlockPolicyFactory";
+    }
+
+    virtual FlushBlockPolicy* NewFlushBlockPolicy(
+        const BlockBasedTableOptions& /*table_options*/,
+        const BlockBuilder& /*data_block_builder*/) const override {
+      return new MyFlushBlockPolicy();
+    }
+  };
+
+  BlockBasedTableOptions bbto;
+  bbto.flush_block_policy_factory.reset(new MyFlushBlockPolicyFactory());
+  bbto.no_block_cache = true;
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  Reopen(options);
+
+  Put("aa", "val_aa");
+  Put("cc", "val_cc");
+  Flush();
+
+  env_->random_read_counter_.Reset();
+  ASSERT_EQ(Get("ab"), "NOT_FOUND");
+  ASSERT_EQ(env_->random_read_counter_.Read(), 1);
+
+  env_->random_read_counter_.Reset();
+  std::vector<std::string> vals = MultiGet({"ab", "ac"});
+  ASSERT_EQ(vals[0], "NOT_FOUND");
+  ASSERT_EQ(vals[1], "NOT_FOUND");
+  ASSERT_EQ(env_->random_read_counter_.Read(), 1);
+  Destroy(options);
+}
+
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
   options.env = env_;
