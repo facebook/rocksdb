@@ -177,23 +177,30 @@ void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower,
   // of multithreading, we do not require atomicity on the whole entropy pool,
   // but instead only a piece of it (a 64-bit counter at position 0) that is
   // sufficient to guarantee uniqueness.
-  uint64_t uniq = pool_[0].fetch_add(1, std::memory_order_relaxed);
-  // Hash the rest of the pool with that. We don't need to worry about data
-  // races in accessing the pool.
-  const char* begin = reinterpret_cast<const char*>(&pool_[1]);
-  const char* end = reinterpret_cast<const char*>(&pool_ + 1);
-  // Uses XXH128
-  Hash2x64(begin, end - begin, /*seed*/ uniq, upper, lower);
-  // Use it again to integrate extra entropy.
-  BijectiveHash2x64(*upper ^ extra_entropy, *lower, upper, lower);
+  // In hashing the rest of the pool with that, we don't need to worry about
+  // races, but use atomic operations for sanitizer-friendliness. (Invoking the
+  // hash function several times avoids copying all the inputs to a non-atomic
+  // buffer.)
+  uint64_t a = pool_[0].fetch_add(1, std::memory_order_relaxed);
+  uint64_t b = pool_[1].load(std::memory_order_relaxed);
+  b ^= extra_entropy;
+  BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
+
+  for (size_t i = 2; i < pool_.size(); i += 2) {
+    a ^= pool_[i].load(std::memory_order_relaxed);
+    b ^= pool_[i + 1].load(std::memory_order_relaxed);
+    BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
+  }
+  *lower = a;
+  *upper = b;
 
   // Add back into pool. Reserve position 0 for counter. Reserve positions
   // 1, 2, and 3 for unchanging data, to reduce risk of degenerate hash
   // funnels or cycles. We don't really care that there's a race in storing
   // the result back and another thread computing the next value. It's just
   // an entropy pool.
-  size_t i = 4 + (static_cast<size_t>(uniq) & 3);
-  pool_[i].fetch_add(*upper, std::memory_order_relaxed);
+  size_t i = 4 + (static_cast<size_t>(b) & 3);
+  pool_[i].fetch_add(a, std::memory_order_relaxed);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
