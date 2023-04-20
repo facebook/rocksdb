@@ -158,7 +158,8 @@ class SstFileWriter {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
   // Add a range deletion tombstone to currently opened file. Such a range
-  // deletion tombstone does NOT delete other (point) keys in the same file.
+  // deletion tombstone does NOT delete point (Put/Merge/Delete) keys in the
+  // same file.
   //
   // Range deletion tombstones may be added in any order, both with respect to
   // each other and with respect to the point (Put/Merge/Delete) keys in the
