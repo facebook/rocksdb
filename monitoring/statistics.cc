@@ -219,6 +219,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {SECONDARY_CACHE_DATA_HITS, "rocksdb.secondary.cache.data.hits"},
     {TABLE_OPEN_PREFETCH_TAIL_MISS, "rocksdb.table.open.prefetch.tail.miss"},
     {TABLE_OPEN_PREFETCH_TAIL_HIT, "rocksdb.table.open.prefetch.tail.hit"},
+    {TIMESTAMP_FILTER_TABLE_CHECKED, "rocksdb.timestamp.filter.table.checked"},
+    {TIMESTAMP_FILTER_TABLE_FILTERED,
+     "rocksdb.timestamp.filter.table.filtered"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

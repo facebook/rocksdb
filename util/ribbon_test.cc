@@ -104,11 +104,11 @@ struct StandardKeyGen {
     return str_;
   }
 
-  bool operator==(const StandardKeyGen& other) {
+  bool operator==(const StandardKeyGen& other) const {
     // Same prefix is assumed
     return id_ == other.id_;
   }
-  bool operator!=(const StandardKeyGen& other) {
+  bool operator!=(const StandardKeyGen& other) const {
     // Same prefix is assumed
     return id_ != other.id_;
   }
@@ -144,8 +144,8 @@ struct SmallKeyGen {
     return str_;
   }
 
-  bool operator==(const SmallKeyGen& other) { return id_ == other.id_; }
-  bool operator!=(const SmallKeyGen& other) { return id_ != other.id_; }
+  bool operator==(const SmallKeyGen& other) const { return id_ == other.id_; }
+  bool operator!=(const SmallKeyGen& other) const { return id_ != other.id_; }
 
   uint64_t id_;
   std::string str_;
@@ -1069,11 +1069,11 @@ struct PhsfInputGen {
 
   const std::pair<std::string, uint8_t>* operator->() { return &**this; }
 
-  bool operator==(const PhsfInputGen& other) {
+  bool operator==(const PhsfInputGen& other) const {
     // Same prefix is assumed
     return id_ == other.id_;
   }
-  bool operator!=(const PhsfInputGen& other) {
+  bool operator!=(const PhsfInputGen& other) const {
     // Same prefix is assumed
     return id_ != other.id_;
   }

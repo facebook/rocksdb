@@ -592,7 +592,7 @@ struct AdvancedColumnFamilyOptions {
   // and max_bytes_for_level_base=10MB.
   // Target sizes of level 1 to 5 starts with:
   // [- - - - 10MB]
-  // with base level is level. Target sizes of level 1 to 4 are not applicable
+  // with base level is level 5. Target sizes of level 1 to 4 are not applicable
   // because they will not be used.
   // Until the size of Level 5 grows to more than 10MB, say 11MB, we make
   // base target to level 4 and now the targets looks like:
@@ -665,8 +665,8 @@ struct AdvancedColumnFamilyOptions {
   // computed based on this feature) in the LSM after a user migrates to turn
   // this feature on. This is especially likely when a user migrates from
   // leveled compaction with a smaller multiplier or from universal compaction.
-  // A full manual compaction is needed to drain these levels explicitly.
-  //
+  // RocksDB will gradually drain these unnecessary levels by compacting files
+  // down the LSM.
   //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
@@ -1108,6 +1108,23 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
   uint32_t memtable_protection_bytes_per_key = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When the user-defined timestamp feature is enabled, this flag controls
+  // whether the user-defined timestamps will be persisted.
+  //
+  // When it's false, the user-defined timestamps will be removed from the user
+  // keys when data is flushed from memtables to SST files. Other places that
+  // user keys can be persisted like WAL and blob files go through a similar
+  // process. Users should call `DB::IncreaseFullHistoryTsLow` to set a cutoff
+  // timestamp. RocksDB refrains from flushing a memtable with data still above
+  // the cutoff timestamp with best effort. When users try to read below the
+  // cutoff timestamp, an error will be returned.
+  //
+  // Default: true (user-defined timestamps are persisted)
+  // Not dynamically changeable, change it requires db restart and
+  // only compatible changes are allowed.
+  bool persist_user_defined_timestamps = true;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

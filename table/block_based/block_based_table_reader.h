@@ -351,11 +351,22 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context, bool for_compaction,
       bool use_cache, bool async_read) const;
 
+  template <typename TBlocklike>
+  WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(
+      const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+      const TBlocklike* parsed_block_value,
+      BlockCacheLookupContext* lookup_context) const;
+
+  void FinishTraceRecord(const BlockCacheLookupContext& lookup_context,
+                         const Slice& block_key, const Slice& referenced_key,
+                         bool does_referenced_key_exist,
+                         uint64_t referenced_data_size) const;
+
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      Status* statuses, CachableEntry<Block>* results, char* scratch,
+      Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
       const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
@@ -494,6 +505,8 @@ class BlockBasedTable : public TableReader {
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
 
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
@@ -594,6 +607,12 @@ struct BlockBasedTable::Rep {
   // the level when the table is opened, could potentially change when trivial
   // move is involved
   int level;
+
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
