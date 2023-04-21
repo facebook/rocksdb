@@ -1054,8 +1054,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, std::numeric_limits<uint64_t>::max(),
-                            trim_ts);
+                            false /* disable_trivial_move */,
+                            std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
@@ -1142,74 +1142,83 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       CleanupSuperVersion(super_version);
     }
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
-      // max_file_num_to_ignore can be used to filter out newly created SST
-      // files, useful for bottom level compaction in a manual compaction
-      uint64_t max_file_num_to_ignore = std::numeric_limits<uint64_t>::max();
-      uint64_t next_file_number = versions_->current_next_file_number();
-      final_output_level = max_overlapped_level;
-      int output_level;
-      for (int level = first_overlapped_level; level <= max_overlapped_level;
-           level++) {
-        bool disallow_trivial_move = false;
-        // in case the compaction is universal or if we're compacting the
-        // bottom-most level, the output level will be the same as input one.
-        // level 0 can never be the bottommost level (i.e. if all files are in
-        // level 0, we will compact to level 1)
-        if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-            cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-          output_level = level;
-        } else if (level == max_overlapped_level && level > 0) {
-          if (options.bottommost_level_compaction ==
-              BottommostLevelCompaction::kSkip) {
-            // Skip bottommost level compaction
-            continue;
-          } else if (options.bottommost_level_compaction ==
-                         BottommostLevelCompaction::kIfHaveCompactionFilter &&
-                     cfd->ioptions()->compaction_filter == nullptr &&
-                     cfd->ioptions()->compaction_filter_factory == nullptr) {
-            // Skip bottommost level compaction since we don't have a compaction
-            // filter
-            continue;
-          }
-          output_level = level;
-          // update max_file_num_to_ignore only for bottom level compaction
-          // because data in newly compacted files in middle levels may still
-          // need to be pushed down
-          max_file_num_to_ignore = next_file_number;
-        } else {
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
+          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+        assert(first_overlapped_level == 0);
+        s = RunManualCompaction(
+            cfd, first_overlapped_level, first_overlapped_level, options, begin,
+            end, exclusive, true /* disallow_trivial_move */,
+            std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+            trim_ts);
+        final_output_level = max_overlapped_level;
+      } else {
+        assert(cfd->ioptions()->compaction_style == kCompactionStyleLevel);
+        uint64_t next_file_number = versions_->current_next_file_number();
+        // Start compaction from `first_overlapped_level`, one level down at a
+        // time, until output level >= max_overlapped_level.
+        // When max_overlapped_level == 0, we will still compact from L0 -> L1
+        // (or LBase), and followed by a bottommost level intra-level compaction
+        // at L1 (or LBase), if applicable.
+        int level = first_overlapped_level;
+        final_output_level = level;
+        int output_level, base_level;
+        while (level < max_overlapped_level || level == 0) {
           output_level = level + 1;
-          if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
-              cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+          if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
               level == 0) {
             output_level = ColumnFamilyData::kCompactToBaseLevel;
           }
-          // if it's a BottommostLevel compaction and `kForce*` compaction is
-          // set, disallow trivial move
-          if (level == max_overlapped_level &&
-              (options.bottommost_level_compaction ==
-                   BottommostLevelCompaction::kForce ||
-               options.bottommost_level_compaction ==
-                   BottommostLevelCompaction::kForceOptimized)) {
-            disallow_trivial_move = true;
+          // Use max value for `max_file_num_to_ignore` to always compact
+          // files down.
+          s = RunManualCompaction(
+              cfd, level, output_level, options, begin, end, exclusive,
+              !trim_ts.empty() /* disallow_trivial_move */,
+              std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+              trim_ts,
+              output_level == ColumnFamilyData::kCompactToBaseLevel
+                  ? &base_level
+                  : nullptr);
+          if (!s.ok()) {
+            break;
+          }
+          if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+            assert(base_level > 0);
+            level = base_level;
+          } else {
+            ++level;
+          }
+          final_output_level = level;
+          TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
+          TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
+        }
+        if (s.ok()) {
+          assert(final_output_level > 0);
+          // bottommost level intra-level compaction
+          // TODO(cbi): this preserves earlier behavior where if
+          //  max_overlapped_level = 0 and bottommost_level_compaction is
+          //  kIfHaveCompactionFilter, we only do a L0 -> LBase compaction
+          //  and do not do intra-LBase compaction even when user configures
+          //  compaction filter. We may want to still do a LBase -> LBase
+          //  compaction in case there is some file in LBase that did not go
+          //  through L0 -> LBase compaction, and hence did not go through
+          //  compaction filter.
+          if ((options.bottommost_level_compaction ==
+                   BottommostLevelCompaction::kIfHaveCompactionFilter &&
+               max_overlapped_level != 0 &&
+               (cfd->ioptions()->compaction_filter != nullptr ||
+                cfd->ioptions()->compaction_filter_factory != nullptr)) ||
+              options.bottommost_level_compaction ==
+                  BottommostLevelCompaction::kForceOptimized ||
+              options.bottommost_level_compaction ==
+                  BottommostLevelCompaction::kForce) {
+            // Use `next_file_number` as `max_file_num_to_ignore` to avoid
+            // rewriting newly compacted files when it is kForceOptimized.
+            s = RunManualCompaction(
+                cfd, final_output_level, final_output_level, options, begin,
+                end, exclusive, !trim_ts.empty() /* disallow_trivial_move */,
+                next_file_number /* max_file_num_to_ignore */, trim_ts);
           }
         }
-        // trim_ts need real compaction to remove latest record
-        if (!trim_ts.empty()) {
-          disallow_trivial_move = true;
-        }
-        s = RunManualCompaction(cfd, level, output_level, options, begin, end,
-                                exclusive, disallow_trivial_move,
-                                max_file_num_to_ignore, trim_ts);
-        if (!s.ok()) {
-          break;
-        }
-        if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
-          final_output_level = cfd->NumberLevels() - 1;
-        } else if (output_level > final_output_level) {
-          final_output_level = output_level;
-        }
-        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
-        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
       }
     }
   }
@@ -1853,7 +1862,8 @@ Status DBImpl::RunManualCompaction(
     ColumnFamilyData* cfd, int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+    int* final_output_level) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -2004,6 +2014,15 @@ Status DBImpl::RunManualCompaction(
     } else if (!scheduled) {
       if (compaction == nullptr) {
         manual.done = true;
+        if (final_output_level) {
+          // No compaction needed or there is a conflicting compaction.
+          // Still set `final_output_level` to the level where we would
+          // have compacted to.
+          *final_output_level = output_level;
+          if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+            *final_output_level = cfd->current()->storage_info()->base_level();
+          }
+        }
         bg_cv_.SignalAll();
         continue;
       }
@@ -2037,6 +2056,9 @@ Status DBImpl::RunManualCompaction(
       }
       scheduled = true;
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:Scheduled");
+      if (final_output_level) {
+        *final_output_level = compaction->output_level();
+      }
     }
   }
 
