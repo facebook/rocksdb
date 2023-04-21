@@ -147,7 +147,6 @@ class LRUCacheTest : public testing::Test {
  private:
   LRUCacheShard* cache_ = nullptr;
   Cache::EvictionCallback eviction_callback_;
-  uint32_t hash_seed_ = 0;
 };
 
 TEST_F(LRUCacheTest, BasicLRU) {
