@@ -4168,6 +4168,8 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   PrepareOptions();
 
   OfflineManifestWriter w(options_, db_path_);
@@ -4192,7 +4194,7 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
     s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
                                                     &db_dir, nullptr);
     if (s.ok()) {
-      s = w.LogAndApply(cfd, &edit, db_dir.get());
+      s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
     }
   }
 

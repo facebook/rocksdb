@@ -692,6 +692,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // If customized readahead size is needed, we can pass a user option
     // all the way to here. Right now we just rely on the default readahead
     // to keep things simple.
+    // TODO: plumb Env::IOActivity
     ReadOptions ro;
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
@@ -745,6 +746,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_range_deletions = props->num_range_deletions;
 
   ParsedInternalKey key;
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
@@ -855,6 +857,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
   bool overlap_with_db = false;
   Arena arena;
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
   ro.total_order_seek = true;
   int target_level = 0;
@@ -1088,4 +1091,3 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

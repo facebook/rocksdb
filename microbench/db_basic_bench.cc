@@ -1548,7 +1548,8 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
                                        : Temperature::kCold;
     readers.emplace_back(new RandomAccessFileReader(
         std::move(f), fname, env->GetSystemClock().get(), nullptr, statistics,
-        0, nullptr, nullptr, {}, temperature, rand_num == 1));
+        Histograms::HISTOGRAM_ENUM_MAX, nullptr, nullptr, {}, temperature,
+        rand_num == 1));
   }
 
   IOOptions io_options;

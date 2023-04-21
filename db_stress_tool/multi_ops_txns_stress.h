@@ -288,7 +288,7 @@ class MultiOpsTxnsStressTest : public StressTest {
     VerifyDb(thread);
   }
 
-  void VerifyPkSkFast(int job_id);
+  void VerifyPkSkFast(const ReadOptions& read_options, int job_id);
 
  protected:
   class Counter {
@@ -424,7 +424,8 @@ class MultiOpsTxnsStressListener : public EventListener {
     (void)db;
 #endif
     assert(info.cf_id == 0);
-    stress_test_->VerifyPkSkFast(info.job_id);
+    const ReadOptions read_options(Env::IOActivity::kFlush);
+    stress_test_->VerifyPkSkFast(read_options, info.job_id);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
@@ -433,7 +434,8 @@ class MultiOpsTxnsStressListener : public EventListener {
     (void)db;
 #endif
     assert(info.cf_id == 0);
-    stress_test_->VerifyPkSkFast(info.job_id);
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
+    stress_test_->VerifyPkSkFast(read_options, info.job_id);
   }
 
  private:

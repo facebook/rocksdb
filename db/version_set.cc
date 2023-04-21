@@ -1527,13 +1527,14 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
 }
 }  // anonymous namespace
 
-Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
+Status Version::GetTableProperties(const ReadOptions& read_options,
+                                   std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
                                    const std::string* fname) const {
   auto table_cache = cfd_->table_cache();
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
-      file_options_, cfd_->internal_comparator(), *file_meta, tp,
+      file_options_, read_options, cfd_->internal_comparator(), *file_meta, tp,
       mutable_cf_options_.prefix_extractor, true /* no io */);
   if (s.ok()) {
     return s;
@@ -1565,14 +1566,16 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
-          std::move(file), file_name, nullptr /* env */, io_tracer_,
-          nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
-          nullptr /* rate_limiter */, ioptions->listeners));
+          std::move(file), file_name, ioptions->clock /* clock */, io_tracer_,
+          ioptions->stats /* stats */,
+          Histograms::SST_READ_MICROS /* hist_type */,
+          nullptr /* file_read_hist */, nullptr /* rate_limiter */,
+          ioptions->listeners));
   std::unique_ptr<TableProperties> props;
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
       Footer::kNullTableMagicNumber /* table's magic number */, *ioptions,
-      &props);
+      read_options, &props);
   if (!s.ok()) {
     return s;
   }
@@ -1581,10 +1584,11 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   return s;
 }
 
-Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+Status Version::GetPropertiesOfAllTables(const ReadOptions& read_options,
+                                         TablePropertiesCollection* props) {
   Status s;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
-    s = GetPropertiesOfAllTables(props, level);
+    s = GetPropertiesOfAllTables(read_options, props, level);
     if (!s.ok()) {
       return s;
     }
@@ -1602,6 +1606,8 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
 
   std::stringstream ss;
 
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     for (const auto& file_meta : storage_info_.files_[level]) {
       auto fname =
@@ -1614,7 +1620,7 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
       std::unique_ptr<FragmentedRangeTombstoneIterator> tombstone_iter;
 
       Status s = table_cache->GetRangeTombstoneIterator(
-          ReadOptions(), cfd_->internal_comparator(), *file_meta,
+          read_options, cfd_->internal_comparator(), *file_meta,
           &tombstone_iter);
       if (!s.ok()) {
         return s;
@@ -1648,7 +1654,8 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
   return Status::OK();
 }
 
-Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
+Status Version::GetPropertiesOfAllTables(const ReadOptions& read_options,
+                                         TablePropertiesCollection* props,
                                          int level) {
   for (const auto& file_meta : storage_info_.files_[level]) {
     auto fname =
@@ -1657,7 +1664,8 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
     // 1. If the table is already present in table cache, load table
     // properties from there.
     std::shared_ptr<const TableProperties> table_properties;
-    Status s = GetTableProperties(&table_properties, file_meta, &fname);
+    Status s =
+        GetTableProperties(read_options, &table_properties, file_meta, &fname);
     if (s.ok()) {
       props->insert({fname, table_properties});
     } else {
@@ -1669,7 +1677,8 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
 }
 
 Status Version::GetPropertiesOfTablesInRange(
-    const Range* range, std::size_t n, TablePropertiesCollection* props) const {
+    const ReadOptions& read_options, const Range* range, std::size_t n,
+    TablePropertiesCollection* props) const {
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
     for (decltype(n) i = 0; i < n; i++) {
       // Convert user_key into a corresponding internal key.
@@ -1686,7 +1695,8 @@ Status Version::GetPropertiesOfTablesInRange(
           // 1. If the table is already present in table cache, load table
           // properties from there.
           std::shared_ptr<const TableProperties> table_properties;
-          Status s = GetTableProperties(&table_properties, file_meta, &fname);
+          Status s = GetTableProperties(read_options, &table_properties,
+                                        file_meta, &fname);
           if (s.ok()) {
             props->insert({fname, table_properties});
           } else {
@@ -1701,13 +1711,14 @@ Status Version::GetPropertiesOfTablesInRange(
 }
 
 Status Version::GetAggregatedTableProperties(
-    std::shared_ptr<const TableProperties>* tp, int level) {
+    const ReadOptions& read_options, std::shared_ptr<const TableProperties>* tp,
+    int level) {
   TablePropertiesCollection props;
   Status s;
   if (level < 0) {
-    s = GetPropertiesOfAllTables(&props);
+    s = GetPropertiesOfAllTables(read_options, &props);
   } else {
-    s = GetPropertiesOfAllTables(&props, level);
+    s = GetPropertiesOfAllTables(read_options, &props, level);
   }
   if (!s.ok()) {
     return s;
@@ -1721,12 +1732,12 @@ Status Version::GetAggregatedTableProperties(
   return Status::OK();
 }
 
-size_t Version::GetMemoryUsageByTableReaders() {
+size_t Version::GetMemoryUsageByTableReaders(const ReadOptions& read_options) {
   size_t total_usage = 0;
   for (auto& file_level : storage_info_.level_files_brief_) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
-          file_options_, cfd_->internal_comparator(),
+          file_options_, read_options, cfd_->internal_comparator(),
           *file_level.files[i].file_metadata,
           mutable_cf_options_.prefix_extractor);
     }
@@ -2984,24 +2995,26 @@ void VersionStorageInfo::PrepareForVersionAppend(
 }
 
 void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
+                            const ReadOptions& read_options,
                             bool update_stats) {
   TEST_SYNC_POINT_CALLBACK(
       "Version::PrepareAppend:forced_check",
       reinterpret_cast<void*>(&storage_info_.force_consistency_checks_));
 
   if (update_stats) {
-    UpdateAccumulatedStats();
+    UpdateAccumulatedStats(read_options);
   }
 
   storage_info_.PrepareForVersionAppend(*cfd_->ioptions(), mutable_cf_options);
 }
 
-bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
+bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
+                                          FileMetaData* file_meta) {
   if (file_meta->init_stats_from_file || file_meta->compensated_file_size > 0) {
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
-  Status s = GetTableProperties(&tp, file_meta);
+  Status s = GetTableProperties(read_options, &tp, file_meta);
   file_meta->init_stats_from_file = true;
   if (!s.ok()) {
     ROCKS_LOG_ERROR(vset_->db_options_->info_log,
@@ -3046,7 +3059,7 @@ void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {
   }
 }
 
-void Version::UpdateAccumulatedStats() {
+void Version::UpdateAccumulatedStats(const ReadOptions& read_options) {
   // maximum number of table properties loaded from files.
   const int kMaxInitCount = 20;
   int init_count = 0;
@@ -3064,7 +3077,7 @@ void Version::UpdateAccumulatedStats() {
        level < storage_info_.num_levels_ && init_count < kMaxInitCount;
        ++level) {
     for (auto* file_meta : storage_info_.files_[level]) {
-      if (MaybeInitializeFileMetaData(file_meta)) {
+      if (MaybeInitializeFileMetaData(read_options, file_meta)) {
         // each FileMeta will be initialized only once.
         storage_info_.UpdateAccumulatedStats(file_meta);
         // when option "max_open_files" is -1, all the file metadata has
@@ -3089,7 +3102,8 @@ void Version::UpdateAccumulatedStats() {
        storage_info_.accumulated_raw_value_size_ == 0 && level >= 0; --level) {
     for (int i = static_cast<int>(storage_info_.files_[level].size()) - 1;
          storage_info_.accumulated_raw_value_size_ == 0 && i >= 0; --i) {
-      if (MaybeInitializeFileMetaData(storage_info_.files_[level][i])) {
+      if (MaybeInitializeFileMetaData(read_options,
+                                      storage_info_.files_[level][i])) {
         storage_info_.UpdateAccumulatedStats(storage_info_.files_[level][i]);
       }
     }
@@ -4971,7 +4985,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* dir_contains_current_file, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    const ColumnFamilyOptions* new_cf_options,
+    const ReadOptions& read_options) {
   mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
@@ -5202,7 +5217,7 @@ Status VersionSet::ProcessManifestWrites(
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor,
-            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]));
+            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]), read_options);
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -5247,7 +5262,8 @@ Status VersionSet::ProcessManifestWrites(
         constexpr bool update_stats = true;
 
         for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], update_stats);
+          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], read_options,
+                                     update_stats);
         }
       }
 
@@ -5359,7 +5375,8 @@ Status VersionSet::ProcessManifestWrites(
       assert(batch_edits.size() == 1);
       assert(new_cf_options != nullptr);
       assert(max_last_sequence == descriptor_last_sequence_);
-      CreateColumnFamily(*new_cf_options, first_writer.edit_list.front());
+      CreateColumnFamily(*new_cf_options, read_options,
+                         first_writer.edit_list.front());
     } else if (first_writer.edit_list.front()->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
       assert(max_last_sequence == descriptor_last_sequence_);
@@ -5528,6 +5545,7 @@ void VersionSet::WakeUpWaitingManifestWriters() {
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const ReadOptions& read_options,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
@@ -5605,7 +5623,8 @@ Status VersionSet::LogAndApply(
     return Status::ColumnFamilyDropped();
   }
   return ProcessManifestWrites(writers, mu, dir_contains_current_file,
-                               new_descriptor_log, new_cf_options);
+                               new_descriptor_log, new_cf_options,
+                               read_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
@@ -5689,6 +5708,7 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
   std::string manifest_path;
@@ -5725,7 +5745,7 @@ Status VersionSet::Recover(
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
-        EpochNumberRequirement::kMightMissing);
+        read_options, EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -5873,6 +5893,7 @@ Status VersionSet::TryRecoverFromOneManifest(
     const std::string& manifest_path,
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file) {
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
                  manifest_path.c_str());
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -5897,7 +5918,7 @@ Status VersionSet::TryRecoverFromOneManifest(
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
-      EpochNumberRequirement::kMightMissing);
+      read_options, EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -5940,6 +5961,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
 Status VersionSet::ListColumnFamiliesFromManifest(
     const std::string& manifest_path, FileSystem* fs,
     std::vector<std::string>* column_families) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
   {
@@ -5959,7 +5982,7 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
 
-  ListColumnFamiliesHandler handler;
+  ListColumnFamiliesHandler handler(read_options);
   handler.Iterate(reader, &s);
 
   assert(column_families);
@@ -5981,6 +6004,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
     return Status::InvalidArgument(
         "Number of levels needs to be bigger than 1");
   }
+
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
 
   ImmutableDBOptions db_options(*options);
   ColumnFamilyOptions cf_options(*options);
@@ -6069,8 +6095,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(),
-                              mutable_cf_options, &ve, &dummy_mutex, nullptr,
-                              true);
+                              mutable_cf_options, read_options, &ve,
+                              &dummy_mutex, nullptr, true);
 }
 
 // Get the checksum information including the checksum and checksum function
@@ -6143,6 +6169,9 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   assert(options.env);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+
   std::vector<std::string> column_families;
   Status s = ListColumnFamiliesFromManifest(
       dscname, options.env->GetFileSystem().get(), &column_families);
@@ -6169,7 +6198,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     cf_descs.emplace_back(cf, options);
   }
 
-  DumpManifestHandler handler(cf_descs, this, io_tracer_, verbose, hex, json);
+  DumpManifestHandler handler(cf_descs, this, io_tracer_, read_options, verbose,
+                              hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
@@ -6372,6 +6402,7 @@ Status VersionSet::WriteCurrentStateToManifest(
 // we avoid doing binary search for the keys b and c twice and instead somehow
 // maintain state of where they first appear in the files.
 uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
+                                     const ReadOptions& read_options,
                                      Version* v, const Slice& start,
                                      const Slice& end, int start_level,
                                      int end_level, TableReaderCaller caller) {
@@ -6451,8 +6482,8 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
     for (int i = idx_start + 1; i < idx_end; ++i) {
       uint64_t file_size = files_brief.files[i].fd.GetFileSize();
       // The entire file falls into the range, so we can just take its size.
-      assert(file_size ==
-             ApproximateSize(v, files_brief.files[i], start, end, caller));
+      assert(file_size == ApproximateSize(read_options, v, files_brief.files[i],
+                                          start, end, caller));
       total_full_size += file_size;
     }
 
@@ -6487,21 +6518,24 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
     // Estimate for all the first files (might also be last files), at each
     // level
     for (const auto file_ptr : first_files) {
-      total_full_size += ApproximateSize(v, *file_ptr, start, end, caller);
+      total_full_size +=
+          ApproximateSize(read_options, v, *file_ptr, start, end, caller);
     }
 
     // Estimate for all the last files, at each level
     for (const auto file_ptr : last_files) {
       // We could use ApproximateSize here, but calling ApproximateOffsetOf
       // directly is just more efficient.
-      total_full_size += ApproximateOffsetOf(v, *file_ptr, end, caller);
+      total_full_size +=
+          ApproximateOffsetOf(read_options, v, *file_ptr, end, caller);
     }
   }
 
   return total_full_size;
 }
 
-uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+uint64_t VersionSet::ApproximateOffsetOf(const ReadOptions& read_options,
+                                         Version* v, const FdWithKeyRange& f,
                                          const Slice& key,
                                          TableReaderCaller caller) {
   // pre-condition
@@ -6521,14 +6555,15 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
     TableCache* table_cache = v->cfd_->table_cache();
     if (table_cache != nullptr) {
       result = table_cache->ApproximateOffsetOf(
-          key, *f.file_metadata, caller, icmp,
+          read_options, key, *f.file_metadata, caller, icmp,
           v->GetMutableCFOptions().prefix_extractor);
     }
   }
   return result;
 }
 
-uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
+uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
+                                     Version* v, const FdWithKeyRange& f,
                                      const Slice& start, const Slice& end,
                                      TableReaderCaller caller) {
   // pre-condition
@@ -6544,13 +6579,14 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
 
   if (icmp.Compare(f.smallest_key, start) >= 0) {
     // Start of the range is before the file start - approximate by end offset
-    return ApproximateOffsetOf(v, f, end, caller);
+    return ApproximateOffsetOf(read_options, v, f, end, caller);
   }
 
   if (icmp.Compare(f.largest_key, end) < 0) {
     // End of the range is after the file end - approximate by subtracting
     // start offset from the file size
-    uint64_t start_offset = ApproximateOffsetOf(v, f, start, caller);
+    uint64_t start_offset =
+        ApproximateOffsetOf(read_options, v, f, start, caller);
     assert(f.fd.GetFileSize() >= start_offset);
     return f.fd.GetFileSize() - start_offset;
   }
@@ -6561,7 +6597,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     return 0;
   }
   return table_cache->ApproximateSize(
-      start, end, *f.file_metadata, caller, icmp,
+      read_options, start, end, *f.file_metadata, caller, icmp,
       v->GetMutableCFOptions().prefix_extractor);
 }
 
@@ -6852,7 +6888,8 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
 }
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
-    const ColumnFamilyOptions& cf_options, const VersionEdit* edit) {
+    const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
+    const VersionEdit* edit) {
   assert(edit->is_column_family_add_);
 
   MutableCFOptions dummy_cf_options;
@@ -6871,7 +6908,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   constexpr bool update_stats = false;
 
-  v->PrepareAppend(*new_cfd->GetLatestMutableCFOptions(), update_stats);
+  v->PrepareAppend(*new_cfd->GetLatestMutableCFOptions(), read_options,
+                   update_stats);
 
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
@@ -6936,7 +6974,8 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   return all_versions_blob_file_size;
 }
 
-Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
+Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
+                                      ColumnFamilyData* cfd,
                                       const std::string& fpath, int level,
                                       const FileMetaData& meta) {
   uint64_t fsize = 0;
@@ -6969,7 +7008,7 @@ Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
     TableCache::TypedHandle* handle = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        ReadOptions(), file_opts, *icmp, meta_copy, &handle, pe,
+        read_options, file_opts, *icmp, meta_copy, &handle, pe,
         /*no_io=*/false, /*record_read_stats=*/true,
         internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
@@ -7013,9 +7052,9 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(
-      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
-                         io_tracer_, EpochNumberRequirement::kMightMissing));
+  manifest_tailer_.reset(new ManifestTailer(
+      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
+      read_options_, EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
