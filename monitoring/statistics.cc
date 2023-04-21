@@ -230,6 +230,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.number.block_compression_bypassed"},
     {NUMBER_BLOCK_COMPRESSION_REJECTED,
      "rocksdb.number.block_compression_rejected"},
+    {BYTES_DECOMPRESSED_FROM, "rocksdb.bytes.decompressed.from"},
+    {BYTES_DECOMPRESSED_TO, "rocksdb.bytes.decompressed.to"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

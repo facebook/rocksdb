@@ -454,8 +454,17 @@ enum Tickers : uint32_t {
   // `verify_compression` option.
   BYTES_COMPRESSION_REJECTED,
 
+  // Like BYTES_COMPRESSION_BYPASSED but counting number of blocks
   NUMBER_BLOCK_COMPRESSION_BYPASSED,
+  // Like BYTES_COMPRESSION_REJECTED but counting number of blocks
   NUMBER_BLOCK_COMPRESSION_REJECTED,
+
+  // Number of input bytes (compressed) to decompression in reading compressed
+  // SST blocks from storage.
+  BYTES_DECOMPRESSED_FROM,
+  // Number of output bytes (uncompressed) from decompression in reading
+  // compressed SST blocks from storage.
+  BYTES_DECOMPRESSED_TO,
 
   TICKER_ENUM_MAX
 };
@@ -502,10 +511,8 @@ enum Histograms : uint32_t {
   BYTES_PER_WRITE,
   BYTES_PER_MULTIGET,
 
-  BYTES_COMPRESSED,  // DEPRECATED / unused (see BYTES_COMPRESSED_{FROM,TO})
-  // Number of output bytes (uncompressed) from decompressing SST blocks in
-  // reads, including compaction reads.
-  BYTES_DECOMPRESSED,
+  BYTES_COMPRESSED,    // DEPRECATED / unused (see BYTES_COMPRESSED_{FROM,TO})
+  BYTES_DECOMPRESSED,  // DEPRECATED / unused (see BYTES_DECOMPRESSED_{FROM,TO})
   COMPRESSION_TIMES_NANOS,
   DECOMPRESSION_TIMES_NANOS,
   // Number of merge operands passed to the merge operator in user read

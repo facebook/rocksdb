@@ -530,8 +530,8 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
-                        out_contents->data.size());
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM, size);
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_TO, out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
   TEST_SYNC_POINT_CALLBACK("UncompressBlockData:TamperWithReturnValue",
