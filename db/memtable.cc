@@ -599,6 +599,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   assert(!IsFragmentedRangeTombstonesConstructed(false));
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    // TODO: plumb Env::IOActivity
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);

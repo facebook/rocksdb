@@ -179,7 +179,7 @@ class TableCache {
   //            return Status::Incomplete() if table is not present in cache and
   //            we set `no_io` to be true.
   Status GetTableProperties(
-      const FileOptions& toptions,
+      const FileOptions& toptions, const ReadOptions& read_options,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta,
       std::shared_ptr<const TableProperties>* properties,
@@ -194,22 +194,23 @@ class TableCache {
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.
   size_t GetMemoryUsageByTableReader(
-      const FileOptions& toptions,
+      const FileOptions& toptions, const ReadOptions& read_options,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
 
   // Returns approximated offset of a key in a file represented by fd.
   uint64_t ApproximateOffsetOf(
-      const Slice& key, const FileMetaData& file_meta, TableReaderCaller caller,
+      const ReadOptions& read_options, const Slice& key,
+      const FileMetaData& file_meta, TableReaderCaller caller,
       const InternalKeyComparator& internal_comparator,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
 
   // Returns approximated data size between start and end keys in a file
   // represented by fd (the start key must not be greater than the end key).
   uint64_t ApproximateSize(
-      const Slice& start, const Slice& end, const FileMetaData& file_meta,
-      TableReaderCaller caller,
+      const ReadOptions& read_options, const Slice& start, const Slice& end,
+      const FileMetaData& file_meta, TableReaderCaller caller,
       const InternalKeyComparator& internal_comparator,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
 

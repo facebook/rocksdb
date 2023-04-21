@@ -356,8 +356,11 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties_,
+      file, file_size, table_magic_number, ioptions_, read_options,
+      &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {
     if (!silent_) {

@@ -56,8 +56,8 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
-    const FileOptions& file_options, TableCache* table_cache,
-    InternalIterator* iter,
+    const FileOptions& file_options, const ReadOptions& read_options,
+    TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
@@ -255,8 +255,8 @@ Status BuildTable(
             SizeApproximationOptions approx_opts;
             approx_opts.files_size_error_margin = 0.1;
             meta->compensated_range_deletion_size += versions->ApproximateSize(
-                approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-                0 /* start_level */, -1 /* end_level */,
+                approx_opts, read_options, version, kv.first.Encode(),
+                tombstone_end.Encode(), 0 /* start_level */, -1 /* end_level */,
                 TableReaderCaller::kFlush);
           }
           last_tombstone_start_user_key = range_del_it->start_key();
@@ -369,7 +369,6 @@ Status BuildTable(
       // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // the goal is to cache it here for further user reads.
-      ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,
           nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,

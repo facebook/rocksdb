@@ -19,6 +19,7 @@
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
 * Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
 * Added statistics tickers BYTES_COMPRESSED_FROM, BYTES_COMPRESSED_TO, BYTES_COMPRESSION_BYPASSED, BYTES_COMPRESSION_REJECTED, NUMBER_BLOCK_COMPRESSION_BYPASSED, and NUMBER_BLOCK_COMPRESSION_REJECTED. Disabled/deprecated histograms BYTES_COMPRESSED and BYTES_DECOMPRESSED, and ticker NUMBER_BLOCK_NOT_COMPRESSED. The new tickers offer more inight into compression ratios, rejected vs. disabled compression, etc. (#11388)
+* New statistics `rocksdb.file.read.{flush|compaction}.micros` that measure read time of block-based SST tables or blob files during flush or compaction.
 
 ### Bug Fixes
 * In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.

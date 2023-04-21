@@ -55,8 +55,7 @@ void ThreadBody(void* v) {
     }
   }
 }
-
-bool RunStressTest(SharedState* shared) {
+bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
 
@@ -206,6 +205,12 @@ bool RunStressTest(SharedState* shared) {
     return false;
   }
   return true;
+}
+bool RunStressTest(SharedState* shared) {
+  ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
+  bool result = RunStressTestImpl(shared);
+  ThreadStatusUtil::UnregisterThread();
+  return result;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
