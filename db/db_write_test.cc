@@ -636,6 +636,11 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   ASSERT_OK(db_->UnlockWAL());
 
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
   // Fail the WAL flush if applicable
   fault_fs->SetFilesystemActive(false);
   Status s = Put("key2", "value");

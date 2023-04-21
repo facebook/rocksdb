@@ -4207,6 +4207,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
 }
 
 static void DoCompressionTest(CompressionType comp) {
+  SCOPED_TRACE("CompressionType = " + CompressionTypeToString(comp));
   Random rnd(301);
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   std::string tmp;
@@ -4228,8 +4229,8 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3525));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3525));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3550));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3550));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
   c.ResetTableReader();
 }

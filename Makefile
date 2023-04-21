@@ -539,7 +539,7 @@ endif
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
-	WARNING_FLAGS += -Wshift-sign-overflow
+	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator
 endif
 
 ifeq ($(PLATFORM), OS_OPENBSD)

@@ -109,7 +109,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
       blob_cache(options.blob_cache),
-      prepopulate_blob_cache(options.prepopulate_blob_cache) {
+      prepopulate_blob_cache(options.prepopulate_blob_cache),
+      persist_user_defined_timestamps(options.persist_user_defined_timestamps) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -137,6 +138,11 @@ void DBOptions::Dump(Logger* log) const {
 void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "              Options.comparator: %s",
                    comparator->Name());
+  if (comparator->timestamp_size() > 0) {
+    ROCKS_LOG_HEADER(
+        log, "              Options.persist_user_defined_timestamps: %s",
+        persist_user_defined_timestamps ? "true" : "false");
+  }
   ROCKS_LOG_HEADER(log, "          Options.merge_operator: %s",
                    merge_operator ? merge_operator->Name() : "None");
   ROCKS_LOG_HEADER(log, "       Options.compaction_filter: %s",

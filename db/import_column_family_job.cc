@@ -44,16 +44,19 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
-    return Status::InvalidArgument("The list of files is empty");
+    status = Status::InvalidArgument("The list of files is empty");
+    return status;
   }
 
   for (const auto& f : files_to_import_) {
     if (f.num_entries == 0) {
-      return Status::InvalidArgument("File contain no entries");
+      status = Status::InvalidArgument("File contain no entries");
+      return status;
     }
 
     if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      return Status::Corruption("File has corrupted keys");
+      status = Status::Corruption("File has corrupted keys");
+      return status;
     }
   }
 
@@ -299,15 +302,24 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
           return Status::Corruption("Corrupted key in external file. ",
                                     pik_status.getState());
         }
-        RangeTombstone tombstone(key, range_del_iter->value());
-        InternalKey start_key = tombstone.SerializeKey();
+        RangeTombstone first_tombstone(key, range_del_iter->value());
+        InternalKey start_key = first_tombstone.SerializeKey();
         const InternalKeyComparator* icmp = &cfd_->internal_comparator();
         if (!bound_set ||
             icmp->Compare(start_key, file_to_import->smallest_internal_key) <
                 0) {
           file_to_import->smallest_internal_key = start_key;
         }
-        InternalKey end_key = tombstone.SerializeEndKey();
+
+        range_del_iter->SeekToLast();
+        pik_status = ParseInternalKey(range_del_iter->key(), &key,
+                                      db_options_.allow_data_in_errors);
+        if (!pik_status.ok()) {
+          return Status::Corruption("Corrupted key in external file. ",
+                                    pik_status.getState());
+        }
+        RangeTombstone last_tombstone(key, range_del_iter->value());
+        InternalKey end_key = last_tombstone.SerializeEndKey();
         if (!bound_set ||
             icmp->Compare(end_key, file_to_import->largest_internal_key) > 0) {
           file_to_import->largest_internal_key = end_key;

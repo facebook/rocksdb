@@ -128,6 +128,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"persist_user_defined_timestamps", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -269,6 +270,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -2320,6 +2322,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"persist_user_defined_timestamps", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2459,6 +2462,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
@@ -4067,6 +4071,30 @@ TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
       ASSERT_OK(PersistCFOptions(opts));
       SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
+  }
+
+  // persist_user_defined_timestamps
+  {
+    // Test change from true to false not allowed in loose and exact mode.
+    opts.persist_user_defined_timestamps = false;
+    ASSERT_NOK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
+
+    // Test change from false to true not allowed in loose and exact mode.
+    opts.persist_user_defined_timestamps = true;
+    ASSERT_NOK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
   }
 }
 
