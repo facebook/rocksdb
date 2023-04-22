@@ -85,17 +85,28 @@ struct CompactionOptionsFIFO {
 
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
+  // ==> BEGIN options that can be set by deprecated configuration syntax, <==
+  // ==> e.g. compression_opts=5:6:7:8:9:10:true:11:false                  <==
+  // ==> Please use compression_opts={level=6;strategy=7;} form instead.   <==
+
   // RocksDB's generic default compression level. Internally it'll be translated
   // to the default compression level specific to the library being used (see
   // comment above `ColumnFamilyOptions::compression`).
   //
   // The default value is the max 16-bit int as it'll be written out in OPTIONS
   // file, which should be portable.
-  const static int kDefaultCompressionLevel = 32767;
+  static constexpr int kDefaultCompressionLevel = 32767;
 
-  int window_bits;
-  int level;
-  int strategy;
+  // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
+  int window_bits = -14;
+
+  // Compression "level" applicable to zstd, zlib, LZ4. Except for
+  // kDefaultCompressionLevel (see above), the meaning of each value depends
+  // on the compression algorithm.
+  int level = kDefaultCompressionLevel;
+
+  // zlib only: strategy parameter. See https://www.zlib.net/manual.html
+  int strategy = 0;
 
   // Maximum size of dictionaries used to prime the compression library.
   // Enabling dictionary can improve compression ratios when there are
@@ -117,18 +128,14 @@ struct CompressionOptions {
   // If block cache insertion fails with `Status::MemoryLimit` (i.e., it is
   // full), we finalize the dictionary with whatever data we have and then stop
   // buffering.
-  //
-  // Default: 0.
-  uint32_t max_dict_bytes;
+  uint32_t max_dict_bytes = 0;
 
   // Maximum size of training data passed to zstd's dictionary trainer. Using
   // zstd's dictionary trainer can achieve even better compression ratio
   // improvements than using `max_dict_bytes` alone.
   //
   // The training data will be used to generate a dictionary of max_dict_bytes.
-  //
-  // Default: 0.
-  uint32_t zstd_max_train_bytes;
+  uint32_t zstd_max_train_bytes = 0;
 
   // Number of threads for parallel compression.
   // Parallel compression is enabled only if threads > 1.
@@ -141,9 +148,7 @@ struct CompressionOptions {
   // compressed size is in flight when compression is parallelized. To be
   // reasonably accurate, this inflation is also estimated by using historical
   // compression ratio and current bytes inflight.
-  //
-  // Default: 1.
-  uint32_t parallel_threads;
+  uint32_t parallel_threads = 1;
 
   // When the compression options are set by the user, it will be set to "true".
   // For bottommost_compression_opts, to enable it, user must set enabled=true.
@@ -152,9 +157,7 @@ struct CompressionOptions {
   //
   // For compression_opts, if compression_opts.enabled=false, it is still
   // used as compression options for compression process.
-  //
-  // Default: false.
-  bool enabled;
+  bool enabled = false;
 
   // Limit on data buffering when gathering samples to build a dictionary. Zero
   // means no limit. When dictionary is disabled (`max_dict_bytes == 0`),
@@ -173,9 +176,7 @@ struct CompressionOptions {
   // `zstd_max_train_bytes` (when enabled) can restrict how many samples we can
   // pass to the dictionary trainer. Configuring it below `max_dict_bytes` can
   // restrict the size of the final dictionary.
-  //
-  // Default: 0 (unlimited)
-  uint64_t max_dict_buffer_bytes;
+  uint64_t max_dict_buffer_bytes = 0;
 
   // Use zstd trainer to generate dictionaries. When this option is set to true,
   // zstd_max_train_bytes of training data sampled from max_dict_buffer_bytes
@@ -187,34 +188,29 @@ struct CompressionOptions {
   // data will be passed to this API. Using this API should save CPU time on
   // dictionary training, but the compression ratio may not be as good as using
   // a dictionary trainer.
-  //
-  // Default: true
-  bool use_zstd_dict_trainer;
+  bool use_zstd_dict_trainer = true;
 
-  CompressionOptions()
-      : window_bits(-14),
-        level(kDefaultCompressionLevel),
-        strategy(0),
-        max_dict_bytes(0),
-        zstd_max_train_bytes(0),
-        parallel_threads(1),
-        enabled(false),
-        max_dict_buffer_bytes(0),
-        use_zstd_dict_trainer(true) {}
-  CompressionOptions(int wbits, int _lev, int _strategy,
-                     uint32_t _max_dict_bytes, uint32_t _zstd_max_train_bytes,
-                     uint32_t _parallel_threads, bool _enabled,
-                     uint64_t _max_dict_buffer_bytes,
-                     bool _use_zstd_dict_trainer)
-      : window_bits(wbits),
-        level(_lev),
-        strategy(_strategy),
-        max_dict_bytes(_max_dict_bytes),
-        zstd_max_train_bytes(_zstd_max_train_bytes),
-        parallel_threads(_parallel_threads),
-        enabled(_enabled),
-        max_dict_buffer_bytes(_max_dict_buffer_bytes),
-        use_zstd_dict_trainer(_use_zstd_dict_trainer) {}
+  // ===> END options that can be set by deprecated configuration syntax <===
+  // ===> Use compression_opts={level=6;strategy=7;} form for below opts <===
+
+  // Essentially specifies a minimum acceptable compression ratio. A block is
+  // stored uncompressed if the compressed block does not achieve this ratio,
+  // because the downstream cost of decompression is not considered worth such
+  // a small savings (if any).
+  // However, the ratio is specified in a way that is efficient for checking.
+  // An integer from 1 to 1024 indicates the maximum allowable compressed bytes
+  // per 1KB of input, so the minimum acceptable ratio is 1024.0 / this value.
+  // For example, for a minimum ratio of 1.5:1, set to 683. See SetMinRatio().
+  // Default: abandon use of compression for a specific block or entry if
+  // compressed by less than 12.5% (minimum ratio of 1.143:1).
+  int max_compressed_bytes_per_kb = 1024 * 7 / 8;
+
+  // A convenience function for setting max_compressed_bytes_per_kb based on a
+  // minimum acceptable compression ratio (uncompressed size over compressed
+  // size).
+  void SetMinRatio(double min_ratio) {
+    max_compressed_bytes_per_kb = static_cast<int>(1024.0 / min_ratio + 0.5);
+  }
 };
 
 // Temperature of a file. Used to pass to FileSystem for a different

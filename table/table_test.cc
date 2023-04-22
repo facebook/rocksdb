@@ -1718,7 +1718,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_NOT_COMPRESSED), 0);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED), 0);
 
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
@@ -5076,6 +5077,69 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
+  }
+}
+
+TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
+  Options options;
+  if (Snappy_Supported()) {
+    options.compression = kSnappyCompression;
+    fprintf(stderr, "using snappy\n");
+  } else if (Zlib_Supported()) {
+    options.compression = kZlibCompression;
+    fprintf(stderr, "using zlib\n");
+  } else if (BZip2_Supported()) {
+    options.compression = kBZip2Compression;
+    fprintf(stderr, "using bzip2\n");
+  } else if (LZ4_Supported()) {
+    options.compression = kLZ4Compression;
+    fprintf(stderr, "using lz4\n");
+  } else if (XPRESS_Supported()) {
+    options.compression = kXpressCompression;
+    fprintf(stderr, "using xpress\n");
+  } else if (ZSTD_Supported()) {
+    options.compression = kZSTD;
+    fprintf(stderr, "using ZSTD\n");
+  } else {
+    fprintf(stderr, "skipping test, compression disabled\n");
+    return;
+  }
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  int len = 10000;
+  Random rnd(301);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+
+  // Test the max_compressed_bytes_per_kb option
+  for (int threshold : {0, 1, 100, 400, 600, 900, 1024}) {
+    SCOPED_TRACE("threshold=" + std::to_string(threshold));
+    options.compression_opts.max_compressed_bytes_per_kb = threshold;
+    ImmutableOptions ioptions(options);
+    MutableCFOptions moptions(options);
+
+    for (double compressible_to : {0.25, 0.75}) {
+      SCOPED_TRACE("compressible_to=" + std::to_string(compressible_to));
+      TableConstructor c(BytewiseComparator(),
+                         true /* convert_to_internal_key_ */);
+      std::string buf;
+      c.Add("x", test::CompressibleString(&rnd, compressible_to, len, &buf));
+
+      // write an SST file
+      c.Finish(options, ioptions, moptions, table_options,
+               GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+      size_t table_file_size = c.TEST_GetSink()->contents().size();
+      size_t approx_sst_overhead = 1000;
+      if (compressible_to < threshold / 1024.0) {
+        // Should be compressed
+        EXPECT_NEAR2(len * compressible_to + approx_sst_overhead,
+                     table_file_size, len / 10);
+      } else {
+        // Should not be compressed
+        EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
+      }
+    }
   }
 }
 

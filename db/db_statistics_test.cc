@@ -49,47 +49,102 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
   options.compression = type;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+  BlockBasedTableOptions bbto;
+  bbto.enable_index_compression = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
 
-  int kNumKeysWritten = 100000;
+  auto PopStat = [&](Tickers t) -> uint64_t {
+    return options.statistics->getAndResetTickerCount(t);
+  };
+
+  int kNumKeysWritten = 100;
+  double compress_to = 0.5;
+  // About three KVs per block
+  int len = static_cast<int>(BlockBasedTableOptions().block_size / 3);
+  int uncomp_est = kNumKeysWritten * (len + 20);
+
+  Random rnd(301);
+  std::string buf;
 
   // Check that compressions occur and are counted when compression is turned on
-  Random rnd(301);
   for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
+    ASSERT_OK(
+        Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
   }
   ASSERT_OK(Flush());
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
+  EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
+               uncomp_est / 10);
 
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+  // And decompressions
   for (int i = 0; i < kNumKeysWritten; ++i) {
     auto r = Get(Key(i));
   }
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED), 0);
+  EXPECT_EQ(34, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
+               uncomp_est / 10);
 
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+
+  // Check when compression is rejected.
+  compress_to = 0.95;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    ASSERT_OK(
+        Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    auto r = Get(Key(i));
+  }
+  EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_REJECTED),
+               uncomp_est / 10);
+
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+  // Check when compression is disabled.
   options.compression = kNoCompression;
   DestroyAndReopen(options);
-  uint64_t currentCompressions =
-      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
-  uint64_t currentDecompressions =
-      options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED);
 
-  // Check that compressions do not occur when turned off
   for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
+    ASSERT_OK(
+        Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
   }
   ASSERT_OK(Flush());
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED) -
-                currentCompressions,
-            0);
-
   for (int i = 0; i < kNumKeysWritten; ++i) {
     auto r = Get(Key(i));
   }
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED) -
-                currentDecompressions,
-            0);
+  EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_BYPASSED),
+               uncomp_est / 10);
+
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+  EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+  EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+  EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
 }
 
 TEST_F(DBStatisticsTest, MutexWaitStatsDisabledByDefault) {
