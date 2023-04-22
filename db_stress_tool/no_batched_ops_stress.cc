@@ -1154,13 +1154,12 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    const uint32_t value_base =
-        ExpectedValueHelper::NextValueBase(ExpectedValueHelper::GetValueBase(
-            shared->Get(rand_column_family, rand_key)));
+    const ExpectedValue& expected_value =
+        shared->Put(rand_column_family, rand_key, true /* pending */);
+    const uint32_t value_base = expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
-    shared->Put(rand_column_family, rand_key, value_base, true /* pending */);
 
     Status s;
 
@@ -1204,7 +1203,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
+    shared->Put(rand_column_family, rand_key, false /* pending */);
 
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
@@ -1430,10 +1429,10 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       keys.push_back(key);
 
-      const uint32_t value_base = ExpectedValueHelper::NextValueBase(
-          ExpectedValueHelper::GetValueBase(shared->Get(column_family, key)));
+      const ExpectedValue& expected_value =
+          shared->Put(column_family, key, true /* pending */);
+      const uint32_t value_base = expected_value.GetFinalValueBase();
       values.push_back(value_base);
-      shared->Put(column_family, key, value_base, true /* pending */);
 
       char value[100];
       size_t value_len = GenerateValue(value_base, value, sizeof(value));
@@ -1457,7 +1456,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::terminate();
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-      shared->Put(column_family, keys[i], values[i], false /* pending */);
+      shared->Put(column_family, keys[i], false /* pending */);
     }
   }
 
@@ -1811,12 +1810,12 @@ class NonBatchedOpsStressTest : public StressTest {
         ExpectedValueHelper::PendingDelete(expected_value)) {
       if (s.ok()) {
         // Value exists in db, update state to reflect that
-        const Slice slice(value_from_db);
-        const uint32_t value_base_from_db = GetValueBase(slice);
-        shared->Put(cf, key, value_base_from_db, false /* pending */);
+        Slice slice(value_from_db);
+        uint32_t value_base = GetValueBase(slice);
+        shared->SyncPut(cf, key, value_base);
       } else if (s.IsNotFound()) {
         // Value doesn't exist in db, update state to reflect that
-        shared->SingleDelete(cf, key, false /* pending */);
+        shared->SyncSingleDelete(cf, key);
       }
       return true;
     }

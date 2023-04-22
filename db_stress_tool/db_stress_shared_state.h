@@ -257,12 +257,12 @@ class SharedState {
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    return expected_state_manager_->Put(cf, key, value_base, pending);
+  ExpectedValue& Put(int cf, int64_t key, bool pending) {
+    return expected_state_manager_->Put(cf, key, pending);
   }
 
   // Does not requires external locking.
-  uint32_t Get(int cf, int64_t key) const {
+  uint32_t Get(int cf, int64_t key) {
     return expected_state_manager_->Get(cf, key);
   }
 
@@ -302,6 +302,14 @@ class SharedState {
   // delete to the same `key`.
   bool Exists(int cf, int64_t key) {
     return expected_state_manager_->Exists(cf, key);
+  }
+
+  void SyncPut(int cf, int64_t key, uint32_t value_base) {
+    return expected_state_manager_->SyncPut(cf, key, value_base);
+  }
+
+  void SyncSingleDelete(int cf, int64_t key) {
+    return expected_state_manager_->SyncSingleDelete(cf, key);
   }
 
   uint32_t GetSeed() const { return seed_; }

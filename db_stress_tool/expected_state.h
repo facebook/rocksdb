@@ -19,9 +19,41 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
+#include "util/autovector.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+class ExpectedValue {
+ public:
+  explicit ExpectedValue(std::atomic<uint32_t>* value) : value_(value){};
+  // Requires external locking to prevent concurrent
+  // delete to the same ExpectedValue.
+  bool Exist() const;
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  void Reset();
+  // Does not require external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  uint32_t Read() const { return value_->load(); }
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  void Put(bool pending);
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  uint32_t GetFinalValueBase() const;
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  bool Delete(bool pending);
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  void SyncPut(uint32_t value_base);
+  // Requires external locking to prevent concurrent
+  // write/delete to the same ExpectedValue.
+  void SyncSingleDelete();
+
+ private:
+  std::atomic<uint32_t>* value_;
+};
 
 class ExpectedValueHelper {
  public:
@@ -32,7 +64,8 @@ class ExpectedValueHelper {
                                  uint32_t post_read_expected_value);
 
   // Return whether value is expected to exist from begining till the end of
-  // the read based on `pre_read_expected_value` and `pre_read_expected_value`.
+  // the read based on `pre_read_expected_value` and
+  // `pre_read_expected_value`.
   static bool MustHaveExisted(uint32_t pre_read_expected_value,
                               uint32_t post_read_expected_value);
 
@@ -111,9 +144,12 @@ class ExpectedValueHelper {
 
   static uint32_t GetDelMask() { return DEL_MASK; }
 
+  static bool IsValueBaseValid(uint32_t value_base) {
+    return IsValuePartValid(value_base, VALUE_BASE_MASK);
+  }
+
  private:
-  // Value in `std::atomic<uint32_t>* values_` is divided into following parts
-  // by bits:
+  // The 32-bit ExpectedValue is divided into following parts:
   // Bit 0 - 14: value base
   static constexpr uint32_t VALUE_BASE_MASK = 0x7fff;
   static constexpr uint32_t VALUE_BASE_DELTA = 1;
@@ -180,10 +216,10 @@ class ExpectedState {
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending);
+  ExpectedValue& Put(int cf, int64_t key, bool pending);
 
   // Does not requires external locking.
-  uint32_t Get(int cf, int64_t key) const;
+  uint32_t Get(int cf, int64_t key);
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
@@ -210,9 +246,17 @@ class ExpectedState {
   // delete to the same `key`.
   bool Exists(int cf, int64_t key);
 
+  // Requires external locking covering `key` in `cf` or be in single thread
+  // to prevent concurrent write or delete to the same `key`
+  void SyncPut(int cf, int64_t key, uint32_t value_base);
+
+  // Requires external locking covering `key` in `cf` or be in single thread
+  // to prevent concurrent write or delete to the same `key`
+  void SyncSingleDelete(int cf, int64_t key);
+
  private:
   // Does not requires external locking.
-  std::atomic<uint32_t>& Value(int cf, int64_t key) const {
+  ExpectedValue& Value(int cf, int64_t key) {
     return values_[cf * max_key_ + key];
   }
 
@@ -228,7 +272,7 @@ class ExpectedState {
   // member function.
   void Reset();
 
-  std::atomic<uint32_t>* values_;
+  autovector<ExpectedValue> values_;
 };
 
 // A `FileExpectedState` implements `ExpectedState` backed by a file.
@@ -307,12 +351,12 @@ class ExpectedStateManager {
   //
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // write or delete to the same `key`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    return latest_->Put(cf, key, value_base, pending);
+  ExpectedValue& Put(int cf, int64_t key, bool pending) {
+    return latest_->Put(cf, key, pending);
   }
 
   // Does not require external locking.
-  uint32_t Get(int cf, int64_t key) const { return latest_->Get(cf, key); }
+  uint32_t Get(int cf, int64_t key) { return latest_->Get(cf, key); }
 
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
@@ -344,6 +388,14 @@ class ExpectedStateManager {
   // Requires external locking covering `key` in `cf` to prevent concurrent
   // delete to the same `key`.
   bool Exists(int cf, int64_t key) { return latest_->Exists(cf, key); }
+
+  void SyncPut(int cf, int64_t key, uint32_t value_base) {
+    return latest_->SyncPut(cf, key, value_base);
+  }
+
+  void SyncSingleDelete(int cf, int64_t key) {
+    return latest_->SyncSingleDelete(cf, key);
+  }
 
  protected:
   const size_t max_key_;
