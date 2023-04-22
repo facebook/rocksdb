@@ -74,9 +74,9 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
   }
   ASSERT_OK(Flush());
   EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));
-  EXPECT_NEAR(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
-  EXPECT_NEAR(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
-              uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
+               uncomp_est / 10);
 
   EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
   EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
@@ -87,9 +87,9 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
     auto r = Get(Key(i));
   }
   EXPECT_EQ(34, PopStat(NUMBER_BLOCK_DECOMPRESSED));
-  EXPECT_NEAR(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
-  EXPECT_NEAR(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
-              uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
+               uncomp_est / 10);
 
   EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
   EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
@@ -109,7 +109,8 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
     auto r = Get(Key(i));
   }
   EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
-  EXPECT_NEAR(uncomp_est, PopStat(BYTES_COMPRESSION_REJECTED), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_REJECTED),
+               uncomp_est / 10);
 
   EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
   EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
@@ -133,7 +134,8 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
     auto r = Get(Key(i));
   }
   EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
-  EXPECT_NEAR(uncomp_est, PopStat(BYTES_COMPRESSION_BYPASSED), uncomp_est / 10);
+  EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_BYPASSED),
+               uncomp_est / 10);
 
   EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
   EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));

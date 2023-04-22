@@ -5133,11 +5133,11 @@ TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
       size_t approx_sst_overhead = 1000;
       if (compressible_to < threshold / 1024.0) {
         // Should be compressed
-        EXPECT_NEAR(len * compressible_to + approx_sst_overhead,
-                    table_file_size, len / 10);
+        EXPECT_NEAR2(len * compressible_to + approx_sst_overhead,
+                     table_file_size, len / 10);
       } else {
         // Should not be compressed
-        EXPECT_NEAR(len + approx_sst_overhead, table_file_size, len / 10);
+        EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
       }
     }
   }
