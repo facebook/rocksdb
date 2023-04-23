@@ -35,6 +35,8 @@ LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
       [](LRUHandle* h) {
         if (!h->HasRefs()) {
+          h->prev = nullptr;
+          h->next = nullptr;
           h->Free();
         }
       },
