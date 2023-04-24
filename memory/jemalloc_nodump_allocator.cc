@@ -153,14 +153,16 @@ Status JemallocNodumpAllocator::InitializeArenas() {
                                 std::to_string(ret));
     }
 
-    // Store existing alloc. It must be the same pointer for all `kNumArenas`,
-    // otherwise the initialization fails.
+    // Store existing alloc.
     extent_alloc_t* original_alloc = hooks->alloc;
     extent_alloc_t* expected = nullptr;
     bool success =
         JemallocNodumpAllocator::original_alloc_.compare_exchange_strong(
             expected, original_alloc);
     if (!success && original_alloc != expected) {
+      // This could happen if jemalloc creates new arenas with different initial
+      // values in their `alloc` function pointers. See `original_alloc_` API
+      // doc for more details.
       return Status::Incomplete("Original alloc conflict.");
     }
 

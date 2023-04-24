@@ -84,7 +84,9 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   // NewJemallocNodumpAllocator is thread-safe.
   //
   // Hack: original_alloc_ needs to be static for Alloc() to access it.
-  // alloc needs to be static to pass to jemalloc as function pointer.
+  // alloc needs to be static to pass to jemalloc as function pointer. We can
+  // use a single process-wide value as long as we assume that any newly created
+  // arena has the same original value in its `alloc` function pointer.
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   // Custom hooks has to outlive corresponding arena.
