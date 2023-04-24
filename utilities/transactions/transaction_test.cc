@@ -2448,7 +2448,7 @@ TEST_P(TransactionTest, FlushTest2) {
     Random rnd(47);
     for (int i = 0; i < 1000; i++) {
       s = db->Put(write_options, std::to_string(i),
-                  test::CompressibleString(&rnd, 0.8, 100, &value));
+                  test::CompressibleString(&rnd, 0.8, 100, &value, ""));
       ASSERT_OK(s);
     }
 

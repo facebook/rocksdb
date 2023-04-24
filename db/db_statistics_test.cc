@@ -55,8 +55,8 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
     // Check that compressions occur and are counted when compression is turned
     // on
     for (int i = 0; i < kNumKeysWritten; ++i) {
-      ASSERT_OK(
-          Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
+      ASSERT_OK(Put(
+          Key(i), test::CompressibleString(&rnd, compress_to, len, &buf, "")));
     }
     ASSERT_OK(Flush());
     EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));

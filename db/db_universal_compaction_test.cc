@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
-  test::CompressibleString(rnd, 0.8, len, &r);
+  test::CompressibleString(rnd, 0.8, len, &r, "");
   return r;
 }
 

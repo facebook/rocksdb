@@ -296,6 +296,16 @@ DEFINE_int32(duration, 0,
              "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
+DEFINE_string(value_src_data_type, "pure_random",
+              "pure_random - fully randomized strings, "
+              "file_random - randomized strings sourced from file, "
+              "file_direct - contents from file (ignores compression ratio)");
+
+DEFINE_string(value_src_data_file, "",
+              "If value source data comes from a file, "
+              "this must contain a valid file path.");
+static std::string value_src_data_file_store;
+
 DEFINE_string(value_size_distribution_type, "fixed",
               "Value size distribution type: fixed, uniform, normal");
 
@@ -1770,6 +1780,24 @@ static Status CreateMemTableRepFactory(
 
 }  // namespace
 
+enum SrcDataType : unsigned char { kPureRandom = 0, kFileRandom, kFileDirect };
+
+static enum SrcDataType FLAGS_value_src_data_type_e = kPureRandom;
+
+static enum SrcDataType StringToSrcDataType(const char* ctype) {
+  assert(ctype);
+
+  if (!strcasecmp(ctype, "pure_random"))
+    return kPureRandom;
+  else if (!strcasecmp(ctype, "file_random"))
+    return kFileRandom;
+  else if (!strcasecmp(ctype, "file_direct"))
+    return kFileDirect;
+
+  fprintf(stdout, "Cannot parse source data type '%s'\n", ctype);
+  exit(1);
+}
+
 enum DistributionType : unsigned char { kFixed = 0, kUniform, kNormal };
 
 static enum DistributionType FLAGS_value_size_distribution_type_e = kFixed;
@@ -1879,16 +1907,22 @@ class RandomGenerator {
         dist_.reset(new FixedDistribution(value_size));
         max_value_size = value_size;
     }
-    // We use a limited amount of data over and over again and ensure
-    // that it is larger than the compression window (32KB), and also
-    // large enough to serve all typical value sizes we want to write.
-    Random rnd(301);
-    std::string piece;
-    while (data_.size() < (unsigned)std::max(1048576, max_value_size)) {
-      // Add a short fragment that is as compressible as specified
-      // by FLAGS_compression_ratio.
-      test::CompressibleString(&rnd, FLAGS_compression_ratio, 100, &piece);
-      data_.append(piece);
+    if (FLAGS_value_src_data_type_e == kPureRandom ||
+        FLAGS_value_src_data_type_e == kFileRandom) {
+      // We use a limited amount of data over and over again and ensure
+      // that it is larger than the compression window (32KB), and also
+      // large enough to serve all typical value sizes we want to write.
+      Random rnd(301);
+      std::string piece;
+      while (data_.size() < (unsigned)std::max(1048576, max_value_size)) {
+        // Add a short fragment that is as compressible as specified
+        // by FLAGS_compression_ratio.
+        test::CompressibleString(&rnd, FLAGS_compression_ratio, 100, &piece,
+                                 value_src_data_file_store);
+        data_.append(piece);
+      }
+    } else {
+      data_.append(value_src_data_file_store);
     }
     pos_ = 0;
   }
@@ -2743,6 +2777,30 @@ class Benchmark {
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
+      return false;
+    }
+
+    if (FLAGS_value_src_data_type_e == kFileRandom ||
+        FLAGS_value_src_data_type_e == kFileDirect) {
+      if (FLAGS_value_src_data_file != "") {
+        Status s = ReadFileToString(Env::Default(), FLAGS_value_src_data_file,
+                                    &value_src_data_file_store);
+        if (!s.ok()) {
+          fprintf(stderr,
+                  "value source data file %s could not be read, status=%s\n",
+                  FLAGS_value_src_data_file.c_str(), s.ToString().c_str());
+          return false;
+        }
+      } else {
+        fprintf(stderr,
+                "value source data file needed for file random or file direct "
+                "modes\n");
+        return false;
+      }
+    } else if (FLAGS_value_src_data_file != "") {
+      fprintf(stderr,
+              "need to be in file random or file direct mode to use value "
+              "source data file\n");
       return false;
     }
     return true;
@@ -8578,6 +8636,8 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
+  FLAGS_value_src_data_type_e =
+      StringToSrcDataType(FLAGS_value_src_data_type.c_str());
   FLAGS_value_size_distribution_type_e =
       StringToDistributionType(FLAGS_value_size_distribution_type.c_str());
 

@@ -4220,9 +4220,9 @@ static void DoCompressionTest(CompressionType comp) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   std::string tmp;
   c.Add("k01", "hello");
-  c.Add("k02", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
+  c.Add("k02", test::CompressibleString(&rnd, 0.25, 10000, &tmp, ""));
   c.Add("k03", "hello3");
-  c.Add("k04", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
+  c.Add("k04", test::CompressibleString(&rnd, 0.25, 10000, &tmp, ""));
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
   Options options;
@@ -5115,7 +5115,8 @@ TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
         TableConstructor c(BytewiseComparator(),
                            true /* convert_to_internal_key_ */);
         std::string buf;
-        c.Add("x", test::CompressibleString(&rnd, compressible_to, len, &buf));
+        c.Add("x",
+              test::CompressibleString(&rnd, compressible_to, len, &buf, ""));
 
         // write an SST file
         c.Finish(options, ioptions, moptions, table_options,

@@ -63,7 +63,7 @@ namespace ROCKSDB_NAMESPACE {
 
 static std::string RandomString(Random* rnd, int len, double ratio) {
   std::string r;
-  test::CompressibleString(rnd, ratio, len, &r);
+  test::CompressibleString(rnd, ratio, len, &r, "");
   return r;
 }
 

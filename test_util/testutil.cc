@@ -89,10 +89,37 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
 }
 
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
-                                int len, std::string* dst) {
+                                int len, std::string* dst,
+                                const std::string& src) {
+  std::string raw_data;
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data = rnd->RandomBinaryString(raw);
+
+  if (src == "") {
+    // Generate a random string
+    std::string rnd_str = rnd->RandomBinaryString(raw);
+    raw_data.append(rnd_str);
+  } else {
+    // Generate a string from the file store based on a randomized index
+    const int data_file_store_sz = static_cast<int>(src.size());
+    if (data_file_store_sz <= raw) {
+      int rem = raw - data_file_store_sz;
+      raw_data.append(src);
+      while (rem > 0) {
+        if (rem > data_file_store_sz) {
+          raw_data.append(src);
+          rem -= data_file_store_sz;
+        } else {
+          raw_data.append(src, 0, rem);
+          rem = 0;
+        }
+      }
+    } else {
+      const auto limit = data_file_store_sz - raw + 1;
+      const auto indx = rnd->Uniform(limit);
+      raw_data.append(src, indx, raw);
+    }
+  }
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
