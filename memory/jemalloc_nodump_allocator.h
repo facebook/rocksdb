@@ -38,7 +38,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
     return IsSupported(&unused);
   }
   static bool IsSupported(std::string* why);
-  bool IsMutable() const { return arena_index_ == 0; }
+  bool IsMutable() const { return !init_; }
 
   Status PrepareOptions(const ConfigOptions& config_options) override;
 
@@ -74,6 +74,12 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   JemallocAllocatorOptions options_;
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
+  // Allocation requests are sharded across eight arenas to reduce contention
+  // on per-arena mutexes. For more details, see the comments in `Allocate()`'s
+  // definition.
+  static const size_t kLog2NumArenas = 3;
+  static const size_t kNumArenas = 1 << kLog2NumArenas;
+
   // A function pointer to jemalloc default alloc. Use atomic to make sure
   // NewJemallocNodumpAllocator is thread-safe.
   //
@@ -82,13 +88,14 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   // Custom hooks has to outlive corresponding arena.
-  std::unique_ptr<extent_hooks_t> arena_hooks_;
+  std::array<std::unique_ptr<extent_hooks_t>, kNumArenas> per_arena_hooks_;
 
   // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;
+
+  std::array<unsigned, kNumArenas> arena_indexes_ = {0};
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
-  // Arena index.
-  unsigned arena_index_;
+  bool init_ = false;
 };
 }  // namespace ROCKSDB_NAMESPACE
