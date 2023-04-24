@@ -77,13 +77,16 @@ JemallocNodumpAllocator::~JemallocNodumpAllocator() {
   for (void* tcache_index : tcache_list) {
     DestroyThreadSpecificCache(tcache_index);
   }
-  if (init_) {
-    // Destroy arenas. Silently ignore errors.
-    for (auto arena_index : arena_indexes_) {
-      Status s = DestroyArena(arena_index);
-      assert(s.ok());
-      s.PermitUncheckedError();
+  // Destroy created arenas (assumed to have nonzero indexes). Silently ignore
+  // errors.
+  for (auto arena_index : arena_indexes_) {
+    if (arena_index == 0) {
+      continue;
     }
+    assert(init_);
+    Status s = DestroyArena(arena_index);
+    assert(s.ok());
+    s.PermitUncheckedError();
   }
 }
 
