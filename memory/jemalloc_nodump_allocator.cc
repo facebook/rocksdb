@@ -99,6 +99,12 @@ void* JemallocNodumpAllocator::Allocate(size_t size) {
   // We use the least significant bits of `size` as a source of entropy to
   // initialize the thread-local arena selector. Afterwards in the same thread,
   // arena selection follows a round-robin policy.
+  //
+  // This approach spreads allocation requests across allocators best when there
+  // is one `JemallocNodumpAllocator` active in the process. We could improve
+  // the guarantees in other scenarios, however, a solution like using a
+  // `ThreadLocalPtr` instance variable to store the arena selector would bring
+  // additional overhead.
   thread_local size_t tl_arena_selector = size & ((1 << kLog2NumArenas) - 1);
   assert(tl_arena_selector < kNumArenas);
 
