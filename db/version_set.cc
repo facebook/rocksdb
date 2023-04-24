@@ -1861,8 +1861,8 @@ InternalIterator* Version::TEST_GetLevelIterator(
       cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
       mutable_cf_options_.prefix_extractor, should_sample_file_read(),
       cfd_->internal_stats()->GetFileReadHist(level),
-      TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-      nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
+      TableReaderCaller::kUserIterator, IsFilterSkipped(level, read_options),
+      level, nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
       allow_unprepared_value, &tombstone_iter_ptr);
   if (read_options.ignore_range_deletions) {
     merge_iter_builder->AddIterator(level_iter);
@@ -1990,8 +1990,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
         mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
-        TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        /*range_del_agg=*/nullptr, /*compaction_boundaries=*/nullptr,
+        TableReaderCaller::kUserIterator, IsFilterSkipped(level, read_options),
+        level, /*range_del_agg=*/nullptr, /*compaction_boundaries=*/nullptr,
         allow_unprepared_value, &tombstone_iter_ptr);
     if (read_options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(level_iter);
@@ -2049,8 +2049,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
         mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
-        TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        &range_del_agg));
+        TableReaderCaller::kUserIterator, IsFilterSkipped(level, read_options),
+        level, &range_del_agg));
     status = OverlapWithIterator(
         ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
   }
@@ -2323,7 +2323,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()), read_options,
                         fp.IsHitFileLastInLevel()),
         fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
     // TODO: examine the behavior for corrupted key
@@ -2512,7 +2512,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         if (f) {
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                              fp.IsHitFileLastInLevel());
+                              read_options, fp.IsHitFileLastInLevel());
           // Call MultiGetFromSST for looking up a single file
           s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                               fp.GetHitFileLevel(), skip_filters,
@@ -2534,7 +2534,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           Cache::Handle* table_handle = nullptr;
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                              fp.IsHitFileLastInLevel());
+                              read_options, fp.IsHitFileLastInLevel());
           bool skip_range_deletions = false;
           if (!skip_filters) {
             Status status = table_cache_->MultiGetFilter(
@@ -2711,8 +2711,9 @@ Status Version::ProcessBatch(
   while (f) {
     MultiGetRange file_range = fp.CurrentFileRange();
     Cache::Handle* table_handle = nullptr;
-    bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                                        fp.IsHitFileLastInLevel());
+    bool skip_filters =
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()), read_options,
+                        fp.IsHitFileLastInLevel());
     bool skip_range_deletions = false;
     if (!skip_filters) {
       Status status = table_cache_->MultiGetFilter(
@@ -2906,11 +2907,13 @@ Status Version::MultiGetAsync(
 }
 #endif
 
-bool Version::IsFilterSkipped(int level, bool is_file_last_in_level) {
+bool Version::IsFilterSkipped(int level, const ReadOptions& read_options,
+                              bool is_file_last_in_level) {
   // Reaching the bottom level implies misses at all upper levels, so we'll
   // skip checking the filters when we predict a hit.
-  return cfd_->ioptions()->optimize_filters_for_hits &&
-         (level > 0 || is_file_last_in_level) &&
+  auto optimize_for_hits = cfd_->ioptions()->optimize_filters_for_hits ||
+                           read_options.optimize_for_hits;
+  return optimize_for_hits && (level > 0 || is_file_last_in_level) &&
          level == storage_info_.num_non_empty_levels() - 1;
 }
 

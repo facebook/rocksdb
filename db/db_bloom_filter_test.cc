@@ -2642,12 +2642,62 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
 
   ReopenWithColumnFamilies({"default", "mypikachu"}, options);
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions(), handles_[1]));
-  iter->SeekToFirst();
-  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
-  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
-  ASSERT_EQ(2 /* index and data block */,
-            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  {
+    std::unique_ptr<Iterator> iter(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++i;
+    }
+    ASSERT_GT(i, 0);
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_LT(0, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  }
+
+  bbto.block_cache.reset();
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  options.optimize_filters_for_hits = false;
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  {
+    ReadOptions read_options;
+    // Optimization at the Read level, rather than the column family one
+    read_options.optimize_for_hits = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++i;
+    }
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_LT(0, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  }
+
+  bbto.block_cache.reset();
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.optimize_filters_for_hits = false;
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  {
+    // Optimization disabled at both Read and column family level.
+    std::unique_ptr<Iterator> iter(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ++i;
+    }
+    // We accessed the block cache
+    ASSERT_LT(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_LT(0, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  }
+
   get_perf_context()->Reset();
 }
 

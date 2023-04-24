@@ -1696,6 +1696,18 @@ struct ReadOptions {
   // Default: false
   bool ignore_range_deletions;
 
+  // This flag specifies that the implementation should optimize reads
+  // mainly for cases where keys are found rather than also optimize for keys
+  // missed. This would be used in cases where the application knows that
+  // there are very few misses or the performance in the case of misses is not
+  // important.
+  // If true, avoid checking filters for the last level i.e the largest level
+  // which contains data of the LSM store. For keys which are hits, querying
+  // filters in this level is not useful because we will search for the data
+  // anyway.
+  // Default: false
+  bool optimize_for_hits;
+
   // A callback to determine whether relevant keys for this scan exist in a
   // given table based on the table's properties. The callback is passed the
   // properties of each table during iteration. If the callback returns false,
