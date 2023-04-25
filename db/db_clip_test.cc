@@ -65,13 +65,14 @@ TEST_F(DBClipTest, TestClipRange) {
   std::vector<LiveFileMetaData> all_metadata;
   db_->GetLiveFilesMetaData(&all_metadata);
   for (auto& md : all_metadata) {
-      // make sure clip_begin_key <= file_smallestkey <= file_largestkey <= clip_end_key
-      bool in_range = false;
-      if (begin_key.compare(md.smallestkey) <= 0 &&
-          end_key.compare(md.largestkey) > 0) {
-        in_range = true;
-      }
-      ASSERT_TRUE(in_range);
+    // make sure clip_begin_key <= file_smallestkey <= file_largestkey <=
+    // clip_end_key
+    bool in_range = false;
+    if (begin_key.compare(md.smallestkey) <= 0 &&
+        end_key.compare(md.largestkey) > 0) {
+      in_range = true;
+    }
+    ASSERT_TRUE(in_range);
   }
 
   CompactRangeOptions compact_options;
@@ -120,17 +121,17 @@ TEST_F(DBClipTest, TestClipRange) {
     ASSERT_TRUE(s.IsNotFound());
   }
 
-
   std::vector<LiveFileMetaData> all_metadata_2;
   db_->GetLiveFilesMetaData(&all_metadata_2);
   for (auto& md : all_metadata_2) {
-      // make sure clip_begin_key <= file_smallestkey <= file_largestkey <= clip_end_key
-      bool in_range = false;
-      if (begin_key_2.compare(md.smallestkey) <= 0 &&
-          end_key_2.compare(md.largestkey) > 0) {
-        in_range = true;
-      }
-      ASSERT_TRUE(in_range);
+    // make sure clip_begin_key <= file_smallestkey <= file_largestkey <=
+    // clip_end_key
+    bool in_range = false;
+    if (begin_key_2.compare(md.smallestkey) <= 0 &&
+        end_key_2.compare(md.largestkey) > 0) {
+      in_range = true;
+    }
+    ASSERT_TRUE(in_range);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -535,14 +535,15 @@ class DBImpl : public DB {
       ColumnFamilyHandle** handle) override;
 
   // virtual Status CreateColumnFamilyWithImports(
-  //   const ColumnFamilyOptions& options, const std::string& column_family_name,
+  //   const ColumnFamilyOptions& options, const std::string&
+  //   column_family_name,
   //   const ImportColumnFamilyOptions& import_options,
   //   const std::vector<ExportImportFilesMetaData>& metadatas,
   //   ColumnFamilyHandle** handle);
 
   using DB::ClipDB;
   virtual Status ClipDB(ColumnFamilyHandle* column_family,
-                const Slice& begin_key, const Slice& end_key) override;
+                        const Slice& begin_key, const Slice& end_key) override;
 
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_options) override;

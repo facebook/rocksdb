@@ -130,8 +130,7 @@ class CompactedDBImpl : public DBImpl {
 
   using DB::ClipDB;
   virtual Status ClipDB(ColumnFamilyHandle* /*column_family*/,
-                        const Slice& /*begin*/,
-                        const Slice& /*end*/) override {
+                        const Slice& /*begin*/, const Slice& /*end*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 

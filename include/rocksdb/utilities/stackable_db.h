@@ -180,7 +180,7 @@ class StackableDB : public DB {
 
   using DB::ClipDB;
   virtual Status ClipDB(ColumnFamilyHandle* column_family,
-                const Slice& begin_key, const Slice& end_key) override {
+                        const Slice& begin_key, const Slice& end_key) override {
     return db_->ClipDB(column_family, begin_key, end_key);
   }
 

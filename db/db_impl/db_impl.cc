@@ -5704,8 +5704,8 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::ClipDB(ColumnFamilyHandle* column_family,
-                      const Slice& begin_key, const Slice& end_key) {
+Status DBImpl::ClipDB(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                      const Slice& end_key) {
   assert(column_family);
   Status status;
 
@@ -5719,15 +5719,17 @@ Status DBImpl::ClipDB(ColumnFamilyHandle* column_family,
   }
 
   // DeleteRange the remaining overlapping keys
-  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   Slice smallest_user_key, largest_user_key;
-  cfd->current()->GetSstFilesBoundaryKeys(&smallest_user_key, &largest_user_key);
+  cfd->current()->GetSstFilesBoundaryKeys(&smallest_user_key,
+                                          &largest_user_key);
   const Comparator* const ucmp = column_family->GetComparator();
   WriteOptions wo;
-  // Delete [smallest_user_key, clip_begin_key) 
+  // Delete [smallest_user_key, clip_begin_key)
   if (ucmp->Compare(smallest_user_key, begin_key) < 0) {
     status = DeleteRange(wo, column_family, smallest_user_key, begin_key);
-  } 
+  }
   if (!status.ok()) {
     return status;
   }
@@ -5735,17 +5737,18 @@ Status DBImpl::ClipDB(ColumnFamilyHandle* column_family,
   if (ucmp->Compare(end_key, largest_user_key) < 0) {
     status = DeleteRange(wo, column_family, end_key, largest_user_key);
     if (status.ok()) {
-      status = Delete(wo, column_family, largest_user_key);  
+      status = Delete(wo, column_family, largest_user_key);
     }
   }
-  if(!status.ok()) {
+  if (!status.ok()) {
     return status;
   }
-  
+
   // CompactRange delete all the tombstones
   CompactRangeOptions compact_options;
   compact_options.exclusive_manual_compaction = true;
-  compact_options.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
   status = CompactRange(compact_options, nullptr, nullptr);
   return status;
 }

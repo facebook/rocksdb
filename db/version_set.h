@@ -992,7 +992,8 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
-  void GetSstFilesBoundaryKeys(Slice* smallest_user_key, Slice* largest_user_key);
+  void GetSstFilesBoundaryKeys(Slice* smallest_user_key,
+                               Slice* largest_user_key);
 
   uint64_t GetSstFilesSize();
 
