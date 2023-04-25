@@ -552,7 +552,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compaction=false;age_for_warm=1;};"
       "blob_cache=1M;"
       "memtable_protection_bytes_per_key=2;"
-      "persist_user_defined_timestamps=true;",
+      "persist_user_defined_timestamps=true;"
+      "block_protection_bytes_per_key=1;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

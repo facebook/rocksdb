@@ -206,6 +206,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.experimental_mempurge_threshold;
   cf_opts->memtable_protection_bytes_per_key =
       moptions.memtable_protection_bytes_per_key;
+  cf_opts->block_protection_bytes_per_key =
+      moptions.block_protection_bytes_per_key;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;

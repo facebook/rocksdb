@@ -975,6 +975,11 @@ DEFINE_uint32(
     "specified number of bytes per key. Currently the supported "
     "nonzero values are 1, 2, 4 and 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in blocks at the "
+              "specified number of bytes per key. Currently the supported "
+              "nonzero values are 1, 2, 4 and 8.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
