@@ -13,7 +13,7 @@
 #include <limits>
 
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"

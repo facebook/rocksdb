@@ -41,7 +41,7 @@
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "monitoring/histogram.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "port/stack_trace.h"

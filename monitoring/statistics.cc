@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "monitoring/statistics.h"
+#include "rocksdb/statistics.h"
 
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"

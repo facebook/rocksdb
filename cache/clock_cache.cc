@@ -16,7 +16,7 @@
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "rocksdb/env.h"
 #include "util/hash.h"
