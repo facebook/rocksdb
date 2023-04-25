@@ -1453,7 +1453,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         recovery_ctx->UpdateVersionEdits(cfd, iter->second);
       }
 
-      if (flushed) {
+      if (flushed || !data_seen) {
         VersionEdit wal_deletion;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
           wal_deletion.DeleteWalsBefore(max_wal_number + 1);
