@@ -74,9 +74,8 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   JemallocAllocatorOptions options_;
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
-  // Allocation requests are sharded across eight arenas to reduce contention
-  // on per-arena mutexes. For more details, see the comments in `Allocate()`'s
-  // definition.
+  // Allocation requests are randomly sharded across eight arenas to reduce
+  // contention on per-arena mutexes.
   static const size_t kLog2NumArenas = 3;
   static const size_t kNumArenas = 1 << kLog2NumArenas;
 
