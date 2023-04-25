@@ -2411,17 +2411,17 @@ TEST_F(DBWALTest, EmptyWalReopenTest) {
   {
     // Delete all MANIFEST.
     std::vector<std::string> files;
-		int num_wal_files = 0;
+    int num_wal_files = 0;
     ASSERT_OK(env_->GetChildren(dbname_, &files));
     for (const auto& file : files) {
       uint64_t number = 0;
       FileType type = kWalFile;
       if (ParseFileName(file, &number, &type) && type == kWalFile) {
-				num_wal_files++;
+        num_wal_files++;
       }
     }
 
-		ASSERT_EQ(num_wal_files, 1);
+    ASSERT_EQ(num_wal_files, 1);
   }
 }
 
