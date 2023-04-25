@@ -436,6 +436,8 @@ static void ManualCompaction(benchmark::State& state) {
           static_cast<double>(get_perf_context()->block_read_count);
       state.counters["block_read_time"] =
           static_cast<double>(get_perf_context()->block_read_time);
+      state.counters["block_read_cpu_time"] =
+          static_cast<double>(get_perf_context()->block_read_cpu_time);
       state.counters["block_checksum_time"] =
           static_cast<double>(get_perf_context()->block_checksum_time);
       state.counters["new_table_block_iter_nanos"] =
@@ -721,6 +723,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
   size_t not_found = 0;
   uint64_t user_key_comparison_count = 0;
   uint64_t block_read_time = 0;
+  uint64_t block_read_cpu_time = 0;
   uint64_t block_checksum_time = 0;
   uint64_t get_snapshot_time = 0;
   uint64_t get_post_process_time = 0;
@@ -740,6 +743,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
     }
     user_key_comparison_count += get_perf_context()->user_key_comparison_count;
     block_read_time += get_perf_context()->block_read_time;
+    block_read_cpu_time += get_perf_context()->block_read_cpu_time;
     block_checksum_time += get_perf_context()->block_checksum_time;
     get_snapshot_time += get_perf_context()->get_snapshot_time;
     get_post_process_time += get_perf_context()->get_post_process_time;
@@ -760,6 +764,9 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
                          benchmark::Counter::kAvgIterations);
   state.counters["block_read_time"] = benchmark::Counter(
       static_cast<double>(block_read_time), benchmark::Counter::kAvgIterations);
+  state.counters["block_read_cpu_time"] =
+      benchmark::Counter(static_cast<double>(block_read_cpu_time),
+                         benchmark::Counter::kAvgIterations);
   state.counters["block_checksum_time"] =
       benchmark::Counter(static_cast<double>(block_checksum_time),
                          benchmark::Counter::kAvgIterations);
@@ -1541,7 +1548,8 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
                                        : Temperature::kCold;
     readers.emplace_back(new RandomAccessFileReader(
         std::move(f), fname, env->GetSystemClock().get(), nullptr, statistics,
-        0, nullptr, nullptr, {}, temperature, rand_num == 1));
+        Histograms::HISTOGRAM_ENUM_MAX, nullptr, nullptr, {}, temperature,
+        rand_num == 1));
   }
 
   IOOptions io_options;

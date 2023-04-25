@@ -358,6 +358,48 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   }
 }
 
+TEST_F(DBMergeOperatorTest, DataBlockBinaryAndHash) {
+  // Basic test to check that merge operator works with data block index type
+  // DataBlockBinaryAndHash.
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator.reset(new TestPutOperator());
+  options.env = env_;
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = 16;
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  const int kNumKeys = 100;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(std::to_string(i), value);
+  }
+
+  std::vector<const Snapshot*> snapshots;
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Delete(WriteOptions(), Key(i)));
+    for (int j = 0; j < 3; ++j) {
+      ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i * 3 + j)));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(std::to_string(i * 3 + 2), value);
+  }
+  for (auto snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
+}
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {

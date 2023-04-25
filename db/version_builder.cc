@@ -1257,7 +1257,7 @@ class VersionBuilder::Rep {
       InternalStats* internal_stats, int max_threads,
       bool prefetch_index_and_filter_in_cache, bool is_initial_load,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin) {
+      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
     assert(table_cache_ != nullptr);
 
     size_t table_cache_capacity =
@@ -1324,7 +1324,7 @@ class VersionBuilder::Rep {
         int level = files_meta[file_idx].second;
         TableCache::TypedHandle* handle = nullptr;
         statuses[file_idx] = table_cache_->FindTable(
-            ReadOptions(), file_options_,
+            read_options, file_options_,
             *(base_vstorage_->InternalComparator()), *file_meta, &handle,
             prefix_extractor, false /*no_io */, true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
@@ -1384,10 +1384,11 @@ Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    size_t max_file_size_for_l0_meta_pin) {
-  return rep_->LoadTableHandlers(
-      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
-      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin);
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
+  return rep_->LoadTableHandlers(internal_stats, max_threads,
+                                 prefetch_index_and_filter_in_cache,
+                                 is_initial_load, prefix_extractor,
+                                 max_file_size_for_l0_meta_pin, read_options);
 }
 
 uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {

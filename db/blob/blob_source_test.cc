@@ -517,7 +517,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                   compression, blob_offsets, blob_sizes);
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
+    ASSERT_OK(blob_source.GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
 
     const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
@@ -1139,12 +1140,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                          blob_file_cache.get());
 
   CacheHandleGuard<BlobFileReader> file_reader;
-  ASSERT_OK(blob_source.GetBlobFileReader(file_number, &file_reader));
+  ReadOptions read_options;
+  ASSERT_OK(
+      blob_source.GetBlobFileReader(read_options, file_number, &file_reader));
   ASSERT_NE(file_reader.GetValue(), nullptr);
   const uint64_t file_size = file_reader.GetValue()->GetFileSize();
   ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
 
-  ReadOptions read_options;
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;

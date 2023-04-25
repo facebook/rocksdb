@@ -4,7 +4,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
 
-set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
+set(CMAKE_JAVA_COMPILE_FLAGS -source 8)
 
 set(JNI_NATIVE_SOURCES
         rocksjni/backup_engine_options.cc

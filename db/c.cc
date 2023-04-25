@@ -4064,6 +4064,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_decompress_time;
     case rocksdb_internal_range_del_reseek_count:
       return rep->internal_range_del_reseek_count;
+    case rocksdb_block_read_cpu_time:
+      return rep->block_read_cpu_time;
     default:
       break;
   }
@@ -4679,7 +4681,7 @@ rocksdb_cache_t* rocksdb_cache_create_lru_with_strict_capacity_limit(
 }
 
 rocksdb_cache_t* rocksdb_cache_create_lru_opts(
-    rocksdb_lru_cache_options_t* opt) {
+    const rocksdb_lru_cache_options_t* opt) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(opt->rep);
   return c;
@@ -4726,7 +4728,7 @@ rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
 }
 
 rocksdb_cache_t* rocksdb_cache_create_hyper_clock_opts(
-    rocksdb_hyper_clock_cache_options_t* opts) {
+    const rocksdb_hyper_clock_cache_options_t* opts) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = opts->rep.MakeSharedCache();
   return c;
@@ -4742,16 +4744,24 @@ void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
   cache->rep->SetCapacity(capacity);
 }
 
-size_t rocksdb_cache_get_capacity(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_capacity(const rocksdb_cache_t* cache) {
   return cache->rep->GetCapacity();
 }
 
-size_t rocksdb_cache_get_usage(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_usage(const rocksdb_cache_t* cache) {
   return cache->rep->GetUsage();
 }
 
-size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
+size_t rocksdb_cache_get_pinned_usage(const rocksdb_cache_t* cache) {
   return cache->rep->GetPinnedUsage();
+}
+
+size_t rocksdb_cache_get_table_address_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetTableAddressCount();
+}
+
+size_t rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetOccupancyCount();
 }
 
 rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path,

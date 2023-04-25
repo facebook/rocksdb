@@ -153,7 +153,8 @@ class BlockBasedTable : public TableReader {
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
   // IO or iteration error.
-  Status Prefetch(const Slice* begin, const Slice* end) override;
+  Status Prefetch(const ReadOptions& read_options, const Slice* begin,
+                  const Slice* end) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -161,15 +162,16 @@ class BlockBasedTable : public TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  uint64_t ApproximateOffsetOf(const Slice& key,
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key,
                                TableReaderCaller caller) override;
 
   // Given start and end keys, return the approximate data size in the file
   // between the keys. The returned value is in terms of file bytes, and so
   // includes effects like compression of the underlying data.
   // The start key must not be greater than the end key.
-  uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                           TableReaderCaller caller) override;
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, TableReaderCaller caller) override;
 
   Status ApproximateKeyAnchors(const ReadOptions& read_options,
                                std::vector<Anchor>& anchors) override;
@@ -265,7 +267,8 @@ class BlockBasedTable : public TableReader {
 
   // Retrieve all key value pairs from data blocks in the table.
   // The key retrieved are internal keys.
-  Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
+  Status GetKVPairsFromDataBlocks(const ReadOptions& read_options,
+                                  std::vector<KVPairBlock>* kv_pair_blocks);
 
   struct Rep;
 
@@ -351,11 +354,22 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context, bool for_compaction,
       bool use_cache, bool async_read) const;
 
+  template <typename TBlocklike>
+  WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(
+      const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+      const TBlocklike* parsed_block_value,
+      BlockCacheLookupContext* lookup_context) const;
+
+  void FinishTraceRecord(const BlockCacheLookupContext& lookup_context,
+                         const Slice& block_key, const Slice& referenced_key,
+                         bool does_referenced_key_exist,
+                         uint64_t referenced_data_size) const;
+
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      Status* statuses, CachableEntry<Block>* results, char* scratch,
+      Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
       const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
@@ -429,13 +443,13 @@ class BlockBasedTable : public TableReader {
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) const;
+                             const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
@@ -466,7 +480,8 @@ class BlockBasedTable : public TableReader {
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
 
-  Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInMetaBlocks(const ReadOptions& read_options,
+                                    InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(const ReadOptions& read_options,
                                 InternalIteratorBase<IndexValue>* index_iter);
 
@@ -493,6 +508,8 @@ class BlockBasedTable : public TableReader {
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
+
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -594,6 +611,12 @@ struct BlockBasedTable::Rep {
   // the level when the table is opened, could potentially change when trivial
   // move is involved
   int level;
+
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.

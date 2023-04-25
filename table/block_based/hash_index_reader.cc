@@ -74,17 +74,17 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   // Read contents for the blocks
   BlockContents prefixes_contents;
   BlockFetcher prefixes_block_fetcher(
-      file, prefetch_buffer, footer, ReadOptions(), prefixes_handle,
-      &prefixes_contents, ioptions, true /*decompress*/,
-      true /*maybe_compressed*/, BlockType::kHashIndexPrefixes,
-      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
+      file, prefetch_buffer, footer, ro, prefixes_handle, &prefixes_contents,
+      ioptions, true /*decompress*/, true /*maybe_compressed*/,
+      BlockType::kHashIndexPrefixes, UncompressionDict::GetEmptyDict(),
+      cache_options, memory_allocator);
   s = prefixes_block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
   }
   BlockContents prefixes_meta_contents;
   BlockFetcher prefixes_meta_block_fetcher(
-      file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
+      file, prefetch_buffer, footer, ro, prefixes_meta_handle,
       &prefixes_meta_contents, ioptions, true /*decompress*/,
       true /*maybe_compressed*/, BlockType::kHashIndexMetadata,
       UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
@@ -116,9 +116,8 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
   const BlockBasedTable::Rep* rep = table()->get_rep();
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s =
-      GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
-                          get_context, lookup_context, &index_block);
+  const Status s = GetOrReadIndexBlock(no_io, get_context, lookup_context,
+                                       &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);

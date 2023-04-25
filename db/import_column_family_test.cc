@@ -294,6 +294,8 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
   ASSERT_OK(sfw_cf1.Put("K1", "V1"));
   ASSERT_OK(sfw_cf1.Put("K2", "V2"));
   ASSERT_OK(sfw_cf1.DeleteRange("K3", "K4"));
+  ASSERT_OK(sfw_cf1.DeleteRange("K7", "K9"));
+
   ASSERT_OK(sfw_cf1.Finish());
 
   // Import sst file corresponding to cf1 onto a new cf and verify
@@ -319,7 +321,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
   ASSERT_TRUE(file_meta != nullptr);
   InternalKey largest;
   largest.DecodeFrom(file_meta->largest);
-  ASSERT_EQ(largest.user_key(), "K4");
+  ASSERT_EQ(largest.user_key(), "K9");
 
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K1", &value));
@@ -628,22 +630,22 @@ TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {
   {
     // Create column family with existing cf name.
     ExportImportFilesMetaData metadata;
-
-    ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "koko",
-                                                ImportColumnFamilyOptions(),
-                                                metadata, &import_cfh_),
-              Status::InvalidArgument("Column family already exists"));
+    metadata.db_comparator_name = options.comparator->Name();
+    Status s = db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "koko",
+                                                 ImportColumnFamilyOptions(),
+                                                 metadata, &import_cfh_);
+    ASSERT_TRUE(std::strstr(s.getState(), "Column family already exists"));
     ASSERT_EQ(import_cfh_, nullptr);
   }
 
   {
     // Import with no files specified.
     ExportImportFilesMetaData metadata;
-
-    ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
-                                                ImportColumnFamilyOptions(),
-                                                metadata, &import_cfh_),
-              Status::InvalidArgument("The list of files is empty"));
+    metadata.db_comparator_name = options.comparator->Name();
+    Status s = db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                                 ImportColumnFamilyOptions(),
+                                                 metadata, &import_cfh_);
+    ASSERT_TRUE(std::strstr(s.getState(), "The list of files is empty"));
     ASSERT_EQ(import_cfh_, nullptr);
   }
 
@@ -693,10 +695,10 @@ TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {
         LiveFileMetaDataInit(file1_sst_name, sst_files_dir_, 1, 10, 19));
     metadata.db_comparator_name = mismatch_options.comparator->Name();
 
-    ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "coco",
-                                                ImportColumnFamilyOptions(),
-                                                metadata, &import_cfh_),
-              Status::InvalidArgument("Comparator name mismatch"));
+    Status s = db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "coco",
+                                                 ImportColumnFamilyOptions(),
+                                                 metadata, &import_cfh_);
+    ASSERT_TRUE(std::strstr(s.getState(), "Comparator name mismatch"));
     ASSERT_EQ(import_cfh_, nullptr);
   }
 
@@ -718,10 +720,10 @@ TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {
         LiveFileMetaDataInit(file3_sst_name, sst_files_dir_, 1, 10, 19));
     metadata.db_comparator_name = options.comparator->Name();
 
-    ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
-                                                ImportColumnFamilyOptions(),
-                                                metadata, &import_cfh_),
-              Status::IOError("No such file or directory"));
+    Status s = db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                                 ImportColumnFamilyOptions(),
+                                                 metadata, &import_cfh_);
+    ASSERT_TRUE(std::strstr(s.getState(), "No such file or directory"));
     ASSERT_EQ(import_cfh_, nullptr);
 
     // Test successful import after a failure with the same CF name. Ensures

@@ -128,6 +128,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"persist_user_defined_timestamps", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -269,6 +270,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -2161,7 +2163,7 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(table_opt, nullptr);
 
-  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 8UL << 20);
+  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 32UL << 20);
   ASSERT_EQ(table_opt->block_size, leveldb_opt.block_size);
   ASSERT_EQ(table_opt->block_restart_interval,
             leveldb_opt.block_restart_interval);
@@ -2320,6 +2322,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"persist_user_defined_timestamps", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2459,6 +2462,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
@@ -3923,6 +3927,36 @@ class OptionsSanityCheckTest : public OptionsParserTest,
   const std::string kOptionsFileName = "OPTIONS";
 };
 
+TEST_P(OptionsSanityCheckTest, MergeOperatorErrorMessage) {
+  ColumnFamilyOptions opts;
+  Random rnd(301);
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  std::string merge_op_name = opts.merge_operator->Name();
+  ASSERT_OK(PersistCFOptions(opts));
+
+  // Test when going from merge operator -> nullptr
+  opts.merge_operator = nullptr;
+  Status s =
+      SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  std::string err_msg = s.ToString();
+  std::string specified = "The specified one is " + kNullptrString;
+  std::string persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+
+  // Test when using a different merge operator
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  s = SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  err_msg = s.ToString();
+  specified =
+      "The specified one is " + std::string(opts.merge_operator->Name());
+  persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+}
+
 TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;
   Random rnd(301);
@@ -4067,6 +4101,30 @@ TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
       ASSERT_OK(PersistCFOptions(opts));
       SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
+  }
+
+  // persist_user_defined_timestamps
+  {
+    // Test change from true to false not allowed in loose and exact mode.
+    opts.persist_user_defined_timestamps = false;
+    ASSERT_NOK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
+
+    // Test change from false to true not allowed in loose and exact mode.
+    opts.persist_user_defined_timestamps = true;
+    ASSERT_NOK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
   }
 }
 

@@ -126,8 +126,10 @@ Status PlainTableReader::Open(
   }
 
   std::unique_ptr<TableProperties> props;
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props);
+                               ioptions, read_options, &props);
   if (!s.ok()) {
     return s;
   }
@@ -297,10 +299,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   assert(props != nullptr);
 
   BlockContents index_block_contents;
-  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
-                           file_size_, kPlainTableMagicNumber, ioptions_,
-                           PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           BlockType::kIndex, &index_block_contents);
+
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  Status s =
+      ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                    file_size_, kPlainTableMagicNumber, ioptions_, read_options,
+                    PlainTableIndexBuilder::kPlainTableIndexBlock,
+                    BlockType::kIndex, &index_block_contents);
 
   bool index_in_file = s.ok();
 
@@ -310,8 +316,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   if (index_in_file) {
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
-                      BloomBlockBuilder::kBloomBlock, BlockType::kFilter,
-                      &bloom_block_contents);
+                      read_options, BloomBlockBuilder::kBloomBlock,
+                      BlockType::kFilter, &bloom_block_contents);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 
@@ -614,12 +620,14 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   return Status::OK();
 }
 
-uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/,
-                                               TableReaderCaller /*caller*/) {
+uint64_t PlainTableReader::ApproximateOffsetOf(
+    const ReadOptions& /*read_options*/, const Slice& /*key*/,
+    TableReaderCaller /*caller*/) {
   return 0;
 }
 
-uint64_t PlainTableReader::ApproximateSize(const Slice& /*start*/,
+uint64_t PlainTableReader::ApproximateSize(const ReadOptions& /* read_options*/,
+                                           const Slice& /*start*/,
                                            const Slice& /*end*/,
                                            TableReaderCaller /*caller*/) {
   return 0;

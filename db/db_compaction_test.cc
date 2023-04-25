@@ -136,11 +136,12 @@ class DBCompactionTestWithParam
 
 class DBCompactionTestWithBottommostParam
     : public DBTestBase,
-      public testing::WithParamInterface<BottommostLevelCompaction> {
+      public testing::WithParamInterface<
+          std::tuple<BottommostLevelCompaction, bool>> {
  public:
   DBCompactionTestWithBottommostParam()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
-    bottommost_level_compaction_ = GetParam();
+    bottommost_level_compaction_ = std::get<0>(GetParam());
   }
 
   BottommostLevelCompaction bottommost_level_compaction_;
@@ -5509,8 +5510,9 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   for (int n = 0; n < options.level0_file_num_compaction_trigger; n++) {
     for (unsigned int cf = 0; cf < cf_count; cf++) {
+      // All L0s should overlap with each other
       for (int i = 0; i < kNumKeysPerFile; i++) {
-        ASSERT_OK(Put(cf, Key(keyIndex++), ""));
+        ASSERT_OK(Put(cf, Key(i), ""));
       }
       // put extra key to trigger flush
       ASSERT_OK(Put(cf, "", ""));
@@ -7338,10 +7340,63 @@ TEST_P(DBCompactionTestL0FilesMisorderCorruptionWithParam,
   Destroy(options_);
 }
 
+TEST_F(DBCompactionTest, SingleLevelUniveresal) {
+  // Tests that manual compaction works with single level universal compaction.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.num_levels = 1;
+  DestroyAndReopen(options);
+
+  Random rnd(31);
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 50; ++j) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(50)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+}
+
+TEST_F(DBCompactionTest, SingleOverlappingNonL0BottommostManualCompaction) {
+  // Tests that manual compact will rewrite bottommost level
+  // when there is only a single non-L0 level that overlaps with
+  // manual compaction range.
+  constexpr int kSstNum = 10;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+  for (auto b : {BottommostLevelCompaction::kForce,
+                 BottommostLevelCompaction::kForceOptimized}) {
+    DestroyAndReopen(options);
+
+    // Generate some sst files on level 0 with sequence keys (no overlap)
+    for (int i = 0; i < kSstNum; i++) {
+      for (int j = 1; j < UCHAR_MAX; j++) {
+        auto key = std::string(kSstNum, '\0');
+        key[kSstNum - i] += static_cast<char>(j);
+        ASSERT_OK(Put(key, std::string(i % 1000, 'A')));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(4);
+    ASSERT_EQ(NumTableFilesAtLevel(4), kSstNum);
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = b;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    ASSERT_EQ(NumTableFilesAtLevel(4), 1);
+  }
+}
+
 TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
   constexpr int kSstNum = 10;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.num_levels = 7;
+  const bool dynamic_level = std::get<1>(GetParam());
+  options.level_compaction_dynamic_level_bytes = dynamic_level;
   DestroyAndReopen(options);
 
   // Generate some sst files on level 0 with sequence keys (no overlap)
@@ -7359,25 +7414,42 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
 
   auto cro = CompactRangeOptions();
   cro.bottommost_level_compaction = bottommost_level_compaction_;
+  bool trivial_moved = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* /*arg*/) { trivial_moved = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // All bottommost_level_compaction options should allow l0 -> l1 trivial move.
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_TRUE(trivial_moved);
   if (bottommost_level_compaction_ == BottommostLevelCompaction::kForce ||
       bottommost_level_compaction_ ==
           BottommostLevelCompaction::kForceOptimized) {
-    // Real compaction to compact all sst files from level 0 to 1 file on level
-    // 1
-    ASSERT_EQ("0,1", FilesPerLevel(0));
+    // bottommost level should go through intra-level compaction
+    // and has only 1 file
+    if (dynamic_level) {
+      ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
+    } else {
+      ASSERT_EQ("0,1", FilesPerLevel(0));
+    }
   } else {
-    // Just trivial move from level 0 -> 1
-    ASSERT_EQ("0," + std::to_string(kSstNum), FilesPerLevel(0));
+    // Just trivial move from level 0 -> 1/base
+    if (dynamic_level) {
+      ASSERT_EQ("0,0,0,0,0,0," + std::to_string(kSstNum), FilesPerLevel(0));
+    } else {
+      ASSERT_EQ("0," + std::to_string(kSstNum), FilesPerLevel(0));
+    }
   }
 }
 
 INSTANTIATE_TEST_CASE_P(
     DBCompactionTestWithBottommostParam, DBCompactionTestWithBottommostParam,
-    ::testing::Values(BottommostLevelCompaction::kSkip,
-                      BottommostLevelCompaction::kIfHaveCompactionFilter,
-                      BottommostLevelCompaction::kForce,
-                      BottommostLevelCompaction::kForceOptimized));
+    ::testing::Combine(
+        ::testing::Values(BottommostLevelCompaction::kSkip,
+                          BottommostLevelCompaction::kIfHaveCompactionFilter,
+                          BottommostLevelCompaction::kForce,
+                          BottommostLevelCompaction::kForceOptimized),
+        ::testing::Bool()));
 
 TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
   Options options = CurrentOptions();
@@ -9118,11 +9190,19 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytes) {
   options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 6;
   options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 1 << 20;
+  options.max_bytes_for_level_multiplier = 10;
   DestroyAndReopen(options);
 
   // put files in L0, L1 and L2
   WriteOptions write_opts;
   ASSERT_OK(db_->Put(write_opts, Key(1), "val1"));
+  Random rnd(33);
+  // Fill L2 with size larger than max_bytes_for_level_base,
+  // so the level above it won't be drained.
+  for (int i = 2; i <= (1 << 10); ++i) {
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(2 << 10)));
+  }
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
   ASSERT_OK(db_->Put(write_opts, Key(2), "val2"));
@@ -9157,63 +9237,11 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytes) {
   // newly flushed file is also pushed down
   options.level_compaction_dynamic_level_bytes = true;
   Reopen(options);
-  ASSERT_EQ("0,0,0,1,1,2", FilesPerLevel());
-  verify_db();
-}
-
-TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesIngestBehind) {
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleLevel;
-  options.allow_ingest_behind = true;
-  options.level_compaction_dynamic_level_bytes = false;
-  options.num_levels = 6;
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-
-  // put files in L0, L1 and L2
-  WriteOptions write_opts;
-  ASSERT_OK(db_->Put(write_opts, Key(1), "val1"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(db_->Put(write_opts, Key(2), "val2"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(db_->Put(write_opts, Key(1), "new_val1"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
-  ASSERT_OK(db_->Put(write_opts, Key(3), "val3"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("1,1,2", FilesPerLevel());
-  auto verify_db = [&]() {
-    ASSERT_EQ(Get(Key(1)), "new_val1");
-    ASSERT_EQ(Get(Key(2)), "val2");
-    ASSERT_EQ(Get(Key(3)), "val3");
-  };
-  verify_db();
-
-  options.level_compaction_dynamic_level_bytes = true;
-  Reopen(options);
-  // note that last level (L6) should be empty
-  ASSERT_EQ("1,0,0,1,2", FilesPerLevel());
-  verify_db();
-
-  // turning the options on and off should both be safe
-  options.level_compaction_dynamic_level_bytes = false;
-  Reopen(options);
-  MoveFilesToLevel(1);
-  ASSERT_EQ("0,1,0,1,2", FilesPerLevel());
-  verify_db();
-
-  // newly flushed file is also pushed down
-  options.level_compaction_dynamic_level_bytes = true;
-  Reopen(options);
-  ASSERT_EQ("0,0,1,1,2", FilesPerLevel());
-  verify_db();
-
-  // files will be pushed down to last level (L6)
-  options.allow_ingest_behind = false;
-  Reopen(options);
-  ASSERT_EQ("0,0,0,1,1,2", FilesPerLevel());
+  // Files in L1 should be trivially moved down during DB opening.
+  // The file should be moved to L3, and then may be drained and compacted to
+  // L4. So we just check L1 and L2 here.
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
   verify_db();
 }
 
@@ -9251,6 +9279,138 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   // Tests that entries for trial move in MANIFEST should be valid
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(expected_lsm, FilesPerLevel(1));
+}
+
+TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterMultiplierChanged) {
+  // When the level size multiplier increases such that fewer levels become
+  // necessary, unnecessary levels should to be drained.
+  const int kBaseLevelBytes = 256 << 10;  // 256KB
+  const int kFileBytes = 64 << 10;        // 64KB
+  const int kInitMultiplier = 2, kChangedMultiplier = 10;
+  const int kNumFiles = 32;
+  const int kNumLevels = 5;
+  const int kValueBytes = 1 << 10;  // 1KB
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = kBaseLevelBytes;
+  options.max_bytes_for_level_multiplier = kInitMultiplier;
+  options.num_levels = kNumLevels;
+  Reopen(options);
+
+  // Initially we setup the LSM to look roughly as follows:
+  //
+  // L0: empty
+  // L1: 256KB
+  // ...
+  // L4: 1MB
+  Random rnd(301);
+  for (int file = 0; file < kNumFiles; ++file) {
+    for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
+      ASSERT_OK(Put(Key(file * kFileBytes / kValueBytes + i),
+                    rnd.RandomString(kValueBytes)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  int init_num_nonempty = 0;
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++init_num_nonempty;
+    }
+  }
+
+  // After increasing the multiplier and running compaction fewer levels are
+  // needed to hold all the data. Unnecessary levels should be drained.
+  ASSERT_OK(db_->SetOptions({{"max_bytes_for_level_multiplier",
+                              std::to_string(kChangedMultiplier)}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  int final_num_nonempty = 0;
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++final_num_nonempty;
+    }
+  }
+  ASSERT_GT(init_num_nonempty, final_num_nonempty);
+}
+
+TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
+  // When the DB size is smaller, e.g., large chunk of data deleted by
+  // DeleteRange(), unnecessary levels should to be drained.
+  const int kBaseLevelBytes = 256 << 10;  // 256KB
+  const int kFileBytes = 64 << 10;        // 64KB
+  const int kMultiplier = 2;
+  const int kNumFiles = 32;
+  const int kNumLevels = 5;
+  const int kValueBytes = 1 << 10;  // 1KB
+  const int kDeleteFileNum = 8;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = kBaseLevelBytes;
+  options.max_bytes_for_level_multiplier = kMultiplier;
+  options.num_levels = kNumLevels;
+  Reopen(options);
+
+  // Initially we setup the LSM to look roughly as follows:
+  //
+  // L0: empty
+  // L1: 256KB
+  // ...
+  // L4: 1MB
+  Random rnd(301);
+  for (int file = 0; file < kNumFiles; ++file) {
+    for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
+      ASSERT_OK(Put(Key(file * kFileBytes / kValueBytes + i),
+                    rnd.RandomString(kValueBytes)));
+    }
+    ASSERT_OK(Flush());
+    if (file == kDeleteFileNum) {
+      // Ensure the DeleteRange() call below only delete data from last level
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      ASSERT_EQ(NumTableFilesAtLevel(kNumLevels - 1), kDeleteFileNum + 1);
+    }
+  }
+
+  int init_num_nonempty = 0;
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++init_num_nonempty;
+    }
+  }
+
+  // Disable auto compaction CompactRange() below
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "true"}}));
+  // Delete keys within first (kDeleteFileNum + 1) files' key ranges.
+  // This should reduce DB size enough such that there is now
+  // an unneeded level.
+  std::string begin = Key(0);
+  std::string end = Key(kDeleteFileNum * kFileBytes / kValueBytes);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), begin, end));
+  Slice begin_slice = begin;
+  Slice end_slice = end;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_slice, &end_slice));
+  int after_delete_range_nonempty = 0;
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++after_delete_range_nonempty;
+    }
+  }
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  int final_num_nonempty = 0;
+  for (int level = 1; level < kNumLevels; ++level) {
+    if (NumTableFilesAtLevel(level) > 0) {
+      ++final_num_nonempty;
+    }
+  }
+  ASSERT_GE(init_num_nonempty, after_delete_range_nonempty);
+  ASSERT_GT(after_delete_range_nonempty, final_num_nonempty);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
