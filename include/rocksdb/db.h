@@ -1768,6 +1768,9 @@ class DB {
   // Returns OK on success, and a non-OK status on error.
   // Any entries outside this range will be completely deleted (including
   // tombstones).
+  // The main difference between ClipDB(begin, end) and DeleteRange(begin, end)
+  // is that the former physically deletes all keys outside the range, but is
+  // more heavyweight than the latter.
   // This feature is mainly used to ensure that there is no overlapping Key when
   // calling
   // CreateColumnFamilyWithImports() to import multiple CFs.

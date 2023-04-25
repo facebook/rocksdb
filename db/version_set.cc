@@ -1828,6 +1828,8 @@ uint64_t Version::GetSstFilesSize() {
 
 void Version::GetSstFilesBoundaryKeys(Slice* smallest_user_key,
                                       Slice* largest_user_key) {
+  smallest_user_key->clear();
+  largest_user_key->clear();
   bool initialized = false;
   const Comparator* ucmp = storage_info_.user_comparator_;
   for (int level = 0; level < cfd_->NumberLevels(); level++) {
