@@ -97,12 +97,22 @@ size_t JemallocNodumpAllocator::UsableSize(void* p,
 }
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
-  thread_local Random tl_rng(static_cast<uint32_t>(size) /* seed */);
+  // `size` is used as a source of entropy to initialize each thread's arena
+  // selection.
+  thread_local uint32_t tl_rng_seed = static_cast<uint32_t>(size);
+
   int tcache_flag = GetThreadSpecificCache(size);
-  return mallocx(
-      size, MALLOCX_ARENA(
-                arena_indexes_[tl_rng.Next() & ((1 << kLog2NumArenas) - 1)]) |
-                tcache_flag);
+
+  // `tl_rng_seed` is used directly for arena selection and updated afterwards
+  // in order to avoid a close data dependency.
+  void* ret = mallocx(
+      size,
+      MALLOCX_ARENA(arena_indexes_[tl_rng_seed & ((1 << kLog2NumArenas) - 1)]) |
+          tcache_flag);
+  Random rng(tl_rng_seed);
+  tl_rng_seed = rng.Next();
+
+  return ret;
 }
 
 void JemallocNodumpAllocator::Deallocate(void* p) {
