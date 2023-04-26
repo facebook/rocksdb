@@ -32,6 +32,7 @@ Status NewJemallocNodumpAllocator(
   }
 #ifndef ROCKSDB_JEMALLOC
   (void)options;
+  (void)num_arenas;
   return Status::NotSupported("Not compiled with JEMALLOC");
 #else
   std::unique_ptr<MemoryAllocator> allocator;
