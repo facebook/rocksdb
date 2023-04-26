@@ -67,7 +67,7 @@ Status NewJemallocNodumpAllocator(
       break;
     default:
       return Status::InvalidArgument(
-          "log2_num_arenas must be between 0 and 8, inclusive");
+          "num_arenas must be a power of two between 1 and 64, inclusive");
   }
   Status s = allocator->PrepareOptions(ConfigOptions());
   if (s.ok()) {
