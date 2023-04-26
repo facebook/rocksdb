@@ -701,6 +701,8 @@ class Repairer {
         edit.SetColumnFamily(cfd->GetID());
         for (int level = 0; level < dummy_vstorage.num_levels(); ++level) {
           for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+            // TODO(yuzhangyu): Handle the file boundaries for this repair path
+            // when UDTs in memtable only.
             edit.AddFile(level, *file_meta);
           }
         }

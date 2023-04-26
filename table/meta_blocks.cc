@@ -33,7 +33,10 @@ const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
 const std::string kRangeDelBlockName = "rocksdb.range_del";
 
 MetaIndexBuilder::MetaIndexBuilder()
-    : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
+    : meta_index_block_(new BlockBuilder(
+          1 /* restart interval */, 0 /* ts_sz */,
+          true /* persist_user_defined_timestmaps */, true /* is_user_key */)) {
+}
 
 void MetaIndexBuilder::Add(const std::string& key, const BlockHandle& handle) {
   std::string handle_encoding;

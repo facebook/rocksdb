@@ -1432,9 +1432,11 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
-    DataBlockIter* input_iter, bool block_contents_pinned) {
+    DataBlockIter* input_iter, bool user_defined_timestamps_persisted,
+    bool block_contents_pinned) {
   return block->NewDataIterator(rep->internal_comparator.user_comparator(),
-                                rep->get_global_seqno(block_type), input_iter,
+                                rep->get_global_seqno(block_type),
+                                user_defined_timestamps_persisted, input_iter,
                                 rep->ioptions.stats, block_contents_pinned);
 }
 
@@ -1442,13 +1444,14 @@ DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
 template <>
 IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
-    IndexBlockIter* input_iter, bool block_contents_pinned) {
+    IndexBlockIter* input_iter, bool user_defined_timestamps_persisted,
+    bool block_contents_pinned) {
   return block->NewIndexIterator(
       rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(block_type), input_iter, rep->ioptions.stats,
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
-      block_contents_pinned);
+      user_defined_timestamps_persisted, block_contents_pinned);
 }
 
 // If contents is nullptr, this function looks up the block caches for the
@@ -1775,7 +1778,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
       rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
       rep->index_has_first_key, rep->index_key_includes_seq,
-      rep->index_value_is_full);
+      rep->index_value_is_full, rep->ioptions.persist_user_defined_timestamps);
 }
 
 // This will be broken if the user specifies an unusual implementation

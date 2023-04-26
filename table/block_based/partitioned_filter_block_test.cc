@@ -112,7 +112,8 @@ class PartitionedFilterBlockTest
   PartitionedIndexBuilder* NewIndexBuilder() {
     const bool kValueDeltaEncoded = true;
     return PartitionedIndexBuilder::CreateIndexBuilder(
-        &icomp_, !kValueDeltaEncoded, table_options_);
+        &icomp_, true /*persist_user_defined_timestamps */, !kValueDeltaEncoded,
+        table_options_);
   }
 
   PartitionedFilterBlockBuilder* NewBuilder(
@@ -130,7 +131,8 @@ class PartitionedFilterBlockTest
         prefix_extractor, table_options_.whole_key_filtering,
         BloomFilterPolicy::GetBuilderFromContext(
             FilterBuildingContext(table_options_)),
-        table_options_.index_block_restart_interval, !kValueDeltaEncoded,
+        table_options_.index_block_restart_interval, 0 /* ts_sz */,
+        true /* persist_user_defined_timestamps */, !kValueDeltaEncoded,
         p_index_builder, partition_size);
   }
 

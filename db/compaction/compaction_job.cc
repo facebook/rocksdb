@@ -1513,6 +1513,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   s = outputs.Finish(s, seqno_time_mapping_);
 
   if (s.ok()) {
+    // TODO(yuzhangyu): figure out the implication for oldest_ancester_time when
+    // timestamp is stripped away from user key.
     // With accurate smallest and largest key, we can get a slightly more
     // accurate oldest ancester time.
     // This makes oldest ancester time in manifest more accurate than in

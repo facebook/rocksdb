@@ -23,7 +23,9 @@ class BlockBuilder {
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(int block_restart_interval,
+  explicit BlockBuilder(int block_restart_interval, size_t ts_sz = 0,
+                        bool persist_user_defined_timestamps = true,
+                        bool is_user_key = false,
                         bool use_delta_encoding = true,
                         bool use_value_delta_encoding = false,
                         BlockBasedTableOptions::DataBlockIndexType index_type =
@@ -83,7 +85,18 @@ class BlockBuilder {
                                  const Slice* const delta_value,
                                  size_t buffer_size);
 
+  inline const Slice MaybeStripTimestampFromKey(std::string* key_buf,
+                                                const Slice& key);
+
   const int block_restart_interval_;
+  // size in bytes for the user-defined timestamp in user key
+  const size_t ts_sz_;
+  // whether the user-defined timestamp part in user keys should be persisted.
+  // If false, it will be stripped from the key before it's encoded.
+  const bool persist_user_defined_timestamps_;
+  // whether the keys provided to build this block are all user keys. If not,
+  // the keys are internal keys.
+  const bool is_user_key_;
   // TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool use_delta_encoding_;
   // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values

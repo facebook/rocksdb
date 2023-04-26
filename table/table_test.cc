@@ -337,7 +337,8 @@ class BlockConstructor : public Constructor {
     // `KeyConvertingIterator` converts them to user keys before they are
     // exposed to the `BlockConstructor` clients.
     return new KeyConvertingIterator(
-        block_->NewDataIterator(comparator_, kDisableGlobalSequenceNumber));
+        block_->NewDataIterator(comparator_, kDisableGlobalSequenceNumber,
+                                true /* user_defined_timestamps_persisted */));
   }
 
  private:
@@ -5067,7 +5068,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-        BytewiseComparator(), kDisableGlobalSequenceNumber));
+        BytewiseComparator(), kDisableGlobalSequenceNumber,
+        true /* user_defined_timestamps_persisted */));
 
     // -- Read properties block
     BlockHandle properties_handle;

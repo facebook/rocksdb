@@ -204,6 +204,65 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
   ASSERT_LT(cmp.Compare(t.SerializeEndKey(), k), 0);
 }
 
+TEST_F(FormatTest, PadInternalKeyWithMinTimestamp) {
+  std::string orig_user_key = "foo";
+  std::string orig_internal_key = IKey(orig_user_key, 100, kTypeValue);
+  size_t ts_sz = 8;
+
+  std::string key_buf;
+  PadInternalKeyWithMinTimestamp(&key_buf, orig_internal_key, ts_sz);
+  ParsedInternalKey key_with_timestamp;
+  Slice in(key_buf);
+  ASSERT_OK(ParseInternalKey(in, &key_with_timestamp, true /*log_err_key*/));
+
+  std::string min_timestamp(ts_sz, static_cast<unsigned char>(0));
+  ASSERT_TRUE(key_with_timestamp.user_key.starts_with(orig_user_key));
+  ASSERT_TRUE(key_with_timestamp.user_key.ends_with(min_timestamp));
+  ASSERT_EQ(orig_user_key.size() + ts_sz, key_with_timestamp.user_key.size());
+  ASSERT_EQ(100, key_with_timestamp.sequence);
+  ASSERT_EQ(kTypeValue, key_with_timestamp.type);
+}
+
+TEST_F(FormatTest, StripTimestampFromInternalKey) {
+  std::string orig_user_key = "foo";
+  size_t ts_sz = 8;
+  std::string timestamp(ts_sz, static_cast<unsigned char>(0));
+  orig_user_key.append(timestamp.data(), timestamp.size());
+  std::string orig_internal_key = IKey(orig_user_key, 100, kTypeValue);
+
+  std::string key_buf;
+  StripTimestampFromInternalKey(&key_buf, orig_internal_key, ts_sz);
+  ParsedInternalKey key_without_timestamp;
+  Slice in(key_buf);
+  ASSERT_OK(ParseInternalKey(in, &key_without_timestamp, true /*log_err_key*/));
+
+  ASSERT_EQ("foo", key_without_timestamp.user_key);
+  ASSERT_EQ(100, key_without_timestamp.sequence);
+  ASSERT_EQ(kTypeValue, key_without_timestamp.type);
+}
+
+TEST_F(FormatTest, ReplaceInternalKeyWithMinTimestamp) {
+  std::string orig_user_key = "foo";
+  size_t ts_sz = 8;
+  std::string orig_timestamp("1", ts_sz);
+  orig_user_key.append(orig_timestamp.data(), orig_timestamp.size());
+  std::string orig_internal_key = IKey(orig_user_key, 100, kTypeValue);
+
+  std::string key_buf;
+  ReplaceInternalKeyWithMinTimestamp(&key_buf, orig_internal_key, ts_sz);
+  ParsedInternalKey new_key;
+  Slice in(key_buf);
+  ASSERT_OK(ParseInternalKey(in, &new_key, true /*log_err_key*/));
+
+  std::string min_timestamp(ts_sz, static_cast<unsigned char>(0));
+  size_t ukey_diff_offset = new_key.user_key.difference_offset(orig_user_key);
+  ASSERT_EQ(0, Slice(new_key.user_key.data() + ukey_diff_offset, ts_sz)
+                   .compare(min_timestamp));
+  ASSERT_EQ(new_key.user_key.size(), orig_user_key.size());
+  ASSERT_EQ(100, new_key.sequence);
+  ASSERT_EQ(kTypeValue, new_key.type);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

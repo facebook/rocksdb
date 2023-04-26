@@ -38,8 +38,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
   // complexity: human readable strings are easier to compress than random
   // strings.
   static std::map<std::string, std::string> GenerateKVMap(
-      int num_block = 100,
-      bool mixed_with_human_readable_string_value = false) {
+      int num_block = 100, bool mixed_with_human_readable_string_value = false,
+      size_t ts_sz = 0) {
     std::map<std::string, std::string> kv;
 
     Random rnd(101);
@@ -58,7 +58,13 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         } else {
           v = rnd.RandomString(256);
         }
-        kv[std::string(k)] = v;
+        if (ts_sz > 0) {
+          std::string user_key;
+          AppendKeyWithMinTimestamp(&user_key, std::string(k), ts_sz);
+          kv[user_key] = v;
+        } else {
+          kv[std::string(k)] = v;
+        }
         key++;
       }
     }
@@ -80,14 +86,13 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
 
   // Creates a table with the specificied key value pairs (kv).
   void CreateTable(const std::string& table_name,
+                   const ImmutableOptions& ioptions,
                    const CompressionType& compression_type,
                    const std::map<std::string, std::string>& kv) {
     std::unique_ptr<WritableFileWriter> writer;
     NewFileWriter(table_name, &writer);
 
-    // Create table builder.
-    ImmutableOptions ioptions(options_);
-    InternalKeyComparator comparator(options_.comparator);
+    InternalKeyComparator comparator(ioptions.user_comparator);
     ColumnFamilyOptions cf_options;
     MutableCFOptions moptions(cf_options);
     IntTblPropCollectorFactories factories;
@@ -182,12 +187,16 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
 
 class BlockBasedTableReaderTest
     : public BlockBasedTableReaderBaseTest,
-      public testing::WithParamInterface<std::tuple<
-          CompressionType, bool, BlockBasedTableOptions::IndexType, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<CompressionType, bool, BlockBasedTableOptions::IndexType,
+                     bool, test::UserDefinedTimestampTestMode>> {
  protected:
   void SetUp() override {
     compression_type_ = std::get<0>(GetParam());
     use_direct_reads_ = std::get<1>(GetParam());
+    test::UserDefinedTimestampTestMode udt_test_mode = std::get<4>(GetParam());
+    udt_enabled_ = test::IsUDTEnabled(udt_test_mode);
+    persist_udt_ = test::ShouldPersistUDT(udt_test_mode);
     BlockBasedTableReaderBaseTest::SetUp();
   }
 
@@ -195,24 +204,41 @@ class BlockBasedTableReaderTest
     BlockBasedTableOptions opts;
     opts.index_type = std::get<2>(GetParam());
     opts.no_block_cache = std::get<3>(GetParam());
+    opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    opts.partition_filters =
+        opts.index_type ==
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
     options_.table_factory.reset(
         static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
   CompressionType compression_type_;
   bool use_direct_reads_;
+  bool udt_enabled_;
+  bool persist_udt_;
 };
 
 // Tests MultiGet in both direct IO and non-direct IO mode.
 // The keys should be in cache after MultiGet.
 TEST_P(BlockBasedTableReaderTest, MultiGet) {
+  Options options;
+  ReadOptions read_opts;
+  std::string dummy_ts(sizeof(uint64_t), '\0');
+  Slice read_timestamp = dummy_ts;
+  if (udt_enabled_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    options.persist_user_defined_timestamps = persist_udt_;
+    read_opts.timestamp = &read_timestamp;
+  }
+  size_t ts_sz = options.comparator->timestamp_size();
   std::map<std::string, std::string> kv =
       BlockBasedTableReaderBaseTest::GenerateKVMap(
           100 /* num_block */,
-          true /* mixed_with_human_readable_string_value */);
+          true /* mixed_with_human_readable_string_value */, ts_sz);
 
   // Prepare keys, values, and statuses for MultiGet.
   autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys;
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys_without_timestamps;
   autovector<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> values;
   autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
   {
@@ -221,6 +247,12 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
     auto it = kv.begin();
     for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE; i++) {
       keys.emplace_back(it->first);
+      if (ts_sz > 0) {
+        Slice ukey_without_ts = StripTimestampFromUserKey(it->first, ts_sz);
+        keys_without_timestamps.push_back(ukey_without_ts);
+      } else {
+        keys_without_timestamps.emplace_back(it->first);
+      }
       values.emplace_back();
       statuses.emplace_back();
       std::advance(it, step);
@@ -229,11 +261,11 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
   std::string table_name =
       "BlockBasedTableReaderTest" + CompressionTypeToString(compression_type_);
-  CreateTable(table_name, compression_type_, kv);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv);
 
   std::unique_ptr<BlockBasedTable> table;
-  Options options;
-  ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
@@ -241,7 +273,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
   // Ensure that keys are not in cache before MultiGet.
   for (auto& key : keys) {
-    ASSERT_FALSE(table->TEST_KeyInCache(ReadOptions(), key));
+    ASSERT_FALSE(table->TEST_KeyInCache(read_opts, key));
   }
 
   // Prepare MultiGetContext.
@@ -249,26 +281,26 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   for (size_t i = 0; i < keys.size(); ++i) {
-    get_context.emplace_back(BytewiseComparator(), nullptr, nullptr, nullptr,
+    get_context.emplace_back(options.comparator, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, keys[i], &values[i],
                              nullptr, nullptr, nullptr, nullptr,
                              true /* do_merge */, nullptr, nullptr, nullptr,
                              nullptr, nullptr, nullptr);
-    key_context.emplace_back(nullptr, keys[i], &values[i], nullptr, nullptr,
-                             &statuses.back());
+    key_context.emplace_back(nullptr, keys_without_timestamps[i], &values[i],
+                             nullptr, nullptr, &statuses.back());
     key_context.back().get_context = &get_context.back();
   }
   for (auto& key_ctx : key_context) {
     sorted_keys.emplace_back(&key_ctx);
   }
-  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, ReadOptions(),
+  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, read_opts,
                       fs_.get(), nullptr);
 
   // Execute MultiGet.
   MultiGetContext::Range range = ctx.GetMultiGetRange();
   PerfContext* perf_ctx = get_perf_context();
   perf_ctx->Reset();
-  table->MultiGet(ReadOptions(), &range, nullptr);
+  table->MultiGet(read_opts, &range, nullptr);
 
   ASSERT_GE(perf_ctx->block_read_count - perf_ctx->index_block_read_count -
                 perf_ctx->filter_block_read_count -
@@ -281,7 +313,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   }
   // Check that keys are in cache after MultiGet.
   for (size_t i = 0; i < keys.size(); i++) {
-    ASSERT_TRUE(table->TEST_KeyInCache(ReadOptions(), keys[i]));
+    ASSERT_TRUE(table->TEST_KeyInCache(read_opts, keys[i]));
     ASSERT_EQ(values[i].ToString(), kv[keys[i].ToString()]);
   }
 }
@@ -374,7 +406,8 @@ class ChargeTableReaderTest
     std::size_t approx_table_reader_mem = 0;
 
     std::string table_name = "table_for_approx_table_reader_mem";
-    CreateTable(table_name, compression_type_, kv_);
+    ImmutableOptions ioptions(options_);
+    CreateTable(table_name, ioptions, compression_type_, kv_);
 
     std::unique_ptr<BlockBasedTable> table;
     Status s;
@@ -424,13 +457,14 @@ TEST_P(ChargeTableReaderTest, Basic) {
   std::size_t opened_table_reader_num = 0;
   std::string table_name;
   std::vector<std::unique_ptr<BlockBasedTable>> tables;
+  ImmutableOptions ioptions(options_);
   // Keep creating BlockBasedTableReader till hiting the memory limit based on
   // cache capacity and creation fails (when charge_table_reader_ ==
   // kEnabled) or reaching a specfied big number of table readers (when
   // charge_table_reader_ == kDisabled)
   while (s.ok() && opened_table_reader_num < max_table_reader_num_uncapped) {
     table_name = "table_" + std::to_string(opened_table_reader_num);
-    CreateTable(table_name, compression_type_, kv_);
+    CreateTable(table_name, ioptions, compression_type_, kv_);
     tables.push_back(std::unique_ptr<BlockBasedTable>());
     NewBlockBasedTableReader(
         FileOptions(), ImmutableOptions(options_),
@@ -465,7 +499,7 @@ TEST_P(ChargeTableReaderTest, Basic) {
       --opened_table_reader_num;
     }
     table_name = "table_for_successful_table_reader_open";
-    CreateTable(table_name, compression_type_, kv_);
+    CreateTable(table_name, ioptions, compression_type_, kv_);
     tables.push_back(std::unique_ptr<BlockBasedTable>());
     NewBlockBasedTableReader(
         FileOptions(), ImmutableOptions(options_),
@@ -491,16 +525,27 @@ class BlockBasedTableReaderTestVerifyChecksum
 };
 
 TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
+  Options options;
+  ReadOptions read_opts;
+  std::string dummy_ts(sizeof(uint64_t), '\0');
+  Slice read_timestamp = dummy_ts;
+  if (udt_enabled_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    options.persist_user_defined_timestamps = persist_udt_;
+    read_opts.timestamp = &read_timestamp;
+  }
+  size_t ts_sz = options.comparator->timestamp_size();
   std::map<std::string, std::string> kv =
-      BlockBasedTableReaderBaseTest::GenerateKVMap(800 /* num_block */);
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          800 /* num_block */,
+          false /* mixed_with_human_readable_string_value=*/, ts_sz);
 
+  ImmutableOptions ioptions(options);
   std::string table_name =
       "BlockBasedTableReaderTest" + CompressionTypeToString(compression_type_);
-  CreateTable(table_name, compression_type_, kv);
+  CreateTable(table_name, ioptions, compression_type_, kv);
 
   std::unique_ptr<BlockBasedTable> table;
-  Options options;
-  ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
@@ -511,7 +556,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   IndexBlockIter iiter_on_stack;
   BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
   InternalIteratorBase<IndexValue>* iiter = table->NewIndexIterator(
-      ReadOptions(), /*disable_prefix_seek=*/false, &iiter_on_stack,
+      read_opts, /*disable_prefix_seek=*/false, &iiter_on_stack,
       /*get_context=*/nullptr, &context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
@@ -529,21 +574,25 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
                               static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
-  Status s = table->VerifyChecksum(ReadOptions(),
-                                   TableReaderCaller::kUserVerifyChecksum);
+  Status s =
+      table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum);
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
 // Param 1: compression type
 // Param 2: whether to use direct reads
-// Param 3: Block Based Table Index type
-// Param 4: BBTO no_block_cache option
+// Param 3: Block Based Table Index type, partitioned filters are also enabled
+// when index type is kTwoLevelIndexSearch Param 4: BBTO no_block_cache option
+// Param 5: test mode for the user-defined timestamp feature
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
-        ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
-        ::testing::Values(false)));
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kBinarySearch,
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
+        ::testing::Values(false),
+        ::testing::ValuesIn(test::GetUDTTestModes())));
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(
@@ -551,7 +600,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(false),
         ::testing::Values(
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
-        ::testing::Values(true)));
+        ::testing::Values(true), ::testing::ValuesIn(test::GetUDTTestModes())));
 
 }  // namespace ROCKSDB_NAMESPACE
 

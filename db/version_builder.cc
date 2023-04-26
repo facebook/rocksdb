@@ -791,6 +791,10 @@ class VersionBuilder::Rep {
 
     FileMetaData* const f = new FileMetaData(meta);
     f->refs = 1;
+    // Pad min timestamp to the file boundaries if the user-defined timestamps
+    // are not persisted, because UDTs are stripped from file boundaries in
+    // VersionEdit when it's written to manifest in `LogAndApply`.
+    MaybePadMinTimestampToFileBoundaries(f);
 
     if (file_metadata_cache_res_mgr_) {
       Status s = file_metadata_cache_res_mgr_->UpdateCacheReservation(
@@ -1357,6 +1361,21 @@ class VersionBuilder::Rep {
       }
     }
     return ret;
+  }
+
+  void MaybePadMinTimestampToFileBoundaries(FileMetaData* meta) {
+    auto ucmp = ioptions_->user_comparator;
+    assert(ucmp);
+    size_t ts_sz = ucmp->timestamp_size();
+    if (ts_sz > 0 && !ioptions_->persist_user_defined_timestamps) {
+      std::string smallest_buf;
+      std::string largest_buf;
+      PadInternalKeyWithMinTimestamp(&smallest_buf, *meta->smallest.rep(),
+                                     ts_sz);
+      PadInternalKeyWithMinTimestamp(&largest_buf, *meta->largest.rep(), ts_sz);
+      meta->smallest.DecodeFrom(smallest_buf);
+      meta->largest.DecodeFrom(largest_buf);
+    }
   }
 };
 

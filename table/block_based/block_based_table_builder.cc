@@ -67,8 +67,8 @@ constexpr size_t kBlockTrailerSize = BlockBasedTable::kBlockTrailerSize;
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
-    const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
-    const FilterBuildingContext& context,
+    const ImmutableCFOptions& opt, const MutableCFOptions& mopt,
+    const FilterBuildingContext& context, const size_t ts_sz,
     const bool use_delta_encoding_for_index_values,
     PartitionedIndexBuilder* const p_index_builder) {
   const BlockBasedTableOptions& table_opt = context.table_options;
@@ -94,7 +94,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
-          filter_bits_builder, table_opt.index_block_restart_interval,
+          filter_bits_builder, table_opt.index_block_restart_interval, ts_sz,
+          opt.persist_user_defined_timestamps,
           use_delta_encoding_for_index_values, p_index_builder, partition_size);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
@@ -267,6 +268,8 @@ struct BlockBasedTableBuilder::Rep {
   WritableFileWriter* file;
   std::atomic<uint64_t> offset;
   size_t alignment;
+  // size in bytes for the user-defined timestmap in a user key.
+  size_t ts_sz;
   BlockBuilder data_block;
   // Buffers uncompressed data blocks to replay later. Needed when
   // compression dictionary is enabled so we can finalize the dictionary before
@@ -419,14 +422,20 @@ struct BlockBasedTableBuilder::Rep {
                                  kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
-                   table_options.use_delta_encoding,
+                   tbo.internal_comparator.user_comparator()->timestamp_size(),
+                   tbo.ioptions.persist_user_defined_timestamps,
+                   false /* is_user_key */, table_options.use_delta_encoding,
                    false /* use_value_delta_encoding */,
                    tbo.internal_comparator.user_comparator()
                            ->CanKeysWithDifferentByteContentsBeEqual()
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio),
-        range_del_block(1 /* block_restart_interval */),
+        range_del_block(
+            1 /* block_restart_interval */,
+            tbo.internal_comparator.user_comparator()->timestamp_size(),
+            tbo.ioptions.persist_user_defined_timestamps,
+            false /* is_user_key */),
         internal_prefix_transform(tbo.moptions.prefix_extractor.get()),
         compression_type(tbo.compression_type),
         sample_for_compression(tbo.moptions.sample_for_compression),
@@ -490,15 +499,19 @@ struct BlockBasedTableBuilder::Rep {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
-          &internal_comparator, use_delta_encoding_for_index_values,
-          table_options);
+          &internal_comparator, tbo.ioptions.persist_user_defined_timestamps,
+          use_delta_encoding_for_index_values, table_options);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
-          &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options));
+          &this->internal_prefix_transform,
+          tbo.ioptions.persist_user_defined_timestamps,
+          use_delta_encoding_for_index_values, table_options));
     }
+    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
+    assert(ucmp);
+    ts_sz = ucmp->timestamp_size();
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
       // skipping filter generation
@@ -527,7 +540,7 @@ struct BlockBasedTableBuilder::Rep {
       }
 
       filter_builder.reset(CreateFilterBlockBuilder(
-          ioptions, moptions, filter_context,
+          ioptions, moptions, filter_context, ts_sz,
           use_delta_encoding_for_index_values, p_index_builder_));
     }
 
@@ -543,9 +556,7 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
-    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
+    if (ts_sz > 0 && tbo.ioptions.persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
           new TimestampTablePropertiesCollector(ucmp));
     }
@@ -938,6 +949,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     }
 #endif  // !NDEBUG
 
+    // TODO(yuzhangyu): update the flush block policy evaluation.
     auto should_flush = r->flush_block_policy->Update(key, value);
     if (should_flush) {
       assert(!r->data_block.empty());
@@ -1023,6 +1035,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
+  if (!r->ioptions.persist_user_defined_timestamps) {
+    r->props.raw_key_size -= r->ts_sz;
+  }
   r->props.raw_value_size += value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
@@ -1806,7 +1821,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     Block reader{BlockContents{data_block}};
     DataBlockIter* iter = reader.NewDataIterator(
-        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber);
+        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,
+        r->ioptions.persist_user_defined_timestamps);
 
     iter->SeekToFirst();
     assert(iter->Valid());

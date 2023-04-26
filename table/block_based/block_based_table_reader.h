@@ -325,6 +325,7 @@ class BlockBasedTable : public TableReader {
   static TBlockIter* InitBlockIterator(const Rep* rep, Block* block,
                                        BlockType block_type,
                                        TBlockIter* input_iter,
+                                       bool user_defined_timestamps_persisted,
                                        bool block_contents_pinned);
 
   // If block cache enabled (compressed or uncompressed), looks for the block

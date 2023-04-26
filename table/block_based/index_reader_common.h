@@ -53,6 +53,12 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return table_->get_rep()->index_key_includes_seq;
   }
 
+  bool user_defined_timestamps_persisted() const {
+    assert(table_ != nullptr);
+    assert(table_->get_rep() != nullptr);
+    return table_->get_rep()->ioptions.persist_user_defined_timestamps;
+  }
+
   bool index_value_is_full() const {
     assert(table_ != nullptr);
     assert(table_->get_rep() != nullptr);

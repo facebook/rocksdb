@@ -100,6 +100,23 @@ class FlushJob {
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+  void MaybeStripTimestampForFileBoundaries(InternalKey* smallest,
+                                            InternalKey* largest,
+                                            const FileMetaData& meta) {
+    const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
+    const size_t ts_sz = ucmp->timestamp_size();
+    bool strip_timestamp =
+        ts_sz > 0 && !cfd_->ioptions()->persist_user_defined_timestamps;
+    const Slice& orig_smallest = meta.smallest.Encode();
+    const Slice& orig_largest = meta.largest.Encode();
+    if (strip_timestamp) {
+      StripTimestampFromInternalKey(smallest->rep(), orig_smallest, ts_sz);
+      StripTimestampFromInternalKey(largest->rep(), orig_largest, ts_sz);
+    } else {
+      smallest->DecodeFrom(orig_smallest);
+      largest->DecodeFrom(orig_largest);
+    }
+  }
 
   // Memtable Garbage Collection algorithm: a MemPurge takes the list
   // of immutable memtables and filters out (or "purge") the outdated bytes

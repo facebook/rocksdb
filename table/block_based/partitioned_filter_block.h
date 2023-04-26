@@ -29,6 +29,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
+      const size_t ts_sz, const bool persist_user_defined_timestamps,
       const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size);
@@ -62,6 +63,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
  private:
   // Filter data
+  // The user-defined timestamp is stripped from user key before it's used to
+  // build filter. So ts_sz for these block builders should be 0.
   BlockBuilder index_on_filter_block_builder_;  // top-level index builder
   BlockBuilder
       index_on_filter_block_builder_without_seq_;  // same for user keys
@@ -171,6 +174,7 @@ class PartitionedFilterBlockReader
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;
   bool index_value_is_full() const;
+  bool user_defined_timestamps_persisted() const;
 
  protected:
   // For partition blocks pinned in cache. Can be a subset of blocks

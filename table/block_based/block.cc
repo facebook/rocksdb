@@ -634,13 +634,22 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   } else {
     if (shared == 0) {
       *is_shared = false;
-      // If this key doesn't share any bytes with prev key then we don't need
-      // to decode it and can use its address in the block directly.
-      raw_key_.SetKey(Slice(p, non_shared), false /* copy */);
+      // If this key doesn't share any bytes with prev key, and no min timestamp
+      // needs to be padded to the key, then we don't need to decode it and
+      // can use its address in the block directly (no copy).
+      UpdateRawKeyAndMaybePadMinTimestamp(Slice(p, non_shared));
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
       *is_shared = true;
-      raw_key_.TrimAppend(shared, p, non_shared);
+      // If user-defined timestamp is stripped from user key before keys are
+      // delta encoded, the decoded key consisting of the shared and non shared
+      // bytes do not have user-defined timestamp yet. We need to pad min
+      // timestamp to it.
+      if (pad_min_timestamp_) {
+        raw_key_.TrimAppendWithTimestamp(shared, p, non_shared, ts_sz_);
+      } else {
+        raw_key_.TrimAppend(shared, p, non_shared);
+      }
     }
     value_ = Slice(p + non_shared, value_length);
     if (shared == 0) {
@@ -686,7 +695,8 @@ bool IndexBlockIter::ParseNextIndexKey() {
   bool ok = (value_delta_encoded_) ? ParseNextKey<DecodeEntryV4>(&is_shared)
                                    : ParseNextKey<DecodeEntry>(&is_shared);
   if (ok) {
-    if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
+    if (value_delta_encoded_ || global_seqno_state_ != nullptr ||
+        pad_min_timestamp_) {
       DecodeCurrentValue(is_shared);
     }
   }
@@ -731,6 +741,12 @@ void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
     first_internal_key.UpdateInternalKey(global_seqno_state_->global_seqno,
                                          value_type);
     decoded_value_.first_internal_key = first_internal_key.GetKey();
+  }
+  if (pad_min_timestamp_ && !decoded_value_.first_internal_key.empty()) {
+    first_internal_key_with_ts_.clear();
+    PadInternalKeyWithMinTimestamp(&first_internal_key_with_ts_,
+                                   decoded_value_.first_internal_key, ts_sz_);
+    decoded_value_.first_internal_key = first_internal_key_with_ts_;
   }
 }
 
@@ -817,7 +833,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
       return false;
     }
     Slice mid_key(key_ptr, non_shared);
-    raw_key_.SetKey(mid_key, false /* copy */);
+    UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
     int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
@@ -1081,7 +1097,8 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
     // We do not know global_seqno yet, so checksum computation and
     // verification all assume global_seqno = 0.
     std::unique_ptr<DataBlockIter> iter{NewDataIterator(
-        raw_ucmp, kDisableGlobalSequenceNumber, nullptr /* iter */,
+        raw_ucmp, kDisableGlobalSequenceNumber,
+        true /* user_defined_timestamps_persisted */, nullptr /* iter */,
         nullptr /* stats */, true /* block_contents_pinned */)};
     if (iter->status().ok()) {
       block_restart_interval_ = iter->GetRestartInterval();
@@ -1111,10 +1128,10 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
   }
 }
 
-void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
-                                               const Comparator* raw_ucmp,
-                                               bool value_is_full,
-                                               bool index_has_first_key) {
+void Block::InitializeIndexBlockProtectionInfo(
+    uint8_t protection_bytes_per_key, const Comparator* raw_ucmp,
+    bool value_is_full, bool index_has_first_key,
+    bool user_defined_timestamps_persisted) {
   protection_bytes_per_key_ = 0;
   if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
     // Note that `global_seqno` and `key_includes_seq` are hardcoded here. They
@@ -1127,8 +1144,8 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
         raw_ucmp, kDisableGlobalSequenceNumber /* global_seqno */, nullptr,
         nullptr /* Statistics */, true /* total_order_seek */,
         index_has_first_key /* have_first_key */, false /* key_includes_seq */,
-        value_is_full, true /* block_contents_pinned */,
-        nullptr /* prefix_index */)};
+        value_is_full, user_defined_timestamps_persisted,
+        true /* block_contents_pinned */, nullptr /* prefix_index */)};
     if (iter->status().ok()) {
       block_restart_interval_ = iter->GetRestartInterval();
     }
@@ -1209,6 +1226,7 @@ MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
 
 DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
+                                      bool user_defined_timestamps_persisted,
                                       DataBlockIter* iter, Statistics* stats,
                                       bool block_contents_pinned) {
   DataBlockIter* ret_iter;
@@ -1228,7 +1246,8 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
   } else {
     ret_iter->Initialize(
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
-        read_amp_bitmap_.get(), block_contents_pinned,
+        user_defined_timestamps_persisted, read_amp_bitmap_.get(),
+        block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
         protection_bytes_per_key_, kv_checksum_, block_restart_interval_);
     if (read_amp_bitmap_) {
@@ -1246,7 +1265,8 @@ IndexBlockIter* Block::NewIndexIterator(
     const Comparator* raw_ucmp, SequenceNumber global_seqno,
     IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
     bool have_first_key, bool key_includes_seq, bool value_is_full,
-    bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
+    bool user_defined_timestamps_persisted, bool block_contents_pinned,
+    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1264,11 +1284,11 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(raw_ucmp, data_, restart_offset_, num_restarts_,
-                         global_seqno, prefix_index_ptr, have_first_key,
-                         key_includes_seq, value_is_full, block_contents_pinned,
-                         protection_bytes_per_key_, kv_checksum_,
-                         block_restart_interval_);
+    ret_iter->Initialize(
+        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
+        user_defined_timestamps_persisted, block_contents_pinned,
+        protection_bytes_per_key_, kv_checksum_, block_restart_interval_);
   }
 
   return ret_iter;

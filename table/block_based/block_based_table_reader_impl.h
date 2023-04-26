@@ -110,8 +110,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
-  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
-                                       block_contents_pinned);
+  iter = InitBlockIterator<TBlockIter>(
+      rep_, block.GetValue(), block_type, iter,
+      rep_->ioptions.persist_user_defined_timestamps, block_contents_pinned);
 
   if (!block.IsCached()) {
     if (!ro.fill_cache) {
@@ -170,8 +171,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
-  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), BlockType::kData,
-                                       iter, block_contents_pinned);
+  iter = InitBlockIterator<TBlockIter>(
+      rep_, block.GetValue(), BlockType::kData, iter,
+      rep_->ioptions.persist_user_defined_timestamps, block_contents_pinned);
 
   if (!block.IsCached()) {
     if (!ro.fill_cache) {

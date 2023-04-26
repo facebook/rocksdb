@@ -169,6 +169,8 @@ class SubcompactionState {
 
   // Add all the new files from this compaction to version_edit
   void AddOutputsEdit(VersionEdit* out_edit) const {
+    // TODO(yuzhangyu): before persist smallest/largest to Manifest.
+    // strip the timestamp part from user key for smallest/largest.
     for (const auto& file : penultimate_level_outputs_.outputs_) {
       out_edit->AddFile(compaction->GetPenultimateLevel(), file.meta);
     }

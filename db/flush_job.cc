@@ -995,13 +995,23 @@ Status FlushJob::WriteLevel0Table() {
 
   if (s.ok() && has_output) {
     TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
+    // Strip the user-defined timestamp from file boundaries if the UDT should
+    // not be persisted, so that the persisted manifest record doesn't include
+    // UDTs either. Note that these stripped file boundaries are only for
+    // VersionEdit that is about to be logged and applied. There is a mirroring
+    // change in VersionBuilder to pad min timestamp to file boundaries when a
+    // VersionEdit is applied.
+    InternalKey smallest;
+    InternalKey largest;
+    MaybeStripTimestampForFileBoundaries(&smallest, &largest, meta_);
+
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
     // that key range.
     // Add file to L0
     edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
-                   meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
+                   meta_.fd.GetFileSize(), smallest, largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.temperature,
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,

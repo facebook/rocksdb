@@ -261,8 +261,9 @@ TEST(DataBlockHashIndex, RestartIndexExceedMax) {
 TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
   Options options = Options();
 
-  BlockBuilder builder(1 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
+  BlockBuilder builder(1 /* block_restart_interval */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, true /* use_delta_encoding */,
                        false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
 
@@ -314,8 +315,9 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
   std::string ukey(10, 'k');
   InternalKey ikey(ukey, 0, kTypeValue);
 
-  BlockBuilder builder(1 /* block_restart_interval */,
-                       false /* use_delta_encoding */,
+  BlockBuilder builder(1 /* block_restart_interval */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, false /* use_delta_encoding */,
                        false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
 
@@ -368,8 +370,9 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
 TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Options options = Options();
 
-  BlockBuilder builder(16 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
+  BlockBuilder builder(16 /* block_restart_interval */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, true /* use_delta_encoding */,
                        false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
 
@@ -387,8 +390,9 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Block reader(std::move(contents));
 
   const InternalKeyComparator icmp(BytewiseComparator());
-  auto iter = reader.NewDataIterator(icmp.user_comparator(),
-                                     kDisableGlobalSequenceNumber);
+  auto iter = reader.NewDataIterator(
+      icmp.user_comparator(), kDisableGlobalSequenceNumber,
+      true /* user_defined_timestamps_persisted */);
   bool may_exist;
   // search in block for the key just inserted
   {
@@ -443,8 +447,9 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
 
-  BlockBuilder builder(16 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
+  BlockBuilder builder(16 /* block_restart_interval */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, true /* use_delta_encoding */,
                        false /* use_value_delta_encoding */,
                        BlockBasedTableOptions::kDataBlockBinaryAndHash);
   int num_records = 500;
@@ -471,8 +476,9 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(icmp.user_comparator(),
-                                       kDisableGlobalSequenceNumber);
+    auto iter = reader.NewDataIterator(
+        icmp.user_comparator(), kDisableGlobalSequenceNumber,
+        true /* user_defined_timestamps_persisted */);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -509,8 +515,9 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   //     C         true          false
 
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(icmp.user_comparator(),
-                                       kDisableGlobalSequenceNumber);
+    auto iter = reader.NewDataIterator(
+        icmp.user_comparator(), kDisableGlobalSequenceNumber,
+        true /* user_defined_timestamps_persisted */);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* non-existing key marker */);

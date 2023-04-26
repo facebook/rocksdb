@@ -24,17 +24,20 @@ namespace ROCKSDB_NAMESPACE {
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
+    const size_t ts_sz, const bool persist_user_defined_timestamps,
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
-      index_on_filter_block_builder_(index_block_restart_interval,
-                                     true /*use_delta_encoding*/,
-                                     use_value_delta_encoding),
-      index_on_filter_block_builder_without_seq_(index_block_restart_interval,
-                                                 true /*use_delta_encoding*/,
-                                                 use_value_delta_encoding),
+      index_on_filter_block_builder_(
+          index_block_restart_interval, ts_sz, persist_user_defined_timestamps,
+          false /* is_user_key */, true /*use_delta_encoding*/,
+          use_value_delta_encoding),
+      index_on_filter_block_builder_without_seq_(
+          index_block_restart_interval, ts_sz, persist_user_defined_timestamps,
+          true /* is_user_key */, true /*use_delta_encoding*/,
+          use_value_delta_encoding),
       p_index_builder_(p_index_builder),
       keys_added_to_partition_(0),
       total_added_in_built_(0) {
@@ -270,7 +273,7 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
       &iter, kNullStats, true /* total_order_seek */,
       false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      index_value_is_full(), user_defined_timestamps_persisted());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -470,7 +473,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
       comparator->user_comparator(),
       rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      index_key_includes_seq(), index_value_is_full(),
+      user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -546,6 +550,13 @@ bool PartitionedFilterBlockReader::index_value_is_full() const {
   assert(table()->get_rep());
 
   return table()->get_rep()->index_value_is_full;
+}
+
+bool PartitionedFilterBlockReader::user_defined_timestamps_persisted() const {
+  assert(table());
+  assert(table()->get_rep());
+
+  return table()->get_rep()->ioptions.persist_user_defined_timestamps;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

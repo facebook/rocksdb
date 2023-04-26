@@ -101,6 +101,35 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
   }
 }
 
+void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                        size_t ts_sz) {
+  assert(key.size() >= ts_sz + kNumInternalBytes);
+  const std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
+  size_t ukey_without_ts_sz = key.size() - kNumInternalBytes - ts_sz;
+  result->append(key.data(), ukey_without_ts_sz);
+  result->append(kTsMin.data(), ts_sz);
+  result->append(key.data() + key.size() - kNumInternalBytes,
+                 kNumInternalBytes);
+}
+
+void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz) {
+  assert(ts_sz > 0);
+  const std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
+  size_t user_key_size = key.size() - kNumInternalBytes;
+  result->append(key.data(), user_key_size);
+  result->append(kTsMin.data(), ts_sz);
+  result->append(key.data() + user_key_size, kNumInternalBytes);
+}
+
+void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(key.size() >= ts_sz + kNumInternalBytes);
+  result->append(key.data(), key.size() - kNumInternalBytes - ts_sz);
+  result->append(key.data() + key.size() - kNumInternalBytes,
+                 kNumInternalBytes);
+}
+
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {

@@ -1048,9 +1048,11 @@ static void DataBlockSeek(benchmark::State& state) {
 
   SetPerfLevel(kEnableTime);
   uint64_t total = 0;
+  // TODO(yuzhangyu): add support in db_bench for UDT in memtables only.
   for (auto _ : state) {
-    DataBlockIter* iter = reader.NewDataIterator(options.comparator,
-                                                 kDisableGlobalSequenceNumber);
+    DataBlockIter* iter =
+        reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber,
+                               true /* persist_user_defined_timestamps */);
     uint32_t index = rnd.Uniform(static_cast<int>(num_records));
     std::string ukey(keys[index] + "1");
     InternalKey ikey(ukey, 0, kTypeValue);
