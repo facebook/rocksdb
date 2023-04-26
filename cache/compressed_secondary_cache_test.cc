@@ -145,7 +145,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
       JemallocAllocatorOptions jopts;
       std::shared_ptr<MemoryAllocator> allocator;
       std::string msg;
-      if (JemallocNodumpAllocator::IsSupported(&msg)) {
+      if (JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported(&msg)) {
         Status s = NewJemallocNodumpAllocator(jopts, &allocator);
         if (s.ok()) {
           opts.memory_allocator = allocator;
@@ -615,7 +615,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     JemallocAllocatorOptions jopts;
     std::shared_ptr<MemoryAllocator> allocator;
     std::string msg;
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
+    if (JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported(&msg)) {
       Status s = NewJemallocNodumpAllocator(jopts, &allocator);
       if (!s.ok()) {
         ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
@@ -697,7 +697,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     JemallocAllocatorOptions jopts;
     std::shared_ptr<MemoryAllocator> allocator;
     std::string msg;
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
+    if (JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported(&msg)) {
       Status s = NewJemallocNodumpAllocator(jopts, &allocator);
       if (!s.ok()) {
         ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");

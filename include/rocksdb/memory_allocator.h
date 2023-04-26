@@ -78,4 +78,12 @@ extern Status NewJemallocNodumpAllocator(
     JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
+// Generates memory allocator like above but can mitigate arena mutex contention
+// by spreading allocation requests across `num_arenas` arenas.
+//
+// `num_arenas` must be a power of two from 1 to 64, inclusive.
+Status NewJemallocNodumpAllocator(
+    JemallocAllocatorOptions& options, size_t num_arenas,
+    std::shared_ptr<MemoryAllocator>* memory_allocator);
+
 }  // namespace ROCKSDB_NAMESPACE

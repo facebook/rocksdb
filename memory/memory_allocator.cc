@@ -37,12 +37,26 @@ static int RegisterBuiltinAllocators(ObjectLibrary& library,
         return guard->get();
       });
   library.AddFactory<MemoryAllocator>(
-      JemallocNodumpAllocator::kClassName(),
+      JemallocNodumpAllocator<0 /* kLog2NumArenas */>::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* errmsg) {
-        if (JemallocNodumpAllocator::IsSupported(errmsg)) {
+        if (JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported(
+                errmsg)) {
           JemallocAllocatorOptions options;
-          guard->reset(new JemallocNodumpAllocator(options));
+          guard->reset(
+              new JemallocNodumpAllocator<0 /* kLog2NumArenas */>(options));
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemoryAllocator>(
+      JemallocNodumpAllocator<3 /* kLog2NumArenas */>::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* errmsg) {
+        if (JemallocNodumpAllocator<3 /* kLog2NumArenas */>::IsSupported(
+                errmsg)) {
+          JemallocAllocatorOptions options;
+          guard->reset(
+              new JemallocNodumpAllocator<3 /* kLog2NumArenas */>(options));
         }
         return guard->get();
       });

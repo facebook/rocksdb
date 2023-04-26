@@ -130,9 +130,11 @@ class CreateMemoryAllocatorTest : public testing::Test {
 
 TEST_F(CreateMemoryAllocatorTest, JemallocOptionsTest) {
   std::shared_ptr<MemoryAllocator> allocator;
-  std::string id = std::string("id=") + JemallocNodumpAllocator::kClassName();
+  std::string id =
+      std::string("id=") +
+      JemallocNodumpAllocator<0 /* kLog2NumArenas */>::kClassName();
   Status s = MemoryAllocator::CreateFromString(config_options_, id, &allocator);
-  if (!JemallocNodumpAllocator::IsSupported()) {
+  if (!JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported()) {
     ASSERT_NOK(s);
     ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
     return;
@@ -184,7 +186,7 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   ASSERT_NOK(NewJemallocNodumpAllocator(jopts, nullptr));
   Status s = NewJemallocNodumpAllocator(jopts, &allocator);
   std::string msg;
-  if (!JemallocNodumpAllocator::IsSupported(&msg)) {
+  if (!JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported(&msg)) {
     ASSERT_NOK(s);
     ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
     return;
@@ -222,8 +224,9 @@ INSTANTIATE_TEST_CASE_P(
 #ifdef ROCKSDB_JEMALLOC
 INSTANTIATE_TEST_CASE_P(
     JemallocNodumpAllocator, MemoryAllocatorTest,
-    ::testing::Values(std::make_tuple(JemallocNodumpAllocator::kClassName(),
-                                      JemallocNodumpAllocator::IsSupported())));
+    ::testing::Values(std::make_tuple(
+        JemallocNodumpAllocator<0 /* kLog2NumArenas */>::kClassName(),
+        JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
 
 
