@@ -119,9 +119,6 @@ void JemallocNodumpAllocator::Deallocate(void* p) {
 
 Status JemallocNodumpAllocator::InitializeArenas() {
   assert(!init_);
-  if (init_) {
-    return Status::Incomplete("InitializeArenas() cannot be retried");
-  }
   init_ = true;
 
   for (size_t i = 0; i < kNumArenas; i++) {
