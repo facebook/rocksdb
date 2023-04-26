@@ -208,7 +208,7 @@ void* JemallocNodumpAllocator<kLog2NumArenas>::Allocate(size_t size) {
 
   // `tl_rng_seed` is used directly for arena selection and updated afterwards
   // in order to avoid a close data dependency.
-  static void* ret = mallocx(
+  void* ret = mallocx(
       size,
       MALLOCX_ARENA(arena_indexes_[tl_rng_seed & ((1 << kLog2NumArenas) - 1)]) |
           tcache_flag);
