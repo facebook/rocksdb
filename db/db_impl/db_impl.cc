@@ -1369,7 +1369,14 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             break;
           }
 
-          if (e.HasLogNumber()) {
+          // We only update log number if it's greater than what we have when
+          // applying kManifestWrite. The log number in `kManifestWrite` is
+          // usually equal to the log number we assign for the corresponding
+          // memtable switch. If there is another memtable switch following it
+          // and bumps the log number, we don't want to reset the log number
+          // here to previous value.
+          if (e.HasLogNumber() &&
+              e.GetLogNumber() > alive_log_files_.begin()->number) {
             // Physical replication does not support WAL, but RocksDB expects
             // some invariants of alive_log_files_ and logs_ and who are we to
             // argue: at least one alive_log_files_ and logs_ always needs to be

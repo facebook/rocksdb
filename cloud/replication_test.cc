@@ -940,6 +940,57 @@ TEST_F(ReplicationTest, NextFileNumDoNotGoBackwards){
   EXPECT_GT(follower->GetNextFileNumber(), next_file_number);
 }
 
+TEST_F(ReplicationTest, LogNumberDontGoBackwards) {
+  auto leader = openLeader(), follower = openFollower();
+
+  ASSERT_OK(leader->Put(wo(), "k1", "v1"));
+  ASSERT_OK(leader->Flush({}));
+  catchUpFollower();
+
+  leader->PauseBackgroundWork();
+
+  leader->Put(wo(), "k2", "v2");
+  FlushOptions flushOpts;
+  flushOpts.wait = false;
+  flushOpts.allow_write_stall = true;
+  leader->Flush(flushOpts);
+
+  catchUpFollower();
+  auto leaderFull = static_cast_with_check<DBImpl>(leader);
+  auto followerFull = static_cast_with_check<DBImpl>(follower);
+
+  auto logNum = followerFull->TEST_GetCurrentLogNumber();
+  auto minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
+  EXPECT_GE(logNum, minLogNumberToKeep);
+
+  leader->Put(wo(), "k3", "v3");
+  leader->Flush(flushOpts);
+
+  catchUpFollower();
+  logNum = followerFull->TEST_GetCurrentLogNumber();
+  minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
+  EXPECT_GE(logNum, minLogNumberToKeep);
+
+  leader->ContinueBackgroundWork();
+  leaderFull->TEST_WaitForBackgroundWork();
+
+  // kManifestWrite
+  EXPECT_EQ(catchUpFollower(1), 1);
+
+  EXPECT_GE(followerFull->TEST_GetCurrentLogNumber(), logNum);
+  logNum = followerFull->TEST_GetCurrentLogNumber();
+  minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
+  EXPECT_GE(logNum, minLogNumberToKeep);
+
+  // kManifestWrite
+  EXPECT_EQ(catchUpFollower(), 1);
+
+  EXPECT_GE(followerFull->TEST_GetCurrentLogNumber(), logNum);
+  logNum = followerFull->TEST_GetCurrentLogNumber();
+  minLogNumberToKeep = followerFull->GetVersionSet()->min_log_number_to_keep();
+  EXPECT_GE(logNum, minLogNumberToKeep);
+}
+
 TEST_F(ReplicationTest, Stress) {
   std::string val;
   auto leader = openLeader();
