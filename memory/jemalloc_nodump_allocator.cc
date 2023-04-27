@@ -364,4 +364,14 @@ Status NewJemallocNodumpAllocator(
 #endif
 }
 
+// Explicitly instantiate the few templates we will use so that member function
+// definitions can go in this file rather than the header file.
+template class JemallocNodumpAllocator<0 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<1 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<2 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<3 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<4 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<5 /* kLog2NumArenas */>;
+template class JemallocNodumpAllocator<6 /* kLog2NumArenas */>;
+
 }  // namespace ROCKSDB_NAMESPACE

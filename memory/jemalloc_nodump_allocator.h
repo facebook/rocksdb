@@ -113,14 +113,4 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   bool init_ = false;
 };
 
-// Explicitly instantiate the few templates we will use so that member function
-// definitions can go in the .cc file.
-template class JemallocNodumpAllocator<0 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<1 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<2 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<3 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<4 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<5 /* kLog2NumArenas */>;
-template class JemallocNodumpAllocator<6 /* kLog2NumArenas */>;
-
 }  // namespace ROCKSDB_NAMESPACE
