@@ -218,6 +218,12 @@ void* JemallocNodumpAllocator<kLog2NumArenas>::Allocate(size_t size) {
   return ret;
 }
 
+template <>
+inline void* JemallocNodumpAllocator<0>::Allocate(size_t size) {
+  int tcache_flag = GetThreadSpecificCache(size);
+  return mallocx(size, MALLOCX_ARENA(arena_indexes_[0]) | tcache_flag);
+}
+
 template <size_t kLog2NumArenas>
 void JemallocNodumpAllocator<kLog2NumArenas>::Deallocate(void* p) {
   // Obtain tcache.
