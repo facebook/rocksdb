@@ -128,6 +128,14 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 
 #endif
 
+const char* GetLldbScriptSelectThread(long long tid) {
+  // NOTE: called from a signal handler, so no heap allocation
+  static char script[80];
+  snprintf(script, sizeof(script),
+           "script -l python -- lldb.process.SetSelectedThreadByID(%lld)", tid);
+  return script;
+}
+
 }  // namespace
 
 void PrintStack(void* frames[], int num_frames) {
@@ -152,9 +160,13 @@ void PrintStack(int first_frames_to_skip) {
   // * It doesn't appear easy to detect when ASLR is in use.
   // * With DEBUG_LEVEL < 2, backtrace() can skip frames that are not skipped
   //   in GDB.
+  //
+  // LLDB also available as an option
+  bool lldb_stack_trace = getenv("ROCKSDB_LLDB_STACK") != nullptr;
 #if defined(OS_LINUX)
   // Default true, override with ROCKSDB_BACKTRACE_STACK=1
-  bool gdb_stack_trace = getenv("ROCKSDB_BACKTRACE_STACK") == nullptr;
+  bool gdb_stack_trace =
+      !lldb_stack_trace && getenv("ROCKSDB_BACKTRACE_STACK") == nullptr;
 #else
   // Default false, override with ROCKSDB_GDB_STACK=1
   bool gdb_stack_trace = getenv("ROCKSDB_GDB_STACK") != nullptr;
@@ -164,53 +176,84 @@ void PrintStack(int first_frames_to_skip) {
   char* debug_env = getenv("ROCKSDB_DEBUG");
   bool debug = debug_env != nullptr && strlen(debug_env) > 0;
 
-  if (gdb_stack_trace || debug) {
+  if (lldb_stack_trace || gdb_stack_trace || debug) {
     // Allow ouside debugger to attach, even with Yama security restrictions
 #ifdef PR_SET_PTRACER_ANY
     (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
     // Try to invoke GDB, either for stack trace or debugging.
-    long long attach_id = getpid();
+    long long attach_pid = getpid();
+    // NOTE: we're in a signal handler, so no heap allocation
+    char attach_pid_str[20];
+    snprintf(attach_pid_str, sizeof(attach_pid_str), "%lld", attach_pid);
 
     // `gdb -p PID` seems to always attach to main thread, but `gdb -p TID`
     // seems to be able to attach to a particular thread in a process, which
     // makes sense as the main thread TID == PID of the process.
     // But I haven't found that gdb capability documented anywhere, so leave
     // a back door to attach to main thread.
+    long long gdb_attach_id = attach_pid;
+    // Save current thread id before fork
+    long long attach_tid = 0;
 #ifdef OS_LINUX
+    attach_tid = gettid();
     if (getenv("ROCKSDB_DEBUG_USE_PID") == nullptr) {
-      attach_id = gettid();
+      gdb_attach_id = attach_tid;
     }
 #endif
-    char attach_id_str[20];
-    snprintf(attach_id_str, sizeof(attach_id_str), "%lld", attach_id);
+
+    char gdb_attach_id_str[20];
+    snprintf(gdb_attach_id_str, sizeof(gdb_attach_id_str), "%lld",
+             gdb_attach_id);
+
     pid_t child_pid = fork();
     if (child_pid == 0) {
       // child process
       if (debug) {
-        fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
-                debug_env);
-        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", attach_id_str,
-               (char*)nullptr);
-        return;
+        if (strcmp(debug_env, "lldb") == 0) {
+          fprintf(stderr, "Invoking LLDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                  debug_env);
+          execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
+                 /*"-Q",*/ "-o", GetLldbScriptSelectThread(attach_tid),
+                 (char*)nullptr);
+          return;
+        } else {
+          fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                  debug_env);
+          execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", gdb_attach_id_str,
+                 (char*)nullptr);
+          return;
+        }
       } else {
-        fprintf(stderr, "Invoking GDB for stack trace...\n");
-
-        // Skip top ~4 frames here in PrintStack
-        // See https://stackoverflow.com/q/40991943/454544
-        auto bt_in_gdb =
-            "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
-            "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 "
-            "42 43 44 -q frame";
         // Redirect child stdout to original stderr
         dup2(2, 1);
         // No child stdin (don't use pager)
         close(0);
-        // -n : Loading config files can apparently cause failures with the
-        // other options here.
-        // -batch : non-interactive; suppress banners as much as possible
-        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
-               attach_id_str, "-ex", bt_in_gdb, (char*)nullptr);
+        if (lldb_stack_trace) {
+          fprintf(stderr, "Invoking LLDB for stack trace...\n");
+
+          // Skip top ~8 frames here in PrintStack
+          auto bt_in_lldb =
+              "script -l python -- for f in lldb.thread.frames[8:]: print(f)";
+          execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
+                 "-b", "-Q", "-o", GetLldbScriptSelectThread(attach_tid), "-o",
+                 bt_in_lldb, (char*)nullptr);
+        } else {
+          // gdb_stack_trace
+          fprintf(stderr, "Invoking GDB for stack trace...\n");
+
+          // Skip top ~4 frames here in PrintStack
+          // See https://stackoverflow.com/q/40991943/454544
+          auto bt_in_gdb =
+              "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
+              "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 "
+              "42 43 44 -q frame";
+          // -n : Loading config files can apparently cause failures with the
+          // other options here.
+          // -batch : non-interactive; suppress banners as much as possible
+          execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
+                 gdb_attach_id_str, "-ex", bt_in_gdb, (char*)nullptr);
+        }
         return;
       }
     } else {
