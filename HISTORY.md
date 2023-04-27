@@ -10,6 +10,9 @@
 ### Bug Fixes
 * Delete an empty WAL file on DB open if the log number is less than the min log number to keep
 
+### Performance Improvements
+* Record the starting offset of block-based table's tail (i.e, all blocks after data blocks till the end) in manifest and use it to prefetch the tail more accurately during table open instead of relying on heuristics (#11406)
+
 ## 8.2.0 (04/24/2023)
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.

@@ -551,6 +551,9 @@ class Repairer {
       }
       t->meta.oldest_ancester_time = props->creation_time;
     }
+    if (status.ok()) {
+      t->meta.tail_start_offset = props->tail_start_offset;
+    }
     ColumnFamilyData* cfd = nullptr;
     if (status.ok()) {
       cfd = vset_.GetColumnFamilySet()->GetColumnFamily(t->column_family_id);
@@ -682,7 +685,8 @@ class Repairer {
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.epoch_number, table->meta.file_checksum,
             table->meta.file_checksum_func_name, table->meta.unique_id,
-            table->meta.compensated_range_deletion_size);
+            table->meta.compensated_range_deletion_size,
+            table->meta.tail_start_offset);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {

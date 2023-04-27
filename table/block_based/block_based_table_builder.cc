@@ -1908,6 +1908,9 @@ Status BlockBasedTableBuilder::Finish() {
     }
   }
 
+  if (ok()) {
+    r->props.tail_start_offset = r->offset;
+  }
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
   //    2. [meta block: index]
@@ -1966,6 +1969,10 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
   } else {
     return FileSize();
   }
+}
+
+uint64_t BlockBasedTableBuilder::GetTailStartOffset() const {
+  return rep_->props.tail_start_offset;
 }
 
 bool BlockBasedTableBuilder::NeedCompact() const {

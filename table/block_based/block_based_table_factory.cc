@@ -35,137 +35,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void TailPrefetchStats::RecordEffectiveSize(size_t len) {
-  MutexLock l(&mutex_);
-  if (num_records_ < kNumTracked) {
-    num_records_++;
-  }
-  records_[next_++] = len;
-  if (next_ == kNumTracked) {
-    next_ = 0;
-  }
-}
-
-size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
-  std::vector<size_t> sorted;
-  {
-    MutexLock l(&mutex_);
-
-    if (num_records_ == 0) {
-      return 0;
-    }
-    sorted.assign(records_, records_ + num_records_);
-  }
-
-  // Of the historic size, we find the maximum one that satisifis the condtiion
-  // that if prefetching all, less than 1/8 will be wasted.
-  std::sort(sorted.begin(), sorted.end());
-
-  // Assuming we have 5 data points, and after sorting it looks like this:
-  //
-  //                                     +---+
-  //                             +---+   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                    +---+    |   |   |   |
-  //                    |   |    |   |   |   |
-  //           +---+    |   |    |   |   |   |
-  //           |   |    |   |    |   |   |   |
-  //  +---+    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  +---+    +---+    +---+    +---+   +---+
-  //
-  // and we use every of the value as a candidate, and estimate how much we
-  // wasted, compared to read. For example, when we use the 3rd record
-  // as candiate. This area is what we read:
-  //                                     +---+
-  //                             +---+   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //  ***  ***  ***  ***+ ***  ***  *** *** **
-  //  *                 |   |    |   |   |   |
-  //           +---+    |   |    |   |   |   *
-  //  *        |   |    |   |    |   |   |   |
-  //  +---+    |   |    |   |    |   |   |   *
-  //  *   |    |   |    | X |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   *
-  //  *   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   *
-  //  *   |    |   |    |   |    |   |   |   |
-  //  *** *** ***-***  ***--*** ***--*** +****
-  // which is (size of the record) X (number of records).
-  //
-  // While wasted is this area:
-  //                                     +---+
-  //                             +---+   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //                             |   |   |   |
-  //  ***  ***  ***  ****---+    |   |   |   |
-  //  *                 *   |    |   |   |   |
-  //  *        *-***  ***   |    |   |   |   |
-  //  *        *   |    |   |    |   |   |   |
-  //  *--**  ***   |    |   |    |   |   |   |
-  //  |   |    |   |    | X |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  +---+    +---+    +---+    +---+   +---+
-  //
-  // Which can be calculated iteratively.
-  // The difference between wasted using 4st and 3rd record, will
-  // be following area:
-  //                                     +---+
-  //  +--+  +-+   ++  +-+  +-+   +---+   |   |
-  //  + xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
-  //    xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
-  //  + xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
-  //  | xxxxxxxxxxxxxxxxxxxxxxxx |   |   |   |
-  //  +-+ +-+  +-+  ++  +---+ +--+   |   |   |
-  //  |                 |   |    |   |   |   |
-  //           +---+ ++ |   |    |   |   |   |
-  //  |        |   |    |   |    | X |   |   |
-  //  +---+ ++ |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  |   |    |   |    |   |    |   |   |   |
-  //  +---+    +---+    +---+    +---+   +---+
-  //
-  // which will be the size difference between 4st and 3rd record,
-  // times 3, which is number of records before the 4st.
-  // Here we assume that all data within the prefetch range will be useful. In
-  // reality, it may not be the case when a partial block is inside the range,
-  // or there are data in the middle that is not read. We ignore those cases
-  // for simplicity.
-  assert(!sorted.empty());
-  size_t prev_size = sorted[0];
-  size_t max_qualified_size = sorted[0];
-  size_t wasted = 0;
-  for (size_t i = 1; i < sorted.size(); i++) {
-    size_t read = sorted[i] * sorted.size();
-    wasted += (sorted[i] - prev_size) * i;
-    if (wasted <= read / 8) {
-      max_qualified_size = sorted[i];
-    }
-    prev_size = sorted[i];
-  }
-  const size_t kMaxPrefetchSize = 512 * 1024;  // Never exceed 512KB
-  return std::min(kMaxPrefetchSize, max_qualified_size);
-}
-
-
 const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
 
 static std::unordered_map<std::string, PinningTier>
@@ -568,11 +437,12 @@ Status BlockBasedTableFactory::NewTableReader(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader_options.block_protection_bytes_per_key,
-      table_reader, table_reader_cache_res_mgr_,
+      table_reader, table_reader_options.tail_start_offset,
+      table_reader_options.contain_no_data_block, table_reader_cache_res_mgr_,
       table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level,
       table_reader_options.immortal, table_reader_options.largest_seqno,
-      table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
+      table_reader_options.force_direct_prefetch,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,

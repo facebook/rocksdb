@@ -99,7 +99,8 @@ class BlockBasedTable : public TableReader {
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       uint8_t block_protection_bytes_per_key,
-      std::unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<TableReader>* table_reader, uint64_t tail_start_offset,
+      bool contain_no_data_block,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -107,7 +108,6 @@ class BlockBasedTable : public TableReader {
       int level = -1, const bool immortal_table = false,
       const SequenceNumber largest_seqno = 0,
       bool force_direct_prefetch = false,
-      TailPrefetchStats* tail_prefetch_stats = nullptr,
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
@@ -225,8 +225,9 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
-                                     bool /* pin */) {
+    virtual Status CacheDependencies(
+        const ReadOptions& /*ro*/, bool /* pin */,
+        FilePrefetchBuffer* /* tail_prefetch_buffer */) {
       return Status::OK();
     }
   };
@@ -456,9 +457,11 @@ class BlockBasedTable : public TableReader {
   //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
-      bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
-      const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats);
+      bool force_direct_prefetch, const bool prefetch_all,
+      const bool preload_all,
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
+      uint64_t tail_start_offset, bool contain_no_data_block,
+      Logger* const logger);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,

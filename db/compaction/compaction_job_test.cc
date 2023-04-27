@@ -386,7 +386,7 @@ class CompactionJobTestBase : public testing::Test {
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-        0);
+        0, 0);
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
