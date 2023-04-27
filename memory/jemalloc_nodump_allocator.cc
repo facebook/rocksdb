@@ -106,6 +106,10 @@ template <size_t kLog2NumArenas>
 void* JemallocNodumpAllocator<kLog2NumArenas>::Allocate(size_t size) {
   // `size` is used as a source of entropy to initialize each thread's arena
   // selection.
+  // Core-local may work in place of `thread_local` as we should be able to
+  // tolerate occasional stale reads in thread migration cases. However we need
+  // to switch to std::atomic and prevent cacheline bouncing ourselves. Whether
+  // this is worthwhile is still an open question.
   thread_local uint32_t tl_rng_seed = static_cast<uint32_t>(size);
 
   int tcache_flag = GetThreadSpecificCache(size);
