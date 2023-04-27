@@ -9,11 +9,8 @@
 #include <vector>
 
 #include "port/jemalloc_helper.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/memory_allocator.h"
-#include "rocksdb/utilities/options_type.h"
-#include "util/random.h"
 #include "util/thread_local.h"
 #include "utilities/memory_allocators.h"
 
@@ -28,28 +25,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Allocation requests are randomly sharded across `2^kLog2NumArenas` arenas to
-// reduce contention on per-arena mutexes.
-template <size_t kLog2NumArenas>
+// Allocation requests are randomly sharded across
+// `JemallocAllocatorOptions::num_arenas` arenas to reduce contention on per-
+// arena mutexes.
 class JemallocNodumpAllocator : public BaseMemoryAllocator {
-  static const size_t kNumArenas = 1 << kLog2NumArenas;
-
  public:
   explicit JemallocNodumpAllocator(JemallocAllocatorOptions& options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   ~JemallocNodumpAllocator();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
-  static const char* kClassName() {
-    if (kNumArenas == 1) {
-      // Omit the number of arenas suffix for compatibility.
-      return "JemallocNodumpAllocator";
-    }
-    static const std::string name =
-        "JemallocNodumpAllocator" + std::to_string(kNumArenas);
-    return name.c_str();
-  }
-
+  static const char* kClassName() { return "JemallocNodumpAllocator"; }
   const char* Name() const override { return kClassName(); }
   static bool IsSupported() {
     std::string unused;
@@ -102,15 +88,17 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   // Custom hooks has to outlive corresponding arena.
-  std::array<std::unique_ptr<extent_hooks_t>, kNumArenas> per_arena_hooks_;
+  std::vector<std::unique_ptr<extent_hooks_t>> per_arena_hooks_;
 
   // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;
 
-  std::array<unsigned, kNumArenas> arena_indexes_ = {0};
+  std::vector<unsigned> arena_indexes_;
+
+  size_t log2_num_arenas_ = 0;
+
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
   bool init_ = false;
 };
-
 }  // namespace ROCKSDB_NAMESPACE

@@ -1982,10 +1982,8 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
   } else {
     ASSERT_NOK(s);
     for (const auto& failure : failures) {
-      if (failure ==
-          JemallocNodumpAllocator<0 /* kLog2NumArenas */>::kClassName()) {
-        ASSERT_FALSE(
-            JemallocNodumpAllocator<0 /* kLog2NumArenas */>::IsSupported());
+      if (failure == JemallocNodumpAllocator::kClassName()) {
+        ASSERT_FALSE(JemallocNodumpAllocator::IsSupported());
       } else if (failure == MemkindKmemAllocator::kClassName()) {
         ASSERT_FALSE(MemkindKmemAllocator::IsSupported());
       } else {
