@@ -222,6 +222,16 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {TIMESTAMP_FILTER_TABLE_CHECKED, "rocksdb.timestamp.filter.table.checked"},
     {TIMESTAMP_FILTER_TABLE_FILTERED,
      "rocksdb.timestamp.filter.table.filtered"},
+    {BYTES_COMPRESSED_FROM, "rocksdb.bytes.compressed.from"},
+    {BYTES_COMPRESSED_TO, "rocksdb.bytes.compressed.to"},
+    {BYTES_COMPRESSION_BYPASSED, "rocksdb.bytes.compression_bypassed"},
+    {BYTES_COMPRESSION_REJECTED, "rocksdb.bytes.compression.rejected"},
+    {NUMBER_BLOCK_COMPRESSION_BYPASSED,
+     "rocksdb.number.block_compression_bypassed"},
+    {NUMBER_BLOCK_COMPRESSION_REJECTED,
+     "rocksdb.number.block_compression_rejected"},
+    {BYTES_DECOMPRESSED_FROM, "rocksdb.bytes.decompressed.from"},
+    {BYTES_DECOMPRESSED_TO, "rocksdb.bytes.decompressed.to"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -243,6 +253,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_SEEK, "rocksdb.db.seek.micros"},
     {WRITE_STALL, "rocksdb.db.write.stall"},
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
+    {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
+    {FILE_READ_COMPACTION_MICROS, "rocksdb.file.read.compaction.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},

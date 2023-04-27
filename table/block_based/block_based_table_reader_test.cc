@@ -116,8 +116,9 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                 bool prefetch_index_and_filter_in_cache = true,
                                 Status* status = nullptr) {
     const MutableCFOptions moptions(options_);
-    TableReaderOptions table_reader_options = TableReaderOptions(
-        ioptions, moptions.prefix_extractor, EnvOptions(), comparator);
+    TableReaderOptions table_reader_options =
+        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+                           comparator, 0 /* block_protection_bytes_per_key */);
 
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file);

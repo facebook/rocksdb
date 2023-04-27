@@ -169,6 +169,10 @@ public enum HistogramType {
    */
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x39),
 
+  FILE_READ_FLUSH_MICROS((byte) 0x3A),
+
+  FILE_READ_COMPACTION_MICROS((byte) 0x3B),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 

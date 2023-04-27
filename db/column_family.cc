@@ -1141,6 +1141,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
   Arena arena;
+  // TODO: plumb Env::IOActivity
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
@@ -1425,6 +1426,12 @@ Status ColumnFamilyData::ValidateOptions(
       supported.end()) {
     return Status::NotSupported(
         "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.block_protection_bytes_per_key) == supported.end()) {
+    return Status::NotSupported(
+        "Block per key-value checksum protection only supports 0, 1, 2, 4 "
         "or 8 bytes per key.");
   }
   return s;

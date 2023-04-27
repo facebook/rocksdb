@@ -1307,9 +1307,9 @@ class VersionSetTestBase {
 
   Status LogAndApplyToDefaultCF(VersionEdit& edit) {
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1321,9 +1321,9 @@ class VersionSetTestBase {
       vedits.push_back(e.get());
     }
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, vedits, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1335,7 +1335,7 @@ class VersionSetTestBase {
     VersionEdit dummy;
     ASSERT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        &dummy, &mutex_, db_directory, new_descriptor_log));
+        read_options_, &dummy, &mutex_, db_directory, new_descriptor_log));
     mutex_.Unlock();
   }
 
@@ -1350,7 +1350,8 @@ class VersionSetTestBase {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
-                               MutableCFOptions(cf_options), &new_cf, &mutex_,
+                               MutableCFOptions(cf_options), read_options_,
+                               &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
     mutex_.Unlock();
@@ -1372,6 +1373,7 @@ class VersionSetTestBase {
   ColumnFamilyOptions cf_options_;
   ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
+  const ReadOptions read_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1395,6 +1397,8 @@ class VersionSetTest : public VersionSetTestBase, public testing::Test {
 TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
+  const ReadOptions read_options;
+
   autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
     edits.emplace_back(VersionEdit());
@@ -1421,8 +1425,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
-                                    &mutex_, nullptr);
+  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
+                                    edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1622,9 +1626,9 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   edit.AddBlobFileGarbage(blob_file_number, total_blob_count, total_blob_bytes);
 
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(
+      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+      read_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -2242,7 +2246,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               edits_, &mutex_, nullptr);
+                               read_options_, edits_, &mutex_, nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -2252,6 +2256,9 @@ class VersionSetWithTimestampTest : public VersionSetTest {
   ColumnFamilyData* cfd_{nullptr};
   // edits_ must contain and own pointers to heap-alloc VersionEdit objects.
   autovector<VersionEdit*> edits_;
+
+ private:
+  const ReadOptions read_options_;
 };
 
 const std::string VersionSetWithTimestampTest::kNewCfName("new_cf");
@@ -2680,6 +2687,8 @@ class VersionSetTestDropOneCF : public VersionSetTestBase,
 //  Repeat the test for i = 1, 2, 3 to simulate dropping the first, middle and
 //  last column family in an atomic group.
 TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
+  const ReadOptions read_options;
+
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -2709,7 +2718,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
                              *cfd_to_drop->GetLatestMutableCFOptions(),
-                             &drop_cf_edit, &mutex_, nullptr);
+                             read_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -2758,8 +2767,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
-                             nullptr);
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, read_options,
+                             edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);

@@ -20,76 +20,115 @@ class DBStatisticsTest : public DBTestBase {
 };
 
 TEST_F(DBStatisticsTest, CompressionStatsTest) {
-  CompressionType type;
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    if (type == kBZip2Compression) {
+      // Weird behavior in this test
+      continue;
+    }
+    SCOPED_TRACE("Compression type: " + std::to_string(type));
 
-  if (Snappy_Supported()) {
-    type = kSnappyCompression;
-    fprintf(stderr, "using snappy\n");
-  } else if (Zlib_Supported()) {
-    type = kZlibCompression;
-    fprintf(stderr, "using zlib\n");
-  } else if (BZip2_Supported()) {
-    type = kBZip2Compression;
-    fprintf(stderr, "using bzip2\n");
-  } else if (LZ4_Supported()) {
-    type = kLZ4Compression;
-    fprintf(stderr, "using lz4\n");
-  } else if (XPRESS_Supported()) {
-    type = kXpressCompression;
-    fprintf(stderr, "using xpress\n");
-  } else if (ZSTD_Supported()) {
-    type = kZSTD;
-    fprintf(stderr, "using ZSTD\n");
-  } else {
-    fprintf(stderr, "skipping test, compression disabled\n");
-    return;
+    Options options = CurrentOptions();
+    options.compression = type;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    auto PopStat = [&](Tickers t) -> uint64_t {
+      return options.statistics->getAndResetTickerCount(t);
+    };
+
+    int kNumKeysWritten = 100;
+    double compress_to = 0.5;
+    // About three KVs per block
+    int len = static_cast<int>(BlockBasedTableOptions().block_size / 3);
+    int uncomp_est = kNumKeysWritten * (len + 20);
+
+    Random rnd(301);
+    std::string buf;
+
+    // Check that compressions occur and are counted when compression is turned
+    // on
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(
+          Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
+    }
+    ASSERT_OK(Flush());
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
+    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+    // And decompressions
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
+    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+
+    // Check when compression is rejected.
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomBinaryString(len)));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_REJECTED),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+    // Check when compression is disabled.
+    options.compression = kNoCompression;
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomBinaryString(len)));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_BYPASSED),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
   }
-
-  Options options = CurrentOptions();
-  options.compression = type;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-  DestroyAndReopen(options);
-
-  int kNumKeysWritten = 100000;
-
-  // Check that compressions occur and are counted when compression is turned on
-  Random rnd(301);
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED), 0);
-
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-  uint64_t currentCompressions =
-      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
-  uint64_t currentDecompressions =
-      options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED);
-
-  // Check that compressions do not occur when turned off
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED) -
-                currentCompressions,
-            0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED) -
-                currentDecompressions,
-            0);
 }
 
 TEST_F(DBStatisticsTest, MutexWaitStatsDisabledByDefault) {

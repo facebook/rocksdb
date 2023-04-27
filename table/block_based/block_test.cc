@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -506,7 +507,7 @@ class IndexBlockTest
 void GenerateRandomIndexEntries(std::vector<std::string> *separators,
                                 std::vector<BlockHandle> *block_handles,
                                 std::vector<std::string> *first_keys,
-                                const int len) {
+                                const int len, bool zero_seqno = false) {
   Random rnd(42);
 
   // For each of `len` blocks, we need to generate a first and last key.
@@ -514,7 +515,11 @@ void GenerateRandomIndexEntries(std::vector<std::string> *separators,
   std::set<std::string> keys;
   while ((int)keys.size() < len * 2) {
     // Keys need to be at least 8 bytes long to look like internal keys.
-    keys.insert(test::RandomKey(&rnd, 12));
+    std::string new_key = test::RandomKey(&rnd, 12);
+    if (zero_seqno) {
+      AppendInternalKeyFooter(&new_key, 0 /* seqno */, kTypeValue);
+    }
+    keys.insert(std::move(new_key));
   }
 
   uint64_t offset = 0;
@@ -618,6 +623,917 @@ INSTANTIATE_TEST_CASE_P(P, IndexBlockTest,
                                           std::make_tuple(true, false),
                                           std::make_tuple(true, true)));
 
+class BlockPerKVChecksumTest : public DBTestBase {
+ public:
+  BlockPerKVChecksumTest()
+      : DBTestBase("block_per_kv_checksum", /*env_do_fsync=*/false) {}
+
+  template <typename TBlockIter>
+  void TestIterateForward(std::unique_ptr<TBlockIter> &biter,
+                          size_t &verification_count) {
+    while (biter->Valid()) {
+      verification_count = 0;
+      biter->Next();
+      if (biter->Valid()) {
+        ASSERT_GE(verification_count, 1);
+      }
+    }
+  }
+
+  template <typename TBlockIter>
+  void TestIterateBackward(std::unique_ptr<TBlockIter> &biter,
+                           size_t &verification_count) {
+    while (biter->Valid()) {
+      verification_count = 0;
+      biter->Prev();
+      if (biter->Valid()) {
+        ASSERT_GE(verification_count, 1);
+      }
+    }
+  }
+
+  template <typename TBlockIter>
+  void TestSeekToFirst(std::unique_ptr<TBlockIter> &biter,
+                       size_t &verification_count) {
+    verification_count = 0;
+    biter->SeekToFirst();
+    ASSERT_GE(verification_count, 1);
+    TestIterateForward(biter, verification_count);
+  }
+
+  template <typename TBlockIter>
+  void TestSeekToLast(std::unique_ptr<TBlockIter> &biter,
+                      size_t &verification_count) {
+    verification_count = 0;
+    biter->SeekToLast();
+    ASSERT_GE(verification_count, 1);
+    TestIterateBackward(biter, verification_count);
+  }
+
+  template <typename TBlockIter>
+  void TestSeekForPrev(std::unique_ptr<TBlockIter> &biter,
+                       size_t &verification_count, std::string k) {
+    verification_count = 0;
+    biter->SeekForPrev(k);
+    ASSERT_GE(verification_count, 1);
+    TestIterateBackward(biter, verification_count);
+  }
+
+  template <typename TBlockIter>
+  void TestSeek(std::unique_ptr<TBlockIter> &biter, size_t &verification_count,
+                std::string k) {
+    verification_count = 0;
+    biter->Seek(k);
+    ASSERT_GE(verification_count, 1);
+    TestIterateForward(biter, verification_count);
+  }
+
+  bool VerifyChecksum(uint32_t checksum_len, const char *checksum_ptr,
+                      const Slice &key, const Slice &val) {
+    if (!checksum_len) {
+      return checksum_ptr == nullptr;
+    }
+    return ProtectionInfo64().ProtectKV(key, val).Verify(
+        static_cast<uint8_t>(checksum_len), checksum_ptr);
+  }
+};
+
+TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
+  // Tests that empty block code path is not broken by per kv checksum.
+  BlockBuilder builder(
+      16 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch);
+  Slice raw_block = builder.Finish();
+  BlockContents contents;
+  contents.data = raw_block;
+
+  std::unique_ptr<Block_kData> data_block;
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = 8;
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      protection_bytes_per_key, options.comparator};
+  create_context.Create(&data_block, std::move(contents));
+  std::unique_ptr<DataBlockIter> biter{data_block->NewDataIterator(
+      options.comparator, kDisableGlobalSequenceNumber)};
+  biter->SeekToFirst();
+  ASSERT_FALSE(biter->Valid());
+  ASSERT_OK(biter->status());
+  Random rnd(33);
+  biter->SeekForGet(GenerateInternalKey(1, 1, 10, &rnd));
+  ASSERT_FALSE(biter->Valid());
+  ASSERT_OK(biter->status());
+  biter->SeekToLast();
+  ASSERT_FALSE(biter->Valid());
+  ASSERT_OK(biter->status());
+  biter->Seek(GenerateInternalKey(1, 1, 10, &rnd));
+  ASSERT_FALSE(biter->Valid());
+  ASSERT_OK(biter->status());
+  biter->SeekForPrev(GenerateInternalKey(1, 1, 10, &rnd));
+  ASSERT_FALSE(biter->Valid());
+  ASSERT_OK(biter->status());
+}
+
+TEST_F(BlockPerKVChecksumTest, UnsupportedOptionValue) {
+  Options options = Options();
+  options.block_protection_bytes_per_key = 128;
+  Destroy(options);
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
+TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
+  // Make sure that the checksum construction code path does not break
+  // when the block is itself already corrupted.
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = 8;
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      protection_bytes_per_key, options.comparator};
+
+  {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kData> data_block;
+    create_context.Create(&data_block, std::move(contents));
+    std::unique_ptr<DataBlockIter> iter{data_block->NewDataIterator(
+        options.comparator, kDisableGlobalSequenceNumber)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+  {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kIndex> index_block;
+    create_context.Create(&index_block, std::move(contents));
+    std::unique_ptr<IndexBlockIter> iter{index_block->NewIndexIterator(
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, nullptr,
+        true, false, true, true)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+  {
+    std::string invalid_content = "1";
+    Slice raw_block = invalid_content;
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kMetaIndex> meta_block;
+    create_context.Create(&meta_block, std::move(contents));
+    std::unique_ptr<MetaBlockIter> iter{meta_block->NewMetaIterator(true)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
+  // Tests that ApproximateMemoryUsage() includes memory used by block kv
+  // checksum.
+  const int kNumRecords = 20;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */,
+                    24 /* padding_size */);
+  std::unique_ptr<BlockBuilder> builder;
+  auto generate_block_content = [&]() {
+    builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+    for (int i = 0; i < kNumRecords; ++i) {
+      builder->Add(keys[i], values[i]);
+    }
+    Slice raw_block = builder->Finish();
+    BlockContents contents;
+    contents.data = raw_block;
+    return contents;
+  };
+
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = 8;
+  BlockCreateContext with_checksum_create_context{
+      &tbo,
+      nullptr /* statistics */,
+      false /* using_zstd */,
+      protection_bytes_per_key,
+      options.comparator,
+      true /* index_value_is_full */};
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      0,    options.comparator,       true /* index_value_is_full */};
+
+  {
+    std::unique_ptr<Block_kData> data_block;
+    create_context.Create(&data_block, generate_block_content());
+    size_t block_memory = data_block->ApproximateMemoryUsage();
+    std::unique_ptr<Block_kData> with_checksum_data_block;
+    with_checksum_create_context.Create(&with_checksum_data_block,
+                                        generate_block_content());
+    ASSERT_GT(with_checksum_data_block->ApproximateMemoryUsage() - block_memory,
+              100);
+  }
+
+  {
+    std::unique_ptr<Block_kData> meta_block;
+    create_context.Create(&meta_block, generate_block_content());
+    size_t block_memory = meta_block->ApproximateMemoryUsage();
+    std::unique_ptr<Block_kData> with_checksum_meta_block;
+    with_checksum_create_context.Create(&with_checksum_meta_block,
+                                        generate_block_content());
+    // Rough comparison to avoid flaky test due to memory allocation alignment.
+    ASSERT_GT(with_checksum_meta_block->ApproximateMemoryUsage() - block_memory,
+              100);
+  }
+
+  {
+    // Index block has different contents.
+    std::vector<std::string> separators;
+    std::vector<BlockHandle> block_handles;
+    std::vector<std::string> first_keys;
+    GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
+                               kNumRecords);
+    auto generate_index_content = [&]() {
+      builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+      BlockHandle last_encoded_handle;
+      for (int i = 0; i < kNumRecords; ++i) {
+        IndexValue entry(block_handles[i], first_keys[i]);
+        std::string encoded_entry;
+        std::string delta_encoded_entry;
+        entry.EncodeTo(&encoded_entry, false, nullptr);
+        last_encoded_handle = entry.handle;
+        const Slice delta_encoded_entry_slice(delta_encoded_entry);
+        builder->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+      }
+      Slice raw_block = builder->Finish();
+      BlockContents contents;
+      contents.data = raw_block;
+      return contents;
+    };
+
+    std::unique_ptr<Block_kIndex> index_block;
+    create_context.Create(&index_block, generate_index_content());
+    size_t block_memory = index_block->ApproximateMemoryUsage();
+    std::unique_ptr<Block_kIndex> with_checksum_index_block;
+    with_checksum_create_context.Create(&with_checksum_index_block,
+                                        generate_index_content());
+    ASSERT_GT(
+        with_checksum_index_block->ApproximateMemoryUsage() - block_memory,
+        100);
+  }
+}
+
+std::string GetDataBlockIndexTypeStr(
+    BlockBasedTableOptions::DataBlockIndexType t) {
+  return t == BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
+             ? "BinarySearch"
+             : "BinaryAndHash";
+}
+
+class DataBlockKVChecksumTest
+    : public BlockPerKVChecksumTest,
+      public testing::WithParamInterface<std::tuple<
+          BlockBasedTableOptions::DataBlockIndexType,
+          uint8_t /* block_protection_bytes_per_key */,
+          uint32_t /* restart_interval*/, bool /* use_delta_encoding */>> {
+ public:
+  DataBlockKVChecksumTest() = default;
+
+  BlockBasedTableOptions::DataBlockIndexType GetDataBlockIndexType() const {
+    return std::get<0>(GetParam());
+  }
+  uint8_t GetChecksumLen() const { return std::get<1>(GetParam()); }
+  uint32_t GetRestartInterval() const { return std::get<2>(GetParam()); }
+  bool GetUseDeltaEncoding() const { return std::get<3>(GetParam()); }
+
+  std::unique_ptr<Block_kData> GenerateDataBlock(
+      std::vector<std::string> &keys, std::vector<std::string> &values,
+      int num_record) {
+    BlockBasedTableOptions tbo;
+    BlockCreateContext create_context{&tbo, nullptr /* statistics */,
+                                      false /* using_zstd */, GetChecksumLen(),
+                                      Options().comparator};
+    builder_ = std::make_unique<BlockBuilder>(
+        static_cast<int>(GetRestartInterval()),
+        GetUseDeltaEncoding() /* use_delta_encoding */,
+        false /* use_value_delta_encoding */, GetDataBlockIndexType());
+    for (int i = 0; i < num_record; i++) {
+      builder_->Add(keys[i], values[i]);
+    }
+    Slice raw_block = builder_->Finish();
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kData> data_block;
+    create_context.Create(&data_block, std::move(contents));
+    return data_block;
+  }
+
+  std::unique_ptr<BlockBuilder> builder_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    P, DataBlockKVChecksumTest,
+    ::testing::Combine(
+        ::testing::Values(
+            BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+            BlockBasedTableOptions::DataBlockIndexType::
+                kDataBlockBinaryAndHash),
+        ::testing::Values(0, 1, 2, 4, 8) /* protection_bytes_per_key */,
+        ::testing::Values(1, 2, 3, 8, 16) /* restart_interval */,
+        ::testing::Values(false, true)) /* delta_encoding */,
+    [](const testing::TestParamInfo<std::tuple<
+           BlockBasedTableOptions::DataBlockIndexType, uint8_t, uint32_t, bool>>
+           &args) {
+      std::ostringstream oss;
+      oss << GetDataBlockIndexTypeStr(std::get<0>(args.param))
+          << "ProtectionPerKey" << std::to_string(std::get<1>(args.param))
+          << "RestartInterval" << std::to_string(std::get<2>(args.param))
+          << "DeltaEncode" << std::to_string(std::get<3>(args.param));
+      return oss.str();
+    });
+
+TEST_P(DataBlockKVChecksumTest, ChecksumConstructionAndVerification) {
+  uint8_t protection_bytes_per_key = GetChecksumLen();
+  std::vector<int> num_restart_intervals = {1, 16};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
+    SyncPoint::GetInstance()->DisableProcessing();
+    std::unique_ptr<Block_kData> data_block =
+        GenerateDataBlock(keys, values, kNumRecords);
+
+    const char *checksum_ptr = data_block->TEST_GetKVChecksum();
+    // Check checksum of correct length is generated
+    for (int i = 0; i < kNumRecords; i++) {
+      ASSERT_TRUE(VerifyChecksum(protection_bytes_per_key,
+                                 checksum_ptr + i * protection_bytes_per_key,
+                                 keys[i], values[i]));
+    }
+    std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 0};
+
+    // Could just use a boolean flag. Use a counter here just to keep open the
+    // possibility of checking the exact number of verifications in the future.
+    size_t verification_count = 0;
+    // The SyncPoint is placed before checking checksum_len == 0 in
+    // Block::VerifyChecksum(). So verification count is incremented even with
+    // protection_bytes_per_key = 0. No actual checksum computation is done in
+    // that case (see Block::VerifyChecksum()).
+    SyncPoint::GetInstance()->SetCallBack(
+        "Block::VerifyChecksum::checksum_len",
+        [&verification_count, protection_bytes_per_key](void *checksum_len) {
+          ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+                    protection_bytes_per_key);
+          ++verification_count;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    for (const auto seqno : seqnos) {
+      std::unique_ptr<DataBlockIter> biter{
+          data_block->NewDataIterator(Options().comparator, seqno)};
+
+      // SeekForGet() some key that does not exist
+      biter->SeekForGet(keys[kNumRecords]);
+      TestIterateForward(biter, verification_count);
+
+      verification_count = 0;
+      biter->SeekForGet(keys[kNumRecords / 2]);
+      ASSERT_GE(verification_count, 1);
+      TestIterateForward(biter, verification_count);
+
+      TestSeekToFirst(biter, verification_count);
+      TestSeekToLast(biter, verification_count);
+      TestSeekForPrev(biter, verification_count, keys[kNumRecords / 2]);
+      TestSeek(biter, verification_count, keys[kNumRecords / 2]);
+    }
+  }
+}
+
+class IndexBlockKVChecksumTest
+    : public BlockPerKVChecksumTest,
+      public testing::WithParamInterface<
+          std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
+                     uint32_t, bool, bool>> {
+ public:
+  IndexBlockKVChecksumTest() = default;
+
+  BlockBasedTableOptions::DataBlockIndexType GetDataBlockIndexType() const {
+    return std::get<0>(GetParam());
+  }
+  uint8_t GetChecksumLen() const { return std::get<1>(GetParam()); }
+  uint32_t GetRestartInterval() const { return std::get<2>(GetParam()); }
+  bool UseValueDeltaEncoding() const { return std::get<3>(GetParam()); }
+  bool IncludeFirstKey() const { return std::get<4>(GetParam()); }
+
+  std::unique_ptr<Block_kIndex> GenerateIndexBlock(
+      std::vector<std::string> &separators,
+      std::vector<BlockHandle> &block_handles,
+      std::vector<std::string> &first_keys, int num_record) {
+    Options options = Options();
+    BlockBasedTableOptions tbo;
+    uint8_t protection_bytes_per_key = GetChecksumLen();
+    BlockCreateContext create_context{
+        &tbo,
+        nullptr /* statistics */,
+        false /* _using_zstd */,
+        protection_bytes_per_key,
+        options.comparator,
+        !UseValueDeltaEncoding() /* value_is_full */,
+        IncludeFirstKey()};
+    builder_ = std::make_unique<BlockBuilder>(
+        static_cast<int>(GetRestartInterval()), true /* use_delta_encoding */,
+        UseValueDeltaEncoding() /* use_value_delta_encoding */,
+        GetDataBlockIndexType());
+    BlockHandle last_encoded_handle;
+    for (int i = 0; i < num_record; i++) {
+      IndexValue entry(block_handles[i], first_keys[i]);
+      std::string encoded_entry;
+      std::string delta_encoded_entry;
+      entry.EncodeTo(&encoded_entry, IncludeFirstKey(), nullptr);
+      if (UseValueDeltaEncoding() && i > 0) {
+        entry.EncodeTo(&delta_encoded_entry, IncludeFirstKey(),
+                       &last_encoded_handle);
+      }
+
+      last_encoded_handle = entry.handle;
+      const Slice delta_encoded_entry_slice(delta_encoded_entry);
+      builder_->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+    }
+    // read serialized contents of the block
+    Slice raw_block = builder_->Finish();
+    // create block reader
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kIndex> index_block;
+
+    create_context.Create(&index_block, std::move(contents));
+    return index_block;
+  }
+
+  std::unique_ptr<BlockBuilder> builder_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    P, IndexBlockKVChecksumTest,
+    ::testing::Combine(
+        ::testing::Values(
+            BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+            BlockBasedTableOptions::DataBlockIndexType::
+                kDataBlockBinaryAndHash),
+        ::testing::Values(0, 1, 2, 4, 8), ::testing::Values(1, 3, 8, 16),
+        ::testing::Values(true, false), ::testing::Values(true, false)),
+    [](const testing::TestParamInfo<
+        std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
+                   uint32_t, bool, bool>> &args) {
+      std::ostringstream oss;
+      oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
+          << std::to_string(std::get<1>(args.param)) << "RestartInterval"
+          << std::to_string(std::get<2>(args.param)) << "ValueDeltaEncode"
+          << std::to_string(std::get<3>(args.param)) << "IncludeFirstKey"
+          << std::to_string(std::get<4>(args.param));
+      return oss.str();
+    });
+
+TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
+  Options options = Options();
+  uint8_t protection_bytes_per_key = GetChecksumLen();
+  std::vector<int> num_restart_intervals = {1, 16};
+  std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 10001};
+
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    for (const auto seqno : seqnos) {
+      std::vector<std::string> separators;
+      std::vector<BlockHandle> block_handles;
+      std::vector<std::string> first_keys;
+      GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
+                                 kNumRecords,
+                                 seqno != kDisableGlobalSequenceNumber);
+      SyncPoint::GetInstance()->DisableProcessing();
+      std::unique_ptr<Block_kIndex> index_block = GenerateIndexBlock(
+          separators, block_handles, first_keys, kNumRecords);
+      IndexBlockIter *kNullIter = nullptr;
+      Statistics *kNullStats = nullptr;
+      // read contents of block sequentially
+      std::unique_ptr<IndexBlockIter> biter{index_block->NewIndexIterator(
+          options.comparator, seqno, kNullIter, kNullStats,
+          true /* total_order_seek */, IncludeFirstKey() /* have_first_key */,
+          true /* key_includes_seq */,
+          !UseValueDeltaEncoding() /* value_is_full */,
+          true /* block_contents_pinned */, nullptr /* prefix_index */)};
+      biter->SeekToFirst();
+      const char *checksum_ptr = index_block->TEST_GetKVChecksum();
+      // Check checksum of correct length is generated
+      for (int i = 0; i < kNumRecords; i++) {
+        // Obtaining the actual content written as value to index block is not
+        // trivial: delta-encoded value is only persisted when not at block
+        // restart point and that keys share some byte (see more in
+        // BlockBuilder::AddWithLastKeyImpl()). So here we just do verification
+        // using value from iterator unlike tests for DataBlockIter or
+        // MetaBlockIter.
+        ASSERT_TRUE(VerifyChecksum(protection_bytes_per_key, checksum_ptr,
+                                   biter->key(), biter->raw_value()));
+      }
+
+      size_t verification_count = 0;
+      // The SyncPoint is placed before checking checksum_len == 0 in
+      // Block::VerifyChecksum(). To make the testing code below simpler and not
+      // having to differentiate 0 vs non-0 checksum_len, we do an explicit
+      // assert checking on checksum_len here.
+      SyncPoint::GetInstance()->SetCallBack(
+          "Block::VerifyChecksum::checksum_len",
+          [&verification_count, protection_bytes_per_key](void *checksum_len) {
+            ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+                      protection_bytes_per_key);
+            ++verification_count;
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      TestSeekToFirst(biter, verification_count);
+      TestSeekToLast(biter, verification_count);
+      TestSeek(biter, verification_count, first_keys[kNumRecords / 2]);
+    }
+  }
+}
+
+class MetaIndexBlockKVChecksumTest
+    : public BlockPerKVChecksumTest,
+      public testing::WithParamInterface<
+          uint8_t /* block_protection_bytes_per_key */> {
+ public:
+  MetaIndexBlockKVChecksumTest() = default;
+  uint8_t GetChecksumLen() const { return GetParam(); }
+  uint32_t GetRestartInterval() const { return 1; }
+
+  std::unique_ptr<Block_kMetaIndex> GenerateMetaIndexBlock(
+      std::vector<std::string> &keys, std::vector<std::string> &values,
+      int num_record) {
+    Options options = Options();
+    BlockBasedTableOptions tbo;
+    uint8_t protection_bytes_per_key = GetChecksumLen();
+    BlockCreateContext create_context{
+        &tbo, nullptr /* statistics */, false /* using_zstd */,
+        protection_bytes_per_key, options.comparator};
+    builder_ =
+        std::make_unique<BlockBuilder>(static_cast<int>(GetRestartInterval()));
+    // add a bunch of records to a block
+    for (int i = 0; i < num_record; i++) {
+      builder_->Add(keys[i], values[i]);
+    }
+    Slice raw_block = builder_->Finish();
+    BlockContents contents;
+    contents.data = raw_block;
+    std::unique_ptr<Block_kMetaIndex> meta_block;
+    create_context.Create(&meta_block, std::move(contents));
+    return meta_block;
+  }
+
+  std::unique_ptr<BlockBuilder> builder_;
+};
+
+INSTANTIATE_TEST_CASE_P(P, MetaIndexBlockKVChecksumTest,
+                        ::testing::Values(0, 1, 2, 4, 8),
+                        [](const testing::TestParamInfo<uint8_t> &args) {
+                          std::ostringstream oss;
+                          oss << "ProtBytes" << std::to_string(args.param);
+                          return oss.str();
+                        });
+
+TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = GetChecksumLen();
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      protection_bytes_per_key, options.comparator};
+  std::vector<int> num_restart_intervals = {1, 16};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords = num_restart_interval * GetRestartInterval();
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
+    SyncPoint::GetInstance()->DisableProcessing();
+    std::unique_ptr<Block_kMetaIndex> meta_block =
+        GenerateMetaIndexBlock(keys, values, kNumRecords);
+    const char *checksum_ptr = meta_block->TEST_GetKVChecksum();
+    // Check checksum of correct length is generated
+    for (int i = 0; i < kNumRecords; i++) {
+      ASSERT_TRUE(VerifyChecksum(protection_bytes_per_key,
+                                 checksum_ptr + i * protection_bytes_per_key,
+                                 keys[i], values[i]));
+    }
+
+    size_t verification_count = 0;
+    // The SyncPoint is placed before checking checksum_len == 0 in
+    // Block::VerifyChecksum(). To make the testing code below simpler and not
+    // having to differentiate 0 vs non-0 checksum_len, we do an explicit assert
+    // checking on checksum_len here.
+    SyncPoint::GetInstance()->SetCallBack(
+        "Block::VerifyChecksum::checksum_len",
+        [&verification_count, protection_bytes_per_key](void *checksum_len) {
+          ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+                    protection_bytes_per_key);
+          ++verification_count;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    // Check that block iterator does checksum verification
+    std::unique_ptr<MetaBlockIter> biter{
+        meta_block->NewMetaIterator(true /* block_contents_pinned */)};
+    TestSeekToFirst(biter, verification_count);
+    TestSeekToLast(biter, verification_count);
+    TestSeek(biter, verification_count, keys[kNumRecords / 2]);
+    TestSeekForPrev(biter, verification_count, keys[kNumRecords / 2]);
+  }
+}
+
+class DataBlockKVChecksumCorruptionTest : public DataBlockKVChecksumTest {
+ public:
+  DataBlockKVChecksumCorruptionTest() = default;
+
+  std::unique_ptr<DataBlockIter> GenerateDataBlockIter(
+      std::vector<std::string> &keys, std::vector<std::string> &values,
+      int num_record) {
+    // During Block construction, we may create block iter to initialize per kv
+    // checksum. Disable syncpoint that may be created for block iter methods.
+    SyncPoint::GetInstance()->DisableProcessing();
+    block_ = GenerateDataBlock(keys, values, num_record);
+    std::unique_ptr<DataBlockIter> biter{block_->NewDataIterator(
+        Options().comparator, kDisableGlobalSequenceNumber)};
+    SyncPoint::GetInstance()->EnableProcessing();
+    return biter;
+  }
+
+ protected:
+  std::unique_ptr<Block_kData> block_;
+};
+
+TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
+  std::vector<int> num_restart_intervals = {1, 3};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockIter::UpdateKey::value", [](void *arg) {
+          char *value = static_cast<char *>(arg);
+          // values generated by GenerateRandomKVs are of length 100
+          ++value[10];
+        });
+
+    // Purely for reducing the number of lines of code.
+    typedef std::unique_ptr<DataBlockIter> IterPtr;
+    typedef void(IterAPI)(IterPtr & iter, std::string &);
+
+    std::string seek_key = keys[kNumRecords / 2];
+    auto test_seek = [&](IterAPI iter_api) {
+      IterPtr biter = GenerateDataBlockIter(keys, values, kNumRecords);
+      ASSERT_OK(biter->status());
+      iter_api(biter, seek_key);
+      ASSERT_FALSE(biter->Valid());
+      ASSERT_TRUE(biter->status().IsCorruption());
+    };
+
+    test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
+    test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
+    test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
+    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
+
+    typedef void (DataBlockIter::*IterStepAPI)();
+    auto test_step = [&](IterStepAPI iter_api, std::string &k) {
+      IterPtr biter = GenerateDataBlockIter(keys, values, kNumRecords);
+      SyncPoint::GetInstance()->DisableProcessing();
+      biter->Seek(k);
+      ASSERT_TRUE(biter->Valid());
+      ASSERT_OK(biter->status());
+      SyncPoint::GetInstance()->EnableProcessing();
+      std::invoke(iter_api, biter);
+      ASSERT_FALSE(biter->Valid());
+      ASSERT_TRUE(biter->status().IsCorruption());
+    };
+
+    if (kNumRecords > 1) {
+      test_step(&DataBlockIter::Prev, seek_key);
+      test_step(&DataBlockIter::Next, seek_key);
+    }
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    P, DataBlockKVChecksumCorruptionTest,
+    ::testing::Combine(
+        ::testing::Values(
+            BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+            BlockBasedTableOptions::DataBlockIndexType::
+                kDataBlockBinaryAndHash),
+        ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
+        ::testing::Values(1, 3, 8, 16) /* restart_interval */,
+        ::testing::Values(false, true)),
+    [](const testing::TestParamInfo<std::tuple<
+           BlockBasedTableOptions::DataBlockIndexType, uint8_t, uint32_t, bool>>
+           &args) {
+      std::ostringstream oss;
+      oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
+          << std::to_string(std::get<1>(args.param)) << "RestartInterval"
+          << std::to_string(std::get<2>(args.param)) << "DeltaEncode"
+          << std::to_string(std::get<3>(args.param));
+      return oss.str();
+    });
+
+class IndexBlockKVChecksumCorruptionTest : public IndexBlockKVChecksumTest {
+ public:
+  IndexBlockKVChecksumCorruptionTest() = default;
+
+  std::unique_ptr<IndexBlockIter> GenerateIndexBlockIter(
+      std::vector<std::string> &separators,
+      std::vector<BlockHandle> &block_handles,
+      std::vector<std::string> &first_keys, int num_record,
+      SequenceNumber seqno) {
+    SyncPoint::GetInstance()->DisableProcessing();
+    block_ =
+        GenerateIndexBlock(separators, block_handles, first_keys, num_record);
+    std::unique_ptr<IndexBlockIter> biter{block_->NewIndexIterator(
+        Options().comparator, seqno, nullptr, nullptr,
+        true /* total_order_seek */, IncludeFirstKey() /* have_first_key */,
+        true /* key_includes_seq */,
+        !UseValueDeltaEncoding() /* value_is_full */,
+        true /* block_contents_pinned */, nullptr /* prefix_index */)};
+    SyncPoint::GetInstance()->EnableProcessing();
+    return biter;
+  }
+
+ protected:
+  std::unique_ptr<Block_kIndex> block_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    P, IndexBlockKVChecksumCorruptionTest,
+    ::testing::Combine(
+        ::testing::Values(
+            BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+            BlockBasedTableOptions::DataBlockIndexType::
+                kDataBlockBinaryAndHash),
+        ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
+        ::testing::Values(1, 3, 8, 16) /* restart_interval */,
+        ::testing::Values(true, false), ::testing::Values(true, false)),
+    [](const testing::TestParamInfo<
+        std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
+                   uint32_t, bool, bool>> &args) {
+      std::ostringstream oss;
+      oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
+          << std::to_string(std::get<1>(args.param)) << "RestartInterval"
+          << std::to_string(std::get<2>(args.param)) << "ValueDeltaEncode"
+          << std::to_string(std::get<3>(args.param)) << "IncludeFirstKey"
+          << std::to_string(std::get<4>(args.param));
+      return oss.str();
+    });
+
+TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
+  std::vector<int> num_restart_intervals = {1, 3};
+  std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 10001};
+
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    for (const auto seqno : seqnos) {
+      std::vector<std::string> separators;
+      std::vector<BlockHandle> block_handles;
+      std::vector<std::string> first_keys;
+      GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
+                                 kNumRecords,
+                                 seqno != kDisableGlobalSequenceNumber);
+      SyncPoint::GetInstance()->SetCallBack(
+          "BlockIter::UpdateKey::value", [](void *arg) {
+            char *value = static_cast<char *>(arg);
+            // value can be delta-encoded with different lengths, so we corrupt
+            // first bytes here to be safe
+            ++value[0];
+          });
+
+      typedef std::unique_ptr<IndexBlockIter> IterPtr;
+      typedef void(IterAPI)(IterPtr & iter, std::string &);
+      std::string seek_key = first_keys[kNumRecords / 2];
+      auto test_seek = [&](IterAPI iter_api) {
+        std::unique_ptr<IndexBlockIter> biter = GenerateIndexBlockIter(
+            separators, block_handles, first_keys, kNumRecords, seqno);
+        ASSERT_OK(biter->status());
+        iter_api(biter, seek_key);
+        ASSERT_FALSE(biter->Valid());
+        ASSERT_TRUE(biter->status().IsCorruption());
+      };
+      test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
+      test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
+      test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+
+      typedef void (IndexBlockIter::*IterStepAPI)();
+      auto test_step = [&](IterStepAPI iter_api, std::string &k) {
+        std::unique_ptr<IndexBlockIter> biter = GenerateIndexBlockIter(
+            separators, block_handles, first_keys, kNumRecords, seqno);
+        SyncPoint::GetInstance()->DisableProcessing();
+        biter->Seek(k);
+        ASSERT_TRUE(biter->Valid());
+        ASSERT_OK(biter->status());
+        SyncPoint::GetInstance()->EnableProcessing();
+        std::invoke(iter_api, biter);
+        ASSERT_FALSE(biter->Valid());
+        ASSERT_TRUE(biter->status().IsCorruption());
+      };
+      if (kNumRecords > 1) {
+        test_step(&IndexBlockIter::Prev, seek_key);
+        test_step(&IndexBlockIter::Next, seek_key);
+      }
+    }
+  }
+}
+
+class MetaIndexBlockKVChecksumCorruptionTest
+    : public MetaIndexBlockKVChecksumTest {
+ public:
+  MetaIndexBlockKVChecksumCorruptionTest() = default;
+
+  std::unique_ptr<MetaBlockIter> GenerateMetaIndexBlockIter(
+      std::vector<std::string> &keys, std::vector<std::string> &values,
+      int num_record) {
+    SyncPoint::GetInstance()->DisableProcessing();
+    block_ = GenerateMetaIndexBlock(keys, values, num_record);
+    std::unique_ptr<MetaBlockIter> biter{
+        block_->NewMetaIterator(true /* block_contents_pinned */)};
+    SyncPoint::GetInstance()->EnableProcessing();
+    return biter;
+  }
+
+ protected:
+  std::unique_ptr<Block_kMetaIndex> block_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    P, MetaIndexBlockKVChecksumCorruptionTest,
+    ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
+    [](const testing::TestParamInfo<uint8_t> &args) {
+      std::ostringstream oss;
+      oss << "ProtBytes" << std::to_string(args.param);
+      return oss.str();
+    });
+
+TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
+  Options options = Options();
+  std::vector<int> num_restart_intervals = {1, 3};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockIter::UpdateKey::value", [](void *arg) {
+          char *value = static_cast<char *>(arg);
+          // values generated by GenerateRandomKVs are of length 100
+          ++value[10];
+        });
+
+    typedef std::unique_ptr<MetaBlockIter> IterPtr;
+    typedef void(IterAPI)(IterPtr & iter, std::string &);
+    typedef void (MetaBlockIter::*IterStepAPI)();
+    std::string seek_key = keys[kNumRecords / 2];
+    auto test_seek = [&](IterAPI iter_api) {
+      IterPtr biter = GenerateMetaIndexBlockIter(keys, values, kNumRecords);
+      ASSERT_OK(biter->status());
+      iter_api(biter, seek_key);
+      ASSERT_FALSE(biter->Valid());
+      ASSERT_TRUE(biter->status().IsCorruption());
+    };
+
+    test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
+    test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
+    test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
+
+    auto test_step = [&](IterStepAPI iter_api, const std::string &k) {
+      IterPtr biter = GenerateMetaIndexBlockIter(keys, values, kNumRecords);
+      SyncPoint::GetInstance()->DisableProcessing();
+      biter->Seek(k);
+      ASSERT_TRUE(biter->Valid());
+      ASSERT_OK(biter->status());
+      SyncPoint::GetInstance()->EnableProcessing();
+      std::invoke(iter_api, biter);
+      ASSERT_FALSE(biter->Valid());
+      ASSERT_TRUE(biter->status().IsCorruption());
+    };
+
+    if (kNumRecords > 1) {
+      test_step(&MetaBlockIter::Prev, seek_key);
+      test_step(&MetaBlockIter::Next, seek_key);
+    }
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char **argv) {

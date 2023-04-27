@@ -37,6 +37,7 @@ default_params = {
     "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "memtable_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
+    "block_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice(
         [random.randint(0, 19), random.lognormvariate(2.3, 1.3)]
@@ -200,6 +201,7 @@ default_params = {
         ]
     ),
     "allow_data_in_errors": True,
+    "enable_thread_tracking": lambda: random.choice([0, 1]),
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
     "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),

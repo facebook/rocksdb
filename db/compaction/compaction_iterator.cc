@@ -1412,6 +1412,7 @@ std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
   }
 
   ReadOptions read_options;
+  read_options.io_activity = Env::IOActivity::kCompaction;
   read_options.fill_cache = false;
 
   return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, read_options));

@@ -425,14 +425,15 @@ class TableConstructor : public Constructor {
   }
 
   uint64_t ApproximateOffsetOf(const Slice& key) const {
+    const ReadOptions read_options;
     if (convert_to_internal_key_) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       const Slice skey = ikey.Encode();
       return table_reader_->ApproximateOffsetOf(
-          skey, TableReaderCaller::kUncategorized);
+          read_options, skey, TableReaderCaller::kUncategorized);
     }
     return table_reader_->ApproximateOffsetOf(
-        key, TableReaderCaller::kUncategorized);
+        read_options, key, TableReaderCaller::kUncategorized);
   }
 
   virtual Status Reopen(const ImmutableOptions& ioptions,
@@ -443,7 +444,9 @@ class TableConstructor : public Constructor {
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
-                           *last_internal_comparator_, /*skip_filters*/ false,
+                           *last_internal_comparator_,
+                           0 /* block_protection_bytes_per_key */,
+                           /*skip_filters*/ false,
                            /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
                            file_num_, kNullUniqueId64x2, largest_seqno_),
@@ -1717,7 +1720,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_NOT_COMPRESSED), 0);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED), 0);
 
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
@@ -1979,7 +1983,8 @@ void PrefetchRange(TableConstructor* c, Options* opt,
       end.reset(new Slice(key_end));
     }
   }
-  s = table_reader->Prefetch(begin.get(), end.get());
+  const ReadOptions read_options;
+  s = table_reader->Prefetch(read_options, begin.get(), end.get());
 
   ASSERT_TRUE(s.code() == expected_status.code());
 
@@ -3335,11 +3340,12 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  const ReadOptions read_options;
   for (uint32_t i = 1; i <= 2; i++) {
     InternalKey internal_key(auto_add_key1, 0, kTypeValue);
     std::string encoded_key = internal_key.Encode().ToString();
     c.GetTableReader()->ApproximateOffsetOf(
-        encoded_key, TableReaderCaller::kUserApproximateSize);
+        read_options, encoded_key, TableReaderCaller::kUserApproximateSize);
   }
   // Verify traces.
   std::vector<BlockCacheTraceRecord> expected_records;
@@ -4079,8 +4085,10 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
-                               kPlainTableMagicNumber, ioptions, &props);
+                               kPlainTableMagicNumber, ioptions, read_options,
+                               &props);
   ASSERT_OK(s);
 
   ASSERT_EQ(0ul, props->index_size);
@@ -4756,9 +4764,10 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  read_options, &props));
 
     UserCollectedProperties user_props = props->user_collected_properties;
     version = DecodeFixed32(
@@ -4788,7 +4797,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
-                           ikc),
+                           ikc, 0 /* block_protection_bytes_per_key */),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
@@ -4933,9 +4942,10 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> VerifyBlockAlignment = [&]() {
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), sink->contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  read_options, &props));
 
     uint64_t data_block_size = props->data_size / props->num_data_blocks;
     ASSERT_EQ(data_block_size, 4096);
@@ -4956,7 +4966,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
-                         GetPlainInternalComparator(options2.comparator)),
+                         GetPlainInternalComparator(options2.comparator),
+                         0 /* block_protection_bytes_per_key */),
       std::move(file_reader), sink->contents().size(), &table_reader));
 
   ReadOptions read_options;
@@ -5069,6 +5080,59 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
+  }
+}
+
+TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    if (type == kBZip2Compression) {
+      // Weird behavior in this test
+      continue;
+    }
+    SCOPED_TRACE("Compression type: " + std::to_string(type));
+
+    Options options;
+    options.compression = type;
+
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+    int len = 10000;
+    Random rnd(301);
+    std::vector<std::string> keys;
+    stl_wrappers::KVMap kvmap;
+
+    // Test the max_compressed_bytes_per_kb option
+    for (int threshold : {0, 1, 100, 400, 600, 900, 1024}) {
+      SCOPED_TRACE("threshold=" + std::to_string(threshold));
+      options.compression_opts.max_compressed_bytes_per_kb = threshold;
+      ImmutableOptions ioptions(options);
+      MutableCFOptions moptions(options);
+
+      for (double compressible_to : {0.25, 0.75}) {
+        SCOPED_TRACE("compressible_to=" + std::to_string(compressible_to));
+        TableConstructor c(BytewiseComparator(),
+                           true /* convert_to_internal_key_ */);
+        std::string buf;
+        c.Add("x", test::CompressibleString(&rnd, compressible_to, len, &buf));
+
+        // write an SST file
+        c.Finish(options, ioptions, moptions, table_options,
+                 GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+        size_t table_file_size = c.TEST_GetSink()->contents().size();
+        size_t approx_sst_overhead = 1000;
+        if (compressible_to < threshold / 1024.0) {
+          // Should be compressed (substantial variance depending on algorithm)
+          EXPECT_NEAR2(len * compressible_to + approx_sst_overhead,
+                       table_file_size, len / 8);
+        } else {
+          // Should not be compressed
+          EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
+        }
+      }
+    }
   }
 }
 

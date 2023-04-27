@@ -1696,8 +1696,11 @@ struct ReadOptions {
   // Default: true
   bool optimize_multiget_for_io;
 
+  Env::IOActivity io_activity;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
+  explicit ReadOptions(Env::IOActivity io_activity);
 };
 
 // Options that control write operations

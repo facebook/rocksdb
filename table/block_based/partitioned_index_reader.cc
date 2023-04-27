@@ -85,6 +85,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.async_io = read_options.async_io;
     ro.rate_limiter_priority = read_options.rate_limiter_priority;
     ro.verify_checksums = read_options.verify_checksums;
+    ro.io_activity = read_options.io_activity;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
