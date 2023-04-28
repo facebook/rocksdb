@@ -96,30 +96,8 @@ size_t JemallocNodumpAllocator::UsableSize(void* p,
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
   int tcache_flag = GetThreadSpecificCache(size);
-
-  if (arena_indexes_.size() == 1) {
-    return mallocx(size, MALLOCX_ARENA(arena_indexes_[0]) | tcache_flag);
-  }
-
-  // `size` is used as a source of entropy to initialize each thread's arena
-  // selection.
-  //
-  // Core-local may work in place of `thread_local` as we should be able to
-  // tolerate occasional stale reads in thread migration cases. However we need
-  // to switch to std::atomic and prevent cacheline bouncing ourselves. Whether
-  // this is worthwhile is still an open question.
-  thread_local uint32_t tl_rng_seed = static_cast<uint32_t>(size);
-
-  // `tl_rng_seed` is used directly for arena selection and updated afterwards
-  // in order to avoid a close data dependency.
-  void* ret = mallocx(
-      size, MALLOCX_ARENA(
-                arena_indexes_[tl_rng_seed & ((1 << log2_num_arenas_) - 1)]) |
-                tcache_flag);
-  Random rng(tl_rng_seed);
-  tl_rng_seed = rng.Next();
-
-  return ret;
+  uint32_t arena_index = GetArenaIndex();
+  return mallocx(size, MALLOCX_ARENA(arena_index) | tcache_flag);
 }
 
 void JemallocNodumpAllocator::Deallocate(void* p) {
@@ -134,24 +112,43 @@ void JemallocNodumpAllocator::Deallocate(void* p) {
   dallocx(p, tcache_flag);
 }
 
+uint32_t JemallocNodumpAllocator::GetArenaIndex() const {
+  if (arena_indexes_.size() == 1) {
+    return arena_indexes_[0];
+  }
+
+  static std::atomic<uint32_t> next_seed = 0;
+  // Core-local may work in place of `thread_local` as we should be able to
+  // tolerate occasional stale reads in thread migration cases. However we need
+  // to switch to std::atomic and prevent cacheline bouncing ourselves. Whether
+  // this is worthwhile is still an open question.
+  thread_local uint32_t tl_seed = next_seed.fetch_add(1);
+
+  // `tl_seed` is used directly for arena selection and updated afterwards
+  // in order to avoid a close data dependency.
+  uint32_t ret = arena_indexes_[tl_seed & ((1 << log2_num_arenas_) - 1)];
+  Random rng(tl_seed);
+  tl_seed = rng.Next();
+
+  return ret;
+}
+
 Status JemallocNodumpAllocator::InitializeArenas() {
   assert(!init_);
   init_ = true;
 
   for (size_t i = 0; i < options_.num_arenas; i++) {
     // Create arena.
-    arena_indexes_.emplace_back();
-    size_t arena_index_size = sizeof(arena_indexes_.back());
-    int ret = mallctl("arenas.create", &arena_indexes_.back(),
-                      &arena_index_size, nullptr, 0);
+    unsigned arena_index;
+    size_t arena_index_size = sizeof(arena_index);
+    int ret =
+        mallctl("arenas.create", &arena_index, &arena_index_size, nullptr, 0);
     if (ret != 0) {
-      // API doc says no arena is created in failure case, so we don't need to
-      // remember it for future cleanup.
-      arena_indexes_.pop_back();
       return Status::Incomplete(
           "Failed to create jemalloc arena, error code: " +
           std::to_string(ret));
     }
+    arena_indexes_.push_back(arena_index);
 
     // Read existing hooks.
     std::string key =
@@ -274,7 +271,7 @@ void* JemallocNodumpAllocator::Alloc(extent_hooks_t* extent, void* new_addr,
   return result;
 }
 
-Status JemallocNodumpAllocator::DestroyArena(unsigned arena_index) {
+Status JemallocNodumpAllocator::DestroyArena(uint32_t arena_index) {
   assert(arena_index != 0);
   std::string key = "arena." + std::to_string(arena_index) + ".destroy";
   int ret = mallctl(key.c_str(), nullptr, 0, nullptr, 0);

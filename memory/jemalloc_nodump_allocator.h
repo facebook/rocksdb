@@ -56,9 +56,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   Status InitializeArenas();
 
-  friend Status NewJemallocNodumpAllocator(
-      JemallocAllocatorOptions& options,
-      std::shared_ptr<MemoryAllocator>* memory_allocator);
+  uint32_t GetArenaIndex() const;
 
   // Custom alloc hook to replace jemalloc default alloc.
   static void* Alloc(extent_hooks_t* extent, void* new_addr, size_t size,
@@ -66,7 +64,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
                      unsigned arena_ind);
 
   // Destroy arena on destruction of the allocator, or on failure.
-  static Status DestroyArena(unsigned arena_index);
+  static Status DestroyArena(uint32_t arena_index);
 
   // Destroy tcache on destruction of the allocator, or thread exit.
   static void DestroyThreadSpecificCache(void* ptr);
@@ -93,7 +91,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;
 
-  std::vector<unsigned> arena_indexes_;
+  std::vector<uint32_t> arena_indexes_;
 
   size_t log2_num_arenas_ = 0;
 
