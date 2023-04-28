@@ -3,6 +3,9 @@
 ### New Features
 * Introduced a new option `block_protection_bytes_per_key`, which can be used to enable per key-value integrity protection for in-memory blocks in block cache (#11287).
 
+### Behavior changes
+* For x86, CPU features are no longer detected at runtime nor in build scripts, but in source code using common preprocessor defines. This will likely unlock some small performance improvements on some newer hardware. See (PR link here).
+
 ## 8.2.0 (04/24/2023)
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.

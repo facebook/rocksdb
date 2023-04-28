@@ -15,10 +15,6 @@
 
 #include <array>
 #include <utility>
-#ifdef HAVE_SSE42
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-#endif
 
 #include "port/lang.h"
 #include "util/coding.h"
@@ -48,6 +44,13 @@
 #include <sys/elf_common.h>
 #endif /* __linux__ */
 
+#endif
+
+ASSERT_FEATURE_COMPAT_HEADER();
+
+#ifdef __SSE4_2__
+#include <nmmintrin.h>
+#include <wmmintrin.h>
 #endif
 
 #if defined(HAVE_ARM64_CRC)
@@ -245,12 +248,6 @@ static inline uint32_t LE_LOAD32(const uint8_t* p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
-static inline uint64_t LE_LOAD64(const uint8_t* p) {
-  return DecodeFixed64(reinterpret_cast<const char*>(p));
-}
-#endif
-
 static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
@@ -267,10 +264,10 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
         (!defined(HAVE_ARM64_CRC)) ||                    \
     defined(NO_THREEWAY_CRC32C)
 static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
-#ifndef HAVE_SSE42
+#ifndef __SSE4_2__
   Slow_CRC32(l, p);
 #elif defined(__LP64__) || defined(_WIN64)
-  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
+  *l = _mm_crc32_u64(*l, DecodeFixed64(reinterpret_cast<const char*>(*p)));
   *p += 8;
 #else
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
@@ -323,48 +320,6 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 #undef ALIGN
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
-
-// Detect if ARM64 CRC or not.
-#ifndef HAVE_ARM64_CRC
-// Detect if SS42 or not.
-#ifndef HAVE_POWER8
-
-static bool isSSE42() {
-#ifndef HAVE_SSE42
-  return false;
-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
-  uint32_t c_;
-  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
-  return c_ & (1U << 20);  // copied from CpuId.h in Folly. Test SSE42
-#elif defined(_WIN64)
-  int info[4];
-  __cpuidex(info, 0x00000001, 0);
-  return (info[2] & ((int)1 << 20)) != 0;
-#else
-  return false;
-#endif
-}
-
-static bool isPCLMULQDQ() {
-#ifndef HAVE_SSE42
-  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ
-  // are supported by compiler
-  return false;
-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
-  uint32_t c_;
-  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
-  return c_ & (1U << 1);  // PCLMULQDQ is in bit 1 (not bit 0)
-#elif defined(_WIN64)
-  int info[4];
-  __cpuidex(info, 0x00000001, 0);
-  return (info[2] & ((int)1 << 1)) != 0;
-#else
-  return false;
-#endif
-}
-
-#endif  // HAVE_POWER8
-#endif  // HAVE_ARM64_CRC
 
 using Function = uint32_t (*)(uint32_t, const char*, size_t);
 
@@ -436,7 +391,9 @@ std::string IsFastCrc32Supported() {
     arch = "Arm64";
   }
 #else
-  has_fast_crc = isSSE42();
+#ifdef __SSE4_2__
+  has_fast_crc = true;
+#endif  // __SSE4_2__
   arch = "x86";
 #endif
   if (has_fast_crc) {
@@ -477,7 +434,7 @@ std::string IsFastCrc32Supported() {
  * <davejwatson@fb.com>
  *
  */
-#if defined HAVE_SSE42 && defined HAVE_PCLMUL
+#if defined(__SSE4_2__) && defined(__PCLMUL__)
 
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
@@ -1152,7 +1109,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   }
 }
 
-#endif //HAVE_SSE42 && HAVE_PCLMUL
+#endif //__SSE4_2__ && __PCLMUL__
 
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
@@ -1164,22 +1121,14 @@ static inline Function Choose_Extend() {
   } else {
     return ExtendImpl<Slow_CRC32>;
   }
+#elif defined(__SSE4_2__)
+#if defined(__PCLMUL__) && !defined NO_THREEWAY_CRC32C
+  return crc32c_3way;
 #else
-  if (isSSE42()) {
-    if (isPCLMULQDQ()) {
-#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) && !defined NO_THREEWAY_CRC32C
-      return crc32c_3way;
+  return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check __SSE4_2__ itself
+#endif  // __PCLMUL__ && !NO_THREEWAY_CRC32C
 #else
-    return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself
-#endif
-    }
-    else {  // no runtime PCLMULQDQ support but has SSE42 support
-      return ExtendImpl<Fast_CRC32>;
-    }
-  } // end of isSSE42()
-  else {
-    return ExtendImpl<Slow_CRC32>;
-  }
+  return ExtendImpl<Slow_CRC32>;
 #endif
 }
 

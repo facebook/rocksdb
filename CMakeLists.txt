@@ -305,25 +305,6 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
-endif()
-
 # Check if -latomic is required or not
 if (NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "--std=c++17")
@@ -1008,12 +989,6 @@ if ( ROCKSDB_PLUGINS )
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
   endforeach()
-endif()
-
-if(HAVE_SSE42 AND NOT MSVC)
-  set_source_files_properties(
-    util/crc32c.cc
-    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
