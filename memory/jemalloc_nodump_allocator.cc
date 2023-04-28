@@ -14,6 +14,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/fastrange.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -120,17 +121,10 @@ uint32_t JemallocNodumpAllocator::GetArenaIndex() const {
   static std::atomic<uint32_t> next_seed = 0;
   // Core-local may work in place of `thread_local` as we should be able to
   // tolerate occasional stale reads in thread migration cases. However we need
-  // to switch to std::atomic and prevent cacheline bouncing ourselves. Whether
-  // this is worthwhile is still an open question.
-  thread_local uint32_t tl_seed = next_seed.fetch_add(1);
-
-  // `tl_seed` is used directly for arena selection and updated afterwards
-  // in order to avoid a close data dependency.
-  uint32_t ret = arena_indexes_[tl_seed & ((1 << log2_num_arenas_) - 1)];
-  Random rng(tl_seed);
-  tl_seed = rng.Next();
-
-  return ret;
+  // to make Random thread-safe and prevent cacheline bouncing. Whether this is
+  // worthwhile is still an open question.
+  thread_local Random tl_random(next_seed.fetch_add(1));
+  return arena_indexes_[FastRange32(tl_random.Next(), arena_indexes_.size())];
 }
 
 Status JemallocNodumpAllocator::InitializeArenas() {
@@ -185,13 +179,6 @@ Status JemallocNodumpAllocator::InitializeArenas() {
                                 std::to_string(ret));
     }
   }
-
-  log2_num_arenas_ = 0;
-  while ((1ul << log2_num_arenas_) < arena_indexes_.size()) {
-    log2_num_arenas_++;
-  }
-  assert((1ul << log2_num_arenas_) == arena_indexes_.size());
-
   return Status::OK();
 }
 
@@ -208,9 +195,8 @@ Status JemallocNodumpAllocator::PrepareOptions(
                  options_.tcache_size_upper_bound) {
     return Status::InvalidArgument(
         "tcache_size_lower_bound larger or equal to tcache_size_upper_bound.");
-  } else if (options_.num_arenas < 1 ||
-             (options_.num_arenas & (options_.num_arenas - 1)) != 0) {
-    return Status::InvalidArgument("num_arenas must be a power of two");
+  } else if (options_.num_arenas < 1) {
+    return Status::InvalidArgument("num_arenas must be a positive integer");
   } else if (IsMutable()) {
     Status s = MemoryAllocator::PrepareOptions(config_options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR

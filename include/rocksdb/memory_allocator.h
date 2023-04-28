@@ -57,8 +57,8 @@ struct JemallocAllocatorOptions {
   size_t tcache_size_upper_bound = 16 * 1024;
 
   // Number of arenas across which we spread allocation requests. Increasing
-  // this setting can mitigate arena mutex contention. The value must be a power
-  // of two.
+  // this setting can mitigate arena mutex contention. The value must be
+  // positive.
   size_t num_arenas = 1;
 };
 
