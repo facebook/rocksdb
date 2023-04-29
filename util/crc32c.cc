@@ -248,7 +248,8 @@ static inline uint32_t LE_LOAD32(const uint8_t* p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
+static inline void DefaultCRC32(uint64_t* l, uint8_t const** p) {
+#ifndef __SSE4_2__
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
   *l = table3_[c & 0xff] ^ table2_[(c >> 8) & 0xff] ^
@@ -258,14 +259,6 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
   *p += 4;
   *l = table3_[c & 0xff] ^ table2_[(c >> 8) & 0xff] ^
        table1_[(c >> 16) & 0xff] ^ table0_[c >> 24];
-}
-
-#if (!(defined(HAVE_POWER8) && defined(HAS_ALTIVEC))) && \
-        (!defined(HAVE_ARM64_CRC)) ||                    \
-    defined(NO_THREEWAY_CRC32C)
-static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
-#ifndef __SSE4_2__
-  Slow_CRC32(l, p);
 #elif defined(__LP64__) || defined(_WIN64)
   *l = _mm_crc32_u64(*l, DecodeFixed64(reinterpret_cast<const char*>(*p)));
   *p += 8;
@@ -276,7 +269,6 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
   *p += 4;
 #endif
 }
-#endif
 
 template <void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -1113,22 +1105,19 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
-  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<DefaultCRC32>;
 #elif defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
     pmull_runtime_flag = crc32c_pmull_runtime_check();
     return ExtendARMImpl;
   } else {
-    return ExtendImpl<Slow_CRC32>;
+    return ExtendImpl<DefaultCRC32>;
   }
-#elif defined(__SSE4_2__)
-#if defined(__PCLMUL__) && !defined NO_THREEWAY_CRC32C
+#elif defined(__SSE4_2__) && defined(__PCLMUL__) && !defined NO_THREEWAY_CRC32C
+  // NOTE: runtime detection no longer supported on x86
   return crc32c_3way;
 #else
-  return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check __SSE4_2__ itself
-#endif  // __PCLMUL__ && !NO_THREEWAY_CRC32C
-#else
-  return ExtendImpl<Slow_CRC32>;
+  return ExtendImpl<DefaultCRC32>;
 #endif
 }
 
