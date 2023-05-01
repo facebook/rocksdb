@@ -56,7 +56,8 @@ Status SstFileReader::Open(const std::string& file_path) {
   }
   if (s.ok()) {
     TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor,
-                             r->soptions, r->ioptions.internal_comparator);
+                             r->soptions, r->ioptions.internal_comparator,
+                             r->moptions.block_protection_bytes_per_key);
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
