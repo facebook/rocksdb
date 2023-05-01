@@ -2435,6 +2435,8 @@ checkout_folly:
 	@# NOTE: this hack is required for gcc in some cases
 	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
 
+CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
+
 build_folly:
 	FOLLY_INST_PATH=`cd third-party/folly; $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
 	if [ "$$FOLLY_INST_PATH" ]; then \
@@ -2446,7 +2448,7 @@ build_folly:
 	# Restore the original version of Invoke.h with boost dependency
 	cd third-party/folly && ${GIT_COMMAND} checkout folly/functional/Invoke.h
 	cd third-party/folly && \
-		CXXFLAGS=" -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
+		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing
