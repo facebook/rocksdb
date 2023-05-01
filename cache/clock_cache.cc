@@ -1282,25 +1282,20 @@ size_t ClockCacheShard<Table>::GetTableAddressCount() const {
 // Explicit instantiation
 template class ClockCacheShard<HyperClockTable>;
 
-HyperClockCache::HyperClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    std::shared_ptr<MemoryAllocator> memory_allocator)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(memory_allocator)) {
-  assert(estimated_value_size > 0 ||
-         metadata_charge_policy != kDontChargeCacheMetadata);
+HyperClockCache::HyperClockCache(const HyperClockCacheOptions& opts)
+    : ShardedCache(opts) {
+  assert(opts.estimated_entry_charge > 0 ||
+         opts.metadata_charge_policy != kDontChargeCacheMetadata);
   // TODO: should not need to go through two levels of pointer indirection to
   // get to table entries
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = this->memory_allocator();
-  const Cache::EvictionCallback* eviction_callback = &eviction_callback_;
-  InitShards([=](Shard* cs) {
-    HyperClockTable::Opts opts;
-    opts.estimated_value_size = estimated_value_size;
-    new (cs) Shard(per_shard, strict_capacity_limit, metadata_charge_policy,
-                   alloc, eviction_callback, opts);
+  InitShards([&](Shard* cs) {
+    HyperClockTable::Opts table_opts;
+    table_opts.estimated_value_size = opts.estimated_entry_charge;
+    new (cs) Shard(per_shard, opts.strict_capacity_limit,
+                   opts.metadata_charge_policy, alloc, &eviction_callback_,
+                   table_opts);
   });
 }
 
@@ -1460,21 +1455,23 @@ std::shared_ptr<Cache> NewClockCache(
 }
 
 std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
-  auto my_num_shard_bits = num_shard_bits;
-  if (my_num_shard_bits >= 20) {
+  // For sanitized options
+  HyperClockCacheOptions opts = *this;
+  if (opts.num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
-  if (my_num_shard_bits < 0) {
+  if (opts.num_shard_bits < 0) {
     // Use larger shard size to reduce risk of large entries clustering
     // or skewing individual shards.
     constexpr size_t min_shard_size = 32U * 1024U * 1024U;
-    my_num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
+    opts.num_shard_bits =
+        GetDefaultCacheShardBits(opts.capacity, min_shard_size);
   }
-  std::shared_ptr<Cache> cache = std::make_shared<clock_cache::HyperClockCache>(
-      capacity, estimated_entry_charge, my_num_shard_bits,
-      strict_capacity_limit, metadata_charge_policy, memory_allocator);
-  if (secondary_cache) {
-    cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
+  std::shared_ptr<Cache> cache =
+      std::make_shared<clock_cache::HyperClockCache>(opts);
+  if (opts.secondary_cache) {
+    cache = std::make_shared<CacheWithSecondaryAdapter>(cache,
+                                                        opts.secondary_cache);
   }
   return cache;
 }
