@@ -682,7 +682,7 @@ class HyperClockCache
  public:
   using Shard = ClockCacheShard<HyperClockTable>;
 
-  HyperClockCache(const HyperClockCacheOptions& opts);
+  explicit HyperClockCache(const HyperClockCacheOptions& opts);
 
   const char* Name() const override { return "HyperClockCache"; }
 

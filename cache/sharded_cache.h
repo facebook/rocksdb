@@ -89,7 +89,7 @@ class CacheShardBase {
 // Portions of ShardedCache that do not depend on the template parameter
 class ShardedCacheBase : public Cache {
  public:
-  ShardedCacheBase(const ShardedCacheOptions& opts);
+  explicit ShardedCacheBase(const ShardedCacheOptions& opts);
   virtual ~ShardedCacheBase() = default;
 
   int GetNumShardBits() const;
@@ -132,7 +132,7 @@ class ShardedCache : public ShardedCacheBase {
   using HashCref = typename CacheShard::HashCref;
   using HandleImpl = typename CacheShard::HandleImpl;
 
-  ShardedCache(const ShardedCacheOptions& opts)
+  explicit ShardedCache(const ShardedCacheOptions& opts)
       : ShardedCacheBase(opts),
         shards_(reinterpret_cast<CacheShard*>(port::cacheline_aligned_alloc(
             sizeof(CacheShard) * GetNumShards()))),

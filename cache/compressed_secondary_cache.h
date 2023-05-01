@@ -69,7 +69,8 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
 class CompressedSecondaryCache : public SecondaryCache {
  public:
-  CompressedSecondaryCache(const CompressedSecondaryCacheOptions& opts);
+  explicit CompressedSecondaryCache(
+      const CompressedSecondaryCacheOptions& opts);
   ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }

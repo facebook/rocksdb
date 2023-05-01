@@ -446,7 +446,7 @@ class LRUCache
 #endif
     : public ShardedCache<LRUCacheShard> {
  public:
-  LRUCache(const LRUCacheOptions& opts);
+  explicit LRUCache(const LRUCacheOptions& opts);
   const char* Name() const override { return "LRUCache"; }
   ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
