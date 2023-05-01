@@ -142,8 +142,9 @@ struct ShardedCacheOptions {
   static constexpr int32_t kQuasiRandomHashSeed = -1;
   static constexpr int32_t kHostHashSeed = -2;
 
-  // EXPERT: Specifies how a hash seed should be determined for the cache, or
-  // specifies a specific seed (only recommended for diagnostics or testing).
+  // EXPERT OPTION: Specifies how a hash seed should be determined for the
+  // cache, or specifies a specific seed (only recommended for diagnostics or
+  // testing).
   //
   // Background: it could be dangerous to have different cache instances
   // access the same SST files with the same hash seed, as correlated unlucky
