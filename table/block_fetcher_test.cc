@@ -266,9 +266,9 @@ class BlockFetcherTest : public testing::Test {
     const auto* table_options =
         table_factory_.GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(table_options, nullptr);
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
-                                    comparator, std::move(file), file_size,
-                                    &table_reader));
+    ASSERT_OK(BlockBasedTable::Open(
+        ro, ioptions, EnvOptions(), *table_options, comparator, std::move(file),
+        file_size, 0 /* block_protection_bytes_per_key */, &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }

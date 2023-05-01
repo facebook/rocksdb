@@ -1148,7 +1148,9 @@ bool InternalStats::HandleSsTables(std::string* value, Slice /*suffix*/) {
 bool InternalStats::HandleAggregatedTableProperties(std::string* value,
                                                     Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
     return false;
   }
@@ -1168,7 +1170,9 @@ static std::map<std::string, std::string> MapUint64ValuesToString(
 bool InternalStats::HandleAggregatedTablePropertiesMap(
     std::map<std::string, std::string>* values, Slice /*suffix*/) {
   std::shared_ptr<const TableProperties> tp;
-  auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  auto s = cfd_->current()->GetAggregatedTableProperties(read_options, &tp);
   if (!s.ok()) {
     return false;
   }
@@ -1184,8 +1188,10 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* values,
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
-      &tp, static_cast<int>(level));
+      read_options, &tp, static_cast<int>(level));
   if (!s.ok()) {
     return false;
   }
@@ -1201,8 +1207,10 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevelMap(
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   auto s = cfd_->current()->GetAggregatedTableProperties(
-      &tp, static_cast<int>(level));
+      read_options, &tp, static_cast<int>(level));
   if (!s.ok()) {
     return false;
   }
@@ -1397,7 +1405,11 @@ bool InternalStats::HandleEstimatePendingCompactionBytes(uint64_t* value,
 bool InternalStats::HandleEstimateTableReadersMem(uint64_t* value,
                                                   DBImpl* /*db*/,
                                                   Version* version) {
-  *value = (version == nullptr) ? 0 : version->GetMemoryUsageByTableReaders();
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  *value = (version == nullptr)
+               ? 0
+               : version->GetMemoryUsageByTableReaders(read_options);
   return true;
 }
 
@@ -1448,9 +1460,10 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
           ->compaction_options_fifo.allow_compaction) {
     return false;
   }
-
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   TablePropertiesCollection collection;
-  auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
+  auto s = cfd_->current()->GetPropertiesOfAllTables(read_options, &collection);
   if (!s.ok()) {
     return false;
   }

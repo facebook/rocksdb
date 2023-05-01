@@ -682,8 +682,6 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
 }
-
-
 ReadOptions::ReadOptions()
     : snapshot(nullptr),
       iterate_lower_bound(nullptr),
@@ -708,7 +706,8 @@ ReadOptions::ReadOptions()
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
       adaptive_readahead(false),
       async_io(false),
-      optimize_multiget_for_io(true) {}
+      optimize_multiget_for_io(true),
+      io_activity(Env::IOActivity::kUnknown) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -734,6 +733,34 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
       adaptive_readahead(false),
       async_io(false),
-      optimize_multiget_for_io(true) {}
+      optimize_multiget_for_io(true),
+      io_activity(Env::IOActivity::kUnknown) {}
+
+ReadOptions::ReadOptions(Env::IOActivity _io_activity)
+    : snapshot(nullptr),
+      iterate_lower_bound(nullptr),
+      iterate_upper_bound(nullptr),
+      readahead_size(0),
+      max_skippable_internal_keys(0),
+      read_tier(kReadAllTier),
+      verify_checksums(true),
+      fill_cache(true),
+      tailing(false),
+      managed(false),
+      total_order_seek(false),
+      auto_prefix_mode(false),
+      prefix_same_as_start(false),
+      pin_data(false),
+      background_purge_on_iterator_cleanup(false),
+      ignore_range_deletions(false),
+      timestamp(nullptr),
+      iter_start_ts(nullptr),
+      deadline(std::chrono::microseconds::zero()),
+      io_timeout(std::chrono::microseconds::zero()),
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
+      adaptive_readahead(false),
+      async_io(false),
+      optimize_multiget_for_io(true),
+      io_activity(_io_activity) {}
 
 }  // namespace ROCKSDB_NAMESPACE

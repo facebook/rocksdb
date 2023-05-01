@@ -290,6 +290,7 @@ DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
+DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
@@ -310,6 +311,8 @@ DECLARE_bool(verify_sst_unique_id_in_manifest);
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
 DECLARE_bool(allow_data_in_errors);
+
+DECLARE_bool(enable_thread_tracking);
 
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature

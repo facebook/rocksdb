@@ -682,10 +682,7 @@ class HyperClockCache
  public:
   using Shard = ClockCacheShard<HyperClockTable>;
 
-  HyperClockCache(size_t capacity, size_t estimated_value_size,
-                  int num_shard_bits, bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy,
-                  std::shared_ptr<MemoryAllocator> memory_allocator);
+  explicit HyperClockCache(const HyperClockCacheOptions& opts);
 
   const char* Name() const override { return "HyperClockCache"; }
 

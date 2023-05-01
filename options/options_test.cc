@@ -3927,6 +3927,36 @@ class OptionsSanityCheckTest : public OptionsParserTest,
   const std::string kOptionsFileName = "OPTIONS";
 };
 
+TEST_P(OptionsSanityCheckTest, MergeOperatorErrorMessage) {
+  ColumnFamilyOptions opts;
+  Random rnd(301);
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  std::string merge_op_name = opts.merge_operator->Name();
+  ASSERT_OK(PersistCFOptions(opts));
+
+  // Test when going from merge operator -> nullptr
+  opts.merge_operator = nullptr;
+  Status s =
+      SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  std::string err_msg = s.ToString();
+  std::string specified = "The specified one is " + kNullptrString;
+  std::string persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+
+  // Test when using a different merge operator
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  s = SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  err_msg = s.ToString();
+  specified =
+      "The specified one is " + std::string(opts.merge_operator->Name());
+  persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+}
+
 TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;
   Random rnd(301);

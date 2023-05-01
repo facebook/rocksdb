@@ -229,7 +229,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     log_io_s = SyncClosedLogs(job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      log_io_s =
+          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
       TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile:CommitWal:1",
                                nullptr);
     }
@@ -492,7 +494,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     log_io_s = SyncClosedLogs(job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      log_io_s =
+          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
     }
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
@@ -956,6 +960,9 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
+
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   TEST_SYNC_POINT_CALLBACK("DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
                            &edit);
 
@@ -969,7 +976,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    &edit, &mutex_, directories_.GetDbDir());
+                                    read_options, &edit, &mutex_,
+                                    directories_.GetDbDir());
   if (!s.ok()) {
     return s;
   }
@@ -1080,6 +1088,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
 
       ReadOptions ro;
       ro.total_order_seek = true;
+      ro.io_activity = Env::IOActivity::kCompaction;
       bool overlap;
       for (int level = 0;
            level < current_version->storage_info()->num_non_empty_levels();
@@ -1639,6 +1648,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+
   SuperVersionContext sv_context(/* create_superversion */ true);
 
   InstrumentedMutexLock guard_lock(&mutex_);
@@ -1753,8 +1764,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
-                                           &mutex_, directories_.GetDbDir());
+    Status status =
+        versions_->LogAndApply(cfd, mutable_cf_options, read_options, &edit,
+                               &mutex_, directories_.GetDbDir());
 
     cfd->compaction_picker()->UnregisterCompaction(c.get());
     c.reset();
@@ -3189,6 +3201,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
 
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+
   bool is_manual = (manual_compaction != nullptr);
   std::unique_ptr<Compaction> c;
   if (prepicked_compaction != nullptr &&
@@ -3399,9 +3413,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
-    status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(), c->edit(),
-                                    &mutex_, directories_.GetDbDir());
+    status = versions_->LogAndApply(
+        c->column_family_data(), *c->mutable_cf_options(), read_options,
+        c->edit(), &mutex_, directories_.GetDbDir());
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
@@ -3418,9 +3432,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                              c->column_family_data());
     // Instrument for event update
     // TODO(yhchiang): add op details for showing trivial-move.
-    ThreadStatusUtil::SetColumnFamily(
-        c->column_family_data(), c->column_family_data()->ioptions()->env,
-        immutable_db_options_.enable_thread_tracking);
+    ThreadStatusUtil::SetColumnFamily(c->column_family_data());
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
     compaction_job_stats.num_input_files = c->num_input_files(0);
@@ -3466,9 +3478,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             vstorage->GetNextCompactCursor(start_level, c->num_input_files(0)));
       }
     }
-    status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(), c->edit(),
-                                    &mutex_, directories_.GetDbDir());
+    status = versions_->LogAndApply(
+        c->column_family_data(), *c->mutable_cf_options(), read_options,
+        c->edit(), &mutex_, directories_.GetDbDir());
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
@@ -3782,6 +3794,8 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->table_properties = c->GetOutputTableProperties();
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
+
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
       const FileDescriptor& desc = fmd->fd;
@@ -3793,7 +3807,7 @@ void DBImpl::BuildCompactionJobInfo(
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
       if (compaction_job_info->table_properties.count(fn) == 0) {
         std::shared_ptr<const TableProperties> tp;
-        auto s = current->GetTableProperties(&tp, fmd, &fn);
+        auto s = current->GetTableProperties(read_options, &tp, fmd, &fn);
         if (s.ok()) {
           compaction_job_info->table_properties[fn] = tp;
         }

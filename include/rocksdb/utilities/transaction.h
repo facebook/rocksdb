@@ -681,4 +681,3 @@ class Transaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

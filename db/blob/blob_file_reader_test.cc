@@ -172,12 +172,12 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   std::unique_ptr<BlobFileReader> reader;
 
+  ReadOptions read_options;
   ASSERT_OK(BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader));
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
-  ReadOptions read_options;
   read_options.verify_checksums = false;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
@@ -479,11 +479,11 @@ TEST_F(BlobFileReaderTest, Malformed) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
-                                     column_family_id, blob_file_read_hist,
-                                     blob_file_number, nullptr /*IOTracer*/,
-                                     &reader)
+  const ReadOptions read_options;
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
+                                     FileOptions(), column_family_id,
+                                     blob_file_read_hist, blob_file_number,
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -513,11 +513,11 @@ TEST_F(BlobFileReaderTest, TTL) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
-                                     column_family_id, blob_file_read_hist,
-                                     blob_file_number, nullptr /*IOTracer*/,
-                                     &reader)
+  const ReadOptions read_options;
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
+                                     FileOptions(), column_family_id,
+                                     blob_file_read_hist, blob_file_number,
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -552,11 +552,11 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
-                                     column_family_id, blob_file_read_hist,
-                                     blob_file_number, nullptr /*IOTracer*/,
-                                     &reader)
+  const ReadOptions read_options;
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
+                                     FileOptions(), column_family_id,
+                                     blob_file_read_hist, blob_file_number,
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -591,11 +591,11 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
-                                     column_family_id, blob_file_read_hist,
-                                     blob_file_number, nullptr /*IOTracer*/,
-                                     &reader)
+  const ReadOptions read_options;
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
+                                     FileOptions(), column_family_id,
+                                     blob_file_read_hist, blob_file_number,
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -629,9 +629,9 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
   std::unique_ptr<BlobFileReader> reader;
 
   constexpr uint32_t incorrect_column_family_id = 2;
-
-  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
-                                     incorrect_column_family_id,
+  const ReadOptions read_options;
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, read_options,
+                                     FileOptions(), incorrect_column_family_id,
                                      blob_file_read_hist, blob_file_number,
                                      nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
@@ -664,10 +664,10 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
+  const ReadOptions read_options;
   ASSERT_OK(BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader));
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
@@ -728,13 +728,12 @@ TEST_F(BlobFileReaderTest, Compression) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
+  ReadOptions read_options;
   ASSERT_OK(BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader));
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
-  ReadOptions read_options;
   read_options.verify_checksums = false;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
@@ -803,10 +802,10 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
+  const ReadOptions read_options;
   ASSERT_OK(BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader));
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", [](void* arg) {
@@ -895,10 +894,10 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
+  const ReadOptions read_options;
   const Status s = BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader);
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       (sync_point_ != "BlobFileReader::GetBlob:ReadFromFile");
@@ -983,10 +982,10 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
-
+  const ReadOptions read_options;
   const Status s = BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, nullptr /*IOTracer*/, &reader);
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       sync_point_ != "BlobFileReader::GetBlob:TamperWithResult";

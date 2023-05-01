@@ -19,14 +19,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-ShardedCacheBase::ShardedCacheBase(size_t capacity, int num_shard_bits,
-                                   bool strict_capacity_limit,
-                                   std::shared_ptr<MemoryAllocator> allocator)
-    : Cache(std::move(allocator)),
+ShardedCacheBase::ShardedCacheBase(const ShardedCacheOptions& opts)
+    : Cache(opts.memory_allocator),
       last_id_(1),
-      shard_mask_((uint32_t{1} << num_shard_bits) - 1),
-      strict_capacity_limit_(strict_capacity_limit),
-      capacity_(capacity) {}
+      shard_mask_((uint32_t{1} << opts.num_shard_bits) - 1),
+      strict_capacity_limit_(opts.strict_capacity_limit),
+      capacity_(opts.capacity) {}
 
 size_t ShardedCacheBase::ComputePerShardCapacity(size_t capacity) const {
   uint32_t num_shards = GetNumShards();

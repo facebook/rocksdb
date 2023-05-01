@@ -679,6 +679,15 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     Status s = base_config->GetOption(config_options, mismatch, &base_value);
     if (s.ok()) {
       s = file_config->GetOption(config_options, mismatch, &file_value);
+      // In file_opt, certain options like MergeOperator may be nullptr due to
+      //   factor methods not available. So we use opt_map to get
+      //   option value to use in the error message below.
+      if (s.ok() && file_value == kNullptrString && opt_map) {
+        auto const& opt_val_str = (opt_map->find(mismatch));
+        if (opt_val_str != opt_map->end()) {
+          file_value = opt_val_str->second;
+        }
+      }
     }
     int offset = snprintf(buffer, sizeof(buffer),
                           "[RocksDBOptionsParser]: "

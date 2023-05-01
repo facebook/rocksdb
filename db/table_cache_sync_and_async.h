@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 (const ReadOptions& options, const InternalKeyComparator& internal_comparator,
  const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
+ uint8_t block_protection_bytes_per_key,
  const std::shared_ptr<const SliceTransform>& prefix_extractor,
  HistogramImpl* file_read_hist, bool skip_filters, bool skip_range_deletions,
  int level, TypedHandle* handle) {
@@ -65,7 +66,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     if (t == nullptr) {
       assert(handle == nullptr);
       s = FindTable(options, file_options_, internal_comparator, file_meta,
-                    &handle, prefix_extractor,
+                    &handle, block_protection_bytes_per_key, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
                     level, true /* prefetch_index_and_filter_in_cache */,

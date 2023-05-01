@@ -165,10 +165,10 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
-  auto t_opt =
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor, soptions_,
-                         internal_comparator_, false /* skip_filters */,
-                         false /* imortal */, true /* force_direct_prefetch */);
+  auto t_opt = TableReaderOptions(
+      ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
+      0 /* block_protection_bytes_per_key */, false /* skip_filters */,
+      false /* immortal */, true /* force_direct_prefetch */);
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 
@@ -315,7 +315,8 @@ Status SstFileDumper::ShowCompressionSize(
   const uint64_t compressed_blocks =
       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
   const uint64_t not_compressed_blocks =
-      opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+      opts.statistics->getAndResetTickerCount(
+          NUMBER_BLOCK_COMPRESSION_REJECTED);
   // When the option enable_index_compression is true,
   // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
   if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
@@ -355,8 +356,11 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties_,
+      file, file_size, table_magic_number, ioptions_, read_options,
+      &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {
     if (!silent_) {
@@ -514,4 +518,3 @@ Status SstFileDumper::ReadTableProperties(
   return init_result_;
 }
 }  // namespace ROCKSDB_NAMESPACE
-
