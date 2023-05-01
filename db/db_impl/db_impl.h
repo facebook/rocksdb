@@ -734,13 +734,17 @@ class DBImpl : public DB {
   // max_file_num_to_ignore allows bottom level compaction to filter out newly
   // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
   // disable the filtering
+  // If `final_output_level` is not nullptr, it is set to manual compaction's
+  // output level if returned status is OK, and it may or may not be set to
+  // manual compaction's output level if returned status is not OK.
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level,
                              const CompactRangeOptions& compact_range_options,
                              const Slice* begin, const Slice* end,
                              bool exclusive, bool disallow_trivial_move,
                              uint64_t max_file_num_to_ignore,
-                             const std::string& trim_ts);
+                             const std::string& trim_ts,
+                             int* final_output_level = nullptr);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -2123,7 +2127,7 @@ class DBImpl : public DB {
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
-  Status ApplyWALToManifest(VersionEdit* edit);
+  Status ApplyWALToManifest(const ReadOptions& read_options, VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 

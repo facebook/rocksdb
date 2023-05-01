@@ -116,6 +116,8 @@ struct IOOptions {
   // directories and list only files in GetChildren API.
   bool do_not_recurse;
 
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
   IOOptions() : IOOptions(false) {}
 
   explicit IOOptions(bool force_dir_fsync_)

@@ -37,7 +37,8 @@ class BlockBuilder {
   void SwapAndReset(std::string& buffer);
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
-  // REQUIRES: key is larger than any previously added key
+  // REQUIRES: Unless a range tombstone block, key is larger than any previously
+  //           added key
   // DO NOT mix with AddWithLastKey() between Resets. For efficiency, use
   // AddWithLastKey() in contexts where previous added key is already known
   // and delta encoding might be used.
@@ -47,7 +48,8 @@ class BlockBuilder {
   // A faster version of Add() if the previous key is already known for all
   // Add()s.
   // REQUIRES: Finish() has not been called since the last call to Reset().
-  // REQUIRES: key is larger than any previously added key
+  // REQUIRES: Unless a range tombstone block, key is larger than any previously
+  //           added key
   // REQUIRES: if AddWithLastKey has been called since last Reset(), last_key
   // is the key from most recent AddWithLastKey. (For convenience, last_key
   // is ignored on first call after creation or Reset().)

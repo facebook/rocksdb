@@ -250,6 +250,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
+          sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
@@ -275,6 +276,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // in file_meta.
   if (file_meta.smallest.empty()) {
     assert(file_meta.largest.empty());
+    // TODO: plumb Env::IOActivity
     ReadOptions ro;
     std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
         ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
@@ -350,4 +352,3 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   return status;
 }
 }  // namespace ROCKSDB_NAMESPACE
-

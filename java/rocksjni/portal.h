@@ -5619,6 +5619,10 @@ class HistogramTypeJni {
         return 0x38;
       case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
         return 0x39;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS:
+        return 0x3A;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
+        return 0x3B;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5738,6 +5742,10 @@ class HistogramTypeJni {
       case 0x39:
         return ROCKSDB_NAMESPACE::Histograms::
             TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
+      case 0x3A:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
+      case 0x3B:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -6777,6 +6785,8 @@ class OperationTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH:
         return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN:
+        return 0x3;
       default:
         return 0x7F;  // undefined
     }
@@ -6793,6 +6803,8 @@ class OperationTypeJni {
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION;
       case 0x2:
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;

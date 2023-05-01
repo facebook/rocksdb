@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
@@ -104,7 +105,11 @@ int db_stress_tool(int argc, char** argv) {
     // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
     // from failing when IO uring is disabled. The EnvWrapper
     // has a default implementation of ReadAsync that redirects to Read.
-    env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
+    legacy_env_wrapper_guard = std::make_shared<EnvWrapper>(raw_env);
+    env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
+        legacy_env_wrapper_guard,
+        std::make_shared<DbStressFSWrapper>(
+            legacy_env_wrapper_guard->GetFileSystem()));
   }
   db_stress_env = env_wrapper_guard.get();
 

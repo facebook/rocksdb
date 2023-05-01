@@ -810,9 +810,10 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   // We created 4 sst files in L0
   ASSERT_EQ("4", FilesPerLevel(0));
 
-  // Compaction will move the 4 files in L0 to trash and create 1 L1 file
+  // Compaction will move the 4 files in L0 to trash and create 1 L1 file.
+  // Use kForceOptimized to not rewrite the new L1 file.
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
   ASSERT_EQ("0,1", FilesPerLevel(0));

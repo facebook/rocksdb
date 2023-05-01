@@ -19,6 +19,7 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
@@ -923,8 +924,9 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
   assert(versions_->descriptor_log_ == nullptr);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   Status s = versions_->LogAndApply(
-      recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_,
+      recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_, read_options,
       recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
   if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
@@ -1577,6 +1579,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
+  ro.io_activity = Env::IOActivity::kDBOpen;
   Arena arena;
   Status s;
   TableProperties table_properties;
@@ -1635,10 +1638,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       SeqnoToTimeMapping empty_seqno_time_mapping;
       Version* version = cfd->current();
       version->Ref();
+      const ReadOptions read_option(Env::IOActivity::kDBOpen);
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
-          file_options_for_compaction_, cfd->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta, &blob_file_additions,
+          file_options_for_compaction_, read_option, cfd->table_cache(),
+          iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
           snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
           snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
           io_tracer_, BlobFileCreationReason::kRecovery,
@@ -1739,8 +1743,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   const bool kSeqPerBatch = true;
   const bool kBatchPerTxn = true;
-  return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                      !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
+  Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                          !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::ResetThreadStatus();
+  return s;
 }
 
 // TODO: Implement the trimming in flush code path.

@@ -1419,6 +1419,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+  VerifyDBFromMap(true_data);
 }
 
 TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
@@ -1461,6 +1462,63 @@ TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
   ASSERT_OK(s) << s.ToString();
   ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileBasicTest, UnorderedRangeDeletions) {
+  int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = kNumLevels;
+  Reopen(options);
+
+  std::map<std::string, std::string> true_data;
+  int file_id = 1;
+
+  // prevent range deletions from being dropped due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // Range del [0, 50) in memtable
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(50)));
+
+  // Out of order range del overlaps memtable, so flush is required before file
+  // is ingested into L0
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {60, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      {{65, 70}, {45, 50}}, file_id++, true /* write_global_seqno */,
+      true /* verify_checksums_before_ingest */, &true_data));
+  ASSERT_EQ(2, true_data.size());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Compact to L6
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Ingest a file containing out of order range dels that cover nothing
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {151, 175}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      {{160, 200}, {120, 180}}, file_id++, true /* write_global_seqno */,
+      true /* verify_checksums_before_ingest */, &true_data));
+  ASSERT_EQ(4, true_data.size());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(2, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Ingest a file containing out of order range dels that cover keys in L6
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {}, {}, {{190, 200}, {170, 180}, {55, 65}}, file_id++,
+      true /* write_global_seqno */, true /* verify_checksums_before_ingest */,
+      &true_data));
+  ASSERT_EQ(2, true_data.size());
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(2, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {

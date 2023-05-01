@@ -92,11 +92,12 @@ class PlainTableReader : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& key,
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key,
                                TableReaderCaller caller) override;
 
-  uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                           TableReaderCaller caller) override;
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, TableReaderCaller caller) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;

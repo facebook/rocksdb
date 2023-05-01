@@ -36,7 +36,7 @@ class ForwardLevelIterator : public InternalIterator {
       const ColumnFamilyData* const cfd, const ReadOptions& read_options,
       const std::vector<FileMetaData*>& files,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      bool allow_unprepared_value)
+      bool allow_unprepared_value, uint8_t block_protection_bytes_per_key)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -45,7 +45,8 @@ class ForwardLevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
-        allow_unprepared_value_(allow_unprepared_value) {
+        allow_unprepared_value_(allow_unprepared_value),
+        block_protection_bytes_per_key_(block_protection_bytes_per_key) {
     status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
@@ -87,7 +88,8 @@ class ForwardLevelIterator : public InternalIterator {
         /*arena=*/nullptr, /*skip_filters=*/false, /*level=*/-1,
         /*max_file_size_for_l0_meta_pin=*/0,
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        block_protection_bytes_per_key_);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     valid_ = false;
     if (!range_del_agg.IsEmpty()) {
@@ -211,6 +213,7 @@ class ForwardLevelIterator : public InternalIterator {
   // Kept alive by ForwardIterator::sv_->mutable_cf_options
   const std::shared_ptr<const SliceTransform>& prefix_extractor_;
   const bool allow_unprepared_value_;
+  const uint8_t block_protection_bytes_per_key_;
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
@@ -738,7 +741,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key));
   }
   BuildLevelIterators(vstorage, sv_);
   current_ = nullptr;
@@ -819,7 +823,8 @@ void ForwardIterator::RenewIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(svnew->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        svnew->mutable_cf_options.block_protection_bytes_per_key));
   }
 
   for (auto* f : l0_iters_) {
@@ -863,7 +868,8 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage,
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
           cfd_, read_options_, level_files,
-          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_));
+          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_,
+          sv->mutable_cf_options.block_protection_bytes_per_key));
     }
   }
 }
@@ -885,7 +891,8 @@ void ForwardIterator::ResetIncompleteIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key);
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 

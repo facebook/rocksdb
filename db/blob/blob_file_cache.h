@@ -32,7 +32,8 @@ class BlobFileCache {
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
-  Status GetBlobFileReader(uint64_t blob_file_number,
+  Status GetBlobFileReader(const ReadOptions& read_options,
+                           uint64_t blob_file_number,
                            CacheHandleGuard<BlobFileReader>* blob_file_reader);
 
  private:

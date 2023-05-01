@@ -52,12 +52,17 @@ class ThreadStatusUtil {
   // the current thread does not hold db_mutex.
   static void EraseDatabaseInfo(const DB* db);
 
+  static void SetEnableTracking(bool enable_tracking);
+
   // Update the thread status to indicate the current thread is doing
   // something related to the specified column family.
-  static void SetColumnFamily(const ColumnFamilyData* cfd, const Env* env,
-                              bool enable_thread_tracking);
+  //
+  // REQUIRES: cfd != nullptr
+  static void SetColumnFamily(const ColumnFamilyData* cfd);
 
   static void SetThreadOperation(ThreadStatus::OperationType type);
+
+  static ThreadStatus::OperationType GetThreadOperation();
 
   static ThreadStatus::OperationStage SetThreadOperationStage(
       ThreadStatus::OperationStage stage);
@@ -74,6 +79,9 @@ class ThreadStatusUtil {
   static void TEST_SetStateDelay(const ThreadStatus::StateType state,
                                  int micro);
   static void TEST_StateDelay(const ThreadStatus::StateType state);
+
+  static Env::IOActivity TEST_GetExpectedIOActivity(
+      ThreadStatus::OperationType thread_op);
 #endif
 
  protected:
