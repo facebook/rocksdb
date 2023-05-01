@@ -92,9 +92,6 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   ThreadLocalPtr tcache_;
 
   std::vector<uint32_t> arena_indexes_;
-
-  size_t log2_num_arenas_ = 0;
-
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
   bool init_ = false;
