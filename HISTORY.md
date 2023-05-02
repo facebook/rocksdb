@@ -1,5 +1,13 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Introduced a new option `block_protection_bytes_per_key`, which can be used to enable per key-value integrity protection for in-memory blocks in block cache (#11287).
+* Added `JemallocAllocatorOptions::num_arenas`. Setting `num_arenas > 1` may mitigate mutex contention in the allocator, particularly in scenarios where block allocations commonly bypass jemalloc tcache.
+
+### Public API Changes
+* Add `MakeSharedCache()` construction functions to various cache Options objects, and deprecated the `NewWhateverCache()` functions with long parameter lists.
+
+## 8.2.0 (04/24/2023)
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
 * Add `multi_get_for_update` to C API.
@@ -14,15 +22,13 @@
 
 ### Bug Fixes
 * In the DB::VerifyFileChecksums API, ensure that file system reads of SST files are equal to the readahead_size in ReadOptions, if specified. Previously, each read was 2x the readahead_size.
+* In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.
 
 ### New Features
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
 * Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
 * Added statistics tickers BYTES_COMPRESSED_FROM, BYTES_COMPRESSED_TO, BYTES_COMPRESSION_BYPASSED, BYTES_COMPRESSION_REJECTED, NUMBER_BLOCK_COMPRESSION_BYPASSED, and NUMBER_BLOCK_COMPRESSION_REJECTED. Disabled/deprecated histograms BYTES_COMPRESSED and BYTES_DECOMPRESSED, and ticker NUMBER_BLOCK_NOT_COMPRESSED. The new tickers offer more inight into compression ratios, rejected vs. disabled compression, etc. (#11388)
 * New statistics `rocksdb.file.read.{flush|compaction}.micros` that measure read time of block-based SST tables or blob files during flush or compaction.
-
-### Bug Fixes
-* In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes

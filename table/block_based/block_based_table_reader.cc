@@ -560,6 +560,7 @@ Status BlockBasedTable::Open(
     const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    uint8_t block_protection_bytes_per_key,
     std::unique_ptr<TableReader>* table_reader,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
@@ -645,6 +646,7 @@ Status BlockBasedTable::Open(
   // meta-block reads.
   rep->compression_dict_handle = BlockHandle::NullBlockHandle();
 
+  rep->create_context.protection_bytes_per_key = block_protection_bytes_per_key;
   // Read metaindex
   std::unique_ptr<BlockBasedTable> new_table(
       new BlockBasedTable(rep, block_cache_tracer));
@@ -671,9 +673,11 @@ Status BlockBasedTable::Open(
            CompressionTypeToString(kZSTD) ||
        rep->table_properties->compression_name ==
            CompressionTypeToString(kZSTDNotFinalCompression));
-  rep->create_context =
-      BlockCreateContext(&rep->table_options, rep->ioptions.stats,
-                         blocks_definitely_zstd_compressed);
+  rep->create_context = BlockCreateContext(
+      &rep->table_options, rep->ioptions.stats,
+      blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
+      rep->internal_comparator.user_comparator(), rep->index_value_is_full,
+      rep->index_has_first_key);
 
   // Check expected unique id if provided
   if (expected_unique_id != kNullUniqueId64x2) {
@@ -2168,6 +2172,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           }
         }
         s = biter.status();
+        if (!s.ok()) {
+          break;
+        }
       }
       // Write the block cache access record.
       if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {

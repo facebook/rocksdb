@@ -450,7 +450,12 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         create_context(&table_options, ioptions.stats,
                        compression_type == kZSTD ||
-                           compression_type == kZSTDNotFinalCompression),
+                           compression_type == kZSTDNotFinalCompression,
+                       tbo.moptions.block_protection_bytes_per_key,
+                       tbo.internal_comparator.user_comparator(),
+                       !use_delta_encoding_for_index_values,
+                       table_opt.index_type ==
+                           BlockBasedTableOptions::kBinarySearchWithFirstKey),
         status_ok(true),
         io_status_ok(true) {
     if (tbo.target_file_size == 0) {

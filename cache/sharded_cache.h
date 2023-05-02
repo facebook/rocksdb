@@ -89,9 +89,7 @@ class CacheShardBase {
 // Portions of ShardedCache that do not depend on the template parameter
 class ShardedCacheBase : public Cache {
  public:
-  ShardedCacheBase(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit,
-                   std::shared_ptr<MemoryAllocator> memory_allocator);
+  explicit ShardedCacheBase(const ShardedCacheOptions& opts);
   virtual ~ShardedCacheBase() = default;
 
   int GetNumShardBits() const;
@@ -134,10 +132,8 @@ class ShardedCache : public ShardedCacheBase {
   using HashCref = typename CacheShard::HashCref;
   using HandleImpl = typename CacheShard::HandleImpl;
 
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocator> allocator)
-      : ShardedCacheBase(capacity, num_shard_bits, strict_capacity_limit,
-                         allocator),
+  explicit ShardedCache(const ShardedCacheOptions& opts)
+      : ShardedCacheBase(opts),
         shards_(reinterpret_cast<CacheShard*>(port::cacheline_aligned_alloc(
             sizeof(CacheShard) * GetNumShards()))),
         destroy_shards_in_dtor_(false) {}

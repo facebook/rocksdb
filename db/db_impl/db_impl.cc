@@ -2475,7 +2475,6 @@ std::vector<Status> DBImpl::MultiGet(
 
   // Post processing (decrement reference counts and record statistics)
   PERF_TIMER_GUARD(get_post_process_time);
-  autovector<SuperVersion*> superversions_to_delete;
 
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;

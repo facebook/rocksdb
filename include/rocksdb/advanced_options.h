@@ -1122,6 +1122,20 @@ struct AdvancedColumnFamilyOptions {
   // only compatible changes are allowed.
   bool persist_user_defined_timestamps = true;
 
+  // Enable/disable per key-value checksum protection for in memory blocks.
+  //
+  // Checksum is constructed when a block is loaded into memory and verification
+  // is done for each key read from the block. This is useful for detecting
+  // in-memory data corruption. Note that this feature has a non-trivial
+  // negative impact on read performance. Different values of the
+  // option have similar performance impact, but different memory cost and
+  // corruption detection probability (e.g. 1 byte gives 255/256 chance for
+  // detecting a corruption).
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint8_t block_protection_bytes_per_key = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
