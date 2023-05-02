@@ -7,6 +7,9 @@
 ### Public API Changes
 * Add `MakeSharedCache()` construction functions to various cache Options objects, and deprecated the `NewWhateverCache()` functions with long parameter lists.
 
+### Bug Fixes
+* Delete an empty WAL file on DB open if the log number is less than the min log number to keep
+
 ## 8.2.0 (04/24/2023)
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.

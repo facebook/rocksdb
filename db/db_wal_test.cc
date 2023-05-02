@@ -2409,7 +2409,6 @@ TEST_F(DBWALTest, EmptyWalReopenTest) {
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 
   {
-    // Delete all MANIFEST.
     std::vector<std::string> files;
     int num_wal_files = 0;
     ASSERT_OK(env_->GetChildren(dbname_, &files));
