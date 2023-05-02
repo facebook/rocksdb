@@ -376,6 +376,12 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
   if (table_magic_number == kBlockBasedTableMagicNumber ||
       table_magic_number == kLegacyBlockBasedTableMagicNumber) {
     BlockBasedTableFactory* bbtf = new BlockBasedTableFactory();
+    // To force tail prefetching, we fake reporting two useful reads of 512KB
+    // from the tail.
+    // It needs at least two data points to warm up the stats.
+    bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
+    bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
+
     options_.table_factory.reset(bbtf);
     if (!silent_) {
       fprintf(stdout, "Sst file format: block-based\n");

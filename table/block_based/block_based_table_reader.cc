@@ -568,6 +568,7 @@ Status BlockBasedTable::Open(
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
+    TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
     uint64_t cur_file_num, UniqueId64x2 expected_unique_id) {
@@ -592,9 +593,9 @@ Status BlockBasedTable::Open(
 
   if (!ioptions.allow_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
-                     prefetch_all, preload_all, &prefetch_buffer,
-                     ioptions.stats, tail_start_offset, contain_no_data_block,
-                     ioptions.logger);
+                     tail_prefetch_stats, prefetch_all, preload_all,
+                     &prefetch_buffer, ioptions.stats, tail_start_offset,
+                     contain_no_data_block, ioptions.logger);
     // Return error in prefetch path to users.
     if (!s.ok()) {
       return s;
@@ -774,6 +775,16 @@ Status BlockBasedTable::Open(
       prefetch_all, table_options, level, file_size,
       max_file_size_for_l0_meta_pin, &lookup_context);
 
+  if (s.ok()) {
+    // Update tail prefetch stats
+    assert(prefetch_buffer.get() != nullptr);
+    if (tail_prefetch_stats != nullptr) {
+      assert(prefetch_buffer->min_offset_read() < file_size);
+      tail_prefetch_stats->RecordEffectiveSize(
+          static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
+    }
+  }
+
   if (s.ok() && table_reader_cache_res_mgr) {
     std::size_t mem_usage = new_table->ApproximateMemoryUsage();
     s = table_reader_cache_res_mgr->MakeCacheReservation(
@@ -796,7 +807,8 @@ Status BlockBasedTable::Open(
 
 Status BlockBasedTable::PrefetchTail(
     const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
-    bool force_direct_prefetch, const bool prefetch_all, const bool preload_all,
+    bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
+    const bool prefetch_all, const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
     uint64_t tail_start_offset, bool contain_no_data_block,
     Logger* const logger) {
@@ -813,12 +825,32 @@ Status BlockBasedTable::PrefetchTail(
                    "file does not contain any data blocks",
                    tail_prefetch_size);
   } else {
-    tail_prefetch_size = prefetch_all || preload_all
-                             ? static_cast<size_t>(4 * 1024 + 0.01 * file_size)
-                             : 4 * 1024;
-    ROCKS_LOG_WARN(logger,
-                   "Tail prefetch size %zu is calculated based on heuristics",
-                   tail_prefetch_size);
+    if (tail_prefetch_stats != nullptr) {
+      // Multiple threads may get a 0 (no history) when running in parallel,
+      // but it will get cleared after the first of them finishes.
+      tail_prefetch_size = tail_prefetch_stats->GetSuggestedPrefetchSize();
+    }
+    if (tail_prefetch_size == 0) {
+      // Before read footer, readahead backwards to prefetch data. Do more
+      // readahead if we're going to read index/filter.
+      // TODO: This may incorrectly select small readahead in case partitioned
+      // index/filter is enabled and top-level partition pinning is enabled.
+      // That's because we need to issue readahead before we read the
+      // properties, at which point we don't yet know the index type.
+      tail_prefetch_size =
+          prefetch_all || preload_all
+              ? static_cast<size_t>(4 * 1024 + 0.01 * file_size)
+              : 4 * 1024;
+
+      ROCKS_LOG_WARN(logger,
+                     "Tail prefetch size %zu is calculated based on heuristics",
+                     tail_prefetch_size);
+    } else {
+      ROCKS_LOG_WARN(
+          logger,
+          "Tail prefetch size %zu is calculated based on TailPrefetchStats",
+          tail_prefetch_size);
+    }
   }
   size_t prefetch_off;
   size_t prefetch_len;

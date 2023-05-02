@@ -108,6 +108,7 @@ class BlockBasedTable : public TableReader {
       int level = -1, const bool immortal_table = false,
       const SequenceNumber largest_seqno = 0,
       bool force_direct_prefetch = false,
+      TailPrefetchStats* tail_prefetch_stats = nullptr,
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
@@ -457,8 +458,8 @@ class BlockBasedTable : public TableReader {
   //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
-      bool force_direct_prefetch, const bool prefetch_all,
-      const bool preload_all,
+      bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
+      const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
       uint64_t tail_start_offset, bool contain_no_data_block,
       Logger* const logger);
