@@ -165,6 +165,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
+
 const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
 
 static std::unordered_map<std::string, PinningTier>

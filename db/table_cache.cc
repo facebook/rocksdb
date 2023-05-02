@@ -147,7 +147,8 @@ Status TableCache::GetTableReader(
             max_file_size_for_l0_meta_pin, db_session_id_,
             file_meta.fd.GetNumber(), expected_unique_id,
             file_meta.fd.largest_seqno, file_meta.tail_start_offset,
-            file_meta.num_entries == file_meta.num_range_deletions
+            file_meta.num_entries > 0 &&
+                    (file_meta.num_entries == file_meta.num_range_deletions)
                 ? true
                 : false /* contain_no_data_block */),
         std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
