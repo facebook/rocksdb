@@ -1897,13 +1897,11 @@ struct WriteStallStatsMapKeys {
   // `Status::InvalidArgument` will be returned.
   //
   // REQUIRES:
-  // (1) `key` is empty
-  //
-  // (2) `cause` isn't any of these: `WriteStallCause::kNone`,
+  // (1) `cause` isn't any of these: `WriteStallCause::kNone`,
   // `WriteStallCause::kCFScopeWriteStallCauseEnumMax`,
   // `WriteStallCause::kDBScopeWriteStallCauseEnumMax`
   //
-  // (3) `condition` isn't any of these: `WriteStallCondition::kNormal`
+  // (2) `condition` isn't any of these: `WriteStallCondition::kNormal`
   static Status CauseConditionCount(WriteStallCause cause,
                                     WriteStallCondition condition,
                                     std::string& key);

@@ -155,9 +155,7 @@ WriteStallStatsMapKeys::CFL0FileCountLimitStopsWithOngoingCompaction() {
 
 Status WriteStallStatsMapKeys::CauseConditionCount(
     WriteStallCause cause, WriteStallCondition condition, std::string& key) {
-  if (!key.empty()) {
-    return Status::InvalidArgument("Argument `key` is non-empty");
-  }
+  key.clear();
   bool is_cf_scope = isCFScopeWriteStallCause(cause);
   bool is_db_scope = isDBScopeWriteStallCause(cause);
   if (!is_cf_scope && !is_db_scope) {
