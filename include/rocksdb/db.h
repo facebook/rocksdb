@@ -1892,15 +1892,21 @@ struct WriteStallStatsMapKeys {
   static const std::string& CFL0FileCountLimitDelaysWithOngoingCompaction();
   static const std::string& CFL0FileCountLimitStopsWithOngoingCompaction();
 
+  // If `cause`, `condition` and the combination of these two are valid, return
+  // the map key in `key` and `Status::OK`. Otherwise,
+  // `Status::InvalidArgument` will be returned.
+  //
   // REQUIRES:
-  // `cause` isn't any of these: `WriteStallCause::kNone`,
+  // (1) `key` is empty
+  //
+  // (2) `cause` isn't any of these: `WriteStallCause::kNone`,
   // `WriteStallCause::kCFScopeWriteStallCauseEnumMax`,
   // `WriteStallCause::kDBScopeWriteStallCauseEnumMax`
   //
-  // REQUIRES:
-  // `condition` isn't any of these: `WriteStallCondition::kNormal`
-  static std::string CauseConditionCount(WriteStallCause cause,
-                                         WriteStallCondition condition);
+  // (3) `condition` isn't any of these: `WriteStallCondition::kNormal`
+  static Status CauseConditionCount(WriteStallCause cause,
+                                    WriteStallCondition condition,
+                                    std::string& key);
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.
