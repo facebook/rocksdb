@@ -4912,7 +4912,14 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
+  } else {
+    if (!GetEnv()->DeleteFile(file_name).ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to delete temp options file %s",
+                     file_name.c_str());
+    }
   }
+
   // restore lock
   if (!need_mutex_lock) {
     mutex_.Lock();

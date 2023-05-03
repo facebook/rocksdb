@@ -75,6 +75,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   std::unique_ptr<WritableFileWriter> writable;
   writable.reset(new WritableFileWriter(std::move(wf), file_name, EnvOptions(),
                                         nullptr /* statistics */));
+  TEST_SYNC_POINT("PersistRocksDBOptions:create");
 
   std::string options_file_content;
 
@@ -135,6 +136,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   if (s.ok()) {
     s = writable->Close();
   }
+  TEST_SYNC_POINT("PersistRocksDBOptions:written");
   if (s.ok()) {
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         config_options, db_opt, cf_names, cf_opts, file_name, fs);

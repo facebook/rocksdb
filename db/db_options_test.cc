@@ -22,6 +22,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1285,6 +1286,39 @@ TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdValidation) {
   ASSERT_TRUE(std::strstr(s.getState(),
                           "Option file_temperature_age_thresholds is only "
                           "supported when num_levels = 1."));
+}
+
+TEST_F(DBOptionsTest, TempOptionsFailTest) {
+  std::shared_ptr<FaultInjectionTestFS> fs;
+  std::unique_ptr<Env> env;
+
+  fs.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+  env = NewCompositeEnv(fs);
+  Options options = CurrentOptions();
+  options.env = env.get();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:create",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:written",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(true); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  TryReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  uint64_t number;
+  FileType type;
+  bool found_temp_file = false;
+  for (size_t i = 0; i < filenames.size(); i++) {
+    if (ParseFileName(filenames[i], &number, &type) && type == kTempFile) {
+      found_temp_file = true;
+    }
+  }
+  ASSERT_FALSE(found_temp_file);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
