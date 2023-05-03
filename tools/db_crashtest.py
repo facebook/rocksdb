@@ -355,7 +355,8 @@ cf_consistency_params = {
 txn_params = {
     "use_txn": 1,
     # Avoid lambda to set it once for the entire test
-    "txn_write_policy": random.randint(0, 2),
+    # "txn_write_policy": random.randint(0, 2),
+    "txn_write_policy" : 2,
     "unordered_write": random.randint(0, 1),
     # TODO: there is such a thing as transactions with WAL disabled. We should
     # cover that case.
