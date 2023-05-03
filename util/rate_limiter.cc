@@ -137,15 +137,6 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
-  if (available_bytes_ >= bytes) {
-    // Refill thread assigns quota and notifies requests waiting on
-    // the queue under mutex. So if we get here, that means nobody
-    // is waiting?
-    available_bytes_ -= bytes;
-    total_bytes_through_[pri] += bytes;
-    return;
-  }
-
   // Request cannot be satisfied at this moment, enqueue
   Req r(bytes, &request_mutex_);
   queue_[pri].push_back(&r);
@@ -265,9 +256,7 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
-  if (available_bytes_ < refill_bytes_per_period) {
-    available_bytes_ += refill_bytes_per_period;
-  }
+  available_bytes_ = refill_bytes_per_period;
 
   std::vector<Env::IOPriority> pri_iteration_order =
       GeneratePriorityIterationOrderLocked();
