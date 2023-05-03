@@ -569,6 +569,11 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Slice> keys;
     key_str.reserve(num_keys);
     keys.reserve(num_keys);
+    // When Flags_use_txn is enabled, we also do a read your write check for
+    // Puts and Deletes, but not for Merges.
+    std::vector<std::string> read_your_write_values;
+    read_your_write_values.reserve(num_keys);
+    const std::string no_ryw_check = "no ryw place holder";
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
@@ -627,13 +632,16 @@ class NonBatchedOpsStressTest : public StressTest {
               Slice v(value, sz);
               if (op == 0) {
                 s = txn->Put(cfh, keys.back(), v);
+                read_your_write_values.push_back(v.ToString());
               } else {
                 s = txn->Merge(cfh, keys.back(), v);
+                read_your_write_values.push_back(no_ryw_check);
               }
               break;
             }
             case 2:
               s = txn->Delete(cfh, keys.back());
+              read_your_write_values.push_back("");
               break;
             default:
               assert(false);
@@ -642,6 +650,8 @@ class NonBatchedOpsStressTest : public StressTest {
             fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
             std::terminate();
           }
+        } else {
+          read_your_write_values.push_back(no_ryw_check);
         }
       }
     }
@@ -719,6 +729,20 @@ class NonBatchedOpsStressTest : public StressTest {
                   values[i].ToString(true).c_str());
           fprintf(stderr, "Get returned value %s\n",
                   Slice(value).ToString(true /* hex */).c_str());
+          is_consistent = false;
+        }
+
+        if (use_txn && read_your_write_values[i] != no_ryw_check &&
+            read_your_write_values[i] != values[i].ToString()) {
+          fprintf(stderr,
+                  "MultiGet / Get returned different results with key %s\n",
+                  keys[i].ToString(true).c_str());
+          fprintf(stderr, "MultiGet / Get returned value %s\n",
+                  values[i].ToString(true).c_str());
+          fprintf(stderr, "Transaction has non-committed value %s\n",
+                  Slice(read_your_write_values[i])
+                      .ToString(true /* hex */)
+                      .c_str());
           is_consistent = false;
         }
       }
