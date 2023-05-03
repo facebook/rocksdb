@@ -83,7 +83,7 @@ class BlockTest : public testing::Test,
   bool keyUseDeltaEncoding() const { return std::get<0>(GetParam()); }
   bool isUDTEnabled() const {
     return test::IsUDTEnabled(std::get<1>(GetParam()));
-  };
+  }
   bool shouldPersistUDT() const {
     return test::ShouldPersistUDT(std::get<1>(GetParam()));
   }
@@ -559,7 +559,7 @@ class IndexBlockTest
   bool includeFirstKey() const { return std::get<1>(GetParam()); }
   bool isUDTEnabled() const {
     return test::IsUDTEnabled(std::get<2>(GetParam()));
-  };
+  }
   bool shouldPersistUDT() const {
     return test::ShouldPersistUDT(std::get<2>(GetParam()));
   }

@@ -556,7 +556,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   IndexBlockIter iiter_on_stack;
   BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
   InternalIteratorBase<IndexValue>* iiter = table->NewIndexIterator(
-      read_opts, /*disable_prefix_seek=*/false, &iiter_on_stack,
+      read_opts, /*need_upper_bound_check=*/false, &iiter_on_stack,
       /*get_context=*/nullptr, &context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
   if (iiter != &iiter_on_stack) {
