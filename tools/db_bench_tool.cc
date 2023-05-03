@@ -2896,6 +2896,9 @@ class Benchmark {
       fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
     }
 #elif defined(__APPLE__)
+  #ifndef CPU_TYPE_ARM64 // Old macOS does not recognize arm64 and errs out.
+  #define CPU_TYPE_ARM64 CPU_TYPE_ARM
+  #endif
     struct host_basic_info h;
     size_t hlen = HOST_BASIC_INFO_COUNT;
     if (host_info(mach_host_self(), HOST_BASIC_INFO, (host_info_t)&h,
@@ -2913,6 +2916,9 @@ class Benchmark {
           break;
         case CPU_TYPE_ARM64:
           cpu_type = "arm64";
+          break;
+        case CPU_TYPE_POWERPC:
+          cpu_type = "powerpc";
           break;
         default:
           break;

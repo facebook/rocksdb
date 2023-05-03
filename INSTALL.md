@@ -124,7 +124,11 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
             * run `brew tap homebrew/versions; brew install gcc7 --use-llvm` to install gcc 7 (or higher).
-    * run `brew install rocksdb`
+            * run `brew install rocksdb`
+        * Install via [MacPorts](https://www.macports.org/).
+            * install MacPorts for your version of macOS or from source, see: https://www.macports.org/install.php
+            * run `sudo port install rocksdb`
+            * optionally, enable variants: `sudo port install rocksdb +jemalloc +tbb`
 
 * **FreeBSD** (11.01):
 

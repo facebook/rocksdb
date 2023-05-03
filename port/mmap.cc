@@ -13,6 +13,10 @@
 
 #include "util/hash.h"
 
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 MemMapping::~MemMapping() {
