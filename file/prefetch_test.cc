@@ -220,6 +220,7 @@ TEST_P(PrefetchTest, Basic) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       num_keys++;
     }
+    (void)num_keys;
   }
 
   // Make sure prefetch is called only if file system support prefetch.
@@ -1803,6 +1804,7 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
     }
     MoveFilesToLevel(2);
   }
+  (void)total_keys;
 
   int num_keys_first_batch = 0;
   int num_keys_second_batch = 0;
