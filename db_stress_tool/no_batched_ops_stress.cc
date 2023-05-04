@@ -736,18 +736,21 @@ class NonBatchedOpsStressTest : public StressTest {
           is_consistent = false;
         }
 
-        if (use_txn && read_your_write_values[i] != no_ryw_check &&
-            read_your_write_values[i] != values[i].ToString()) {
-          fprintf(stderr,
-                  "MultiGet / Get returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
-          fprintf(stderr, "MultiGet / Get returned value %s\n",
-                  values[i].ToString(true).c_str());
-          fprintf(stderr, "Transaction has non-committed value %s\n",
-                  Slice(read_your_write_values[i])
-                      .ToString(true /* hex */)
-                      .c_str());
-          is_consistent = false;
+        if (use_txn) {
+          assert(!read_your_write_values.empty());
+          if (read_your_write_values[i] != no_ryw_check &&
+              read_your_write_values[i] != values[i].ToString()) {
+            fprintf(stderr,
+                    "MultiGet / Get returned different results with key %s\n",
+                    keys[i].ToString(true).c_str());
+            fprintf(stderr, "MultiGet / Get returned value %s\n",
+                    values[i].ToString(true).c_str());
+            fprintf(stderr, "Transaction has non-committed value %s\n",
+                    Slice(read_your_write_values[i])
+                        .ToString(true /* hex */)
+                        .c_str());
+            is_consistent = false;
+          }
         }
       }
 
