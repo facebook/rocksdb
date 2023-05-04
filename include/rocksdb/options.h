@@ -1696,6 +1696,7 @@ struct ReadOptions {
   // Default: true
   bool optimize_multiget_for_io;
 
+  // ** For RocksDB internal use only **
   Env::IOActivity io_activity;
 
   ReadOptions();
