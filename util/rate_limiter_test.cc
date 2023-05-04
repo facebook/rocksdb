@@ -416,6 +416,84 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
+  auto* env = Env::Default();
+  struct Arg {
+    Arg(int32_t _request_size, std::shared_ptr<RateLimiter> _limiter)
+        : request_size(_request_size), limiter(_limiter) {}
+    int32_t request_size;
+    std::shared_ptr<RateLimiter> limiter;
+  };
+
+  auto writer = [](void* p) {
+    auto* arg = static_cast<Arg*>(p);
+    arg->limiter->Request(arg->request_size, Env::IO_USER, nullptr /* stats */,
+                          RateLimiter::OpType::kWrite);
+  };
+
+  int64_t total_pending_requests = 0;
+  std::shared_ptr<RateLimiter> limiter = std::make_shared<GenericRateLimiter>(
+      500, 1000 * 1000, 10, RateLimiter::Mode::kWritesOnly,
+      SystemClock::Default(), false /* auto_tuned */);
+
+  // first request will make available_bytes_ 400 until it hits the next refill
+  // cycle
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked:End",
+      [&](void* arg) {
+        int64_t available_bytes = *static_cast<int64_t*>(arg);
+        ASSERT_EQ(400, available_bytes);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"GenericRateLimiter::RefillBytesAndGrantRequestsLocked:End",
+        "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForSecondRequest"},
+       {"GenericRateLimiter::Request:NoAvailableBytes",
+        "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForThirdRequest"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Arg first_arg(100, limiter);
+  env->StartThread(writer, &first_arg);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked:End");
+  TEST_SYNC_POINT(
+      "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForSecondRequest");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked", [&](void* arg) {
+        port::Mutex* request_mutex = (port::Mutex*)arg;
+        request_mutex->Unlock();
+        EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests,
+                                                   Env::IO_USER))
+            << "Failed to return total pending requests";
+        if (total_pending_requests == 1) {
+          ASSERT_EQ(100, limiter->GetTotalBytesThrough(Env::IO_USER));
+        } else {
+          // Second and third request queued
+          ASSERT_EQ(2, total_pending_requests);
+          // First 100 + Second 400
+          ASSERT_EQ(500, limiter->GetTotalBytesThrough(Env::IO_USER));
+        }
+        request_mutex->Lock();
+      });
+  Arg second_arg(500, limiter);
+  env->StartThread(writer, &second_arg);
+  TEST_SYNC_POINT(
+      "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForThirdRequest");
+  Arg third_arg(300, limiter);
+  env->StartThread(writer, &third_arg);
+  env->WaitForJoin();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:RefillBytesAndGrantRequestsLocked");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:NoAvailableBytes");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // 100 + 500 + 300
+  ASSERT_EQ(900, limiter->GetTotalBytesThrough(Env::IO_USER));
+}
+
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc

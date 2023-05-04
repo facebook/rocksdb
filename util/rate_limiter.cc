@@ -148,6 +148,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     bytes -= available_bytes_;
     total_bytes_through_[pri] += available_bytes_;
     available_bytes_ = 0;
+    TEST_SYNC_POINT("GenericRateLimiter::Request:NoAvailableBytes");
   }
 
   // Request cannot be satisfied at this moment, enqueue
@@ -299,6 +300,9 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
       next_req->cv.Signal();
     }
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked:End",
+      &available_bytes_);
 }
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
