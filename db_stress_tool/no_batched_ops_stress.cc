@@ -587,6 +587,7 @@ class NonBatchedOpsStressTest : public StressTest {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
 
+    std::vector<std::unique_ptr<MutexLock>> ryw_check_locks;
     std::string read_ts_str;
     Slice read_ts_slice;
     MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
@@ -621,6 +622,9 @@ class NonBatchedOpsStressTest : public StressTest {
         // into the transaction. This will create an overlap with the MultiGet
         // keys and exercise some corner cases in the code
         if (thread->rand.OneIn(10)) {
+          ryw_check_locks.emplace_back(
+              new MutexLock(thread->shared->GetMutexForKey(
+                  rand_column_families[0], rand_keys[i])));
           int op = thread->rand.Uniform(2);
           Status s;
           switch (op) {
