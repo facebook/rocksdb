@@ -137,6 +137,20 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
+  if (available_bytes_ >= bytes) {
+    // Refill thread assigns quota and notifies requests waiting on
+    // the queue under mutex. So if we get here, that means nobody
+    // is waiting?
+    available_bytes_ -= bytes;
+    total_bytes_through_[pri] += bytes;
+    return;
+  } else if (available_bytes_ > 0) {
+    // exhaust all available bytes before queuing the remaining
+    bytes -= available_bytes_;
+    total_bytes_through_[pri] += available_bytes_;
+    available_bytes_ = 0;
+  }
+
   // Request cannot be satisfied at this moment, enqueue
   Req r(bytes, &request_mutex_);
   queue_[pri].push_back(&r);
