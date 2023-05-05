@@ -394,9 +394,12 @@ class Repairer {
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
     // Read all the records and add to a memtable
+    const std::unordered_map<uint32_t, size_t>& running_ts_sz =
+        vset_.GetRunningColumnFamiliesTimestampSize();
     std::string scratch;
     Slice record;
-    WriteBatch batch;
+    std::unique_ptr<WriteBatch> batch(new WriteBatch());
+
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
       if (record.size() < WriteBatchInternal::kHeader) {
@@ -404,13 +407,22 @@ class Repairer {
                             Status::Corruption("log record too small"));
         continue;
       }
-      Status record_status = WriteBatchInternal::SetContents(&batch, record);
+      Status record_status =
+          WriteBatchInternal::SetContents(batch.get(), record);
       if (record_status.ok()) {
-        record_status =
-            WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
+        const std::unordered_map<uint32_t, size_t>& record_ts_sz =
+            reader.GetRecordedTimestampSize();
+        record_status = HandleWriteBatchTimestampSizeDifference(
+            running_ts_sz, record_ts_sz,
+            TimestampSizeConsistencyMode::kVerifyConsistency, batch,
+            nullptr /* batch_updated */);
+        if (record_status.ok()) {
+          record_status = WriteBatchInternal::InsertInto(batch.get(), cf_mems,
+                                                         nullptr, nullptr);
+        }
       }
       if (record_status.ok()) {
-        counter += WriteBatchInternal::Count(&batch);
+        counter += WriteBatchInternal::Count(batch.get());
       } else {
         ROCKS_LOG_WARN(db_options_.info_log, "Log #%" PRIu64 ": ignoring %s",
                        log, record_status.ToString().c_str());

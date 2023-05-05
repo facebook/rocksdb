@@ -142,6 +142,10 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
 
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
+  bool NewBatchIsDifferentFromOriginalBatch() const {
+    return new_batch_diff_from_orig_batch_;
+  }
+
   std::unique_ptr<WriteBatch>&& TransferNewBatch() {
     handler_valid_ = false;
     return std::move(new_batch_);
@@ -164,6 +168,10 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   // Handler is valid upon creation and becomes invalid after its `new_batch_`
   // is transferred.
   bool handler_valid_;
+
+  // False upon creation, and become true if at least one user key from the
+  // original batch is updated when creating the new batch.
+  bool new_batch_diff_from_orig_batch_;
 };
 
 // Mode for checking and handling timestamp size inconsistency encountered in a
@@ -194,7 +202,9 @@ enum class TimestampSizeConsistencyMode {
 // that cannot be reconciled with a best-effort recovery. Check
 // `TimestampRecoveryHandler` for what a best-effort recovery is capable of. In
 // this mode, a new WriteBatch is created on the heap and transferred to `batch`
-// if there is tolerable inconsistency.
+// if there is tolerable inconsistency. When provided, `batch_updated` will be
+// set to true if the new WriteBatch contains a different encoded string from
+// the original WriteBatch.
 //
 // An invariant that WAL logging ensures is that all timestamp size info
 // is logged prior to a WriteBatch that needed this info. And zero timestamp
@@ -206,6 +216,6 @@ enum class TimestampSizeConsistencyMode {
 Status HandleWriteBatchTimestampSizeDifference(
     const std::unordered_map<uint32_t, size_t>& running_ts_sz,
     const std::unordered_map<uint32_t, size_t>& record_ts_sz,
-    TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>& batch);
+    TimestampSizeConsistencyMode check_mode, std::unique_ptr<WriteBatch>& batch,
+    bool* batch_updated = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
