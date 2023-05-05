@@ -91,9 +91,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // is enabled.
   uint64_t EstimatedFileSize() const override;
 
-  // Get the offset where the "tail" part of a SST file starts. "Tail" refers to
+  // Get the size of the "tail" part of a SST file. "Tail" refers to
   // all blocks after data blocks till the end of the SST file.
-  uint64_t GetTailStartOffset() const override;
+  uint64_t GetTailSize() const override;
 
   bool NeedCompact() const override;
 

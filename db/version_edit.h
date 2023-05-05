@@ -90,7 +90,7 @@ enum NewFileCustomTag : uint32_t {
   kUniqueId = 12,
   kEpochNumber = 13,
   kCompensatedRangeDeletionSize = 14,
-  kTailStartOffset = 15,
+  kTailSize = 15,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -239,9 +239,9 @@ struct FileMetaData {
   // SST unique id
   UniqueId64x2 unique_id{};
 
-  // Offset where the "tail" part of SST file starts
+  // Size of the "tail" part of a SST file
   // "Tail" refers to all blocks after data blocks till the end of the SST file
-  uint64_t tail_start_offset = 0;
+  uint64_t tail_size = 0;
 
   FileMetaData() = default;
 
@@ -255,7 +255,7 @@ struct FileMetaData {
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
-               uint64_t _tail_start_offset)
+               uint64_t _tail_size)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -269,7 +269,7 @@ struct FileMetaData {
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
-        tail_start_offset(_tail_start_offset) {
+        tail_size(_tail_size) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -454,7 +454,7 @@ class VersionEdit {
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
                const uint64_t compensated_range_deletion_size,
-               uint64_t tail_start_offset) {
+               uint64_t tail_size) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -463,7 +463,7 @@ class VersionEdit {
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, epoch_number, file_checksum,
                      file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size, tail_start_offset));
+                     compensated_range_deletion_size, tail_size));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

@@ -561,8 +561,7 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     uint8_t block_protection_bytes_per_key,
-    std::unique_ptr<TableReader>* table_reader, uint64_t tail_start_offset,
-    bool contain_no_data_block,
+    std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
@@ -594,8 +593,8 @@ Status BlockBasedTable::Open(
   if (!ioptions.allow_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
-                     &prefetch_buffer, ioptions.stats, tail_start_offset,
-                     contain_no_data_block, ioptions.logger);
+                     &prefetch_buffer, ioptions.stats, tail_size,
+                     ioptions.logger);
     // Return error in prefetch path to users.
     if (!s.ok()) {
       return s;
@@ -810,20 +809,12 @@ Status BlockBasedTable::PrefetchTail(
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
-    uint64_t tail_start_offset, bool contain_no_data_block,
-    Logger* const logger) {
-  assert(tail_start_offset <= file_size);
+    uint64_t tail_size, Logger* const logger) {
+  assert(tail_size <= file_size);
 
   size_t tail_prefetch_size = 0;
-  if (tail_start_offset != 0) {
-    tail_prefetch_size = file_size - tail_start_offset;
-  } else if (contain_no_data_block) {
-    tail_prefetch_size = file_size - tail_start_offset;
-    ROCKS_LOG_WARN(logger,
-                   "Tail prefetch size %zu is calculated based on tail start "
-                   "offset being 0 and the "
-                   "file does not contain any data blocks",
-                   tail_prefetch_size);
+  if (tail_size != 0) {
+    tail_prefetch_size = tail_size;
   } else {
     if (tail_prefetch_stats != nullptr) {
       // Multiple threads may get a 0 (no history) when running in parallel,

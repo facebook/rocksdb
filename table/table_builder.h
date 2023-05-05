@@ -43,7 +43,7 @@ struct TableReaderOptions {
       size_t _max_file_size_for_l0_meta_pin = 0,
       const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0,
       UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0,
-      uint64_t _tail_start_offset = 0, bool _contain_no_data_block = false)
+      uint64_t _tail_size = 0)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -59,8 +59,7 @@ struct TableReaderOptions {
         cur_file_num(_cur_file_num),
         unique_id(_unique_id),
         block_protection_bytes_per_key(_block_protection_bytes_per_key),
-        tail_start_offset(_tail_start_offset),
-        contain_no_data_block(_contain_no_data_block) {}
+        tail_size(_tail_size) {}
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
@@ -93,9 +92,7 @@ struct TableReaderOptions {
 
   uint8_t block_protection_bytes_per_key;
 
-  uint64_t tail_start_offset;
-
-  bool contain_no_data_block;
+  uint64_t tail_size;
 };
 
 struct TableBuilderOptions {
@@ -207,7 +204,7 @@ class TableBuilder {
   // is enabled.
   virtual uint64_t EstimatedFileSize() const { return FileSize(); }
 
-  virtual uint64_t GetTailStartOffset() const { return 0; }
+  virtual uint64_t GetTailSize() const { return 0; }
 
   // If the user defined table properties collector suggest the file to
   // be further compacted.

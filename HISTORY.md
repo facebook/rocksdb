@@ -11,7 +11,7 @@
 * Delete an empty WAL file on DB open if the log number is less than the min log number to keep
 
 ### Performance Improvements
-* Record the starting offset of block-based table's tail (i.e, all blocks after data blocks till the end) in manifest and use it to prefetch the tail more accurately during table open instead of relying on heuristics (#11406).Heuristics will still be used for now as a fallback for backward compatibility.
+* Improved the I/O efficiency of prefetching SST metadata by recording more information in the DB manifest. Opening files written with previous versions will still rely on heuristics for how much to prefetch (#11406).
 
 ## 8.2.0 (04/24/2023)
 ### Public API Changes

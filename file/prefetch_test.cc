@@ -261,6 +261,7 @@ TEST_P(PrefetchTest, BlockBasedTableTailPrefetch) {
   Status s = TryReopen(options);
   if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
     // If direct IO is not supported, skip the test
+    ROCKSDB_GTEST_BYPASS("Direct IO is not supported");
     return;
   } else {
     ASSERT_OK(s);

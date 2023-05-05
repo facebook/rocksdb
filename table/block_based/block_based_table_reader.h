@@ -99,8 +99,7 @@ class BlockBasedTable : public TableReader {
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       uint8_t block_protection_bytes_per_key,
-      std::unique_ptr<TableReader>* table_reader, uint64_t tail_start_offset,
-      bool contain_no_data_block,
+      std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -461,8 +460,7 @@ class BlockBasedTable : public TableReader {
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
-      uint64_t tail_start_offset, bool contain_no_data_block,
-      Logger* const logger);
+      uint64_t tail_size, Logger* const logger);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,

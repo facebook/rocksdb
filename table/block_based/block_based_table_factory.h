@@ -29,7 +29,7 @@ class RandomAccessFileReader;
 class WritableFileWriter;
 
 // TODO: deprecate this class as it can be replaced with
-// `FileMetaData::tail_start_offset`
+// `FileMetaData::tail_size`
 //
 // A class used to track actual bytes written from the tail in the recent SST
 // file opens, and provide a suggestion for following open.
