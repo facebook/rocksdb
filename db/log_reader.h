@@ -69,10 +69,13 @@ class Reader {
   // checksum of the record read and set record_checksum to it. The checksum is
   // calculated from the original buffers that contain the contents of the
   // record.
+  // `cf_to_ts_sz` contains user-defined timestamp sizes applicable for the
+  // record. This only applies to WAL logs.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
                               WALRecoveryMode::kTolerateCorruptedTailRecords,
-                          uint64_t* record_checksum = nullptr);
+                          uint64_t* record_checksum = nullptr,
+                          std::map<uint32_t, size_t>* cf_to_ts_sz = nullptr);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -154,6 +157,10 @@ class Reader {
   // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
   XXH3_state_t* uncompress_hash_state_;
 
+  // The recorded user-defined timestamp sizes that have been read so far. This
+  // is only for WAL logs.
+  std::map<uint32_t, size_t> recorded_cf_to_ts_sz_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -190,6 +197,9 @@ class Reader {
   void ReportDrop(size_t bytes, const Status& reason);
 
   void InitCompression(const CompressionTypeRecord& compression_record);
+
+  void UpdateRecordedTimestampSize(
+      const std::map<uint32_t, size_t> cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {
@@ -204,7 +214,8 @@ class FragmentBufferedReader : public Reader {
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords,
-                  uint64_t* record_checksum = nullptr) override;
+                  uint64_t* record_checksum = nullptr,
+                  std::map<uint32_t, size_t>* cf_to_ts_sz = nullptr) override;
   void UnmarkEOF() override;
 
  private:

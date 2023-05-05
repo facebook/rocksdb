@@ -35,8 +35,12 @@ enum RecordType {
 
   // Compression Type
   kSetCompressionType = 9,
+
+  // User-defined timestamp sizes
+  kUserDefinedTimestampSizeType = 10,
+  kRecyclableUserDefinedTimestampSizeType = 11,
 };
-static const int kMaxRecordType = kSetCompressionType;
+static const int kMaxRecordType = kRecyclableUserDefinedTimestampSizeType;
 
 static const unsigned int kBlockSize = 32768;
 
