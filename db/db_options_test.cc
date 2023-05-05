@@ -1009,6 +1009,25 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(NumTableFilesAtLevel(0), 1);
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
+
+  // Test dynamically setting `file_temperature_age_thresholds`
+  ASSERT_TRUE(
+      dbfull()
+          ->GetOptions()
+          .compaction_options_fifo.file_temperature_age_thresholds.empty());
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo",
+                                   "{file_temperature_age_thresholds={{age=10;"
+                                   "temperature=kWarm}:{age=30000;"
+                                   "temperature=kCold}}}"}}));
+  const auto& fifo_temp_opt =
+      dbfull()
+          ->GetOptions()
+          .compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(fifo_temp_opt.size(), 2);
+  ASSERT_EQ(fifo_temp_opt[0].temperature, Temperature::kWarm);
+  ASSERT_EQ(fifo_temp_opt[0].age, 10);
+  ASSERT_EQ(fifo_temp_opt[1].temperature, Temperature::kCold);
+  ASSERT_EQ(fifo_temp_opt[1].age, 30000);
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
@@ -1063,12 +1082,20 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   // ttl under compaction_options_fifo.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo",
-        "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
+        "{allow_compaction=true;max_table_files_size=1024;ttl=731;file_"
+        "temperature_age_thresholds={temperature=kCold;age=12345}}"},
        {"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  const auto& file_temp_age =
+      dbfull()
+          ->GetOptions()
+          .compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
 
   // Put ttl as the first option inside compaction_options_fifo. That works as
@@ -1081,6 +1108,9 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
 }
 
