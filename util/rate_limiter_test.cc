@@ -433,6 +433,7 @@ TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
 
   int32_t enqueue_count = 0;
   int64_t total_pending_requests = 0;
+
   std::shared_ptr<RateLimiter> limiter = std::make_shared<GenericRateLimiter>(
       500 /* bytes */, 1000 * 1000 /* refill_period_us */, 10 /* fairness */,
       RateLimiter::Mode::kWritesOnly, SystemClock::Default(),
@@ -446,11 +447,19 @@ TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
         request_mutex->Unlock();
         EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests,
                                                    Env::IO_USER));
+        int64_t total_bytes_through =
+            limiter->GetTotalBytesThrough(Env::IO_USER);
         fprintf(stderr,
                 "Total Pending Requests: %" PRIi64 ", Enqueue Count: %" PRIi32
                 ", Total Bytes Through: %" PRIi64 "\n",
-                total_pending_requests, enqueue_count,
-                limiter->GetTotalBytesThrough(Env::IO_USER));
+                total_pending_requests, enqueue_count, total_bytes_through);
+        // Very first enqueue. No bytes went through
+        if (enqueue_count == 1) {
+          ASSERT_EQ(0, total_bytes_through);
+        } else {
+          // all 500 available_bytes were exhausted
+          ASSERT_EQ(500, total_bytes_through);
+        }
         request_mutex->Lock();
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
@@ -473,7 +482,6 @@ TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
 
   // 100 + 500 + 300
   ASSERT_EQ(900, limiter->GetTotalBytesThrough(Env::IO_USER));
-  ASSERT_EQ(3, enqueue_count);
 }
 
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
