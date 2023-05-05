@@ -463,8 +463,6 @@ TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
       "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForNextRequest");
   Arg second_arg(500, limiter);
   env->StartThread(writer, &second_arg);
-  TEST_SYNC_POINT(
-      "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForNextRequest");
   Arg third_arg(300, limiter);
   env->StartThread(writer, &third_arg);
   env->WaitForJoin();
