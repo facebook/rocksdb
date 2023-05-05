@@ -1019,10 +1019,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
                                    "{file_temperature_age_thresholds={{age=10;"
                                    "temperature=kWarm}:{age=30000;"
                                    "temperature=kCold}}}"}}));
+  auto opts = dbfull()->GetOptions();
   const auto& fifo_temp_opt =
-      dbfull()
-          ->GetOptions()
-          .compaction_options_fifo.file_temperature_age_thresholds;
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
   ASSERT_EQ(fifo_temp_opt.size(), 2);
   ASSERT_EQ(fifo_temp_opt[0].temperature, Temperature::kWarm);
   ASSERT_EQ(fifo_temp_opt[0].age, 10);
@@ -1089,10 +1088,9 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  auto opts = dbfull()->GetOptions();
   const auto& file_temp_age =
-      dbfull()
-          ->GetOptions()
-          .compaction_options_fifo.file_temperature_age_thresholds;
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
   ASSERT_EQ(file_temp_age.size(), 1);
   ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
   ASSERT_EQ(file_temp_age[0].age, 12345);
