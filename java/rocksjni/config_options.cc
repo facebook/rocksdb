@@ -31,8 +31,21 @@ void Java_org_rocksdb_ConfigOptions_disposeInternal(JNIEnv *, jobject,
  * Method:    newConfigOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
+jlong Java_org_rocksdb_ConfigOptions_newConfigOptions__(JNIEnv *, jclass) {
   auto *cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
+  return GET_CPLUSPLUS_POINTER(cfg_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    newConfigOptions
+ * Signature: (ZZ)J
+ */
+jlong Java_org_rocksdb_ConfigOptions_newConfigOptions__ZZ(
+    JNIEnv *, jclass, jboolean unknown, jboolean unsupported) {
+  auto *cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
+  cfg_opt->ignore_unknown_options = static_cast<bool>(unknown);
+  cfg_opt->ignore_unsupported_options = static_cast<bool>(unsupported);
   return GET_CPLUSPLUS_POINTER(cfg_opt);
 }
 
@@ -76,6 +89,43 @@ void Java_org_rocksdb_ConfigOptions_setIgnoreUnknownOptions(JNIEnv *, jclass,
                                                             jboolean b) {
   auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
   cfg_opt->ignore_unknown_options = static_cast<bool>(b);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    setIgnoreUnsupportedOptions
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ConfigOptions_setIgnoreUnsupportedOptions(JNIEnv *,
+                                                                jclass,
+                                                                jlong handle,
+                                                                jboolean b) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  cfg_opt->ignore_unsupported_options = static_cast<bool>(b);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    setInvokePrepareOptions
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ConfigOptions_setInvokePrepareOptions(JNIEnv *, jclass,
+                                                            jlong handle,
+                                                            jboolean b) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  cfg_opt->invoke_prepare_options = static_cast<bool>(b);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    setMutableOptionsOnly
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ConfigOptions_setMutableOptionsOnly(JNIEnv *, jclass,
+                                                          jlong handle,
+                                                          jboolean b) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  cfg_opt->mutable_options_only = static_cast<bool>(b);
 }
 
 /*

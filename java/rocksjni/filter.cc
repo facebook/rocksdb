@@ -19,6 +19,56 @@
 #include "rocksjni/portal.h"
 
 /*
+ * Class:     org_rocksdb_Filter
+ * Method:    createFilterFromString
+ * Signature: (Ljava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_Filter_createFilterFromString__Ljava_lang_String_2(JNIEnv* env,
+                                                                    jclass,
+                                                                    jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::createSharedFromString<
+      const ROCKSDB_NAMESPACE::FilterPolicy, ROCKSDB_NAMESPACE::FilterPolicy>(
+      env, s);
+}
+
+/*
+ * Class:     org_rocksdb_Filter
+ * Method:    createFilterFromString
+ * Signature: (JLjava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_Filter_createFilterFromString__JLjava_lang_String_2(
+    JNIEnv* env, jclass, jlong handle, jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::createSharedFromString<
+      const ROCKSDB_NAMESPACE::FilterPolicy, ROCKSDB_NAMESPACE::FilterPolicy>(
+      env, handle, s);
+}
+
+/*
+ * Class:     org_rocksdb_Filter
+ * Method:    getId
+ * Signature: (J)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_org_rocksdb_Filter_getId(JNIEnv* env, jobject,
+                                                        jlong jhandle) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::getIdFromShared<
+      const ROCKSDB_NAMESPACE::FilterPolicy>(env, jhandle);
+}
+
+/*
+ * Class:     org_rocksdb_Filter
+ * Method:    isInstanceOf
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_rocksdb_Filter_isInstanceOf(JNIEnv* env,
+                                                                jobject,
+                                                                jlong jhandle,
+                                                                jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::isSharedInstanceOf<
+      const ROCKSDB_NAMESPACE::FilterPolicy>(env, jhandle, s);
+}
+/*
  * Class:     org_rocksdb_BloomFilter
  * Method:    createBloomFilter
  * Signature: (DZ)J
