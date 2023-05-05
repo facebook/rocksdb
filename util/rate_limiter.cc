@@ -136,19 +136,13 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
-  if (available_bytes_ >= bytes) {
-    // Refill thread assigns quota and notifies requests waiting on
-    // the queue under mutex. So if we get here, that means nobody
-    // is waiting?
-    available_bytes_ -= bytes;
-    total_bytes_through_[pri] += bytes;
+  int64_t bytes_through = std::min(available_bytes_, bytes);
+  total_bytes_through_[pri] += bytes_through;
+  available_bytes_ -= bytes_through;
+  bytes -= bytes_through;
+
+  if (bytes == 0) {
     return;
-  } else if (available_bytes_ > 0) {
-    // exhaust all available bytes before queuing the remaining
-    bytes -= available_bytes_;
-    total_bytes_through_[pri] += available_bytes_;
-    available_bytes_ = 0;
-    TEST_SYNC_POINT("GenericRateLimiter::Request:NoAvailableBytes");
   }
 
   // Request cannot be satisfied at this moment, enqueue
@@ -300,9 +294,6 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
       next_req->cv.Signal();
     }
   }
-  TEST_SYNC_POINT_CALLBACK(
-      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked:End",
-      &available_bytes_);
 }
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
