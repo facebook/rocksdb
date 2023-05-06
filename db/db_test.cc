@@ -3397,6 +3397,7 @@ class ModelDB : public DB {
   Status ApplyReplicationLogRecord(
       ReplicationLogRecord /*record*/, std::string /*replication_sequence*/,
       CFOptionsFactory /* cf_options_factory */,
+      bool /* allow_new_manifest_writes */,
       ApplyReplicationLogRecordInfo* /*info*/) override {
     return Status::NotSupported("Not supported in Model DB");
   }

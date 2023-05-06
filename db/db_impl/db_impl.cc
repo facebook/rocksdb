@@ -1244,10 +1244,11 @@ std::string DescribeVersionEdit(const VersionEdit& e, ColumnFamilyData* cfd) {
 
 }  // namespace
 
-Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
-                                         std::string replication_sequence,
-                                         CFOptionsFactory cf_options_factory,
-                                         ApplyReplicationLogRecordInfo* info) {
+Status DBImpl::ApplyReplicationLogRecord(
+    ReplicationLogRecord record, std::string replication_sequence,
+    CFOptionsFactory cf_options_factory,
+    bool allow_new_manifest_writes,
+    ApplyReplicationLogRecordInfo* info) {
   JobContext job_context(0, false);
   Status s;
 
@@ -1358,6 +1359,11 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           if (e.GetManifestUpdateSequence() <= current_update_sequence) {
             // Ignore the update, we already have it
             continue;
+          }
+          info->has_new_manifest_writes = true;
+          if (!allow_new_manifest_writes) {
+            // We don't expect new manifest writes, break early
+            break;
           }
           ++current_update_sequence;
           if (e.GetManifestUpdateSequence() != current_update_sequence) {

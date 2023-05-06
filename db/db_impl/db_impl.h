@@ -402,6 +402,7 @@ class DBImpl : public DB {
   Status ApplyReplicationLogRecord(
       ReplicationLogRecord record, std::string replication_sequence,
       CFOptionsFactory cf_options_factory,
+      bool allow_new_manifest_writes,
       ApplyReplicationLogRecordInfo* info) override;
   Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const override;

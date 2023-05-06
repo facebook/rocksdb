@@ -1282,16 +1282,23 @@ class DB {
   }
 
   struct ApplyReplicationLogRecordInfo {
-    // If true, the replication event contained manifest writes.
+    // If true, the replication event contained manifest writes, which could
+    // be either before or after DB's manifest update sequence
     bool has_manifest_writes{false};
     // The following fields are populated only if has_manifest_writes is true:
     // Manifest update sequence number for the current version of the manifest.
     uint64_t current_manifest_update_seq{0};
     // Latest manifest update sequence number that was applied in the call to
     // ApplyReplicationLogRecord(). Note that the manifest write is ignored if
-    // if its manifest update sequence number is lower than the DB's manifest
-    // update sequence number.
+    // if its manifest update sequence number is lower and equal than the DB's
+    // manifest update sequence number.
     uint64_t latest_applied_manifest_update_seq{0};
+    // If true, the replication event contains manifest writes with manifest
+    // update sequence number greater than the DB's manifest update sequence
+    // number. The new manifest writes may or may not be applied depending on
+    // value of `allow_new_manifest_writes`
+    bool has_new_manifest_writes{false};
+
     // added_column_families contains column family handles for all column
     // families that were created as a result of ApplyReplicationLogRecord()
     // call, if any.
@@ -1310,12 +1317,17 @@ class DB {
   // options need to be returned. The function is invoked done outside of the DB
   // mutex.
   //
+  // If `allow_new_manifest_writes` is false, and there are new
+  // manifest writes after DB's manfiest update sequence, this function will set
+  // `has_new_manifest_writes_` to true and return early without applying
+  // the new manifest writes.
   //
   // REQUIRES: info needs to be provided, can't be nullptr.
   using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
   virtual Status ApplyReplicationLogRecord(
       ReplicationLogRecord record, std::string replication_sequence,
       CFOptionsFactory cf_options_factory,
+      bool allow_new_manifest_writes,
       ApplyReplicationLogRecordInfo* info) = 0;
   virtual Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const = 0;

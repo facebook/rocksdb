@@ -500,9 +500,11 @@ class StackableDB : public DB {
   Status ApplyReplicationLogRecord(
       ReplicationLogRecord record, std::string replication_sequence,
       CFOptionsFactory cf_options_factory,
+      bool allow_new_manifest_writes,
       ApplyReplicationLogRecordInfo* info) override {
-    return db_->ApplyReplicationLogRecord(record, replication_sequence,
-                                          std::move(cf_options_factory), info);
+    return db_->ApplyReplicationLogRecord(
+        record, replication_sequence, std::move(cf_options_factory),
+        allow_new_manifest_writes, info);
   }
   Status GetReplicationRecordDebugString(const ReplicationLogRecord& record,
                                          std::string* out) const override {
