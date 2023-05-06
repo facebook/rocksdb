@@ -441,7 +441,7 @@ class Env : public Customizable {
     kFlush = 0,
     kCompaction = 1,
     kDBOpen = 2,
-    kUnknown,
+    kUnknown,  // Keep last for easy array of non-unknowns
   };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in

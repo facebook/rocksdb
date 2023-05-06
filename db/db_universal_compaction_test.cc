@@ -1850,31 +1850,31 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
   ASSERT_EQ(1, TotalLiveFiles(1));
-  ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, TotalLiveFilesAtPath(1, options.db_paths[0].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[1].path));
 
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
   ASSERT_EQ(1, TotalLiveFiles(1));
-  ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, TotalLiveFilesAtPath(1, options.db_paths[0].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[1].path));
 
   MakeTables(1, "p", "q", 1);
   ASSERT_EQ(2, TotalLiveFiles(1));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[0].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[1].path));
 
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
   ASSERT_EQ(2, TotalLiveFiles(1));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[0].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[1].path));
 
   // Full compaction to DB path 0
   compact_options.target_path_id = 0;
   compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
   ASSERT_EQ(1, TotalLiveFiles(1));
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
-  ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, TotalLiveFilesAtPath(1, options.db_paths[0].path));
+  ASSERT_EQ(0, TotalLiveFilesAtPath(1, options.db_paths[1].path));
 
   // Fail when compacting to an invalid path ID
   compact_options.target_path_id = 2;

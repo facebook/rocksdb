@@ -15,6 +15,25 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
+## Bilibili
+[Bilibili](bilibili.com) [uses](https://www.alluxio.io/blog/when-ai-meets-alluxio-at-bilibili-building-an-efficient-ai-platform-for-data-preprocessing-and-model-training/) Alluxio to speed up its ML training workloads, and Alluxio uses RocksDB to store its filesystem metadata, so Bilibili uses RocksDB.
+
+Bilibili's [real-time platform](https://www.alibabacloud.com/blog/architecture-and-practices-of-bilibilis-real-time-platform_596676) uses Flink, and uses RocksDB as Flink's state store.
+
+## TikTok
+TikTok, or its parent company ByteDance, uses RocksDB as the storage engine for some storage systems, such as its distributed graph database [ByteGraph](https://vldb.org/pvldb/vol15/p3306-li.pdf). 
+
+Also, TikTok uses [Alluxio](alluxio.io) to [speed up Presto queries](https://www.alluxio.io/resources/videos/improving-presto-performance-with-alluxio-at-tiktok/), and Alluxio stores the files' metadata in RocksDB.
+
+## FoundationDB
+[FoundationDB](https://www.foundationdb.org/) [uses](https://github.com/apple/foundationdb/blob/377f1f692da6ab2fe5bdac57035651db3e5fb66d/fdbserver/KeyValueStoreRocksDB.actor.cpp) RocksDB to implement a [key-value store interface](https://github.com/apple/foundationdb/blob/377f1f692da6ab2fe5bdac57035651db3e5fb66d/fdbserver/KeyValueStoreRocksDB.actor.cpp#L1127) in its server backend.
+
+## Apple
+Apple [uses](https://opensource.apple.com/projects/foundationdb/) FoundationDB, so it also uses RocksDB.
+
+## Snowflake
+Snowflake [uses](https://www.snowflake.com/blog/how-foundationdb-powers-snowflake-metadata-forward/) FoundationDB, so it also uses RocksDB.
+
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
@@ -85,8 +104,17 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 ## TiKV
 [TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
 
+## TiDB
+[TiDB](https://github.com/pingcap/tidb) uses the TiKV distributed key-value database, so it uses RocksDB.
+
+## PingCAP
+[PingCAP](https://www.pingcap.com/) is the company behind TiDB, its cloud database service uses RocksDB.
+
 ## Apache Spark
 [Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
+
+## Databricks
+[Databricks](https://www.databricks.com/) [replaces AWS RDS with TiDB](https://www.pingcap.com/case-study/how-databricks-tackles-the-scalability-limit-with-a-mysql-alternative/) for scalability, so it uses RocksDB.
 
 ## Apache Flink
 [Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
