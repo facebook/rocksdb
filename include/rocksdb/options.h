@@ -1457,7 +1457,7 @@ enum ReadTier {
 
 // Options that control read operations
 struct ReadOptions {
-  // *** BEGIN options releavant to point lookups as well as scans ***
+  // *** BEGIN options relevant to point lookups as well as scans ***
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
@@ -1553,11 +1553,8 @@ struct ReadOptions {
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
 
-  // ** For RocksDB internal use only **
-  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
-
-  // *** END options releavant to point lookups (as well as scans) ***
-  // *** BEGIN options only releavant to iterators or scans ***
+  // *** END options relevant to point lookups (as well as scans) ***
+  // *** BEGIN options only relevant to iterators or scans ***
 
   // RocksDB does auto-readahead for iterators on noticing more than two reads
   // for a table file. The readahead starts at 8KB and doubles on every
@@ -1678,7 +1675,10 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // *** END options only releavant to iterators or scans ***
+  // *** END options only relevant to iterators or scans ***
+
+  // ** For RocksDB internal use only **
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
