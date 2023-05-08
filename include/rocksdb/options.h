@@ -1457,12 +1457,119 @@ enum ReadTier {
 
 // Options that control read operations
 struct ReadOptions {
+  // *** BEGIN options relevant to point lookups as well as scans ***
+
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
   // not have been released).  If "snapshot" is nullptr, use an implicit
   // snapshot of the state at the beginning of this read operation.
-  // Default: nullptr
-  const Snapshot* snapshot;
+  const Snapshot* snapshot = nullptr;
+
+  // Timestamp of operation. Read should return the latest data visible to the
+  // specified timestamp. All timestamps of the same database must be of the
+  // same length and format. The user is responsible for providing a customized
+  // compare function via Comparator to order <key, timestamp> tuples.
+  // For iterator, iter_start_ts is the lower bound (older) and timestamp
+  // serves as the upper bound. Versions of the same record that fall in
+  // the timestamp range will be returned. If iter_start_ts is nullptr,
+  // only the most recent version visible to timestamp is returned.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  const Slice* timestamp = nullptr;
+  const Slice* iter_start_ts = nullptr;
+
+  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
+  // in microseconds.
+  // It should be set to microseconds since epoch, i.e, gettimeofday or
+  // equivalent plus allowed duration in microseconds. The best way is to use
+  // env->NowMicros() + some timeout.
+  // This is best efforts. The call may exceed the deadline if there is IO
+  // involved and the file system doesn't support deadlines, or due to
+  // checking for deadline periodically rather than for every key if
+  // processing a batch
+  std::chrono::microseconds deadline = std::chrono::microseconds::zero();
+
+  // A timeout in microseconds to be passed to the underlying FileSystem for
+  // reads. As opposed to deadline, this determines the timeout for each
+  // individual file read request. If a MultiGet/Get/Seek/Next etc call
+  // results in multiple reads, each read can last up to io_timeout us.
+  std::chrono::microseconds io_timeout = std::chrono::microseconds::zero();
+
+  // Specify if this read request should process data that ALREADY
+  // resides on a particular cache. If the required data is not
+  // found at the specified cache, then Status::Incomplete is returned.
+  ReadTier read_tier = kReadAllTier;
+
+  // For file reads associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
+  //
+  // The bytes charged to rate limiter may not exactly match the file read bytes
+  // since there are some seemingly insignificant reads, like for file
+  // headers/footers, that we currently do not charge to rate limiter.
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+
+  // It limits the maximum cumulative value size of the keys in batch while
+  // reading through MultiGet. Once the cumulative value size exceeds this
+  // soft limit then all the remaining keys are returned with status Aborted.
+  uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
+
+  // If true, all data read from underlying storage will be
+  // verified against corresponding checksums.
+  bool verify_checksums = true;
+
+  // Should the "data block"/"index block" read for this iteration be placed in
+  // block cache?
+  // Callers may wish to set this field to false for bulk scans.
+  // This would help not to the change eviction order of existing items in the
+  // block cache.
+  bool fill_cache = true;
+
+  // If true, range tombstones handling will be skipped in key lookup paths.
+  // For DB instances that don't use DeleteRange() calls, this setting can
+  // be used to optimize the read performance.
+  // Note that, if this assumption (of no previous DeleteRange() calls) is
+  // broken, stale keys could be served in read paths.
+  bool ignore_range_deletions = false;
+
+  // Experimental
+  //
+  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
+  // RocksDB apply it if reads are sequential and its internal automatic
+  // prefetching.
+  bool async_io = false;
+
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  bool optimize_multiget_for_io = true;
+
+  // *** END options relevant to point lookups (as well as scans) ***
+  // *** BEGIN options only relevant to iterators or scans ***
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file. The readahead starts at 8KB and doubles on every
+  // additional read up to 256KB.
+  // This option can help if most of the range scans are large, and if it is
+  // determined that a larger readahead than that enabled by auto-readahead is
+  // needed.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
+  size_t readahead_size = 0;
+
+  // A threshold for the number of keys that can be skipped before failing an
+  // iterator seek as incomplete. The default value of 0 should be used to
+  // never fail a request as incomplete, even on skipping too many keys.
+  uint64_t max_skippable_internal_keys = 0;
 
   // `iterate_lower_bound` defines the smallest key at which the backward
   // iterator can return an entry. Once the bound is passed, Valid() will be
@@ -1475,8 +1582,7 @@ struct ReadOptions {
   //
   // In case of user_defined timestamp, if enabled, iterate_lower_bound should
   // point to key without timestamp part.
-  // Default: nullptr
-  const Slice* iterate_lower_bound;
+  const Slice* iterate_lower_bound = nullptr;
 
   // "iterate_upper_bound" defines the extent up to which the forward iterator
   // can return entries. Once the bound is reached, Valid() will be false.
@@ -1496,63 +1602,24 @@ struct ReadOptions {
   //
   // In case of user_defined timestamp, if enabled, iterate_upper_bound should
   // point to key without timestamp part.
-  // Default: nullptr
-  const Slice* iterate_upper_bound;
-
-  // RocksDB does auto-readahead for iterators on noticing more than two reads
-  // for a table file. The readahead starts at 8KB and doubles on every
-  // additional read up to 256KB.
-  // This option can help if most of the range scans are large, and if it is
-  // determined that a larger readahead than that enabled by auto-readahead is
-  // needed.
-  // Using a large readahead size (> 2MB) can typically improve the performance
-  // of forward iteration on spinning disks.
-  // Default: 0
-  size_t readahead_size;
-
-  // A threshold for the number of keys that can be skipped before failing an
-  // iterator seek as incomplete. The default value of 0 should be used to
-  // never fail a request as incomplete, even on skipping too many keys.
-  // Default: 0
-  uint64_t max_skippable_internal_keys;
-
-  // Specify if this read request should process data that ALREADY
-  // resides on a particular cache. If the required data is not
-  // found at the specified cache, then Status::Incomplete is returned.
-  // Default: kReadAllTier
-  ReadTier read_tier;
-
-  // If true, all data read from underlying storage will be
-  // verified against corresponding checksums.
-  // Default: true
-  bool verify_checksums;
-
-  // Should the "data block"/"index block" read for this iteration be placed in
-  // block cache?
-  // Callers may wish to set this field to false for bulk scans.
-  // This would help not to the change eviction order of existing items in the
-  // block cache.
-  // Default: true
-  bool fill_cache;
+  const Slice* iterate_upper_bound = nullptr;
 
   // Specify to create a tailing iterator -- a special iterator that has a
   // view of the complete database (i.e. it can also be used to read newly
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
-  // Default: false
-  bool tailing;
+  bool tailing = false;
 
   // This options is not used anymore. It was to turn on a functionality that
-  // has been removed.
-  bool managed;
+  // has been removed. DEPRECATED
+  bool managed = false;
 
   // Enable a total order seek regardless of index format (e.g. hash index)
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
   // block based table, which only affects Get() performance.
-  // Default: false
-  bool total_order_seek;
+  bool total_order_seek = false;
 
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
@@ -1568,84 +1635,21 @@ struct ReadOptions {
   // iterators. (We are also assuming the new condition on
   // IsSameLengthImmediateSuccessor is satisfied; see its BUG section).
   // A bug example is in DBTest2::AutoPrefixMode1, search for "BUG".
-  // Default: false
-  bool auto_prefix_mode;
+  bool auto_prefix_mode = false;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
   // This option is effective only for prefix seeks, i.e. prefix_extractor is
   // non-null for the column family and total_order_seek is false.  Unlike
   // iterate_upper_bound, prefix_same_as_start only works within a prefix
   // but in both directions.
-  // Default: false
-  bool prefix_same_as_start;
+  bool prefix_same_as_start = false;
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the
   // iterator is not deleted, If used when reading from tables created with
   // BlockBasedTableOptions::use_delta_encoding = false,
   // Iterator's property "rocksdb.iterator.is-key-pinned" is guaranteed to
   // return 1.
-  // Default: false
-  bool pin_data;
-
-  // If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
-  // schedule a background job in the flush job queue and delete obsolete files
-  // in background.
-  // Default: false
-  bool background_purge_on_iterator_cleanup;
-
-  // If true, range tombstones handling will be skipped in key lookup paths.
-  // For DB instances that don't use DeleteRange() calls, this setting can
-  // be used to optimize the read performance.
-  // Note that, if this assumption (of no previous DeleteRange() calls) is
-  // broken, stale keys could be served in read paths.
-  // Default: false
-  bool ignore_range_deletions;
-
-  // A callback to determine whether relevant keys for this scan exist in a
-  // given table based on the table's properties. The callback is passed the
-  // properties of each table during iteration. If the callback returns false,
-  // the table will not be scanned. This option only affects Iterators and has
-  // no impact on point lookups.
-  // Default: empty (every table will be scanned)
-  std::function<bool(const TableProperties&)> table_filter;
-
-  // Timestamp of operation. Read should return the latest data visible to the
-  // specified timestamp. All timestamps of the same database must be of the
-  // same length and format. The user is responsible for providing a customized
-  // compare function via Comparator to order <key, timestamp> tuples.
-  // For iterator, iter_start_ts is the lower bound (older) and timestamp
-  // serves as the upper bound. Versions of the same record that fall in
-  // the timestamp range will be returned. If iter_start_ts is nullptr,
-  // only the most recent version visible to timestamp is returned.
-  // The user-specified timestamp feature is still under active development,
-  // and the API is subject to change.
-  // Default: nullptr
-  const Slice* timestamp;
-  const Slice* iter_start_ts;
-
-  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
-  // in microseconds.
-  // It should be set to microseconds since epoch, i.e, gettimeofday or
-  // equivalent plus allowed duration in microseconds. The best way is to use
-  // env->NowMicros() + some timeout.
-  // This is best efforts. The call may exceed the deadline if there is IO
-  // involved and the file system doesn't support deadlines, or due to
-  // checking for deadline periodically rather than for every key if
-  // processing a batch
-  std::chrono::microseconds deadline;
-
-  // A timeout in microseconds to be passed to the underlying FileSystem for
-  // reads. As opposed to deadline, this determines the timeout for each
-  // individual file read request. If a MultiGet/Get/Seek/Next etc call
-  // results in multiple reads, each read can last up to io_timeout us.
-  std::chrono::microseconds io_timeout;
-
-  // It limits the maximum cumulative value size of the keys in batch while
-  // reading through MultiGet. Once the cumulative value size exceeds this
-  // soft limit then all the remaining keys are returned with status Aborted.
-  //
-  // Default: std::numeric_limits<uint64_t>::max()
-  uint64_t value_size_soft_limit;
+  bool pin_data = false;
 
   // For iterators, RocksDB does auto-readahead on noticing more than two
   // sequential reads for a table file if user doesn't provide readahead_size.
@@ -1656,52 +1660,29 @@ struct ReadOptions {
   //
   // By enabling this option, RocksDB will do some enhancements for
   // prefetching the data.
-  //
-  // Default: false
-  bool adaptive_readahead;
+  bool adaptive_readahead = false;
 
-  // For file reads associated with this option, charge the internal rate
-  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
-  // special value `Env::IO_TOTAL` disables charging the rate limiter.
-  //
-  // The rate limiting is bypassed no matter this option's value for file reads
-  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
-  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
-  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
-  //
-  // The bytes charged to rate limiter may not exactly match the file read bytes
-  // since there are some seemingly insignificant reads, like for file
-  // headers/footers, that we currently do not charge to rate limiter.
-  //
-  // Default: `Env::IO_TOTAL`.
-  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+  // If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+  // schedule a background job in the flush job queue and delete obsolete files
+  // in background.
+  bool background_purge_on_iterator_cleanup = false;
 
-  // Experimental
-  //
-  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
-  // RocksDB apply it if reads are sequential and its internal automatic
-  // prefetching.
-  //
-  // Default: false
-  bool async_io;
+  // A callback to determine whether relevant keys for this scan exist in a
+  // given table based on the table's properties. The callback is passed the
+  // properties of each table during iteration. If the callback returns false,
+  // the table will not be scanned. This option only affects Iterators and has
+  // no impact on point lookups.
+  // Default: empty (every table will be scanned)
+  std::function<bool(const TableProperties&)> table_filter;
 
-  // Experimental
-  //
-  // If async_io is set, then this flag controls whether we read SST files
-  // in multiple levels asynchronously. Enabling this flag can help reduce
-  // MultiGet latency by maximizing the number of SST files read in
-  // parallel if the keys in the MultiGet batch are in different levels. It
-  // comes at the expense of slightly higher CPU overhead.
-  //
-  // Default: true
-  bool optimize_multiget_for_io;
+  // *** END options only relevant to iterators or scans ***
 
   // ** For RocksDB internal use only **
-  Env::IOActivity io_activity;
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
-  ReadOptions();
-  ReadOptions(bool cksum, bool cache);
-  explicit ReadOptions(Env::IOActivity io_activity);
+  ReadOptions() {}
+  ReadOptions(bool _verify_checksums, bool _fill_cache);
+  explicit ReadOptions(Env::IOActivity _io_activity);
 };
 
 // Options that control write operations
