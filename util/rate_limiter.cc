@@ -136,10 +136,12 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
-  int64_t bytes_through = std::min(available_bytes_, bytes);
-  total_bytes_through_[pri] += bytes_through;
-  available_bytes_ -= bytes_through;
-  bytes -= bytes_through;
+  if (available_bytes_ > 0) {
+    int64_t bytes_through = std::min(available_bytes_, bytes);
+    total_bytes_through_[pri] += bytes_through;
+    available_bytes_ -= bytes_through;
+    bytes -= bytes_through;
+  }
 
   if (bytes == 0) {
     return;
