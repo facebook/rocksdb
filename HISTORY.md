@@ -10,6 +10,9 @@
 ### Bug Fixes
 * Delete an empty WAL file on DB open if the log number is less than the min log number to keep
 
+### Performance Improvements
+* Improved the I/O efficiency of prefetching SST metadata by recording more information in the DB manifest. Opening files written with previous versions will still rely on heuristics for how much to prefetch (#11406).
+
 ## 8.2.0 (04/24/2023)
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.

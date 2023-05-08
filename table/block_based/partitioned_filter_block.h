@@ -166,7 +166,8 @@ class PartitionedFilterBlockReader
                          BlockCacheLookupContext* lookup_context,
                          const ReadOptions& read_options,
                          FilterManyFunction filter_function) const;
-  Status CacheDependencies(const ReadOptions& ro, bool pin) override;
+  Status CacheDependencies(const ReadOptions& ro, bool pin,
+                           FilePrefetchBuffer* tail_prefetch_buffer) override;
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;

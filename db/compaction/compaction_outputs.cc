@@ -43,6 +43,7 @@ Status CompactionOutputs::Finish(const Status& intput_status,
   const uint64_t current_bytes = builder_->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
   }
   current_output().finished = true;

@@ -42,7 +42,8 @@ struct TableReaderOptions {
       int _level = -1, BlockCacheTracer* const _block_cache_tracer = nullptr,
       size_t _max_file_size_for_l0_meta_pin = 0,
       const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0,
-      UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0)
+      UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0,
+      uint64_t _tail_size = 0)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -57,7 +58,8 @@ struct TableReaderOptions {
         cur_db_session_id(_cur_db_session_id),
         cur_file_num(_cur_file_num),
         unique_id(_unique_id),
-        block_protection_bytes_per_key(_block_protection_bytes_per_key) {}
+        block_protection_bytes_per_key(_block_protection_bytes_per_key),
+        tail_size(_tail_size) {}
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
@@ -89,6 +91,8 @@ struct TableReaderOptions {
   UniqueId64x2 unique_id;
 
   uint8_t block_protection_bytes_per_key;
+
+  uint64_t tail_size;
 };
 
 struct TableBuilderOptions {
@@ -199,6 +203,8 @@ class TableBuilder {
   // FileSize() cannot estimate final SST size, e.g. parallel compression
   // is enabled.
   virtual uint64_t EstimatedFileSize() const { return FileSize(); }
+
+  virtual uint64_t GetTailSize() const { return 0; }
 
   // If the user defined table properties collector suggest the file to
   // be further compacted.
