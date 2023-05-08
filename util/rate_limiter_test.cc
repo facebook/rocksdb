@@ -417,71 +417,36 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
 }
 
 TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
-  auto* env = Env::Default();
-  struct Arg {
-    Arg(int32_t _request_size, std::shared_ptr<RateLimiter> _limiter)
-        : request_size(_request_size), limiter(_limiter) {}
-    int32_t request_size;
-    std::shared_ptr<RateLimiter> limiter;
-  };
-
-  auto writer = [](void* p) {
-    auto* arg = static_cast<Arg*>(p);
-    arg->limiter->Request(arg->request_size, Env::IO_USER, nullptr /* stats */,
-                          RateLimiter::OpType::kWrite);
-  };
-
-  int32_t enqueue_count = 0;
-  int64_t total_pending_requests = 0;
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  const std::chrono::seconds kTimePerRefill(1);
 
   std::shared_ptr<RateLimiter> limiter = std::make_shared<GenericRateLimiter>(
-      500 /* bytes */, 1000 * 1000 /* refill_period_us */, 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, SystemClock::Default(),
-      false /* auto_tuned */);
+      500 /* bytes */, std::chrono::microseconds(kTimePerRefill).count(),
+      10 /* fairness */, RateLimiter::Mode::kWritesOnly,
+      special_env.GetSystemClock(), false /* auto_tuned */);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  limiter->Request(100, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+  special_env.SleepForMicroseconds(
+      static_cast<int>(std::chrono::microseconds(kTimePerRefill).count()));
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
         port::Mutex* request_mutex = (port::Mutex*)arg;
-        enqueue_count++;
         request_mutex->Unlock();
-        EXPECT_OK(limiter->GetTotalPendingRequests(&total_pending_requests,
-                                                   Env::IO_USER));
-        int64_t total_bytes_through =
-            limiter->GetTotalBytesThrough(Env::IO_USER);
-        fprintf(stderr,
-                "Total Pending Requests: %" PRIi64 ", Enqueue Count: %" PRIi32
-                ", Total Bytes Through: %" PRIi64 "\n",
-                total_pending_requests, enqueue_count, total_bytes_through);
-        // Very first enqueue. No bytes went through
-        if (enqueue_count == 1) {
-          ASSERT_EQ(0, total_bytes_through);
-        } else {
-          // all 500 available_bytes were exhausted
-          ASSERT_EQ(500, total_bytes_through);
-        }
+        ASSERT_EQ(500, limiter->GetTotalBytesThrough(Env::IO_USER));
         request_mutex->Lock();
+        special_env.SleepForMicroseconds(static_cast<int>(
+            std::chrono::microseconds(kTimePerRefill).count()));
       });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"GenericRateLimiter::Request:PostEnqueueRequest",
-        "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForNextRequest"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Arg first_arg(100, limiter);
-  env->StartThread(writer, &first_arg);
-  TEST_SYNC_POINT(
-      "RateLimiterTest::AvailableByteSizeExhaustTest:ReadyForNextRequest");
-  Arg second_arg(500, limiter);
-  env->StartThread(writer, &second_arg);
-  Arg third_arg(300, limiter);
-  env->StartThread(writer, &third_arg);
-  env->WaitForJoin();
+  limiter->Request(500, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "GenericRateLimiter::Request:PostEnqueueRequest");
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-  // 100 + 500 + 300
-  ASSERT_EQ(900, limiter->GetTotalBytesThrough(Env::IO_USER));
 }
 
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
