@@ -436,8 +436,6 @@ TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
         request_mutex->Unlock();
         ASSERT_EQ(500, limiter->GetTotalBytesThrough(Env::IO_USER));
         request_mutex->Lock();
-        special_env.SleepForMicroseconds(static_cast<int>(
-            std::chrono::microseconds(kTimePerRefill).count()));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
