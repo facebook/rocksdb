@@ -1170,7 +1170,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         // at L1 (or LBase), if applicable.
         int level = first_overlapped_level;
         final_output_level = level;
-        int output_level, base_level;
+        int output_level = 0, base_level = 0;
         while (level < max_overlapped_level || level == 0) {
           output_level = level + 1;
           if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
