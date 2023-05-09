@@ -270,7 +270,7 @@ class LogTest
                        kTolerateCorruptedTailRecords /* wal_recovery_mode */,
                    &recorded_ts_sz));
     EXPECT_EQ(expected_ts_sz, recorded_ts_sz);
-  };
+  }
 };
 
 TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }

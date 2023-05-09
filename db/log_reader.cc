@@ -601,7 +601,7 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
 }
 
 void Reader::UpdateRecordedTimestampSize(
-    const std::map<uint32_t, size_t> cf_to_ts_sz) {
+    const std::map<uint32_t, size_t>& cf_to_ts_sz) {
   for (const auto [cf, ts_sz] : cf_to_ts_sz) {
     // Zero user-defined timestamp size are not recorded.
     assert(ts_sz != 0);

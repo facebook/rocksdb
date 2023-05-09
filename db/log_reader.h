@@ -199,7 +199,7 @@ class Reader {
   void InitCompression(const CompressionTypeRecord& compression_record);
 
   void UpdateRecordedTimestampSize(
-      const std::map<uint32_t, size_t> cf_to_ts_sz);
+      const std::map<uint32_t, size_t>& cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {
