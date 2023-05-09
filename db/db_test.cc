@@ -3107,9 +3107,10 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
-  using DB::ClipDB;
-  virtual Status ClipDB(ColumnFamilyHandle* /*column_family*/,
-                        const Slice& /*begin*/, const Slice& /*end*/) override {
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not implemented.");
   }
 

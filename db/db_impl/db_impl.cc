@@ -5704,87 +5704,77 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::ClipDB(ColumnFamilyHandle* column_family, const Slice& begin_key,
-                      const Slice& end_key) {
+Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                const Slice& begin_key, const Slice& end_key) {
   assert(column_family);
   Status status;
+  // Flush memtable
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  if (immutable_db_options_.atomic_flush) {
+    status = AtomicFlushMemTables(flush_opts, FlushReason::kDeleteFiles,
+                                  {} /* provided_candidate_cfds */,
+                                  false /* entered_write_thread */);
+  } else {
+    status = FlushMemTable(cfd, flush_opts, FlushReason::kDeleteFiles,
+                           false /* entered_write_thread */);
+  }
 
-  {
-    // Lock db mutex
-    InstrumentedMutexLock l(&mutex_);
-    // Flush memtable
-    FlushOptions flush_opts;
-    flush_opts.allow_write_stall = true;
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      status = AtomicFlushMemTables(flush_opts, FlushReason::kGetLiveFiles,
-                                    {} /* provided_candidate_cfds */,
-                                    true /* entered_write_thread */);
-      mutex_.Lock();
-    } else {
-      mutex_.Unlock();
-      status =
-          FlushMemTable(cfd, flush_opts, FlushReason::kExternalFileIngestion,
-                        true /* entered_write_thread */);
-      mutex_.Lock();
-    }
+  if (status.ok()) {
+    // DeleteFilesInRanges non-overlap files except L0
+    std::vector<RangePtr> ranges;
+    ranges.push_back(RangePtr(nullptr, &begin_key));
+    ranges.push_back(RangePtr(&end_key, nullptr));
+    status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
+  }
 
-    if (status.ok()) {
-      // DeleteFilesInRanges non-overlap files except L0
-      std::vector<RangePtr> ranges;
-      ranges.push_back(RangePtr(nullptr, &begin_key));
-      ranges.push_back(RangePtr(&end_key, nullptr));
-      mutex_.Unlock();
-      status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
-      mutex_.Lock();
-    }
-
-    // DeleteRange the remaining overlapping keys
-    bool empty_after_delete = false;
-    if (status.ok()) {
-      Slice smallest_user_key, largest_user_key;
+  // DeleteRange the remaining overlapping keys
+  bool empty_after_delete = false;
+  if (status.ok()) {
+    Slice smallest_user_key, largest_user_key;
+    {
+      // Lock db mutex
+      InstrumentedMutexLock l(&mutex_);
       cfd->current()->GetSstFilesBoundaryKeys(&smallest_user_key,
                                               &largest_user_key);
-      // all the files has been deleted after DeleteFilesInRanges;
-      if (smallest_user_key.empty() && largest_user_key.empty()) {
-        empty_after_delete = true;
-      } else {
-        const Comparator* const ucmp = column_family->GetComparator();
-        WriteOptions wo;
-        // Delete [smallest_user_key, clip_begin_key)
-        if (ucmp->Compare(smallest_user_key, begin_key) < 0) {
-          status = DeleteRange(wo, column_family, smallest_user_key, begin_key);
-        }
+    }
+    // all the files has been deleted after DeleteFilesInRanges;
+    if (smallest_user_key.empty() && largest_user_key.empty()) {
+      empty_after_delete = true;
+    } else {
+      const Comparator* const ucmp = column_family->GetComparator();
+      WriteOptions wo;
+      // Delete [smallest_user_key, clip_begin_key)
+      if (ucmp->Compare(smallest_user_key, begin_key) < 0) {
+        status = DeleteRange(wo, column_family, smallest_user_key, begin_key);
+      }
 
-        if (status.ok()) {
-          // Delete [clip_end_key, largest_use_key]
-          if (ucmp->Compare(end_key, largest_user_key) < 0) {
-            status = DeleteRange(wo, column_family, end_key, largest_user_key);
-            if (status.ok()) {
-              status = Delete(wo, column_family, largest_user_key);
-            }
+      if (status.ok()) {
+        // Delete [clip_end_key, largest_use_key]
+        if (ucmp->Compare(end_key, largest_user_key) < 0) {
+          status = DeleteRange(wo, column_family, end_key, largest_user_key);
+          if (status.ok()) {
+            status = Delete(wo, column_family, largest_user_key);
           }
         }
       }
     }
+  }
 
-    if (status.ok() && !empty_after_delete) {
-      // CompactRange delete all the tombstones
-      CompactRangeOptions compact_options;
-      compact_options.exclusive_manual_compaction = true;
-      compact_options.bottommost_level_compaction =
-          BottommostLevelCompaction::kForceOptimized;
-      // We could just compact the ranges [null, clip_begin_key] and
-      // [clip_end_key, null]. But due to how manual compaction calculates the
-      // last level to compact to and that range tombstones are not dropped
-      // during non-bottommost compactions, calling CompactRange() on these two
-      // ranges may not clear all range tombstones.
-      mutex_.Unlock();
-      status = CompactRange(compact_options, nullptr, nullptr);
-      mutex_.Lock();
-    }
+  if (status.ok() && !empty_after_delete) {
+    // CompactRange delete all the tombstones
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = true;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    // We could just compact the ranges [null, clip_begin_key] and
+    // [clip_end_key, null]. But due to how manual compaction calculates the
+    // last level to compact to and that range tombstones are not dropped
+    // during non-bottommost compactions, calling CompactRange() on these two
+    // ranges may not clear all range tombstones.
+    status = CompactRange(compact_options, nullptr, nullptr);
   }
   return status;
 }

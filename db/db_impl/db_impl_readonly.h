@@ -142,9 +142,10 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
-  using DB::ClipDB;
-  virtual Status ClipDB(ColumnFamilyHandle* /*column_family*/,
-                        const Slice& /*begin*/, const Slice& /*end*/) override {
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

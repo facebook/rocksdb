@@ -40,7 +40,8 @@ TEST_F(DBClipTest, TestClipRange) {
   }
   ASSERT_EQ("10", FilesPerLevel(0));
   auto begin_key = Key(251), end_key = Key(751);
-  ASSERT_OK(db_->ClipDB(db_->DefaultColumnFamily(), begin_key, end_key));
+  ASSERT_OK(
+      db_->ClipColumnFamily(db_->DefaultColumnFamily(), begin_key, end_key));
 
   for (auto i = 0; i < 251; i++) {
     ReadOptions ropts;
@@ -64,8 +65,9 @@ TEST_F(DBClipTest, TestClipRange) {
     // make sure clip_begin_key <= file_smallestkey <= file_largestkey <=
     // clip_end_key
     bool in_range = false;
-    if (begin_key.compare(md.smallestkey) <= 0 &&
-        end_key.compare(md.largestkey) > 0) {
+
+    if (options.comparator->Compare(begin_key, md.smallestkey) <= 0 &&
+        options.comparator->Compare(end_key, md.largestkey) > 0) {
       in_range = true;
     }
     ASSERT_TRUE(in_range);
@@ -99,7 +101,8 @@ TEST_F(DBClipTest, TestClipRange) {
 
   auto begin_key_2 = Key(222), end_key_2 = Key(888);
 
-  ASSERT_OK(db_->ClipDB(db_->DefaultColumnFamily(), begin_key_2, end_key_2));
+  ASSERT_OK(db_->ClipColumnFamily(db_->DefaultColumnFamily(), begin_key_2,
+                                  end_key_2));
 
   for (auto i = 0; i < 222; i++) {
     ReadOptions ropts;
