@@ -3460,6 +3460,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  (void)count;
   delete miter;
   delete dbiter;
   return ok;

@@ -341,6 +341,10 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   BlockCreateContext create_context;
 
+  // The size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t tail_size;
+
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
 
@@ -456,6 +460,7 @@ struct BlockBasedTableBuilder::Rep {
                        !use_delta_encoding_for_index_values,
                        table_opt.index_type ==
                            BlockBasedTableOptions::kBinarySearchWithFirstKey),
+        tail_size(0),
         status_ok(true),
         io_status_ok(true) {
     if (tbo.target_file_size == 0) {
@@ -1908,6 +1913,8 @@ Status BlockBasedTableBuilder::Finish() {
     }
   }
 
+  r->props.tail_start_offset = r->offset;
+
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
   //    2. [meta block: index]
@@ -1935,6 +1942,7 @@ Status BlockBasedTableBuilder::Finish() {
   r->SetStatus(r->CopyIOStatus());
   Status ret_status = r->CopyStatus();
   assert(!ret_status.ok() || io_status().ok());
+  r->tail_size = r->offset - r->props.tail_start_offset;
   return ret_status;
 }
 
@@ -1967,6 +1975,8 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
     return FileSize();
   }
 }
+
+uint64_t BlockBasedTableBuilder::GetTailSize() const { return rep_->tail_size; }
 
 bool BlockBasedTableBuilder::NeedCompact() const {
   for (const auto& collector : rep_->table_properties_collectors) {
