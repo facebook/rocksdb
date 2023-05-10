@@ -956,6 +956,7 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   cache_->Release(h1);
 }
 
+namespace {
 bool AreTwoCacheKeysOrdered(Cache* cache) {
   std::vector<std::string> keys;
   const auto callback = [&](const Slice& key, Cache::ObjectPtr /*value*/,
@@ -968,19 +969,23 @@ bool AreTwoCacheKeysOrdered(Cache* cache) {
   EXPECT_NE(keys[0], keys[1]);
   return keys[0] < keys[1];
 }
+}  // namespace
 
 TEST_P(CacheTest, CacheUniqueSeeds) {
   // kQuasiRandomHashSeed should generate unique seeds (up to 2 billion before
   // repeating)
   UnorderedSet<uint32_t> seeds_seen;
-  seeds_seen.reserve(20000);
+  // Roughly sqrt(number of possible values) for a decent chance at detecting
+  // a random collision if it's possible (shouldn't be)
+  uint16_t kSamples = 20000;
+  seeds_seen.reserve(kSamples);
 
   // Hash seed should affect ordering of entries in the table, so we should
   // have extremely high chance of seeing two entries ordered both ways.
   bool seen_forward_order = false;
   bool seen_reverse_order = false;
 
-  for (int i = 0; i < 20000; ++i) {
+  for (int i = 0; i < kSamples; ++i) {
     auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
       opts.hash_seed = LRUCacheOptions::kQuasiRandomHashSeed;
       opts.num_shard_bits = 0;
@@ -1011,6 +1016,8 @@ TEST_P(CacheTest, CacheHostSeed) {
   // And we should verify consistent ordering of entries.
   uint32_t expected_seed = 0;
   bool expected_order = false;
+  // 10 iterations -> chance of a random seed falsely appearing consistent
+  // should be low, just 1 in 2^9.
   for (int i = 0; i < 10; ++i) {
     auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
       if (i != 5) {
@@ -1035,8 +1042,8 @@ TEST_P(CacheTest, CacheHostSeed) {
       expected_order = order;
     }
   }
-  // Printed for reference in case needed to reproduce other unit test failures
-  // on another host
+  // Printed for reference in case it's needed to reproduce other unit test
+  // failures on another host
   fprintf(stderr, "kHostHashSeed -> %u\n", (unsigned)expected_seed);
 }
 

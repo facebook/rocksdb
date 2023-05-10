@@ -46,7 +46,9 @@ uint32_t DetermineSeed(int32_t hash_seed_option) {
     // Perform some 31-bit bijective transformations so that we get
     // quasirandom, not just incrementing. (An incrementing seed from a
     // random starting point would be fine, but hard to describe in a name.)
-    // See https://en.wikipedia.org/wiki/Quasirandom
+    // See https://en.wikipedia.org/wiki/Quasirandom and using a murmur-like
+    // transformation here for our bijection in the lower 31 bits.
+    // See https://en.wikipedia.org/wiki/MurmurHash
     val *= /*31-bit prime*/ 1150630961;
     val ^= (val & kSeedMask) >> 17;
     val *= /*31-bit prime*/ 1320603883;
