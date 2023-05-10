@@ -518,8 +518,9 @@ class Repairer {
     if (status.ok()) {
       // TODO: plumb Env::IOActivity
       const ReadOptions read_options;
-      status = table_cache_->GetTableProperties(file_options_, read_options,
-                                                icmp_, t->meta, &props);
+      status = table_cache_->GetTableProperties(
+          file_options_, read_options, icmp_, t->meta, &props,
+          0 /* block_protection_bytes_per_key */);
     }
     if (status.ok()) {
       auto s =
@@ -550,6 +551,17 @@ class Repairer {
       }
       t->meta.oldest_ancester_time = props->creation_time;
     }
+    if (status.ok()) {
+      uint64_t tail_size = 0;
+      bool contain_no_data_blocks =
+          props->num_entries > 0 &&
+          (props->num_entries == props->num_range_deletions);
+      if (props->tail_start_offset > 0 || contain_no_data_blocks) {
+        assert(props->tail_start_offset <= file_size);
+        tail_size = file_size - props->tail_start_offset;
+      }
+      t->meta.tail_size = tail_size;
+    }
     ColumnFamilyData* cfd = nullptr;
     if (status.ok()) {
       cfd = vset_.GetColumnFamilySet()->GetColumnFamily(t->column_family_id);
@@ -577,7 +589,8 @@ class Repairer {
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -617,7 +630,9 @@ class Repairer {
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
-          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+          ropts, cfd->internal_comparator(), t->meta,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key,
+          &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();
@@ -678,7 +693,7 @@ class Repairer {
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.epoch_number, table->meta.file_checksum,
             table->meta.file_checksum_func_name, table->meta.unique_id,
-            table->meta.compensated_range_deletion_size);
+            table->meta.compensated_range_deletion_size, table->meta.tail_size);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {

@@ -373,7 +373,7 @@ class CompactionJobTestBase : public testing::Test {
     } else if (table_type_ == TableTypeForTest::kMockTable) {
       file_size = 10;
       EXPECT_OK(mock_table_factory_->CreateMockTable(
-          env_, GenerateFileName(file_number), std::move(contents)));
+          env_, GenerateFileName(file_number), contents));
     } else {
       assert(false);
     }
@@ -386,7 +386,7 @@ class CompactionJobTestBase : public testing::Test {
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-        0);
+        0, 0);
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
@@ -454,7 +454,8 @@ class CompactionJobTestBase : public testing::Test {
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
           TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
-                             cfd_->internal_comparator()),
+                             cfd_->internal_comparator(),
+                             0 /* block_protection_bytes_per_key */),
           std::move(freader), file_size, &table_reader, false);
       ASSERT_OK(s);
       assert(table_reader);

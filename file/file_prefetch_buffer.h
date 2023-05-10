@@ -180,6 +180,8 @@ class FilePrefetchBuffer {
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
   }
 
+  bool Enabled() const { return enable_; }
+
   // Load data into the buffer from a file.
   // reader                : the file reader.
   // offset                : the file offset to start reading from.

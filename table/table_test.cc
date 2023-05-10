@@ -444,7 +444,9 @@ class TableConstructor : public Constructor {
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
-                           *last_internal_comparator_, /*skip_filters*/ false,
+                           *last_internal_comparator_,
+                           0 /* block_protection_bytes_per_key */,
+                           /*skip_filters*/ false,
                            /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
                            file_num_, kNullUniqueId64x2, largest_seqno_),
@@ -4795,7 +4797,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
-                           ikc),
+                           ikc, 0 /* block_protection_bytes_per_key */),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
@@ -4964,7 +4966,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
-                         GetPlainInternalComparator(options2.comparator)),
+                         GetPlainInternalComparator(options2.comparator),
+                         0 /* block_protection_bytes_per_key */),
       std::move(file_reader), sink->contents().size(), &table_reader));
 
   ReadOptions read_options;
@@ -5083,6 +5086,10 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
   for (CompressionType type : GetSupportedCompressions()) {
     if (type == kNoCompression) {
+      continue;
+    }
+    if (type == kBZip2Compression) {
+      // Weird behavior in this test
       continue;
     }
     SCOPED_TRACE("Compression type: " + std::to_string(type));

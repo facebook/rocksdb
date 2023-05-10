@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
@@ -99,6 +100,17 @@ int db_stress_tool(int argc, char** argv) {
 
   env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
       raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
+  if (!env_opts && !FLAGS_use_io_uring) {
+    // If using the default Env (Posix), wrap DbStressEnvWrapper with the
+    // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
+    // from failing when IO uring is disabled. The EnvWrapper
+    // has a default implementation of ReadAsync that redirects to Read.
+    legacy_env_wrapper_guard = std::make_shared<EnvWrapper>(raw_env);
+    env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
+        legacy_env_wrapper_guard,
+        std::make_shared<DbStressFSWrapper>(
+            legacy_env_wrapper_guard->GetFileSystem()));
+  }
   db_stress_env = env_wrapper_guard.get();
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());

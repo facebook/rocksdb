@@ -258,6 +258,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.capacity = table_cache_size;
   co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
+  // TODO: Consider a non-fixed seed once test fallout (prefetch_test) is
+  // dealt with
+  co.hash_seed = 0;
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
@@ -2475,7 +2478,6 @@ std::vector<Status> DBImpl::MultiGet(
 
   // Post processing (decrement reference counts and record statistics)
   PERF_TIMER_GUARD(get_post_process_time);
-  autovector<SuperVersion*> superversions_to_delete;
 
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;

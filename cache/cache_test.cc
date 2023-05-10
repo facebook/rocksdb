@@ -21,6 +21,7 @@
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/hash_containers.h"
 #include "util/string_util.h"
 
 // HyperClockCache only supports 16-byte keys, so some of the tests
@@ -953,6 +954,97 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   ASSERT_EQ(1, cache_->GetCharge(h1));
   ASSERT_EQ(&CacheTest::kHelper, cache_->GetCacheItemHelper(h1));
   cache_->Release(h1);
+}
+
+namespace {
+bool AreTwoCacheKeysOrdered(Cache* cache) {
+  std::vector<std::string> keys;
+  const auto callback = [&](const Slice& key, Cache::ObjectPtr /*value*/,
+                            size_t /*charge*/,
+                            const Cache::CacheItemHelper* /*helper*/) {
+    keys.push_back(key.ToString());
+  };
+  cache->ApplyToAllEntries(callback, /*opts*/ {});
+  EXPECT_EQ(keys.size(), 2U);
+  EXPECT_NE(keys[0], keys[1]);
+  return keys[0] < keys[1];
+}
+}  // namespace
+
+TEST_P(CacheTest, CacheUniqueSeeds) {
+  // kQuasiRandomHashSeed should generate unique seeds (up to 2 billion before
+  // repeating)
+  UnorderedSet<uint32_t> seeds_seen;
+  // Roughly sqrt(number of possible values) for a decent chance at detecting
+  // a random collision if it's possible (shouldn't be)
+  uint16_t kSamples = 20000;
+  seeds_seen.reserve(kSamples);
+
+  // Hash seed should affect ordering of entries in the table, so we should
+  // have extremely high chance of seeing two entries ordered both ways.
+  bool seen_forward_order = false;
+  bool seen_reverse_order = false;
+
+  for (int i = 0; i < kSamples; ++i) {
+    auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
+      opts.hash_seed = LRUCacheOptions::kQuasiRandomHashSeed;
+      opts.num_shard_bits = 0;
+      opts.metadata_charge_policy = kDontChargeCacheMetadata;
+    });
+    auto val = cache->GetHashSeed();
+    ASSERT_TRUE(seeds_seen.insert(val).second);
+
+    ASSERT_OK(cache->Insert(EncodeKey(1), nullptr, &kHelper, /*charge*/ 1));
+    ASSERT_OK(cache->Insert(EncodeKey(2), nullptr, &kHelper, /*charge*/ 1));
+
+    if (AreTwoCacheKeysOrdered(cache.get())) {
+      seen_forward_order = true;
+    } else {
+      seen_reverse_order = true;
+    }
+  }
+
+  ASSERT_TRUE(seen_forward_order);
+  ASSERT_TRUE(seen_reverse_order);
+}
+
+TEST_P(CacheTest, CacheHostSeed) {
+  // kHostHashSeed should generate a consistent seed within this process
+  // (and other processes on the same host, but not unit testing that).
+  // And we should be able to use that chosen seed as an explicit option
+  // (for debugging).
+  // And we should verify consistent ordering of entries.
+  uint32_t expected_seed = 0;
+  bool expected_order = false;
+  // 10 iterations -> chance of a random seed falsely appearing consistent
+  // should be low, just 1 in 2^9.
+  for (int i = 0; i < 10; ++i) {
+    auto cache = NewCache(2, [=](ShardedCacheOptions& opts) {
+      if (i != 5) {
+        opts.hash_seed = LRUCacheOptions::kHostHashSeed;
+      } else {
+        // Can be used as explicit seed
+        opts.hash_seed = static_cast<int32_t>(expected_seed);
+        ASSERT_GE(opts.hash_seed, 0);
+      }
+      opts.num_shard_bits = 0;
+      opts.metadata_charge_policy = kDontChargeCacheMetadata;
+    });
+    ASSERT_OK(cache->Insert(EncodeKey(1), nullptr, &kHelper, /*charge*/ 1));
+    ASSERT_OK(cache->Insert(EncodeKey(2), nullptr, &kHelper, /*charge*/ 1));
+    uint32_t val = cache->GetHashSeed();
+    bool order = AreTwoCacheKeysOrdered(cache.get());
+    if (i != 0) {
+      ASSERT_EQ(val, expected_seed);
+      ASSERT_EQ(order, expected_order);
+    } else {
+      expected_seed = val;
+      expected_order = order;
+    }
+  }
+  // Printed for reference in case it's needed to reproduce other unit test
+  // failures on another host
+  fprintf(stderr, "kHostHashSeed -> %u\n", (unsigned)expected_seed);
 }
 
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,

@@ -56,13 +56,15 @@ class WithCacheType : public TestCreateContext {
     if (type == kLRU) {
       LRUCacheOptions lru_opts;
       lru_opts.capacity = capacity;
+      lru_opts.hash_seed = 0;  // deterministic tests
       if (modify_opts_fn) {
         modify_opts_fn(lru_opts);
       }
-      return NewLRUCache(lru_opts);
+      return lru_opts.MakeSharedCache();
     }
     if (type == kHyperClock) {
       HyperClockCacheOptions hc_opts{capacity, estimated_value_size_};
+      hc_opts.hash_seed = 0;  // deterministic tests
       if (modify_opts_fn) {
         modify_opts_fn(hc_opts);
       }

@@ -439,8 +439,8 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader
-Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
-                                                       bool pin) {
+Status PartitionedFilterBlockReader::CacheDependencies(
+    const ReadOptions& ro, bool pin, FilePrefetchBuffer* tail_prefetch_buffer) {
   assert(table());
 
   const BlockBasedTable::Rep* const rep = table()->get_rep();
@@ -484,21 +484,22 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(
-      0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
-      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled()) {
+    rep->CreateFilePrefetchBuffer(
+        0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
+        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
 
-  IOOptions opts;
-  s = rep->file->PrepareIOOptions(ro, opts);
-  if (s.ok()) {
-    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len),
-                                  ro.rate_limiter_priority);
+    IOOptions opts;
+    s = rep->file->PrepareIOOptions(ro, opts);
+    if (s.ok()) {
+      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                    static_cast<size_t>(prefetch_len),
+                                    ro.rate_limiter_priority);
+    }
+    if (!s.ok()) {
+      return s;
+    }
   }
-  if (!s.ok()) {
-    return s;
-  }
-
   // After prefetch, read the partitions one by one
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
@@ -507,7 +508,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
+        prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
+        handle, UncompressionDict::GetEmptyDict(),
         /* for_compaction */ false, &block, nullptr /* get_context */,
         &lookup_context, nullptr /* contents */, false);
     if (!s.ok()) {

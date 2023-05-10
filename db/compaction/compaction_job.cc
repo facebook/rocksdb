@@ -504,7 +504,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            read_options, icomp, *f, my_anchors);
+            read_options, icomp, *f,
+            c->mutable_cf_options()->block_protection_bytes_per_key,
+            my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -735,7 +737,9 @@ Status CompactionJob::Run() {
                 *compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
             /*largest_compaction_key=*/nullptr,
-            /*allow_unprepared_value=*/false);
+            /*allow_unprepared_value=*/false,
+            compact_->compaction->mutable_cf_options()
+                ->block_protection_bytes_per_key);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {

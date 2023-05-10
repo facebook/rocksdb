@@ -112,8 +112,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   // the first level iter is always on heap and will attempt to delete it
   // in its destructor.
 }
-Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
-                                               bool pin) {
+Status PartitionIndexReader::CacheDependencies(
+    const ReadOptions& ro, bool pin, FilePrefetchBuffer* tail_prefetch_buffer) {
   if (!partition_map_.empty()) {
     // The dependencies are already cached since `partition_map_` is filled in
     // an all-or-nothing manner.
@@ -162,22 +162,23 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(
-      0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
-      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
-  IOOptions opts;
-  {
-    Status s = rep->file->PrepareIOOptions(ro, opts);
-    if (s.ok()) {
-      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                    static_cast<size_t>(prefetch_len),
-                                    ro.rate_limiter_priority);
-    }
-    if (!s.ok()) {
-      return s;
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled()) {
+    rep->CreateFilePrefetchBuffer(
+        0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
+        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+    IOOptions opts;
+    {
+      Status s = rep->file->PrepareIOOptions(ro, opts);
+      if (s.ok()) {
+        s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                      static_cast<size_t>(prefetch_len),
+                                      ro.rate_limiter_priority);
+      }
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
-
   // For saving "all or nothing" to partition_map_
   UnorderedMap<uint64_t, CachableEntry<Block>> map_in_progress;
 
@@ -191,7 +192,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
+        prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
+        handle, UncompressionDict::GetEmptyDict(),
         /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
         /*async_read=*/false);
