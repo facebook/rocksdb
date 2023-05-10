@@ -138,6 +138,35 @@ struct ShardedCacheOptions {
   // A SecondaryCache instance to use the non-volatile tier.
   std::shared_ptr<SecondaryCache> secondary_cache;
 
+  // See hash_seed comments below
+  static constexpr int32_t kQuasiRandomHashSeed = -1;
+  static constexpr int32_t kHostHashSeed = -2;
+
+  // EXPERT OPTION: Specifies how a hash seed should be determined for the
+  // cache, or specifies a specific seed (only recommended for diagnostics or
+  // testing).
+  //
+  // Background: it could be dangerous to have different cache instances
+  // access the same SST files with the same hash seed, as correlated unlucky
+  // hashing across hosts or restarts could cause a widespread issue, rather
+  // than an isolated one. For example, with smaller block caches, it is
+  // possible for large full Bloom filters in a set of SST files to be randomly
+  // clustered into one cache shard, causing mutex contention or a thrashing
+  // condition as there's little or no space left for other entries assigned to
+  // the shard. If a set of SST files is broadcast and used on many hosts, we
+  // should ensure all have an independent chance of balanced shards.
+  //
+  // Values >= 0 will be treated as fixed hash seeds. Values < 0 are reserved
+  // for methods of dynamically choosing a seed, currently:
+  // * kQuasiRandomHashSeed - Each cache created chooses a seed mostly randomly,
+  //   except that within a process, no seed is repeated until all have been
+  //   issued.
+  // * kHostHashSeed - The seed is determined based on hashing the host name.
+  //   Although this is arguably slightly worse for production reliability, it
+  //   solves the essential problem of cross-host correlation while ensuring
+  //   repeatable behavior on a host, for diagnostic purposes.
+  int32_t hash_seed = kHostHashSeed;
+
   ShardedCacheOptions() {}
   ShardedCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,

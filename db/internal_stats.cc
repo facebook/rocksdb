@@ -700,6 +700,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   cache_usage = cache->GetUsage();
   table_size = cache->GetTableAddressCount();
   occupancy = cache->GetOccupancyCount();
+  hash_seed = cache->GetHashSeed();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -724,7 +725,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
-      << " usage: " << BytesToHumanString(cache_usage)
+      << " seed: " << hash_seed << " usage: " << BytesToHumanString(cache_usage)
       << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection

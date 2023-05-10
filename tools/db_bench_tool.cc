@@ -33,6 +33,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 #include <unordered_map>
@@ -287,7 +288,7 @@ DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 DEFINE_int64(seed, 0,
              "Seed base for random number generators. "
              "When 0 it is derived from the current time.");
-static int64_t seed_base;
+static std::optional<int64_t> seed_base;
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
@@ -2606,7 +2607,7 @@ struct ThreadState {
   SharedState* shared;
 
   explicit ThreadState(int index, int my_seed)
-      : tid(index), rand(seed_base + my_seed) {}
+      : tid(index), rand(*seed_base + my_seed) {}
 };
 
 class Duration {
@@ -3002,6 +3003,11 @@ class Benchmark {
     return allocator;
   }
 
+  static int32_t GetCacheHashSeed() {
+    // For a fixed Cache seed, need a non-negative int32
+    return static_cast<int32_t>(*seed_base) & 0x7fffffff;
+  }
+
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
     if (capacity <= 0) {
       return nullptr;
@@ -3010,17 +3016,19 @@ class Benchmark {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
     } else if (FLAGS_cache_type == "hyper_clock_cache") {
-      return HyperClockCacheOptions(static_cast<size_t>(capacity),
-                                    FLAGS_block_size /*estimated_entry_charge*/,
-                                    FLAGS_cache_numshardbits)
-          .MakeSharedCache();
+      HyperClockCacheOptions hcco{
+          static_cast<size_t>(capacity),
+          static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,
+          FLAGS_cache_numshardbits};
+      hcco.hash_seed = GetCacheHashSeed();
+      return hcco.MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
           GetCacheAllocator(), kDefaultToAdaptiveMutex,
           kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
-
+      opts.hash_seed = GetCacheHashSeed();
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -3051,7 +3059,7 @@ class Benchmark {
             NewCompressedSecondaryCache(secondary_cache_opts);
       }
 
-      return NewLRUCache(opts);
+      return opts.MakeSharedCache();
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);
@@ -4891,7 +4899,7 @@ class Benchmark {
           values_[i] = i;
         }
         RandomShuffle(values_.begin(), values_.end(),
-                      static_cast<uint32_t>(seed_base));
+                      static_cast<uint32_t>(*seed_base));
       }
     }
 
@@ -5003,7 +5011,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<unsigned int>(seed_base)};
+        static_cast<unsigned int>(*seed_base)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
@@ -5013,7 +5021,7 @@ class Benchmark {
     // - random access is O(1)
     // - insertion/removal at beginning/end is also O(1).
     std::deque<int64_t> inserted_key_window;
-    Random64 reservoir_id_gen(seed_base);
+    Random64 reservoir_id_gen(*seed_base);
 
     // --- Variables used in disposable/persistent keys simulation:
     // The following variables are used when
@@ -5050,7 +5058,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    Random rnd_disposable_entry(static_cast<uint32_t>(seed_base));
+    Random rnd_disposable_entry(static_cast<uint32_t>(*seed_base));
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
@@ -8516,7 +8524,7 @@ int db_bench_tool(int argc, char** argv) {
     uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();
     seed_base = static_cast<int64_t>(now);
     fprintf(stdout, "Set seed to %" PRIu64 " because --seed was 0\n",
-            seed_base);
+            *seed_base);
   } else {
     seed_base = FLAGS_seed;
   }
