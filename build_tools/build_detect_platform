@@ -621,7 +621,7 @@ EOF
   fi
 fi
 
-if test "0$PORTABLE" -eq 0; then
+if [ "$PORTABLE" == "" ] || [ "$PORTABLE" == 0 ]; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
@@ -644,27 +644,26 @@ if test "0$PORTABLE" -eq 0; then
     COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
-  elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
-    # TODO: Not sure why we don't use -march=native on these OSes
-    if test "$USE_SSE"; then
-      TRY_SSE_ETC="1"
-    fi
   else
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   fi
 else
-  # PORTABLE=1
-  if test "$USE_SSE"; then
-    TRY_SSE_ETC="1"
-  fi
-
-  if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
-    COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
-  fi
-
-  if test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+  # PORTABLE specified
+  if [ "$PORTABLE" == 1 ]; then
+    if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+    elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+      RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    elif test "$USE_SSE"; then
+      # USE_SSE is DEPRECATED
+      # This is a rough approximation of the old USE_SSE behavior
+      COMMON_FLAGS="$COMMON_FLAGS -march=haswell"
+    fi
+    # Other than those cases, not setting -march= here.
+  else
+    # Assume PORTABLE is a minimum assumed cpu type, e.g. PORTABLE=haswell
+    COMMON_FLAGS="$COMMON_FLAGS -march=${PORTABLE}"
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
@@ -696,101 +695,6 @@ EOF
   if [ "$?" != 0 ]; then
       PPC_LIBC_IS_GNU=0
   fi
-fi
-
-if test "$TRY_SSE_ETC"; then
-  # The USE_SSE flag now means "attempt to compile with widely-available
-  # Intel architecture extensions utilized by specific optimizations in the
-  # source code." It's a qualifier on PORTABLE=1 that means "mostly portable."
-  # It doesn't even really check that your current CPU is compatible.
-  #
-  # SSE4.2 available since nehalem, ca. 2008-2010
-  # Includes POPCNT for BitsSetToOne, BitParity
-  TRY_SSE42="-msse4.2"
-  # PCLMUL available since westmere, ca. 2010-2011
-  TRY_PCLMUL="-mpclmul"
-  # AVX2 available since haswell, ca. 2013-2015
-  TRY_AVX2="-mavx2"
-  # BMI available since haswell, ca. 2013-2015
-  # Primarily for TZCNT for CountTrailingZeroBits
-  TRY_BMI="-mbmi"
-  # LZCNT available since haswell, ca. 2013-2015
-  # For FloorLog2
-  TRY_LZCNT="-mlzcnt"
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <nmmintrin.h>
-  int main() {
-    volatile uint32_t x = _mm_crc32_u32(0, 0);
-    (void)x;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_SSE42 -DHAVE_SSE42"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_PCLMUL -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <wmmintrin.h>
-  int main() {
-    const auto a = _mm_set_epi64x(0, 0);
-    const auto b = _mm_set_epi64x(0, 0);
-    const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-    auto d = _mm_cvtsi128_si64(c);
-    (void)d;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_PCLMUL -DHAVE_PCLMUL"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_AVX2 -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main() {
-    const auto a = _mm256_setr_epi32(0, 1, 2, 3, 4, 7, 6, 5);
-    const auto b = _mm256_permutevar8x32_epi32(a, a);
-    (void)b;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_AVX2 -DHAVE_AVX2"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main(int argc, char *argv[]) {
-    (void)argv;
-    return (int)_tzcnt_u64((uint64_t)argc);
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_BMI -DHAVE_BMI"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main(int argc, char *argv[]) {
-    (void)argv;
-    return (int)_lzcnt_u64((uint64_t)argc);
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_LZCNT -DHAVE_LZCNT"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null <<EOF
