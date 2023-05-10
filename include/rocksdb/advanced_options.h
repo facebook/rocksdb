@@ -229,11 +229,14 @@ struct CompactionOptionsFIFO {
   // Age (in seconds) threshold for different file temperatures.
   // When not empty, each element specifies an age threshold `age` and a
   // temperature such that if all the data in a file is older than `age`,
-  // RocksDB will compact the file to the specified `temperature`. By default,
-  // all file has temperature kUnknown. So only temperatures other than
-  // kUnknown needs to be specified.
+  // RocksDB will compact the file to the specified `temperature`.
+  //
   // Note:
+  // - Flushed files will always have temperature kUnknown.
+  // - Compaction output files will have temperature kUnknown by default, so
+  //   only temperatures other than kUnknown needs to be specified.
   // - The elements should be in increasing order with respect to `age` field.
+  //
   // Dynamically changeable through SetOptions() API, e.g.,
   //   SetOptions("compaction_options_fifo",
   //   "{file_temperature_age_thresholds={
