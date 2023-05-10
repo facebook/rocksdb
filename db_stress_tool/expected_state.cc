@@ -15,7 +15,7 @@
 #include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
-bool ExpectedValue::Exist() const {
+bool ExpectedValue::Exists() const {
   uint32_t expected_value = value_->load();
   return ExpectedValueHelper::PendingWrite(expected_value) ||
          !ExpectedValueHelper::IsDeleted(expected_value);
@@ -55,7 +55,7 @@ uint32_t ExpectedValue::GetFinalValueBase() const {
 }
 
 bool ExpectedValue::Delete(bool pending) {
-  if (!Exist()) {
+  if (!Exists()) {
     return false;
   }
   uint32_t new_value = value_->load();
@@ -206,7 +206,7 @@ int ExpectedState::DeleteRange(int cf, int64_t begin_key, int64_t end_key,
 }
 
 bool ExpectedState::Exists(int cf, int64_t key) {
-  return Value(cf, key).Exist();
+  return Value(cf, key).Exists();
 }
 
 void ExpectedState::Reset() {

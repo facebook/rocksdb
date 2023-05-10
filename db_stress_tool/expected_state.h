@@ -28,7 +28,7 @@ class ExpectedValue {
   explicit ExpectedValue(std::atomic<uint32_t>* value) : value_(value){};
   // Requires external locking to prevent concurrent
   // delete to the same ExpectedValue.
-  bool Exist() const;
+  bool Exists() const;
   // Requires external locking to prevent concurrent
   // write/delete to the same ExpectedValue.
   void Reset();
