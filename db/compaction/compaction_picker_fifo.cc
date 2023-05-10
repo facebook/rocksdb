@@ -297,10 +297,8 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   }
 
   // Does not apply to multi-level FIFO.
-  for (int level = 1; level < vstorage->num_levels(); ++level) {
-    if (GetTotalFilesSize(vstorage->LevelFiles(level)) > 0) {
-      return nullptr;
-    }
+  if (vstorage->num_levels() > 1) {
+    return nullptr;
   }
 
   const int kLevel0 = 0;

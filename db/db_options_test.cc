@@ -1234,6 +1234,35 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
 }
 
+TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdSingleLevel) {
+  Options options = CurrentOptions();
+  Destroy(options);
+
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kCold, 1000});
+  options.max_open_files = -1;
+  ASSERT_OK(TryReopen(options));
+  // During DB Open
+  options.num_levels = 2;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+  options.compaction_options_fifo.file_temperature_age_thresholds.clear();
+  DestroyAndReopen(options);
+  // Dynamically set option
+  s = db_->SetOptions(
+      {{"compaction_options_fifo",
+        "{file_temperature_age_thresholds={temperature=kCold;age=1000}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
