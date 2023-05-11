@@ -1459,15 +1459,6 @@ Status ColumnFamilyData::ValidateOptions(
       }
     }
   }
-  if (cf_options.compaction_style == kCompactionStyleFIFO) {
-    if (cf_options.num_levels > 1 &&
-        !cf_options.compaction_options_fifo.file_temperature_age_thresholds
-             .empty()) {
-      return Status::NotSupported(
-          "Option file_temperature_age_thresholds is only supported when "
-          "num_levels = 1.");
-    }
-  }
   return s;
 }
 
