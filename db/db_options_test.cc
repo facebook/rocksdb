@@ -910,6 +910,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.compaction_options_fifo.allow_compaction = false;
+  options.num_levels = 1;
   env_->SetMockSleep();
   options.env = env_;
 
@@ -1061,6 +1062,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
   options.env = CurrentOptions().env;
+  options.num_levels = 1;
 
   ASSERT_OK(TryReopen(options));
 
