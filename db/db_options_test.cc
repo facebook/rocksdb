@@ -1236,26 +1236,48 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
 }
 
-TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdSingleLevel) {
+TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdValidation) {
   Options options = CurrentOptions();
   Destroy(options);
 
   options.num_levels = 1;
   options.compaction_style = kCompactionStyleFIFO;
+  options.max_open_files = -1;
+  // elements are not sorted
+  // During DB open
   options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
       {Temperature::kCold, 1000});
-  options.max_open_files = -1;
-  ASSERT_OK(TryReopen(options));
-  // During DB Open
-  options.num_levels = 2;
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kWarm, 500});
   Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+  // Dynamically set option
+  options.compaction_options_fifo.file_temperature_age_thresholds.pop_back();
+  ASSERT_OK(TryReopen(options));
+  s = db_->SetOptions({{"compaction_options_fifo",
+                        "{file_temperature_age_thresholds={{temperature=kCold;"
+                        "age=1000000}:{temperature=kWarm;age=1}}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+
+  // not single level
+  // During DB open
+  options.num_levels = 2;
+  s = TryReopen(options);
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_TRUE(std::strstr(s.getState(),
                           "Option file_temperature_age_thresholds is only "
                           "supported when num_levels = 1."));
+  // Dynamically set option
   options.compaction_options_fifo.file_temperature_age_thresholds.clear();
   DestroyAndReopen(options);
-  // Dynamically set option
   s = db_->SetOptions(
       {{"compaction_options_fifo",
         "{file_temperature_age_thresholds={temperature=kCold;age=1000}}"}});

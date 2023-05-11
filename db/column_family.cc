@@ -1435,6 +1435,30 @@ Status ColumnFamilyData::ValidateOptions(
         "or 8 bytes per key.");
   }
 
+  if (!cf_options.compaction_options_fifo.file_temperature_age_thresholds
+           .empty()) {
+    if (cf_options.compaction_style != kCompactionStyleFIFO) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds only supports FIFO "
+          "compaction.");
+    } else if (cf_options.num_levels > 1) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds is only supported when "
+          "num_levels = 1.");
+    } else {
+      const auto& ages =
+          cf_options.compaction_options_fifo.file_temperature_age_thresholds;
+      assert(ages.size() >= 1);
+      // check that age is sorted
+      for (size_t i = 0; i < ages.size() - 1; ++i) {
+        if (ages[i].age >= ages[i + 1].age) {
+          return Status::NotSupported(
+              "Option file_temperature_age_thresholds requires elements to be "
+              "sorted in increasing order with respect to `age` field.");
+        }
+      }
+    }
+  }
   if (cf_options.compaction_style == kCompactionStyleFIFO) {
     if (cf_options.num_levels > 1 &&
         !cf_options.compaction_options_fifo.file_temperature_age_thresholds

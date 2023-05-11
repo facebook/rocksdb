@@ -240,7 +240,7 @@ struct CompactionOptionsFIFO {
   // Dynamically changeable through SetOptions() API, e.g.,
   //   SetOptions("compaction_options_fifo",
   //   "{file_temperature_age_thresholds={
-  //    {age=20;temperature=kCold}:{age=10;temperature=kWarm}}")
+  //    {age=10;temperature=kWarm}:{age=20;temperature=kCold}}}")
   // In this example, all files that are at least 20 seconds old will be
   // compacted and output files will have temperature kCold. All files that are
   // at least 10 seconds old but younger than 20 seconds will be compacted to
