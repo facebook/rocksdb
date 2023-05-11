@@ -4,9 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <functional>
 #include <sstream>
-#include <unordered_set>
+#include <vector>
 
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -18,22 +17,13 @@ namespace ROCKSDB_NAMESPACE {
 // subsequent records.
 class UserDefinedTimestampSizeRecord {
  public:
-  struct RecordPairHash {
-    std::size_t operator()(const std::pair<uint32_t, size_t>& p) const {
-      auto hash1 = std::hash<uint32_t>{}(p.first);
-      auto hash2 = std::hash<size_t>{}(p.second);
-      return hash1 ^ (hash2 + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2));
-    }
-  };
-
   UserDefinedTimestampSizeRecord() {}
   explicit UserDefinedTimestampSizeRecord(
-      std::unordered_set<std::pair<uint32_t, size_t>, RecordPairHash>&&
-          cf_to_ts_sz)
+      std::vector<std::pair<uint32_t, size_t>>&& cf_to_ts_sz)
       : cf_to_ts_sz_(std::move(cf_to_ts_sz)) {}
 
-  const std::unordered_set<std::pair<uint32_t, size_t>, RecordPairHash>&
-  GetUserDefinedTimestampSize() const {
+  const std::vector<std::pair<uint32_t, size_t>>& GetUserDefinedTimestampSize()
+      const {
     return cf_to_ts_sz_;
   }
 
@@ -62,7 +52,7 @@ class UserDefinedTimestampSizeRecord {
         return Status::Corruption(
             "Error decoding user-defined timestamp size record entry");
       }
-      cf_to_ts_sz_.insert(std::make_pair(cf_id, static_cast<size_t>(ts_sz)));
+      cf_to_ts_sz_.emplace_back(cf_id, static_cast<size_t>(ts_sz));
     }
     return Status::OK();
   }
@@ -81,7 +71,7 @@ class UserDefinedTimestampSizeRecord {
   // 4 bytes for column family id, 2 bytes for user-defined timestamp size.
   static constexpr size_t kSizePerColumnFamily = 4 + 2;
 
-  std::unordered_set<std::pair<uint32_t, size_t>, RecordPairHash> cf_to_ts_sz_;
+  std::vector<std::pair<uint32_t, size_t>> cf_to_ts_sz_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

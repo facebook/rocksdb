@@ -596,9 +596,7 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
 }
 
 Status Reader::UpdateRecordedTimestampSize(
-    const std::unordered_set<std::pair<uint32_t, size_t>,
-                             UserDefinedTimestampSizeRecord::RecordPairHash>&
-        cf_to_ts_sz) {
+    const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz) {
   for (const auto& [cf, ts_sz] : cf_to_ts_sz) {
     // Zero user-defined timestamp size are not recorded.
     if (ts_sz == 0) {

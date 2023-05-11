@@ -12,7 +12,7 @@
 
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
@@ -205,9 +205,7 @@ class Reader {
   void InitCompression(const CompressionTypeRecord& compression_record);
 
   Status UpdateRecordedTimestampSize(
-      const std::unordered_set<std::pair<uint32_t, size_t>,
-                               UserDefinedTimestampSizeRecord::RecordPairHash>&
-          cf_to_ts_sz);
+      const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {

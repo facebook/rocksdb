@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 #include "db/log_format.h"
 #include "rocksdb/compression_type.h"
