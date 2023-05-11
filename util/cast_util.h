@@ -27,11 +27,11 @@ inline DestClass* static_cast_with_check(SrcClass* x) {
 template <class DestClass, class SrcClass>
 inline std::shared_ptr<DestClass> static_cast_with_check(
     std::shared_ptr<SrcClass>&& x) {
-#ifdef ROCKSDB_USE_RTTI
+#if defined(ROCKSDB_USE_RTTI) && !defined(NDEBUG)
   auto orig_raw = x.get();
 #endif
   auto ret = std::static_pointer_cast<DestClass>(std::move(x));
-#ifdef ROCKSDB_USE_RTTI
+#if defined(ROCKSDB_USE_RTTI) && !defined(NDEBUG)
   assert(ret.get() == dynamic_cast<DestClass*>(orig_raw));
 #endif
   return ret;

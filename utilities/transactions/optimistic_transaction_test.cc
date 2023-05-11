@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -27,7 +28,7 @@ class OptimisticTransactionTest
     : public testing::Test,
       public testing::WithParamInterface<OccValidationPolicy> {
  public:
-  OptimisticTransactionDB* txn_db;
+  std::unique_ptr<OptimisticTransactionDB> txn_db;
   std::string dbname;
   Options options;
   OptimisticTransactionDBOptions occ_opts;
@@ -44,30 +45,31 @@ class OptimisticTransactionTest
     Open();
   }
   ~OptimisticTransactionTest() override {
-    delete txn_db;
+    EXPECT_OK(txn_db->Close());
+    txn_db.reset();
     EXPECT_OK(DestroyDB(dbname, options));
   }
 
   void Reopen() {
-    delete txn_db;
-    txn_db = nullptr;
+    txn_db.reset();
     Open();
   }
 
   static void OpenImpl(const Options& options,
                        const OptimisticTransactionDBOptions& occ_opts,
                        const std::string& dbname,
-                       OptimisticTransactionDB** txn_db) {
+                       std::unique_ptr<OptimisticTransactionDB>* txn_db) {
     ColumnFamilyOptions cf_options(options);
     std::vector<ColumnFamilyDescriptor> column_families;
     std::vector<ColumnFamilyHandle*> handles;
     column_families.push_back(
         ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
-    Status s = OptimisticTransactionDB::Open(options, occ_opts, dbname,
-                                             column_families, &handles, txn_db);
-
+    OptimisticTransactionDB* raw_txn_db = nullptr;
+    Status s = OptimisticTransactionDB::Open(
+        options, occ_opts, dbname, column_families, &handles, &raw_txn_db);
     ASSERT_OK(s);
-    ASSERT_NE(txn_db, nullptr);
+    ASSERT_NE(raw_txn_db, nullptr);
+    txn_db->reset(raw_txn_db);
     ASSERT_EQ(handles.size(), 1);
     delete handles[0];
   }
@@ -620,8 +622,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   delete cfa;
   delete cfb;
-  delete txn_db;
-  txn_db = nullptr;
+  txn_db.reset();
 
   OptimisticTransactionDBOptions my_occ_opts = occ_opts;
   const size_t bucket_count = 500;
@@ -638,10 +639,11 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   column_families.push_back(
       ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
-  ASSERT_OK(OptimisticTransactionDB::Open(options, my_occ_opts, dbname,
-                                          column_families, &handles, &txn_db));
-  assert(txn_db != nullptr);
-  ASSERT_NE(txn_db, nullptr);
+  OptimisticTransactionDB* raw_txn_db = nullptr;
+  ASSERT_OK(OptimisticTransactionDB::Open(
+      options, my_occ_opts, dbname, column_families, &handles, &raw_txn_db));
+  ASSERT_NE(raw_txn_db, nullptr);
+  txn_db.reset(raw_txn_db);
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
   ASSERT_NE(txn, nullptr);
@@ -784,13 +786,13 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     // Another db sharing lock buckets
     auto shared_dbname =
         test::PerThreadDBPath("optimistic_transaction_testdb_shared");
-    OptimisticTransactionDB* shared_txn_db = nullptr;
+    std::unique_ptr<OptimisticTransactionDB> shared_txn_db = nullptr;
     OpenImpl(options, my_occ_opts, shared_dbname, &shared_txn_db);
 
     // Another db not sharing lock buckets
     auto nonshared_dbname =
         test::PerThreadDBPath("optimistic_transaction_testdb_nonshared");
-    OptimisticTransactionDB* nonshared_txn_db = nullptr;
+    std::unique_ptr<OptimisticTransactionDB> nonshared_txn_db = nullptr;
     my_occ_opts.occ_lock_buckets = bucket_count;
     my_occ_opts.shared_lock_buckets = nullptr;
     OpenImpl(options, my_occ_opts, nonshared_dbname, &nonshared_txn_db);
@@ -1562,7 +1564,7 @@ TEST_P(OptimisticTransactionTest, OptimisticTransactionStressTest) {
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(OptimisticTransactionStressTestInserter(
-        txn_db, num_transactions_per_thread, num_sets, num_keys_per_set));
+        txn_db.get(), num_transactions_per_thread, num_sets, num_keys_per_set));
   };
 
   // Create N threads that use RandomTransactionInserter to write
@@ -1577,7 +1579,7 @@ TEST_P(OptimisticTransactionTest, OptimisticTransactionStressTest) {
   }
 
   // Verify that data is consistent
-  Status s = RandomTransactionInserter::Verify(txn_db, num_sets);
+  Status s = RandomTransactionInserter::Verify(txn_db.get(), num_sets);
   ASSERT_OK(s);
 }
 
