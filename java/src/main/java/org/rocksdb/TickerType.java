@@ -760,7 +760,7 @@ public enum TickerType {
     /**
      * Number of corruptions detected by block checksum verifications
      */
-    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x3C),
+    BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x3C),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
