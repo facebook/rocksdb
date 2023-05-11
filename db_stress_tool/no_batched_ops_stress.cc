@@ -569,14 +569,15 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Slice> keys;
     key_str.reserve(num_keys);
     keys.reserve(num_keys);
-    // When Flags_use_txn is enabled, we also do a read your write check for
-    // Puts and Deletes, but not for Merges.
-    std::vector<std::string> read_your_write_values;
-    read_your_write_values.reserve(num_keys);
-    const std::string no_ryw_check = "no ryw place holder";
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
-    ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    // When Flags_use_txn is enabled, we also do a read your write check.
+    std::vector<std::optional<ExpectedValue>> expected_values;
+    expected_values.reserve(num_keys);
+    SharedState* shared = thread->shared;
+
+    int column_family = rand_column_families[0];
+    ColumnFamilyHandle* cfh = column_families_[column_family];
     int error_count = 0;
     // Do a consistency check between Get and MultiGet. Don't do it too
     // often as it will slow db_stress down
@@ -587,7 +588,6 @@ class NonBatchedOpsStressTest : public StressTest {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
 
-    std::vector<std::unique_ptr<MutexLock>> ryw_check_locks;
     std::string read_ts_str;
     Slice read_ts_slice;
     MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
@@ -615,38 +615,46 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     for (size_t i = 0; i < num_keys; ++i) {
-      key_str.emplace_back(Key(rand_keys[i]));
+      uint64_t rand_key = rand_keys[i];
+      key_str.emplace_back(Key(rand_key));
       keys.emplace_back(key_str.back());
       if (use_txn) {
+        if (!shared->AllowsOverwrite(rand_key) &&
+            shared->Exists(column_family, rand_key)) {
+          // Just do read your write checks for keys that allow overwrites.
+          expected_values.push_back(std::nullopt);
+          continue;
+        }
         // With a 1 in 10 probability, insert the just added key in the batch
         // into the transaction. This will create an overlap with the MultiGet
         // keys and exercise some corner cases in the code
         if (thread->rand.OneIn(10)) {
-          ryw_check_locks.emplace_back(
-              new MutexLock(thread->shared->GetMutexForKey(
-                  rand_column_families[0], rand_keys[i])));
           int op = thread->rand.Uniform(2);
           Status s;
           switch (op) {
             case 0:
             case 1: {
-              const uint32_t value_base = 0;
+              ExpectedValue put_value(thread->rand.Next());
+              put_value.Put(false /* pending */);
+              expected_values.emplace_back(put_value);
               char value[100];
-              size_t sz = GenerateValue(value_base, value, sizeof(value));
+              size_t sz =
+                  GenerateValue(put_value.GetValueBase(), value, sizeof(value));
               Slice v(value, sz);
               if (op == 0) {
                 s = txn->Put(cfh, keys.back(), v);
-                read_your_write_values.push_back(v.ToString());
               } else {
                 s = txn->Merge(cfh, keys.back(), v);
-                read_your_write_values.push_back(no_ryw_check);
               }
               break;
             }
-            case 2:
+            case 2: {
+              ExpectedValue delete_value(0);
+              delete_value.Delete(false /* pending */);
+              expected_values.emplace_back(delete_value);
               s = txn->Delete(cfh, keys.back());
-              read_your_write_values.push_back("");
               break;
+            }
             default:
               assert(false);
           }
@@ -655,7 +663,7 @@ class NonBatchedOpsStressTest : public StressTest {
             std::terminate();
           }
         } else {
-          read_your_write_values.push_back(no_ryw_check);
+          expected_values.push_back(std::nullopt);
         }
       }
     }
@@ -736,20 +744,55 @@ class NonBatchedOpsStressTest : public StressTest {
           is_consistent = false;
         }
 
-        if (use_txn) {
-          assert(!read_your_write_values.empty());
-          if (read_your_write_values[i] != no_ryw_check &&
-              read_your_write_values[i] != values[i].ToString()) {
-            fprintf(stderr,
-                    "MultiGet / Get returned different results with key %s\n",
-                    keys[i].ToString(true).c_str());
-            fprintf(stderr, "MultiGet / Get returned value %s\n",
-                    values[i].ToString(true).c_str());
-            fprintf(stderr, "Transaction has non-committed value %s\n",
-                    Slice(read_your_write_values[i])
-                        .ToString(true /* hex */)
-                        .c_str());
-            is_consistent = false;
+        if (is_consistent && use_txn) {
+          assert(!expected_values.empty());
+          if (!expected_values[i].has_value()) {
+            continue;
+          }
+          ExpectedValue expected = expected_values[i].value();
+          char expected_value[100];
+          if (s.ok()) {
+            Slice from_db_slice(values[i]);
+            if (!ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+              fprintf(stderr,
+                      "MultiGet returned value different from what was written "
+                      "for key %s\n",
+                      keys[i].ToString(true).c_str());
+              fprintf(stderr,
+                      "MultiGet returned ok, transaction has non-committed "
+                      "delete.\n");
+              is_consistent = false;
+            } else {
+              size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
+                                        sizeof(expected_value));
+              Slice expected_value_slice(expected_value, sz);
+              if (expected_value_slice.compare(from_db_slice) == 0) {
+                continue;
+              }
+              fprintf(stderr,
+                      "MultiGet returned value different from what was written "
+                      "for key %s\n",
+                      keys[i].ToString(true /* hex */).c_str());
+              fprintf(stderr, "MultiGet returned value %s\n",
+                      from_db_slice.ToString(true /* hex */).c_str());
+              fprintf(stderr, "Transaction has non-committed value %s\n",
+                      expected_value_slice.ToString(true /* hex */).c_str());
+              is_consistent = false;
+            }
+          } else if (s.IsNotFound()) {
+            if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+              size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
+                                        sizeof(expected_value));
+              Slice expected_value_slice(expected_value, sz);
+              fprintf(stderr,
+                      "MultiGet returned value different from what was written "
+                      "for key %s\n",
+                      keys[i].ToString(true).c_str());
+              fprintf(stderr,
+                      "MultiGet returned not found, transaction has "
+                      "non-committed value.\n");
+              is_consistent = false;
+            }
           }
         }
       }
