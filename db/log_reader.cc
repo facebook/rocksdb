@@ -17,7 +17,6 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
@@ -204,7 +203,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
               fragment.size(),
               "could not decode user-defined timestamp size record");
         } else {
-          UpdateRecordedTimestampSize(ts_record.GetUserDefinedTimestampSize());
+          s = UpdateRecordedTimestampSize(
+              ts_record.GetUserDefinedTimestampSize());
+          if (!s.ok()) {
+            ReportCorruption(fragment.size(), s.getState());
+          }
         }
         break;
       }
@@ -592,16 +595,26 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   assert(uncompressed_buffer_);
 }
 
-void Reader::UpdateRecordedTimestampSize(
-    const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz) {
+Status Reader::UpdateRecordedTimestampSize(
+    const std::unordered_set<std::pair<uint32_t, size_t>,
+                             UserDefinedTimestampSizeRecord::RecordPairHash>&
+        cf_to_ts_sz) {
   for (const auto& [cf, ts_sz] : cf_to_ts_sz) {
     // Zero user-defined timestamp size are not recorded.
-    assert(ts_sz != 0);
+    if (ts_sz == 0) {
+      return Status::Corruption(
+          "User-defined timestamp size record contains zero timestamp size.");
+    }
     // The user-defined timestamp size record for a column family should not be
     // updated in the same log file.
-    assert(recorded_cf_to_ts_sz_.count(cf) == 0);
+    if (recorded_cf_to_ts_sz_.count(cf) != 0) {
+      return Status::Corruption(
+          "User-defined timestamp size record contains update to "
+          "recorded column family.");
+    }
     recorded_cf_to_ts_sz_.insert(std::make_pair(cf, ts_sz));
   }
+  return Status::OK();
 }
 
 bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
@@ -714,7 +727,11 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
               fragment.size(),
               "could not decode user-defined timestamp size record");
         } else {
-          UpdateRecordedTimestampSize(ts_record.GetUserDefinedTimestampSize());
+          s = UpdateRecordedTimestampSize(
+              ts_record.GetUserDefinedTimestampSize());
+          if (!s.ok()) {
+            ReportCorruption(fragment.size(), s.getState());
+          }
         }
         break;
       }

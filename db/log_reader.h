@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
@@ -19,6 +20,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/udt_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -202,8 +204,10 @@ class Reader {
 
   void InitCompression(const CompressionTypeRecord& compression_record);
 
-  void UpdateRecordedTimestampSize(
-      const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz);
+  Status UpdateRecordedTimestampSize(
+      const std::unordered_set<std::pair<uint32_t, size_t>,
+                               UserDefinedTimestampSizeRecord::RecordPairHash>&
+          cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {

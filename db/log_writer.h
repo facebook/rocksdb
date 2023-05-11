@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "db/log_format.h"
 #include "rocksdb/compression_type.h"
@@ -84,11 +85,6 @@ class Writer {
 
   ~Writer();
 
-  // `cf_to_ts_sz` maps column family id to user-defined timestamp sizes. It
-  // only applies to WAL logs. If a WriteBatch contains updates for column
-  // families with non-zero user-defined timestamp sizes, use this parameter to
-  // add a special record to signal the timestamp size for this and subsequent
-  // WriteBatch records.
   IOStatus AddRecord(const Slice& slice,
                      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
   IOStatus AddCompressionTypeRecord();

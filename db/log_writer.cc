@@ -199,7 +199,9 @@ IOStatus Writer::AddCompressionTypeRecord() {
 IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
     const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz,
     Env::IOPriority rate_limiter_priority) {
-  std::unordered_map<uint32_t, size_t> ts_sz_to_record;
+  std::unordered_set<std::pair<uint32_t, size_t>,
+                     UserDefinedTimestampSizeRecord::RecordPairHash>
+      ts_sz_to_record;
   for (const auto& [cf_id, ts_sz] : cf_to_ts_sz) {
     if (recorded_cf_to_ts_sz_.count(cf_id) != 0) {
       // A column family's user-defined timestamp size should not be
