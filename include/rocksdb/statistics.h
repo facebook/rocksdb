@@ -394,7 +394,11 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  // Number of block checksum verifications
   BLOCK_CHECKSUM_COMPUTE_COUNT,
+  // Number of corruptions detected by block checksum verifications
+  BLOCK_CHECKSUM_MISMATCH_COUNT,
+
   MULTIGET_COROUTINE_COUNT,
 
   // Integrated BlobDB specific stats

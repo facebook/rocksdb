@@ -708,6 +708,9 @@ public enum TickerType {
     NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
     NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
 
+    /**
+     * Number of block checksum verifications
+     */
     BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
 
     /**
@@ -753,6 +756,11 @@ public enum TickerType {
      * that finds its data for table open
      */
     TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
+
+    /**
+     * Number of corruptions detected by block checksum verifications
+     */
+    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x3C),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
