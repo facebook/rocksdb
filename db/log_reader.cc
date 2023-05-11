@@ -69,8 +69,7 @@ Reader::~Reader() {
 // restrict the inconsistency to only the last log
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
                         WALRecoveryMode wal_recovery_mode,
-                        uint64_t* record_checksum,
-                        std::map<uint32_t, size_t>* cf_to_ts_sz) {
+                        uint64_t* record_checksum) {
   scratch->clear();
   record->clear();
   if (record_checksum != nullptr) {
@@ -115,11 +114,6 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         *record = fragment;
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
-        if (!recorded_cf_to_ts_sz_.empty()) {
-          assert(cf_to_ts_sz);
-          cf_to_ts_sz->insert(recorded_cf_to_ts_sz_.begin(),
-                              recorded_cf_to_ts_sz_.end());
-        }
         return true;
 
       case kFirstType:
@@ -167,14 +161,53 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           *record = Slice(*scratch);
           last_record_offset_ = prospective_record_offset;
           first_record_read_ = true;
-          if (!recorded_cf_to_ts_sz_.empty()) {
-            assert(cf_to_ts_sz);
-            cf_to_ts_sz->insert(recorded_cf_to_ts_sz_.begin(),
-                                recorded_cf_to_ts_sz_.end());
-          }
           return true;
         }
         break;
+
+      case kSetCompressionType: {
+        if (compression_type_record_read_) {
+          ReportCorruption(fragment.size(),
+                           "read multiple SetCompressionType records");
+        }
+        if (first_record_read_) {
+          ReportCorruption(fragment.size(),
+                           "SetCompressionType not the first record");
+        }
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        last_record_offset_ = prospective_record_offset;
+        CompressionTypeRecord compression_record(kNoCompression);
+        Status s = compression_record.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(fragment.size(),
+                           "could not decode SetCompressionType record");
+        } else {
+          InitCompression(compression_record);
+        }
+        break;
+      }
+      case kUserDefinedTimestampSizeType:
+      case kRecyclableUserDefinedTimestampSizeType: {
+        if (in_fragmented_record && !scratch->empty()) {
+          ReportCorruption(
+              scratch->size(),
+              "user-defined timestamp size record interspersed partial record");
+        }
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        last_record_offset_ = prospective_record_offset;
+        UserDefinedTimestampSizeRecord ts_record;
+        Status s = ts_record.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(
+              fragment.size(),
+              "could not decode user-defined timestamp size record");
+        } else {
+          UpdateRecordedTimestampSize(ts_record.GetUserDefinedTimestampSize());
+        }
+        break;
+      }
 
       case kBadHeader:
         if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
@@ -269,47 +302,6 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         }
         break;
 
-      case kSetCompressionType: {
-        if (compression_type_record_read_) {
-          ReportCorruption(fragment.size(),
-                           "read multiple SetCompressionType records");
-        }
-        if (first_record_read_) {
-          ReportCorruption(fragment.size(),
-                           "SetCompressionType not the first record");
-        }
-        prospective_record_offset = physical_record_offset;
-        scratch->clear();
-        last_record_offset_ = prospective_record_offset;
-        CompressionTypeRecord compression_record(kNoCompression);
-        Status s = compression_record.DecodeFrom(&fragment);
-        if (!s.ok()) {
-          ReportCorruption(fragment.size(),
-                           "could not decode SetCompressionType record");
-        } else {
-          InitCompression(compression_record);
-        }
-        break;
-      }
-      case kUserDefinedTimestampSizeType:
-      case kRecyclableUserDefinedTimestampSizeType: {
-        // Once encountered, the user-defined timestamp size record needs to be
-        // applied to all subsequent records.
-        assert(cf_to_ts_sz);
-        prospective_record_offset = physical_record_offset;
-        scratch->clear();
-        last_record_offset_ = prospective_record_offset;
-        UserDefinedTimestampSizeRecord ts_record;
-        Status s = ts_record.DecodeFrom(&fragment);
-        if (!s.ok()) {
-          ReportCorruption(
-              fragment.size(),
-              "could not decode user-defined timestamp size record");
-        } else {
-          UpdateRecordedTimestampSize(ts_record.GetUserDefinedTimestampSize());
-        }
-        break;
-      }
       default: {
         char buf[40];
         snprintf(buf, sizeof(buf), "unknown record type %u", record_type);
@@ -601,8 +593,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
 }
 
 void Reader::UpdateRecordedTimestampSize(
-    const std::map<uint32_t, size_t>& cf_to_ts_sz) {
-  for (const auto [cf, ts_sz] : cf_to_ts_sz) {
+    const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz) {
+  for (const auto& [cf, ts_sz] : cf_to_ts_sz) {
     // Zero user-defined timestamp size are not recorded.
     assert(ts_sz != 0);
     // The user-defined timestamp size record for a column family should not be
@@ -612,9 +604,9 @@ void Reader::UpdateRecordedTimestampSize(
   }
 }
 
-bool FragmentBufferedReader::ReadRecord(
-    Slice* record, std::string* scratch, WALRecoveryMode /*unused*/,
-    uint64_t* /* checksum */, std::map<uint32_t, size_t>* cf_to_ts_sz) {
+bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
+                                        WALRecoveryMode /*unused*/,
+                                        uint64_t* /* checksum */) {
   assert(record != nullptr);
   assert(scratch != nullptr);
   record->clear();
@@ -641,11 +633,6 @@ bool FragmentBufferedReader::ReadRecord(
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
         in_fragmented_record_ = false;
-        if (!recorded_cf_to_ts_sz_.empty()) {
-          assert(cf_to_ts_sz);
-          cf_to_ts_sz->insert(recorded_cf_to_ts_sz_.begin(),
-                              recorded_cf_to_ts_sz_.end());
-        }
         return true;
 
       case kFirstType:
@@ -681,36 +668,7 @@ bool FragmentBufferedReader::ReadRecord(
           last_record_offset_ = prospective_record_offset;
           first_record_read_ = true;
           in_fragmented_record_ = false;
-          if (!recorded_cf_to_ts_sz_.empty()) {
-            assert(cf_to_ts_sz);
-            cf_to_ts_sz->insert(recorded_cf_to_ts_sz_.begin(),
-                                recorded_cf_to_ts_sz_.end());
-          }
           return true;
-        }
-        break;
-
-      case kBadHeader:
-      case kBadRecord:
-      case kEof:
-      case kOldRecord:
-        if (in_fragmented_record_) {
-          ReportCorruption(fragments_.size(), "error in middle of record");
-          in_fragmented_record_ = false;
-          fragments_.clear();
-        }
-        break;
-
-      case kBadRecordChecksum:
-        if (recycled_) {
-          fragments_.clear();
-          return false;
-        }
-        ReportCorruption(drop_size, "checksum mismatch");
-        if (in_fragmented_record_) {
-          ReportCorruption(fragments_.size(), "error in middle of record");
-          in_fragmented_record_ = false;
-          fragments_.clear();
         }
         break;
 
@@ -740,9 +698,11 @@ bool FragmentBufferedReader::ReadRecord(
 
       case kUserDefinedTimestampSizeType:
       case kRecyclableUserDefinedTimestampSizeType: {
-        // Once encountered, the user-defined timestamp size record needs to be
-        // applied to all subsequent records.
-        assert(cf_to_ts_sz);
+        if (in_fragmented_record_ && !scratch->empty()) {
+          ReportCorruption(
+              scratch->size(),
+              "user-defined timestamp size record interspersed partial record");
+        }
         fragments_.clear();
         prospective_record_offset = physical_record_offset;
         last_record_offset_ = prospective_record_offset;
@@ -758,6 +718,30 @@ bool FragmentBufferedReader::ReadRecord(
         }
         break;
       }
+
+      case kBadHeader:
+      case kBadRecord:
+      case kEof:
+      case kOldRecord:
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
+
+      case kBadRecordChecksum:
+        if (recycled_) {
+          fragments_.clear();
+          return false;
+        }
+        ReportCorruption(drop_size, "checksum mismatch");
+        if (in_fragmented_record_) {
+          ReportCorruption(fragments_.size(), "error in middle of record");
+          in_fragmented_record_ = false;
+          fragments_.clear();
+        }
+        break;
 
       default: {
         char buf[40];

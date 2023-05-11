@@ -63,16 +63,7 @@ IOStatus Writer::Close() {
 }
 
 IOStatus Writer::AddRecord(const Slice& slice,
-                           Env::IOPriority rate_limiter_priority,
-                           const std::map<uint32_t, size_t>* cf_to_ts_sz) {
-  IOStatus s;
-  if (cf_to_ts_sz != nullptr && !cf_to_ts_sz->empty()) {
-    s = MaybeAddUserDefinedTimestampSizeRecord(*cf_to_ts_sz,
-                                               rate_limiter_priority);
-    if (!s.ok()) {
-      return s;
-    }
-  }
+                           Env::IOPriority rate_limiter_priority) {
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -90,6 +81,8 @@ IOStatus Writer::AddRecord(const Slice& slice,
     compress_->Reset();
     compress_start = true;
   }
+
+  IOStatus s;
   do {
     const int64_t leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
@@ -204,12 +197,12 @@ IOStatus Writer::AddCompressionTypeRecord() {
 }
 
 IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
-    const std::map<uint32_t, size_t>& cf_to_ts_sz,
+    const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz,
     Env::IOPriority rate_limiter_priority) {
-  std::map<uint32_t, size_t> ts_sz_to_record;
-  for (const auto [cf_id, ts_sz] : cf_to_ts_sz) {
+  std::unordered_map<uint32_t, size_t> ts_sz_to_record;
+  for (const auto& [cf_id, ts_sz] : cf_to_ts_sz) {
     if (recorded_cf_to_ts_sz_.count(cf_id) != 0) {
-      // A column family's user-defined timestamp size should to be
+      // A column family's user-defined timestamp size should not be
       // updated while DB is running.
       assert(recorded_cf_to_ts_sz_[cf_id] == ts_sz);
     } else if (ts_sz != 0) {

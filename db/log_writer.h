@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include "db/log_format.h"
 #include "rocksdb/compression_type.h"
@@ -89,9 +90,17 @@ class Writer {
   // add a special record to signal the timestamp size for this and subsequent
   // WriteBatch records.
   IOStatus AddRecord(const Slice& slice,
-                     Env::IOPriority rate_limiter_priority = Env::IO_TOTAL,
-                     const std::map<uint32_t, size_t>* cf_to_ts_sz = nullptr);
+                     Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
   IOStatus AddCompressionTypeRecord();
+
+  // If there are column families in `cf_to_ts_sz` not included in
+  // `recorded_cf_to_ts_sz_` and its user-defined timestamp size is non-zero,
+  // adds a record of type kUserDefinedTimestampSizeType or
+  // kRecyclableUserDefinedTimestampSizeType for these column families.
+  // This timestamp size record applies to all subsequent records.
+  IOStatus MaybeAddUserDefinedTimestampSizeRecord(
+      const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz,
+      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
@@ -119,14 +128,6 @@ class Writer {
       RecordType type, const char* ptr, size_t length,
       Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
-  // If there are column families in `cf_to_ts_sz` not included in
-  // `recorded_cf_to_ts_sz_` and its user-defined timestamp size is non-zero,
-  // adds a record of type kUserDefinedTimestampSizeType or
-  // kRecyclableUserDefinedTimestampSizeType for these column families.
-  IOStatus MaybeAddUserDefinedTimestampSizeRecord(
-      const std::map<uint32_t, size_t>& cf_to_ts_sz,
-      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
-
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()
   bool manual_flush_;
@@ -140,7 +141,7 @@ class Writer {
   // The recorded user-defined timestamp size that have been written so far.
   // Since the user-defined timestamp size cannot be changed while the DB is
   // running, existing entry in this map cannot be updated.
-  std::map<uint32_t, size_t> recorded_cf_to_ts_sz_;
+  std::unordered_map<uint32_t, size_t> recorded_cf_to_ts_sz_;
 };
 
 }  // namespace log

@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_map>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
@@ -69,13 +70,16 @@ class Reader {
   // checksum of the record read and set record_checksum to it. The checksum is
   // calculated from the original buffers that contain the contents of the
   // record.
-  // `cf_to_ts_sz` contains user-defined timestamp sizes applicable for the
-  // record. This only applies to WAL logs.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
                               WALRecoveryMode::kTolerateCorruptedTailRecords,
-                          uint64_t* record_checksum = nullptr,
-                          std::map<uint32_t, size_t>* cf_to_ts_sz = nullptr);
+                          uint64_t* record_checksum = nullptr);
+
+  // Return the recorded user-defined timestamp size that have been read so
+  // far. This only applies to WAL logs.
+  const std::unordered_map<uint32_t, size_t>& GetRecordedTimestampSize() const {
+    return recorded_cf_to_ts_sz_;
+  }
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -159,7 +163,7 @@ class Reader {
 
   // The recorded user-defined timestamp sizes that have been read so far. This
   // is only for WAL logs.
-  std::map<uint32_t, size_t> recorded_cf_to_ts_sz_;
+  std::unordered_map<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
   // Extend record types with the following special values
   enum {
@@ -199,7 +203,7 @@ class Reader {
   void InitCompression(const CompressionTypeRecord& compression_record);
 
   void UpdateRecordedTimestampSize(
-      const std::map<uint32_t, size_t>& cf_to_ts_sz);
+      const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {
@@ -214,8 +218,7 @@ class FragmentBufferedReader : public Reader {
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords,
-                  uint64_t* record_checksum = nullptr,
-                  std::map<uint32_t, size_t>* cf_to_ts_sz = nullptr) override;
+                  uint64_t* record_checksum = nullptr) override;
   void UnmarkEOF() override;
 
  private:
