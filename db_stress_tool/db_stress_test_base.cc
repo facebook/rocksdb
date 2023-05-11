@@ -483,9 +483,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
 
-      const ExpectedValue& expected_value =
-          shared->Put(cf_idx, k, true /* pending */);
-      const uint32_t value_base = expected_value.GetFinalValueBase();
+      PendingExpectedValue pending_expected_value =
+          shared->PreparePut(cf_idx, k);
+      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
       const Slice v(value, sz);
@@ -535,7 +535,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         }
       }
 
-      shared->Put(cf_idx, k, false /* pending */);
+      pending_expected_value.Commit();
       if (!s.ok()) {
         break;
       }
@@ -615,8 +615,7 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
     for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
       uint64_t key_val;
       if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
-        shared->Put(static_cast<int>(i) /* cf_idx */, key_val,
-                    true /* pending */);
+        shared->SyncPendingPut(static_cast<int>(i) /* cf_idx */, key_val);
       }
     }
   }

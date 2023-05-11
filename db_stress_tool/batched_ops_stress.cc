@@ -32,7 +32,7 @@ class BatchedOpsStressTest : public StressTest {
     const std::string key_body = Key(rand_keys[0]);
 
     const uint32_t value_base =
-        thread->rand.Next() % thread->shared->RANDOM_VALUE_BASE_GENERATOR;
+        thread->rand.Next() % RANDOM_VALUE_BASE_GENERATOR;
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const std::string value_body = Slice(value, sz).ToString();
 
@@ -586,6 +586,10 @@ class BatchedOpsStressTest : public StressTest {
 
     return true;
   }
+
+ private:
+  // Used to generate random value base
+  static constexpr uint32_t RANDOM_VALUE_BASE_GENERATOR = 0xfffffffe;
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }

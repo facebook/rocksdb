@@ -15,214 +15,220 @@
 #include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
-bool ExpectedValue::Exists() const {
-  uint32_t expected_value = value_->load();
-  return ExpectedValueHelper::PendingWrite(expected_value) ||
-         !ExpectedValueHelper::IsDeleted(expected_value);
-}
-
-void ExpectedValue::Reset() {
-  value_->store(ExpectedValueHelper::GetDelMask(), std::memory_order_relaxed);
-}
-
 void ExpectedValue::Put(bool pending) {
-  uint32_t new_value = value_->load();
   if (pending) {
-    ExpectedValueHelper::SetPendingWrite(&new_value);
-    value_->store(new_value);
-    // To prevent low-level instruction reordering that results
-    // in db write happens before setting pending state in expected value
-    std::atomic_thread_fence(std::memory_order_release);
+    SetPendingWrite();
   } else {
-    ExpectedValueHelper::SetValueBase(
-        &new_value, ExpectedValueHelper::NextValueBase(
-                        ExpectedValueHelper::GetValueBase(new_value)));
-    ExpectedValueHelper::ClearDeleted(&new_value);
-    ExpectedValueHelper::ClearPendingWrite(&new_value);
-    // To prevent low-level instruction reordering that results
-    // in setting expected value happens before db write
-    std::atomic_thread_fence(std::memory_order_release);
-    value_->store(new_value);
+    SetValueBase(NextValueBase());
+    ClearDeleted();
+    ClearPendingWrite();
   }
-}
-
-uint32_t ExpectedValue::GetFinalValueBase() const {
-  uint32_t value = value_->load();
-  uint32_t cur_value_base = ExpectedValueHelper::GetValueBase(value);
-  return ExpectedValueHelper::PendingWrite(value)
-             ? ExpectedValueHelper::NextValueBase(cur_value_base)
-             : cur_value_base;
 }
 
 bool ExpectedValue::Delete(bool pending) {
   if (!Exists()) {
     return false;
   }
-  uint32_t new_value = value_->load();
   if (pending) {
-    ExpectedValueHelper::SetPendingDel(&new_value);
-    value_->store(new_value);
+    SetPendingDel();
   } else {
-    ExpectedValueHelper::SetDelCounter(
-        &new_value, ExpectedValueHelper::NextDelCounter(
-                        ExpectedValueHelper::GetDelCounter(new_value)));
-    ExpectedValueHelper::SetDeleted(&new_value);
-    ExpectedValueHelper::ClearPendingDel(&new_value);
-    value_->store(new_value);
+    SetDelCounter(NextDelCounter());
+    SetDeleted();
+    ClearPendingDel();
   }
   return true;
 }
 
 void ExpectedValue::SyncPut(uint32_t value_base) {
-  uint32_t new_value = value_->load();
-  assert(ExpectedValueHelper::PendingWrite(new_value) ||
-         ExpectedValueHelper::PendingDelete(new_value));
-  assert(ExpectedValueHelper::IsValueBaseValid(value_base));
+  assert(ExpectedValue::IsValueBaseValid(value_base));
 
-  ExpectedValueHelper::SetValueBase(&new_value, value_base);
-  ExpectedValueHelper::ClearPendingWrite(&new_value);
-  ExpectedValueHelper::ClearPendingDel(&new_value);
-  ExpectedValueHelper::ClearDeleted(&new_value);
+  SetValueBase(value_base);
+  ClearDeleted();
+  ClearPendingWrite();
 
-  // To prevent low-level instruction reordering that results
-  // in setting expected value happens before db write
-  std::atomic_thread_fence(std::memory_order_release);
-  value_->store(new_value);
+  // This is needed in case crash happens during a pending delete of the key
+  // assocated with this expected value
+  ClearPendingDel();
 }
 
-void ExpectedValue::SyncSingleDelete() {
-  uint32_t new_value = value_->load();
-  assert(ExpectedValueHelper::PendingWrite(new_value) ||
-         ExpectedValueHelper::PendingDelete(new_value));
+void ExpectedValue::SyncPendingPut() { Put(true /* pending */); }
 
-  ExpectedValueHelper::ClearPendingWrite(&new_value);
-  ExpectedValueHelper::SetDelCounter(
-      &new_value, ExpectedValueHelper::NextDelCounter(
-                      ExpectedValueHelper::GetDelCounter(new_value)));
-  ExpectedValueHelper::ClearPendingDel(&new_value);
-  ExpectedValueHelper::SetDeleted(&new_value);
+void ExpectedValue::SyncDelete() {
+  Delete(false /* pending */);
+  // This is needed in case crash happens during a pending write of the key
+  // assocated with this expected value
+  ClearPendingWrite();
+}
 
-  value_->store(new_value);
+uint32_t ExpectedValue::GetFinalValueBase() const {
+  return PendingWrite() ? NextValueBase() : GetValueBase();
+}
+
+uint32_t ExpectedValue::GetFinalDelCounter() const {
+  return PendingDelete() ? NextDelCounter() : GetDelCounter();
 }
 
 bool ExpectedValueHelper::MustHaveNotExisted(
-    uint32_t pre_read_expected_value, uint32_t post_read_expected_value) {
-  const bool pre_read_expected_deleted = IsDeleted(pre_read_expected_value);
+    ExpectedValue pre_read_expected_value,
+    ExpectedValue post_read_expected_value) {
+  const bool pre_read_expected_deleted = pre_read_expected_value.IsDeleted();
 
   const uint32_t pre_read_expected_value_base =
-      GetValueBase(pre_read_expected_value);
-  const uint32_t post_read_expected_value_base =
-      GetValueBase(post_read_expected_value);
-  const uint32_t expected_value_base_delta =
-      PendingWrite(post_read_expected_value) ? VALUE_BASE_DELTA : 0;
-  const bool during_read_no_write_happened =
-      (pre_read_expected_value_base ==
-       GetValueBase(post_read_expected_value_base + expected_value_base_delta));
+      pre_read_expected_value.GetValueBase();
 
+  const uint32_t post_read_expected_final_value_base =
+      post_read_expected_value.GetFinalValueBase();
+
+  const bool during_read_no_write_happened =
+      (pre_read_expected_value_base == post_read_expected_final_value_base);
   return pre_read_expected_deleted && during_read_no_write_happened;
 }
 
-bool ExpectedValueHelper::MustHaveExisted(uint32_t pre_read_expected_value,
-                                          uint32_t post_read_expected_value) {
+bool ExpectedValueHelper::MustHaveExisted(
+    ExpectedValue pre_read_expected_value,
+    ExpectedValue post_read_expected_value) {
   const bool pre_read_expected_not_deleted =
-      !IsDeleted(pre_read_expected_value);
+      !pre_read_expected_value.IsDeleted();
 
   const uint32_t pre_read_expected_del_counter =
-      GetDelCounter(pre_read_expected_value);
-  const uint32_t post_read_expected_del_counter =
-      GetDelCounter(post_read_expected_value);
-  const uint32_t expected_del_counter_delta =
-      PendingDelete(post_read_expected_value) ? DEL_COUNTER_DELTA : 0;
+      pre_read_expected_value.GetDelCounter();
+  const uint32_t post_read_expected_final_del_counter =
+      post_read_expected_value.GetFinalDelCounter();
+
   const bool during_read_no_delete_happened =
-      (pre_read_expected_del_counter ==
-       GetDelCounter(post_read_expected_del_counter +
-                     expected_del_counter_delta));
+      (pre_read_expected_del_counter == post_read_expected_final_del_counter);
 
   return pre_read_expected_not_deleted && during_read_no_delete_happened;
 }
 
 bool ExpectedValueHelper::InExpectedValueBaseRange(
-    uint32_t value_base, uint32_t pre_read_expected_value_base,
-    uint32_t post_read_expected_value_base,
-    bool post_read_expected_pending_write) {
-  assert(IsValuePartValid(value_base, VALUE_BASE_MASK) &&
-         IsValuePartValid(pre_read_expected_value_base, VALUE_BASE_MASK) &&
-         IsValuePartValid(post_read_expected_value_base, VALUE_BASE_MASK));
+    uint32_t value_base, ExpectedValue pre_read_expected_value,
+    ExpectedValue post_read_expected_value) {
+  assert(ExpectedValue::IsValueBaseValid(value_base));
 
-  const uint32_t expected_value_base_delta =
-      post_read_expected_pending_write ? VALUE_BASE_DELTA : 0;
+  const uint32_t pre_read_expected_value_base =
+      pre_read_expected_value.GetValueBase();
+  const uint32_t post_read_expected_final_value_base =
+      post_read_expected_value.GetFinalValueBase();
 
-  uint32_t post_read_expected_value_base_final =
-      GetValueBase(post_read_expected_value_base + expected_value_base_delta);
-
-  if (pre_read_expected_value_base <= post_read_expected_value_base_final) {
+  if (pre_read_expected_value_base <= post_read_expected_final_value_base) {
     const uint32_t lower_bound = pre_read_expected_value_base;
-    const uint32_t upper_bound = post_read_expected_value_base_final;
+    const uint32_t upper_bound = post_read_expected_final_value_base;
     return lower_bound <= value_base && value_base <= upper_bound;
   } else {
-    const uint32_t upper_bound_1 = post_read_expected_value_base_final;
+    const uint32_t upper_bound_1 = post_read_expected_final_value_base;
     const uint32_t lower_bound_2 = pre_read_expected_value_base;
-    const uint32_t upper_bound_2 = VALUE_BASE_MASK;
+    const uint32_t upper_bound_2 = ExpectedValue::GetValueBaseMask();
     return (value_base <= upper_bound_1) ||
            (lower_bound_2 <= value_base && value_base <= upper_bound_2);
   }
 }
 
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
-    : max_key_(max_key), num_column_families_(num_column_families) {}
+    : max_key_(max_key),
+      num_column_families_(num_column_families),
+      values_(nullptr) {}
 
 void ExpectedState::ClearColumnFamily(int cf) {
-  for (int64_t i = 0; i < static_cast<int64_t>(max_key_); ++i) {
-    Value(cf, i).Reset();
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
+  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */), del_mask);
+}
+
+void ExpectedState::Precommit(int cf, int64_t key, const ExpectedValue& value) {
+  Value(cf, key).store(value.Read());
+  // To prevent low-level instruction reordering that results
+  // in db write happens before setting pending state in expected value
+  std::atomic_thread_fence(std::memory_order_release);
+}
+
+PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  const ExpectedValue orig_expected_value = expected_value;
+  expected_value.Put(true /* pending */);
+  const ExpectedValue pending_expected_value = expected_value;
+  expected_value.Put(false /* pending */);
+  const ExpectedValue final_expected_value = expected_value;
+  Precommit(cf, key, pending_expected_value);
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
+}
+
+ExpectedValue ExpectedState::Get(int cf, int64_t key) { return Load(cf, key); }
+
+PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
+                                                  bool* prepared) {
+  ExpectedValue expected_value = Load(cf, key);
+  const ExpectedValue orig_expected_value = expected_value;
+  bool res = expected_value.Delete(true /* pending */);
+  if (prepared) {
+    *prepared = res;
   }
+  if (!res) {
+    return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                                orig_expected_value);
+  }
+  const ExpectedValue pending_expected_value = expected_value;
+  expected_value.Delete(false /* pending */);
+  const ExpectedValue final_expected_value = expected_value;
+  Precommit(cf, key, pending_expected_value);
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
 }
 
-ExpectedValue& ExpectedState::Put(int cf, int64_t key, bool pending) {
-  Value(cf, key).Put(pending);
-  return Value(cf, key);
+PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key) {
+  return PrepareDelete(cf, key);
 }
 
-uint32_t ExpectedState::Get(int cf, int64_t key) {
-  return Value(cf, key).Read();
-}
-
-bool ExpectedState::Delete(int cf, int64_t key, bool pending) {
-  return Value(cf, key).Delete(pending);
-}
-
-bool ExpectedState::SingleDelete(int cf, int64_t key, bool pending) {
-  return Delete(cf, key, pending);
-}
-
-int ExpectedState::DeleteRange(int cf, int64_t begin_key, int64_t end_key,
-                               bool pending) {
-  int covered = 0;
+std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
+    int cf, int64_t begin_key, int64_t end_key) {
+  std::vector<PendingExpectedValue> pending_expected_values;
   for (int64_t key = begin_key; key < end_key; ++key) {
-    if (Delete(cf, key, pending)) {
-      ++covered;
+    bool prepared = false;
+    PendingExpectedValue pending_expected_value =
+        PrepareDelete(cf, key, &prepared);
+    if (prepared) {
+      pending_expected_values.push_back(pending_expected_value);
     }
   }
-  return covered;
+  return pending_expected_values;
 }
 
 bool ExpectedState::Exists(int cf, int64_t key) {
-  return Value(cf, key).Exists();
+  return Load(cf, key).Exists();
 }
 
 void ExpectedState::Reset() {
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Value(static_cast<int>(i), j).Reset();
+      Value(static_cast<int>(i), j).store(del_mask, std::memory_order_relaxed);
     }
   }
 }
 
 void ExpectedState::SyncPut(int cf, int64_t key, uint32_t value_base) {
-  return Value(cf, key).SyncPut(value_base);
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPut(value_base);
+  Value(cf, key).store(expected_value.Read());
 }
 
-void ExpectedState::SyncSingleDelete(int cf, int64_t key) {
-  return Value(cf, key).SyncSingleDelete();
+void ExpectedState::SyncPendingPut(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPendingPut();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDelete(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncDelete();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDeleteRange(int cf, int64_t begin_key,
+                                    int64_t end_key) {
+  for (int64_t key = begin_key; key < end_key; ++key) {
+    SyncDelete(cf, key);
+  }
 }
 
 FileExpectedState::FileExpectedState(std::string expected_state_file_path,
@@ -252,17 +258,14 @@ Status FileExpectedState::Open(bool create) {
   }
   if (status.ok()) {
     assert(expected_state_mmap_buffer_->GetLen() == expected_values_size);
-    std::atomic<uint32_t>* temp_values = static_cast<std::atomic<uint32_t>*>(
+    values_ = static_cast<std::atomic<uint32_t>*>(
         expected_state_mmap_buffer_->GetBase());
-    assert(temp_values != nullptr);
-    for (size_t i = 0; i < expected_values_size; ++i) {
-      values_.emplace_back(&temp_values[i]);
-    }
+    assert(values_ != nullptr);
     if (create) {
       Reset();
     }
   } else {
-    assert(values_.empty());
+    assert(values_ == nullptr);
   }
   return status;
 }
@@ -277,14 +280,10 @@ Status AnonExpectedState::Open(bool /* create */) {
 #endif
   // AnonExpectedState only supports being freshly created.
   assert(create);
-  size_t expected_values_size = GetValuesLen();
   values_allocation_.reset(
-      new std::atomic<uint32_t>[expected_values_size /
+      new std::atomic<uint32_t>[GetValuesLen() /
                                 sizeof(std::atomic<uint32_t>)]);
-  assert(values_allocation_);
-  for (size_t i = 0; i < expected_values_size; ++i) {
-    values_.emplace_back(&values_allocation_[i]);
-  }
+  values_ = &values_allocation_[0];
   Reset();
   return Status::OK();
 }
@@ -532,6 +531,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
     }
+    uint32_t value_base = GetValueBase(value);
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
@@ -539,8 +539,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                      key, value);
     }
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id),
-                false /* pending */);
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
     ++num_write_ops_;
     return Status::OK();
   }
@@ -575,8 +574,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     assert(!columns.empty());
     assert(columns.front().name() == kDefaultWideColumnName);
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id),
-                false /* pending */);
+    const uint32_t value_base = GetValueBase(columns.front().value());
+
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
 
     ++num_write_ops_;
 
@@ -598,8 +598,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         column_family_id, key);
     }
 
-    state_->Delete(column_family_id, static_cast<int64_t>(key_id),
-                   false /* pending */);
+    state_->SyncDelete(column_family_id, static_cast<int64_t>(key_id));
     ++num_write_ops_;
     return Status::OK();
   }
@@ -643,8 +642,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
           buffered_writes_.get(), column_family_id, begin_key, end_key);
     }
 
-    state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
-                        static_cast<int64_t>(end_key_id), false /* pending */);
+    state_->SyncDeleteRange(column_family_id,
+                            static_cast<int64_t>(begin_key_id),
+                            static_cast<int64_t>(end_key_id));
     ++num_write_ops_;
     return Status::OK();
   }
