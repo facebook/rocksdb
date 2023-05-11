@@ -75,7 +75,7 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
-      loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
+      loader_mutex_(kLoadConcurency),
       io_tracer_(io_tracer),
       db_session_id_(db_session_id) {
   if (ioptions_.row_cache) {
@@ -174,7 +174,7 @@ Status TableCache::FindTable(
     if (no_io) {
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
-    MutexLock load_lock(loader_mutex_.get(key));
+    MutexLock load_lock(&loader_mutex_.Get(key));
     // We check the cache again under loading mutex
     *handle = cache_.Lookup(key);
     if (*handle != nullptr) {
