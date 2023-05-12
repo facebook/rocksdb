@@ -134,6 +134,17 @@ class SecondaryCache : public Customizable {
   virtual Status GetCapacity(size_t& /* capacity */) {
     return Status::NotSupported();
   }
+
+  // Temporarily decrease the cache capacity in RAM by the specified amount.
+  // The caller should call Inflate() to restore the cache capacity. This is
+  // intended to be lighter weight than SetCapacity(). The latter evenly
+  // distributes the new capacity across all shards and is meant for large
+  // changes in capacity, whereas the former is meant for relatively small
+  // changes and may be uneven by lowering capacity in a single shard.
+  virtual Status Deflate(size_t /*decrease*/) { return Status::NotSupported(); }
+
+  // Restore the capacity reduced by a prior call to Deflate().
+  virtual Status Inflate(size_t /*increase*/) { return Status::NotSupported(); }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

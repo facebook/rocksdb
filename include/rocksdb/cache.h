@@ -440,4 +440,14 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
+// A 2-tier cache with a primary block cache, and a compressed secondary
+// cache. The caller should allocate the primary block cache, with a capacity
+// equal to the total cache memory budget, i.e uncompressed and compressed
+struct TieredVolatileCacheOptions {
+  std::shared_ptr<Cache> cache;
+  CompressedSecondaryCacheOptions comp_cache_opts;
+};
+
+extern std::shared_ptr<Cache> NewTieredVolatileCache(
+    TieredVolatileCacheOptions& cache_opts);
 }  // namespace ROCKSDB_NAMESPACE

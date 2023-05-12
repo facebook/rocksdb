@@ -18,7 +18,11 @@ namespace ROCKSDB_NAMESPACE {
 
 CompressedSecondaryCache::CompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts)
-    : cache_(opts.LRUCacheOptions::MakeSharedCache()), cache_options_(opts) {}
+    : cache_(opts.LRUCacheOptions::MakeSharedCache()),
+      cache_options_(opts),
+      cache_res_mgr_(new ConcurrentCacheReservationManager(
+          std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+              cache_))) {}
 
 CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 
@@ -299,6 +303,14 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
 std::shared_ptr<SecondaryCache>
 CompressedSecondaryCacheOptions::MakeSharedSecondaryCache() const {
   return std::make_shared<CompressedSecondaryCache>(*this);
+}
+
+Status CompressedSecondaryCache::Deflate(size_t decrease) {
+  return cache_res_mgr_->UpdateCacheReservation(decrease, /*increase=*/true);
+}
+
+Status CompressedSecondaryCache::Inflate(size_t increase) {
+  return cache_res_mgr_->UpdateCacheReservation(increase, /*increase=*/false);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,6 +10,8 @@
 #include <memory>
 #include <tuple>
 
+#include "cache/compressed_secondary_cache.h"
+#include "cache/secondary_cache_adapter.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "rocksdb/convenience.h"
 #include "test_util/secondary_cache_test_util.h"
@@ -972,6 +974,57 @@ TEST_P(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
 
 TEST_P(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
   SplictValueAndMergeChunksTest();
+}
+
+class CompressedSecCacheTestWithTiered : public ::testing::Test {
+ public:
+  CompressedSecCacheTestWithTiered() {
+    LRUCacheOptions lru_opts;
+    TieredVolatileCacheOptions opts;
+    lru_opts.capacity = 10 << 20;
+    opts.cache = NewLRUCache(lru_opts);
+    opts.comp_cache_opts.capacity = 5 << 20;
+    cache_ = NewTieredVolatileCache(opts);
+    cache_res_mgr_ =
+        std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+            cache_);
+  }
+
+  CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
+
+  Cache* GetCache() {
+    return reinterpret_cast<CacheWithSecondaryAdapter*>(cache_.get())
+        ->TEST_GetCache();
+  }
+
+  SecondaryCache* GetSecondaryCache() {
+    return reinterpret_cast<CacheWithSecondaryAdapter*>(cache_.get())
+        ->TEST_GetSecondaryCache();
+  }
+
+ private:
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<CacheReservationManager> cache_res_mgr_;
+};
+
+TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+
+  EXPECT_LE(GetCache()->GetUsage(), (5 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (5 << 20) * 0.99);
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(2 << 20));
+  EXPECT_LE(GetCache()->GetUsage(), (6 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (6 << 20) * 0.99);
+  EXPECT_LE(sec_cache->TEST_GetUsage(), (1 << 20) * 1.01);
+  EXPECT_GE(sec_cache->TEST_GetUsage(), (1 << 20) * 0.99);
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
+  EXPECT_LE(GetCache()->GetUsage(), (5 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (5 << 20) * 0.99);
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

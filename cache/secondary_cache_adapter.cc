@@ -20,12 +20,29 @@ Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
 
 CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     std::shared_ptr<Cache> target,
-    std::shared_ptr<SecondaryCache> secondary_cache)
+    std::shared_ptr<SecondaryCache> secondary_cache, bool distribute_cache_res)
     : CacheWrapper(std::move(target)),
-      secondary_cache_(std::move(secondary_cache)) {
+      secondary_cache_(std::move(secondary_cache)),
+      distribute_cache_res_(distribute_cache_res) {
   target_->SetEvictionCallback([this](const Slice& key, Handle* handle) {
     return EvictionHandler(key, handle);
   });
+  if (distribute_cache_res_) {
+    size_t sec_capacity = 0;
+    pri_cache_res_ = std::make_shared<ConcurrentCacheReservationManager>(
+        std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+            target_));
+    Status s = secondary_cache_->GetCapacity(sec_capacity);
+    assert(s.ok());
+    // Initially, the primary cache is sized to uncompressed cache budget plsu
+    // compressed secondary cache budget. The secondary cache budget is then
+    // taken away from the primary cache through cache reservations. Later,
+    // when a placeholder entry is inserted by the caller, its inserted
+    // into the primary cache and the portion that should be assigned to the
+    // secondary cache is freed from the reservation.
+    pri_cache_res_->UpdateCacheReservation(sec_capacity);
+    sec_cache_res_ratio_ = (double)sec_capacity / target_->GetCapacity();
+  }
 }
 
 CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
@@ -136,6 +153,22 @@ Cache::Handle* CacheWithSecondaryAdapter::Promote(
   return result;
 }
 
+Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
+                                         const CacheItemHelper* helper,
+                                         size_t charge, Handle** handle,
+                                         Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+  if (s.ok() && value == nullptr && distribute_cache_res_) {
+    size_t sec_charge = charge * (sec_cache_res_ratio_);
+    s = secondary_cache_->Deflate(sec_charge);
+    assert(s.ok());
+    s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
+    assert(s.ok());
+  }
+
+  return s;
+}
+
 Cache::Handle* CacheWithSecondaryAdapter::Lookup(const Slice& key,
                                                  const CacheItemHelper* helper,
                                                  CreateContext* create_context,
@@ -160,6 +193,22 @@ Cache::Handle* CacheWithSecondaryAdapter::Lookup(const Slice& key,
     }
   }
   return result;
+}
+
+bool CacheWithSecondaryAdapter::Release(Handle* handle,
+                                        bool erase_if_last_ref) {
+  if (erase_if_last_ref) {
+    ObjectPtr v = target_->Value(handle);
+    if (v == nullptr) {
+      size_t charge = target_->GetCharge(handle);
+      size_t sec_charge = charge * (sec_cache_res_ratio_);
+      Status s = secondary_cache_->Inflate(sec_charge);
+      assert(s.ok());
+      s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/true);
+      assert(s.ok());
+    }
+  }
+  return target_->Release(handle, erase_if_last_ref);
 }
 
 Cache::ObjectPtr CacheWithSecondaryAdapter::Value(Handle* handle) {
@@ -291,5 +340,18 @@ const char* CacheWithSecondaryAdapter::Name() const {
   // To the user, at least for now, configure the underlying cache with
   // a secondary cache. So we pretend to be that cache
   return target_->Name();
+}
+
+std::shared_ptr<Cache> NewTieredVolatileCache(
+    TieredVolatileCacheOptions& opts) {
+  if (!opts.cache) {
+    return nullptr;
+  }
+
+  std::shared_ptr<SecondaryCache> sec_cache;
+  sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
+
+  return std::make_shared<CacheWithSecondaryAdapter>(opts.cache, sec_cache,
+                                                     true);
 }
 }  // namespace ROCKSDB_NAMESPACE
