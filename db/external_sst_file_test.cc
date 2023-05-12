@@ -1289,7 +1289,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // After full compaction, there should be only 1 file.
   std::vector<std::string> files;
@@ -2857,4 +2857,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

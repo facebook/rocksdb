@@ -583,7 +583,7 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
         TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
     // For FIFO to pick a compaction
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
-    ASSERT_OK(dbfull()->TEST_WaitForCompact(false));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     for (int g = 0; g < kKeyCount; ++g) {
       std::string get_key = std::string(1, char('a' + g));
       int status_index = i / kKeyCount;

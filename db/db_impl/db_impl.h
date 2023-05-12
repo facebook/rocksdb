@@ -1054,9 +1054,7 @@ class DBImpl : public DB {
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
   // Wait for any compaction
-  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
-  // is only for the special test of CancelledCompactions
-  Status WaitForCompact(bool waitUnscheduled = false);
+  Status WaitForCompact();
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
@@ -1096,9 +1094,7 @@ class DBImpl : public DB {
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
   // Wait for any compaction
-  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
-  // is only for the special test of CancelledCompactions
-  Status TEST_WaitForCompact(bool waitUnscheduled = false);
+  Status TEST_WaitForCompact();
 
   // Wait for any background purge
   Status TEST_WaitForPurge();
