@@ -3740,16 +3740,21 @@ void rocksdb_options_set_hash_link_list_rep(rocksdb_options_t* opt,
       ROCKSDB_NAMESPACE::NewHashLinkListRepFactory(bucket_count));
 }
 
-void rocksdb_options_set_plain_table_factory(rocksdb_options_t* opt,
-                                             uint32_t user_key_len,
-                                             int bloom_bits_per_key,
-                                             double hash_table_ratio,
-                                             size_t index_sparseness) {
+void rocksdb_options_set_plain_table_factory(
+    rocksdb_options_t* opt, uint32_t user_key_len, int bloom_bits_per_key,
+    double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
+    char encoding_type, unsigned char full_scan_mode,
+    unsigned char store_index_in_file) {
   ROCKSDB_NAMESPACE::PlainTableOptions options;
   options.user_key_len = user_key_len;
   options.bloom_bits_per_key = bloom_bits_per_key;
   options.hash_table_ratio = hash_table_ratio;
   options.index_sparseness = index_sparseness;
+  options.huge_page_tlb_size = huge_page_tlb_size;
+  options.encoding_type =
+      static_cast<ROCKSDB_NAMESPACE::EncodingType>(encoding_type);
+  options.full_scan_mode = full_scan_mode;
+  options.store_index_in_file = store_index_in_file;
 
   ROCKSDB_NAMESPACE::TableFactory* factory =
       ROCKSDB_NAMESPACE::NewPlainTableFactory(options);
