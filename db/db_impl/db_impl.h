@@ -1053,7 +1053,12 @@ class DBImpl : public DB {
 
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
-  // Wait for any compaction
+  // Wait for all scheduled flush and compactions to finish.
+  // Unless db is shutting down, wait for the unscheduled ones (queued, but not
+  // scheduled to run yet. Both flush and compactions) to finish as well. This
+  // method may never return if there's sufficient ongoing writes that keeps
+  // flush and compaction going without stopping. The user would have to cease
+  // all the writes to DB to make this eventually return in a stable state.
   Status WaitForCompact();
 
 #ifndef NDEBUG

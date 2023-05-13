@@ -3958,14 +3958,11 @@ void DBImpl::GetSnapshotContext(
 }
 
 Status DBImpl::WaitForCompact() {
-  // Wait for all scheduled compactions to finish.
-  // For unscheduled ones, unless db is shutting down,
-  // wait for them to finish
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (!shutting_down_.load(std::memory_order_acquire) &&
-           unscheduled_compactions_)) &&
+           (unscheduled_compactions_ || unscheduled_flushes_))) &&
          (error_handler_.GetBGError().ok())) {
     bg_cv_.Wait();
   }
