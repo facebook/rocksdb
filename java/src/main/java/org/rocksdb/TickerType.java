@@ -758,7 +758,9 @@ public enum TickerType {
     TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
 
     /**
-     * Number of corruptions detected by block checksum verifications
+     * Number of times RocksDB detected a corruption while verifying a block
+     * checksum. RocksDB does not remember corruptions that happened during user
+     * reads so the same block corruption may be detected multiple times.
      */
     BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x3C),
 
