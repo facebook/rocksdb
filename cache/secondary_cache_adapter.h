@@ -29,6 +29,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
                  Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override;
 
+  using Cache::Release;
   bool Release(Handle* handle, bool erase_if_last_ref = false) override;
 
   ObjectPtr Value(Handle* handle) override;

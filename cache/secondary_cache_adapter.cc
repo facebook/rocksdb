@@ -159,7 +159,7 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
                                          Priority priority) {
   Status s = target_->Insert(key, value, helper, charge, handle, priority);
   if (s.ok() && value == nullptr && distribute_cache_res_) {
-    size_t sec_charge = charge * (sec_cache_res_ratio_);
+    size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
     s = secondary_cache_->Deflate(sec_charge);
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
@@ -199,9 +199,9 @@ bool CacheWithSecondaryAdapter::Release(Handle* handle,
                                         bool erase_if_last_ref) {
   if (erase_if_last_ref) {
     ObjectPtr v = target_->Value(handle);
-    if (v == nullptr) {
+    if (v == nullptr && distribute_cache_res_) {
       size_t charge = target_->GetCharge(handle);
-      size_t sec_charge = charge * (sec_cache_res_ratio_);
+      size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
       Status s = secondary_cache_->Inflate(sec_charge);
       assert(s.ok());
       s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/true);
