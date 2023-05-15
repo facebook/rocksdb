@@ -211,6 +211,8 @@ default_params = {
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
+# If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
+_TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
@@ -233,7 +235,10 @@ def get_dbname(test_name):
             print("Running DB cleanup command - %s\n" % cleanup_cmd)
             # Ignore failure
             os.system(cleanup_cmd)
-        os.mkdir(dbname)
+        try:
+            os.mkdir(dbname)
+        except OSError:
+            pass
     return dbname
 
 
@@ -245,12 +250,18 @@ def setup_expected_values_dir():
     if expected_values_dir is not None:
         return expected_values_dir
     expected_dir_prefix = "rocksdb_crashtest_expected_"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is  None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         expected_values_dir = tempfile.mkdtemp(prefix=expected_dir_prefix)
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
+        expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
         if os.path.exists(expected_values_dir):
             shutil.rmtree(expected_values_dir)
         os.mkdir(expected_values_dir)
@@ -265,16 +276,22 @@ def setup_multiops_txn_key_spaces_file():
     if multiops_txn_key_spaces_file is not None:
         return multiops_txn_key_spaces_file
     key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is  None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         multiops_txn_key_spaces_file = tempfile.mkstemp(prefix=key_spaces_file_prefix)[
             1
         ]
     else:
-        if not os.path.exists(test_tmpdir):
-            os.mkdir(test_tmpdir)
+        if not os.path.exists(test_exp_tmpdir):
+            os.mkdir(test_exp_tmpdir)
         multiops_txn_key_spaces_file = tempfile.mkstemp(
-            prefix=key_spaces_file_prefix, dir=test_tmpdir
+            prefix=key_spaces_file_prefix, dir=test_exp_tmpdir
         )[1]
     return multiops_txn_key_spaces_file
 
@@ -938,7 +955,10 @@ def whitebox_crash_main(args, unknown_args):
                 if ret != 0:
                     print("TEST FAILED. DB cleanup returned error %d\n" % ret)
                     sys.exit(1)
-            os.mkdir(dbname)
+            try:
+                os.mkdir(dbname)
+            except OSError:
+                pass
             if (expected_values_dir is not None):
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
@@ -992,12 +1012,18 @@ def main():
     args, unknown_args = parser.parse_known_args()
 
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
-        print(
-            "%s env var is set to a non-existent directory: %s"
-            % (_TEST_DIR_ENV_VAR, test_tmpdir)
-        )
-        sys.exit(1)
+    if test_tmpdir is not None:
+        isdir = False
+        try:
+            isdir = os.path.isdir(test_tmpdir)
+            if not isdir:
+                print(
+                    "%s env var is set to a non-existent directory: %s"
+                    % (_TEST_DIR_ENV_VAR, test_tmpdir)
+                )
+                sys.exit(1)
+        except OSError:
+            pass
 
     if args.stress_cmd:
         stress_cmd = args.stress_cmd
