@@ -22,6 +22,7 @@
 
 ## 8.2.0 (04/24/2023)
 ### Public API Changes
+* EXPERIMENTAL: Add new API `DB::ClipColumnFamily` to clip the key in CF to a certain range. It will physically deletes all keys outside the range including tombstones.
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
 * Add `multi_get_for_update` to C API.
 * Remove unnecessary constructor for CompressionOptions.
