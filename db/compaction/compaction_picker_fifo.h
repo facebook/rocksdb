@@ -52,10 +52,9 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
 
-  Compaction* PickCompactionToWarm(const std::string& cf_name,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   const MutableDBOptions& mutable_db_options,
-                                   VersionStorageInfo* version,
-                                   LogBuffer* log_buffer);
+  Compaction* PickTemperatureChangeCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer);
 };
 }  // namespace ROCKSDB_NAMESPACE

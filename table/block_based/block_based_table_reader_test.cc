@@ -500,6 +500,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
+  options.statistics = CreateDBStatistics();
   ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
@@ -529,8 +530,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
                               static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   Status s = table->VerifyChecksum(ReadOptions(),
                                    TableReaderCaller::kUserVerifyChecksum);
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
