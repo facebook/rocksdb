@@ -1053,13 +1053,17 @@ class DBImpl : public DB {
 
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
-  // Wait for all scheduled flush and compactions to finish.
-  // Unless db is shutting down, wait for the unscheduled ones (queued, but not
-  // scheduled to run yet. Both flush and compactions) to finish as well. This
-  // method may never return if there's sufficient ongoing writes that keeps
-  // flush and compaction going without stopping. The user would have to cease
-  // all the writes to DB to make this eventually return in a stable state.
-  Status WaitForCompact();
+  // Wait for all flush and compactions jobs to finish. Jobs to wait include the
+  // unscheduled (queued, but not scheduled yet). If the db is shutting down,
+  // Status::ShutdownInProgress will be returned. If the background jobs are
+  // paused (PauseBackgroundWork() was called), and abort_on_pause is true,
+  // Status::Aborted will be returned. If PauseBackgroundWork() was called, but
+  // abort_on_pause is false, ContinueBackgroundWork() will be called and jobs
+  // will be waited to finish. This method may also never return if there's
+  // sufficient ongoing writes that keeps flush and compaction going without
+  // stopping. The user would have to cease all the writes to DB to make this
+  // eventually return in a stable state.
+  Status WaitForCompact(bool abort_on_pause = false);
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]

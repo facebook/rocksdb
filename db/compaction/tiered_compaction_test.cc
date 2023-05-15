@@ -445,9 +445,8 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(
-      dbfull()
-          ->WaitForCompact());  // make sure the compaction is able to finish
+  // make sure the compaction is able to finish
+  ASSERT_OK(dbfull()->WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);

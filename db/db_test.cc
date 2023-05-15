@@ -4935,9 +4935,9 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
 
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
-  CancelAllBackgroundWork(db_);
+  CancelAllBackgroundWork(db_, true);
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -5024,7 +5024,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
