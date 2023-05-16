@@ -3962,15 +3962,8 @@ Status DBImpl::WaitForCompact(bool abort_on_pause) {
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
-  Status s;
-  if (bg_work_paused_) {
-    if (abort_on_pause) {
-      return Status::Aborted();
-    }
-    s = ContinueBackgroundWork();
-    if (!s.ok()) {
-      return s;
-    }
+  if (bg_work_paused_ && abort_on_pause) {
+    return Status::Aborted();
   }
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ || unscheduled_compactions_ ||
