@@ -65,11 +65,6 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
 Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  if (options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);

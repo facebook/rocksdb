@@ -388,10 +388,9 @@ static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
-  if (options.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
+  ReadOptions complete_read_options(options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool expose_blob_index = false;
@@ -431,11 +430,11 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // max_visible_seq, and then return the last visible value, so that this
   // restriction can be lifted.
   const Snapshot* snapshot = nullptr;
-  if (options.snapshot == nullptr) {
+  if (complete_read_options.snapshot == nullptr) {
     snapshot = GetSnapshot();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   } else {
-    snapshot = options.snapshot;
+    snapshot = complete_read_options.snapshot;
   }
 
   snapshot_seq = snapshot->GetSequenceNumber();
@@ -467,8 +466,8 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   auto* db_iter = db_impl_->NewIteratorImpl(
-      options, cfd, state->MaxVisibleSeq(), &state->callback, expose_blob_index,
-      allow_refresh);
+      complete_read_options, cfd, state->MaxVisibleSeq(), &state->callback,
+      expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }

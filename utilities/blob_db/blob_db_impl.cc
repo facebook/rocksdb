@@ -1391,8 +1391,11 @@ std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
-  ReadOptions ro(read_options);
-  bool snapshot_created = SetSnapshotIfNeeded(&ro);
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+  bool snapshot_created = SetSnapshotIfNeeded(&complete_read_options);
 
   std::vector<Status> statuses;
   statuses.reserve(keys.size());
@@ -1400,12 +1403,13 @@ std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
   values->reserve(keys.size());
   PinnableSlice value;
   for (size_t i = 0; i < keys.size(); i++) {
-    statuses.push_back(Get(ro, DefaultColumnFamily(), keys[i], &value));
+    statuses.push_back(
+        Get(complete_read_options, DefaultColumnFamily(), keys[i], &value));
     values->push_back(value.ToString());
     value.Reset();
   }
   if (snapshot_created) {
-    db_->ReleaseSnapshot(ro.snapshot);
+    db_->ReleaseSnapshot(complete_read_options.snapshot);
   }
   return statuses;
 }
@@ -1621,7 +1625,13 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
                        PinnableSlice* value, uint64_t* expiration) {
   StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
-  return GetImpl(read_options, column_family, key, value, expiration);
+
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  return GetImpl(complete_read_options, column_family, key, value, expiration);
 }
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
@@ -1630,11 +1640,6 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
-  }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
   }
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
@@ -2041,10 +2046,9 @@ void BlobDBImpl::CopyBlobFiles(
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
@@ -2052,13 +2056,13 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ManagedSnapshot* own_snapshot = nullptr;
-  const Snapshot* snapshot = read_options.snapshot;
+  const Snapshot* snapshot = complete_read_options.snapshot;
   if (snapshot == nullptr) {
     own_snapshot = new ManagedSnapshot(db_);
     snapshot = own_snapshot->snapshot();
   }
   auto* iter = db_impl_->NewIteratorImpl(
-      read_options, cfd, snapshot->GetSequenceNumber(),
+      complete_read_options, cfd, snapshot->GetSequenceNumber(),
       nullptr /*read_callback*/, true /*expose_blob_index*/);
   return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
 }

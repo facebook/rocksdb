@@ -343,25 +343,28 @@ Status DBImplSecondary::RecoverLogFiles(
 Status DBImplSecondary::Get(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value,
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return GetImpl(complete_read_options, column_family, key, value,
                  /*timestamp*/ nullptr);
 }
 
 Status DBImplSecondary::Get(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             PinnableSlice* value, std::string* timestamp) {
-  return GetImpl(read_options, column_family, key, value, timestamp);
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return GetImpl(complete_read_options, column_family, key, value, timestamp);
 }
 
 Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val,
                                 std::string* timestamp) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
@@ -454,24 +457,24 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
                                        ColumnFamilyHandle* column_family) {
-  if (read_options.managed) {
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
+  if (complete_read_options.managed) {
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
-  if (read_options.read_tier == kPersistedTier) {
+  if (complete_read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
-  }
 
   assert(column_family);
-  if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+  if (complete_read_options.timestamp) {
+    const Status s =
+        FailIfTsMismatchCf(column_family, *(complete_read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -486,16 +489,17 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  if (read_options.tailing) {
+  if (complete_read_options.tailing) {
     return NewErrorIterator(Status::NotSupported(
         "tailing iterator not supported in secondary mode"));
-  } else if (read_options.snapshot != nullptr) {
+  } else if (complete_read_options.snapshot != nullptr) {
     // TODO (yanqin) support snapshot.
     return NewErrorIterator(
         Status::NotSupported("snapshot not supported in secondary mode"));
   } else {
     SequenceNumber snapshot(kMaxSequenceNumber);
-    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    result =
+        NewIteratorImpl(complete_read_options, cfd, snapshot, read_callback);
   }
   return result;
 }
@@ -526,28 +530,28 @@ Status DBImplSecondary::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-  if (read_options.managed) {
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
+  if (complete_read_options.managed) {
     return Status::NotSupported("Managed iterator is not supported anymore.");
   }
-  if (read_options.read_tier == kPersistedTier) {
+  if (complete_read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
-  }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call NewIterators with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
   }
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
 
-  if (read_options.timestamp) {
+  if (complete_read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
-                                          /*ts_for_read=*/true);
+      const Status s =
+          FailIfTsMismatchCf(cf, *(complete_read_options.timestamp),
+                             /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -563,10 +567,10 @@ Status DBImplSecondary::NewIterators(
   }
   iterators->clear();
   iterators->reserve(column_families.size());
-  if (read_options.tailing) {
+  if (complete_read_options.tailing) {
     return Status::NotSupported(
         "tailing iterator not supported in secondary mode");
-  } else if (read_options.snapshot != nullptr) {
+  } else if (complete_read_options.snapshot != nullptr) {
     // TODO (yanqin) support snapshot.
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
@@ -574,7 +578,7 @@ Status DBImplSecondary::NewIterators(
     for (auto cfh : column_families) {
       ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       iterators->push_back(
-          NewIteratorImpl(read_options, cfd, read_seq, read_callback));
+          NewIteratorImpl(complete_read_options, cfd, read_seq, read_callback));
     }
   }
   return Status::OK();

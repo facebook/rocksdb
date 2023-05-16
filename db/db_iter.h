@@ -392,6 +392,7 @@ class DBIter final : public Iterator {
   ColumnFamilyData* cfd_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
+  const Env::IOActivity io_activity_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
 };

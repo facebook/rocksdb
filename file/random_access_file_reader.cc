@@ -27,6 +27,11 @@ const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
         FILE_READ_FLUSH_MICROS,
         FILE_READ_COMPACTION_MICROS,
         FILE_READ_DB_OPEN_MICROS,
+        FILE_READ_GET_MICROS,
+        FILE_READ_MULTIGET_MICROS,
+        FILE_READ_DB_ITERATOR_MICROS,
+        FILE_READ_VERIFY_CHECKSUM_MICROS,
+        FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
     }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {

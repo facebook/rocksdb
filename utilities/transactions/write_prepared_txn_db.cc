@@ -250,14 +250,14 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
-  if (options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
+  ReadOptions complete_read_options(options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
   }
+
   SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const SnapshotBackup backed_by_snapshot = AssignMinMaxSeqs(
+      complete_read_options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
   bool* dont_care = nullptr;
@@ -266,7 +266,7 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   get_impl_options.value = value;
   get_impl_options.value_found = dont_care;
   get_impl_options.callback = &callback;
-  auto res = db_impl_->GetImpl(options, key, get_impl_options);
+  auto res = db_impl_->GetImpl(complete_read_options, key, get_impl_options);
   if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
                                                   backed_by_snapshot))) {
     return res;
@@ -318,12 +318,18 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   assert(values);
+  ReadOptions complete_read_options(options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
   size_t num_keys = keys.size();
   values->resize(num_keys);
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = this->Get(options, column_family[i], keys[i], &(*values)[i]);
+    stat_list[i] = this->Get(complete_read_options, column_family[i], keys[i],
+                             &(*values)[i]);
   }
   return stat_list;
 }
@@ -348,21 +354,20 @@ static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
-  if (options.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
+  ReadOptions complete_read_options(options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(options.snapshot)
-            ->min_uncommitted_;
+  if (complete_read_options.snapshot != nullptr) {
+    snapshot_seq = complete_read_options.snapshot->GetSequenceNumber();
+    min_uncommitted = static_cast_with_check<const SnapshotImpl>(
+                          complete_read_options.snapshot)
+                          ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
@@ -377,9 +382,9 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-  auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                expose_blob_index, allow_refresh);
+  auto* db_iter = db_impl_->NewIteratorImpl(complete_read_options, cfd,
+                                            snapshot_seq, &state->callback,
+                                            expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
@@ -388,16 +393,20 @@ Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  ReadOptions complete_read_options(options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(options.snapshot)
-            ->min_uncommitted_;
+  if (complete_read_options.snapshot != nullptr) {
+    snapshot_seq = complete_read_options.snapshot->GetSequenceNumber();
+    min_uncommitted = static_cast_with_check<const SnapshotImpl>(
+                          complete_read_options.snapshot)
+                          ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
@@ -414,9 +423,9 @@ Status WritePreparedTxnDB::NewIterators(
         static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-    auto* db_iter =
-        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                  expose_blob_index, allow_refresh);
+    auto* db_iter = db_impl_->NewIteratorImpl(complete_read_options, cfd,
+                                              snapshot_seq, &state->callback,
+                                              expose_blob_index, allow_refresh);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);
   }

@@ -81,6 +81,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
+      io_activity_(read_options.io_activity),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
@@ -196,12 +197,11 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
-  // TODO: plumb Env::IOActivity
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
   read_options.verify_checksums = verify_checksums_;
-
+  read_options.io_activity = io_activity_;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 

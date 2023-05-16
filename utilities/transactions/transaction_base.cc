@@ -235,11 +235,6 @@ Status TransactionBaseImpl::PopSavePoint() {
 Status TransactionBaseImpl::Get(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   assert(value != nullptr);
   PinnableSlice pinnable_val(value);
   assert(!pinnable_val.IsPinned());
@@ -267,11 +262,6 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
@@ -298,11 +288,6 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
@@ -317,13 +302,6 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   size_t num_keys = keys.size();
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    Status s = Status::InvalidArgument(
-        "Cannot call MultiGet with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-    return std::vector<Status>(num_keys, s);
-  }
-
   values->resize(num_keys);
 
   std::vector<Status> stat_list(num_keys);
@@ -351,12 +329,6 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   // Regardless of whether the MultiGet succeeded, track these keys.
   size_t num_keys = keys.size();
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    Status s = Status::InvalidArgument(
-        "Cannot call MultiGetForUpdate with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-    return std::vector<Status>(num_keys, s);
-  }
   values->resize(num_keys);
 
   // Lock all keys
