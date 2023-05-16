@@ -279,8 +279,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   using HashCref = uint32_t;
 
  public:  // Function definitions expected as parameter to ShardedCache
-  static inline HashVal ComputeHash(const Slice& key) {
-    return Lower32of64(GetSliceNPHash64(key));
+  static inline HashVal ComputeHash(const Slice& key, uint32_t seed) {
+    return Lower32of64(GetSliceNPHash64(key, seed));
   }
 
   // Separate from constructor so caller can easily make an array of LRUCache

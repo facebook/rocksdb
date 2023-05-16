@@ -176,6 +176,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
+    file_temperature_age_type_info = {
+        {"temperature",
+         {offsetof(struct FileTemperatureAge, temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"age",
+         {offsetof(struct FileTemperatureAge, age), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
     fifo_compaction_options_type_info = {
         {"max_table_files_size",
          {offsetof(struct CompactionOptionsFIFO, max_table_files_size),
@@ -192,7 +203,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionOptionsFIFO, allow_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-};
+        {"file_temperature_age_thresholds",
+         OptionTypeInfo::Vector<struct FileTemperatureAge>(
+             offsetof(struct CompactionOptionsFIFO,
+                      file_temperature_age_thresholds),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             OptionTypeInfo::Struct("file_temperature_age_thresholds",
+                                    &file_temperature_age_type_info, 0,
+                                    OptionVerificationType::kNormal,
+                                    OptionTypeFlags::kMutable))}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {

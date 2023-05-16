@@ -700,6 +700,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   cache_usage = cache->GetUsage();
   table_size = cache->GetTableAddressCount();
   occupancy = cache->GetOccupancyCount();
+  hash_seed = cache->GetHashSeed();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -724,7 +725,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
-      << " usage: " << BytesToHumanString(cache_usage)
+      << " seed: " << hash_seed << " usage: " << BytesToHumanString(cache_usage)
       << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
@@ -1687,8 +1688,16 @@ void InternalStats::DumpDBStatsWriteStall(std::string* value) {
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
   *value = str.str();
 }
@@ -1870,8 +1879,16 @@ void InternalStats::DumpCFStatsWriteStall(std::string* value,
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
 
   if (total_stall_count) {

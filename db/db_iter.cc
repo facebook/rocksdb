@@ -964,9 +964,6 @@ bool DBIter::FindValueForCurrentKey() {
     assert(last_key_entry_type == ikey_.type);
   }
 
-  Status s;
-  s.PermitUncheckedError();
-
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -1042,11 +1039,6 @@ bool DBIter::FindValueForCurrentKey() {
           "Unknown value type: " +
           std::to_string(static_cast<unsigned int>(last_key_entry_type)));
       return false;
-  }
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
   }
   valid_ = true;
   return true;

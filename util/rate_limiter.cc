@@ -38,11 +38,10 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
 // Pending request
 struct GenericRateLimiter::Req {
   explicit Req(int64_t _bytes, port::Mutex* _mu)
-      : request_bytes(_bytes), bytes(_bytes), cv(_mu), granted(false) {}
+      : request_bytes(_bytes), bytes(_bytes), cv(_mu) {}
   int64_t request_bytes;
   int64_t bytes;
   port::CondVar cv;
-  bool granted;
 };
 
 GenericRateLimiter::GenericRateLimiter(
@@ -137,12 +136,14 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   ++total_requests_[pri];
 
-  if (available_bytes_ >= bytes) {
-    // Refill thread assigns quota and notifies requests waiting on
-    // the queue under mutex. So if we get here, that means nobody
-    // is waiting?
-    available_bytes_ -= bytes;
-    total_bytes_through_[pri] += bytes;
+  if (available_bytes_ > 0) {
+    int64_t bytes_through = std::min(available_bytes_, bytes);
+    total_bytes_through_[pri] += bytes_through;
+    available_bytes_ -= bytes_through;
+    bytes -= bytes_through;
+  }
+
+  if (bytes == 0) {
     return;
   }
 
@@ -179,7 +180,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // Whichever thread reaches here first performs duty (2) as described
       // above.
       RefillBytesAndGrantRequestsLocked();
-      if (r.granted) {
+      if (r.request_bytes == 0) {
         // If there is any remaining requests, make sure there exists at least
         // one candidate is awake for future duties by signaling a front request
         // of a queue.
@@ -202,13 +203,13 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         ++num_found;
       }
     }
-    if (r.granted) {
+    if (r.request_bytes == 0) {
       assert(num_found == 0);
     } else {
       assert(num_found == 1);
     }
 #endif  // NDEBUG
-  } while (!stop_ && !r.granted);
+  } while (!stop_ && r.request_bytes > 0);
 
   if (stop_) {
     // It is now in the clean-up of ~GenericRateLimiter().
@@ -265,9 +266,8 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
-  if (available_bytes_ < refill_bytes_per_period) {
-    available_bytes_ += refill_bytes_per_period;
-  }
+  assert(available_bytes_ == 0);
+  available_bytes_ = refill_bytes_per_period;
 
   std::vector<Env::IOPriority> pri_iteration_order =
       GeneratePriorityIterationOrderLocked();
@@ -292,7 +292,6 @@ void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
       total_bytes_through_[current_pri] += next_req->bytes;
       queue->pop_front();
 
-      next_req->granted = true;
       // Quota granted, signal the thread to exit
       next_req->cv.Signal();
     }

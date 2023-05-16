@@ -258,6 +258,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.capacity = table_cache_size;
   co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
+  // TODO: Consider a non-fixed seed once test fallout (prefetch_test) is
+  // dealt with
+  co.hash_seed = 0;
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
@@ -4910,6 +4913,15 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
   }
+
+  if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
+    if (!GetEnv()->DeleteFile(file_name).ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to delete temp options file %s",
+                     file_name.c_str());
+    }
+  }
+
   // restore lock
   if (!need_mutex_lock) {
     mutex_.Lock();

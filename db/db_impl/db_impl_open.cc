@@ -616,7 +616,8 @@ Status DBImpl::Recover(
                            f->oldest_blob_file_number, f->oldest_ancester_time,
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
-                           f->unique_id, f->compensated_range_deletion_size);
+                           f->unique_id, f->compensated_range_deletion_size,
+                           f->tail_size);
               ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64
@@ -1453,7 +1454,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         recovery_ctx->UpdateVersionEdits(cfd, iter->second);
       }
 
-      if (flushed) {
+      if (flushed || !data_seen) {
         VersionEdit wal_deletion;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
           wal_deletion.DeleteWalsBefore(max_wal_number + 1);
@@ -1673,14 +1674,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
-                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction, meta.temperature,
-                  meta.oldest_blob_file_number, meta.oldest_ancester_time,
-                  meta.file_creation_time, meta.epoch_number,
-                  meta.file_checksum, meta.file_checksum_func_name,
-                  meta.unique_id, meta.compensated_range_deletion_size);
+    edit->AddFile(
+        level, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
+        meta.smallest, meta.largest, meta.fd.smallest_seqno,
+        meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
+        meta.oldest_blob_file_number, meta.oldest_ancester_time,
+        meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+        meta.file_checksum_func_name, meta.unique_id,
+        meta.compensated_range_deletion_size, meta.tail_size);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

@@ -1170,7 +1170,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         // at L1 (or LBase), if applicable.
         int level = first_overlapped_level;
         final_output_level = level;
-        int output_level, base_level;
+        int output_level = 0, base_level = 0;
         while (level < max_overlapped_level || level == 0) {
           output_level = level + 1;
           if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
@@ -1758,7 +1758,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->epoch_number,
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
-          f->compensated_range_deletion_size);
+          f->compensated_range_deletion_size, f->tail_size);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -3457,7 +3457,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->epoch_number, f->file_checksum,
             f->file_checksum_func_name, f->unique_id,
-            f->compensated_range_deletion_size);
+            f->compensated_range_deletion_size, f->tail_size);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -3569,7 +3569,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Unlock();
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
-    // Should handle erorr?
+    // Should handle error?
     compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();

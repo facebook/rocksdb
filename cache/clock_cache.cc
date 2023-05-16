@@ -130,7 +130,8 @@ HyperClockTable::HyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
     CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
-    const Cache::EvictionCallback* eviction_callback, const Opts& opts)
+    const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
+    const Opts& opts)
     : length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
       length_bits_mask_((size_t{1} << length_bits_) - 1),
@@ -138,7 +139,8 @@ HyperClockTable::HyperClockTable(
                                            kStrictLoadFactor)),
       array_(new HandleImpl[size_t{1} << length_bits_]),
       allocator_(allocator),
-      eviction_callback_(*eviction_callback) {
+      eviction_callback_(*eviction_callback),
+      hash_seed_(*hash_seed) {
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     usage_ += size_t{GetTableSize()} * sizeof(HandleImpl);
@@ -1010,7 +1012,7 @@ inline void HyperClockTable::Evict(size_t requested_charge,
         if (eviction_callback_) {
           took_ownership =
               eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
-                                     h.GetHash(), &unhashed),
+                                     h.GetHash(), &unhashed, hash_seed_),
                                  reinterpret_cast<Cache::Handle*>(&h));
         }
         if (!took_ownership) {
@@ -1039,11 +1041,11 @@ ClockCacheShard<Table>::ClockCacheShard(
     size_t capacity, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
-    const Cache::EvictionCallback* eviction_callback,
+    const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
       table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
-             eviction_callback, opts),
+             eviction_callback, hash_seed, opts),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit) {
   // Initial charge metadata should not exceed capacity
@@ -1082,10 +1084,11 @@ void ClockCacheShard<Table>::ApplyToSomeEntries(
     *state = index_end << (sizeof(size_t) * 8u - length_bits);
   }
 
+  auto hash_seed = table_.GetHashSeed();
   table_.ConstApplyToEntriesRange(
-      [callback](const HandleImpl& h) {
+      [callback, hash_seed](const HandleImpl& h) {
         UniqueId64x2 unhashed;
-        callback(ReverseHash(h.hashed_key, &unhashed), h.value,
+        callback(ReverseHash(h.hashed_key, &unhashed, hash_seed), h.value,
                  h.GetTotalCharge(), h.helper);
       },
       index_begin, index_end, false);
@@ -1295,7 +1298,7 @@ HyperClockCache::HyperClockCache(const HyperClockCacheOptions& opts)
     table_opts.estimated_value_size = opts.estimated_entry_charge;
     new (cs) Shard(per_shard, opts.strict_capacity_limit,
                    opts.metadata_charge_policy, alloc, &eviction_callback_,
-                   table_opts);
+                   &hash_seed_, table_opts);
   });
 }
 
