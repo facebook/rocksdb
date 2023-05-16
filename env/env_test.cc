@@ -3149,15 +3149,14 @@ TEST_F(EnvTest, SemiStructuredUniqueIdGenTestSmaller) {
 }
 
 TEST_F(EnvTest, UnpredictableUniqueIdGenTest1) {
-  // Must be thread safe and usable as a static
+  // Must be thread safe and usable as a static.
   static UnpredictableUniqueIdGen gen;
 
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
-      // No extra entropy is required to get quality pseudorandom results
-      gen.GenerateNext(&p.first, &p.second, /*no extra entropy*/ 0);
+      gen.GenerateNext(&p.first, &p.second);
       return p;
     }
   };
@@ -3167,19 +3166,17 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest1) {
 }
 
 TEST_F(EnvTest, UnpredictableUniqueIdGenTest2) {
+  // Even if we completely strip the seeding and entropy of the structure
+  // down to a bare minimum, we still get quality pseudorandom results.
+  static UnpredictableUniqueIdGen gen{
+      UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
-      // Even if we strip the seeding of the structure down to a bare minimum:
-      // start with thread IDs, we still get quality pseudorandom results
-      thread_local char zero_init_gen[sizeof(UnpredictableUniqueIdGen)]{};
-      UnpredictableUniqueIdGen& gen =
-          *reinterpret_cast<UnpredictableUniqueIdGen*>(&zero_init_gen);
-      thread_local bool first_call = true;
-      gen.GenerateNext(&p.first, &p.second,
-                       first_call ? Env::Default()->GetThreadID() : 0);
-      first_call = false;
+      // No extra entropy is required to get quality pseudorandom results
+      gen.GenerateNextWithEntropy(&p.first, &p.second, /*no extra entropy*/ 0);
       return p;
     }
   };
@@ -3187,6 +3184,26 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest2) {
   MyStressTest t;
   t.Run();
 }
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      thread_local UnpredictableUniqueIdGen gen{
+      UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      // Even without the counter (reset it to thread id), we get quality
+      // single-threaded results.
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
 
 TEST_F(EnvTest, FailureToCreateLockFile) {
   auto env = Env::Default();

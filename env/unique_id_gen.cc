@@ -8,13 +8,21 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <random>
 
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/version.h"
 #include "util/hash.h"
+
+#if defined(__SSE4_2__)
+#include <immintrin.h>
+#else
+#include "rocksdb/system_clock.h"
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -171,36 +179,55 @@ void UnpredictableUniqueIdGen::Reset() {
   }
 }
 
-void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower,
-                                            uint64_t extra_entropy) {
+void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
+  uint64_t extra_entropy;
+  // Use timing information (if available) to add to entropy. (Not a disaster
+  // if unavailable on some platforms. High performance is important.)
+#if defined(__SSE4_2__)  // More than enough to guarantee rdtsc instruction
+  extra_entropy = static_cast<uint64_t>(__rdtsc());
+#else
+  extra_entropy = SystemClock::Default()->NowNanos();
+#endif
+
+  GenerateNextWithEntropy(upper, lower, extra_entropy);
+}
+
+void UnpredictableUniqueIdGen::GenerateNextWithEntropy(uint64_t* upper,
+                                                       uint64_t* lower,
+                                                       uint64_t extra_entropy) {
   // To efficiently ensure unique inputs to the hash function in the presence
   // of multithreading, we do not require atomicity on the whole entropy pool,
-  // but instead only a piece of it (a 64-bit counter at position 0) that is
-  // sufficient to guarantee uniqueness.
-  // In hashing the rest of the pool with that, we don't need to worry about
-  // races, but use atomic operations for sanitizer-friendliness. (Invoking the
-  // hash function several times avoids copying all the inputs to a non-atomic
-  // buffer.)
-  uint64_t a = pool_[0].fetch_add(1, std::memory_order_relaxed);
-  uint64_t b = pool_[1].load(std::memory_order_relaxed);
-  b ^= extra_entropy;
+  // but instead only a piece of it (a 64-bit counter) that is sufficient to
+  // guarantee uniqueness.
+  uint64_t count = counter_.fetch_add(1, std::memory_order_relaxed);
+  uint64_t a = count;
+  uint64_t b = extra_entropy;
+  // Invoking the hash function several times avoids copying all the inputs
+  // to a non-atomic buffer.
   BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
 
-  for (size_t i = 2; i < pool_.size(); i += 2) {
+  // In hashing the rest of the pool with that, we don't need to worry about
+  // races, but use atomic operations for sanitizer-friendliness.
+  for (size_t i = 0; i < pool_.size(); i += 2) {
     a ^= pool_[i].load(std::memory_order_relaxed);
     b ^= pool_[i + 1].load(std::memory_order_relaxed);
     BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
   }
+
+  // Return result
   *lower = a;
   *upper = b;
 
-  // Add back into pool. Reserve position 0 for counter. Reserve positions
-  // 1, 2, and 3 for unchanging data, to reduce risk of degenerate hash
-  // funnels or cycles. We don't really care that there's a race in storing
-  // the result back and another thread computing the next value. It's just
-  // an entropy pool.
-  size_t i = 4 + (static_cast<size_t>(b) & 3);
-  pool_[i].fetch_add(a, std::memory_order_relaxed);
+  // Add some back into pool. We don't really care that there's a race in
+  // storing the result back and another thread computing the next value.
+  // It's just an entropy pool.
+  pool_[count & (pool_.size() - 1)].fetch_add(a, std::memory_order_relaxed);
 }
+
+#ifndef NDEBUG
+UnpredictableUniqueIdGen::UnpredictableUniqueIdGen(TEST_ZeroInitialized) {
+  std::memset(this, 0, sizeof(*this));
+}
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

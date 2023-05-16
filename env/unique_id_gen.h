@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "port/port.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -88,21 +89,32 @@ class SemiStructuredUniqueIdGen {
 // cryptographically secure. Unlike std::random_device, this is guaranteed
 // not to block once initialized, but does depend on adding entropy yourself
 // (`extra entropy`) for the best security.
-class UnpredictableUniqueIdGen {
+class ALIGN_AS(CACHE_LINE_SIZE) UnpredictableUniqueIdGen {
  public:
   // Initializes with random starting state (from several GenerateRawUniqueId)
   UnpredictableUniqueIdGen() { Reset(); }
   // Re-initializes, but not thread safe
   void Reset();
 
-  // Generate next probabilistically unique value, incorporating extra_entropy
-  // in the result and into the entropy pool for subsequent values. Thread
-  // safe.
-  void GenerateNext(uint64_t* upper, uint64_t* lower, uint64_t extra_entropy);
+  // Generate next probabilistically unique value. Thread safe. Uses timing
+  // information to add to the entropy pool.
+  void GenerateNext(uint64_t* upper, uint64_t* lower);
 
+  // Explicitly include given value for entropy pool instead of timing
+  // information.
+  void GenerateNextWithEntropy(uint64_t* upper, uint64_t* lower,
+                               uint64_t extra_entropy);
+
+#ifndef NDEBUG
+  struct TEST_ZeroInitialized {};
+  explicit UnpredictableUniqueIdGen(TEST_ZeroInitialized);
+  std::atomic<uint64_t>& TEST_counter() { return counter_; }
+#endif
  private:
-  // 512-bit entropy pool
-  std::array<std::atomic<uint64_t>, 8> pool_;
+  // 256 bit entropy pool
+  std::array<std::atomic<uint64_t>, 4> pool_;
+  // Counter to ensure unique hash inputs
+  std::atomic<uint64_t> counter_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
