@@ -3054,7 +3054,7 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
   VerifyRfcUuids(t.ids);
 }
 
-// Test the atomic, linear generation of GenerateRawUuid
+// Test the atomic, linear generation of GenerateRawUniqueId
 TEST_F(EnvTest, GenerateRawUniqueId) {
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
@@ -3230,6 +3230,30 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest4) {
   // we really only have microsecond fidelity. Also, wall clock might not be
   // monotonic.
 #endif
+}
+
+TEST_F(EnvTest, FooterSaltUnique) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      FooterBuilder builder;
+      BlockHandle meta_handle{100, 200};
+      EXPECT_OK(builder.Build(
+          0x88e241b785f4cff7ull /*block-based table*/, 6 /*format_version*/,
+          meta_handle.offset() + meta_handle.size() + 5 /*footer_offset*/,
+          ChecksumType::kCRC32c, meta_handle,
+          BlockHandle::NullBlockHandle() /*index handle N/A*/,
+          42 /*base_context_checksum*/));
+      uint64_pair_t p;
+      // Extract the salt bytes
+      p.first = DecodeFixed64(builder.GetSlice().data() + 17);
+      p.second = DecodeFixed64(builder.GetSlice().data() + 25);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
 }
 
 TEST_F(EnvTest, FailureToCreateLockFile) {

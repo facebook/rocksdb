@@ -4472,11 +4472,12 @@ TEST(TableTest, FooterTests) {
   BlockHandle index(data_size + 5, index_size);
   BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
   uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
+  uint32_t base_context_checksum = 123456789;
   {
     // legacy block based
     FooterBuilder footer;
-    footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
-                 footer_offset, kCRC32c, meta_index, index);
+    ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
+                           footer_offset, kCRC32c, meta_index, index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
@@ -4486,6 +4487,7 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.format_version(), 0U);
+    ASSERT_EQ(decoded_footer.base_context_checksum(), 0U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
     // Ensure serialized with legacy magic
     ASSERT_EQ(
@@ -4495,9 +4497,11 @@ TEST(TableTest, FooterTests) {
   // block based, various checksums, various versions
   for (auto t : GetSupportedChecksums()) {
     for (uint32_t fv = 1; IsSupportedFormatVersion(fv); ++fv) {
+      uint32_t maybe_bcc =
+          FormatVersionUsesContextChecksum(fv) ? base_context_checksum : 0U;
       FooterBuilder footer;
-      footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
-                   meta_index, index);
+      ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
+                             meta_index, index, maybe_bcc));
       Footer decoded_footer;
       ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
       ASSERT_EQ(decoded_footer.table_magic_number(),
@@ -4506,18 +4510,44 @@ TEST(TableTest, FooterTests) {
       ASSERT_EQ(decoded_footer.metaindex_handle().offset(),
                 meta_index.offset());
       ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-      ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-      ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+      if (FormatVersionUsesIndexHandleInFooter(fv)) {
+        ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
+        ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+      }
       ASSERT_EQ(decoded_footer.format_version(), fv);
       ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
+
+      if (FormatVersionUsesContextChecksum(fv)) {
+        ASSERT_EQ(decoded_footer.base_context_checksum(),
+                  base_context_checksum);
+
+        // Bad offset should fail footer checksum
+        decoded_footer = Footer();
+        ASSERT_NOK(
+            decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset - 1));
+      } else {
+        ASSERT_EQ(decoded_footer.base_context_checksum(), 0U);
+      }
+
+      // Too big metaindex size should also fail encoding only in new footer
+      uint64_t big_metaindex_size = 0x100000007U;
+      uint64_t big_footer_offset =
+          data_size + big_metaindex_size + index_size + 3 * 5;
+      BlockHandle big_metaindex =
+          BlockHandle(data_size + index_size + 2 * 5, big_metaindex_size);
+      ASSERT_NE(footer
+                    .Build(kBlockBasedTableMagicNumber, fv, big_footer_offset,
+                           t, big_metaindex, index, maybe_bcc)
+                    .ok(),
+                FormatVersionUsesContextChecksum(fv));
     }
   }
 
   {
     // legacy plain table
     FooterBuilder footer;
-    footer.Build(kPlainTableMagicNumber, /* format_version */ 0, footer_offset,
-                 kNoChecksum, meta_index);
+    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
+                           footer_offset, kNoChecksum, meta_index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
@@ -4536,8 +4566,8 @@ TEST(TableTest, FooterTests) {
   {
     // xxhash plain table (not currently used)
     FooterBuilder footer;
-    footer.Build(kPlainTableMagicNumber, /* format_version */ 1, footer_offset,
-                 kxxHash, meta_index);
+    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 1,
+                           footer_offset, kxxHash, meta_index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
@@ -5211,9 +5241,13 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
     }
   }
   ASSERT_EQ(kPropertiesBlockName, key_at_max_offset);
-  // index handle is stored in footer rather than metaindex block, so need
-  // separate logic to verify it comes before properties block.
-  ASSERT_GT(max_offset, footer.index_handle().offset());
+  if (FormatVersionUsesIndexHandleInFooter(footer.format_version())) {
+    // If index handle is stored in footer rather than metaindex block,
+    // need separate logic to verify it comes before properties block.
+    ASSERT_GT(max_offset, footer.index_handle().offset());
+  } else {
+    ASSERT_TRUE(footer.index_handle().IsNull());
+  }
   c.ResetTableReader();
 }
 

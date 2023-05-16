@@ -2361,6 +2361,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
         EXPECT_EQ("rocksdb.hashindex.prefixes",
                   PopMetaIndexKey(meta_iter.get()));
       }
+      if (bbto->format_version >= 6) {
+        EXPECT_EQ("rocksdb.index", PopMetaIndexKey(meta_iter.get()));
+      }
     }
     EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));
     EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));

@@ -403,8 +403,12 @@ Status CuckooTableBuilder::Finish() {
   }
 
   FooterBuilder footer;
-  footer.Build(kCuckooTableMagicNumber, /* format_version */ 1, offset,
-               kNoChecksum, meta_index_block_handle);
+  Status s = footer.Build(kCuckooTableMagicNumber, /* format_version */ 1,
+                          offset, kNoChecksum, meta_index_block_handle);
+  if (!s.ok()) {
+    status_ = s;
+    return status_;
+  }
   io_status_ = file_->Append(footer.GetSlice());
   status_ = io_status_;
   return status_;

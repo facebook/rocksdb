@@ -23,10 +23,14 @@ void ForceReleaseCachedEntry(void* arg, void* h) {
 }
 
 // WART: this is specific to block-based table
-Status VerifyBlockChecksum(ChecksumType type, const char* data,
+Status VerifyBlockChecksum(const Footer& footer, const char* data,
                            size_t block_size, const std::string& file_name,
                            uint64_t offset) {
   PERF_TIMER_GUARD(block_checksum_time);
+
+  assert(footer.GetBlockTrailerSize() == 5);
+  ChecksumType type = footer.checksum_type();
+
   // After block_size bytes is compression type (1 byte), which is part of
   // the checksummed section.
   size_t len = block_size + 1;
@@ -34,6 +38,13 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
   uint32_t stored = DecodeFixed32(data + len);
 
   uint32_t computed = ComputeBuiltinChecksum(type, data, len);
+
+  // Unapply context to 'stored' rather than apply to 'computed, for people
+  // who might look for reference crc value in error message
+  uint32_t modifier =
+      ChecksumModifierForContext(footer.base_context_checksum(), offset);
+  stored -= modifier;
+
   if (stored == computed) {
     return Status::OK();
   } else {
@@ -43,8 +54,9 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
       computed = crc32c::Unmask(computed);
     }
     return Status::Corruption(
-        "block checksum mismatch: stored = " + std::to_string(stored) +
-        ", computed = " + std::to_string(computed) +
+        "block checksum mismatch: stored" +
+        std::string(modifier ? "(context removed)" : "") + " = " +
+        std::to_string(stored) + ", computed = " + std::to_string(computed) +
         ", type = " + std::to_string(type) + "  in " + file_name + " offset " +
         std::to_string(offset) + " size " + std::to_string(block_size));
   }

@@ -5,6 +5,7 @@
 
 #include <cstdint>
 
+#include "env/unique_id_gen.h"
 #include "table/unique_id_impl.h"
 #include "util/coding_lean.h"
 #include "util/hash.h"
@@ -218,6 +219,15 @@ std::string InternalUniqueIdToHumanString(UniqueIdPtr in) {
   }
   str += "}";
   return str;
+}
+
+void GenerateSalt(UniqueIdPtr buf) {
+  static UnpredictableUniqueIdGen gen;
+  gen.GenerateNext(&buf.ptr[0], &buf.ptr[1]);
+  if (buf.extended) {
+    uint64_t ignored;
+    gen.GenerateNext(&buf.ptr[2], &ignored);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
