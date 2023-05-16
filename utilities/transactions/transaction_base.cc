@@ -248,8 +248,12 @@ Status TransactionBaseImpl::Get(const ReadOptions& read_options,
 Status TransactionBaseImpl::Get(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
-  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
-                                        pinnable_val);
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return write_batch_.GetFromBatchAndDB(db_, complete_read_options,
+                                        column_family, key, pinnable_val);
 }
 
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
@@ -301,12 +305,18 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
   size_t num_keys = keys.size();
   values->resize(num_keys);
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
+    stat_list[i] =
+        Get(complete_read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;
@@ -317,8 +327,11 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
                                    const bool sorted_input) {
-  assert(read_options.io_activity == Env::IOActivity::kUnknown);
-  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+  write_batch_.MultiGetFromBatchAndDB(db_, complete_read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
 }

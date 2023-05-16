@@ -585,6 +585,8 @@ class NonBatchedOpsStressTest : public StressTest {
     bool do_consistency_check = thread->rand.OneIn(4);
 
     ReadOptions readoptionscopy = read_opts;
+    readoptionscopy.io_activity = Env::IOActivity::kMultiGet;
+
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
