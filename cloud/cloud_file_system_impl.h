@@ -228,16 +228,10 @@ class CloudFileSystemImpl : public CloudFileSystem {
   }
 
   CloudManifest* GetCloudManifest() { return cloud_manifest_.get(); }
-  void TEST_InitEmptyCloudManifest();
-  void TEST_DisableCloudManifest() { test_disable_cloud_manifest_ = true; }
 
   IOStatus DeleteCloudFileFromDest(const std::string& fname) override;
   IOStatus CopyLocalFileToDest(const std::string& local_name,
                                const std::string& cloud_name) override;
-
-  void RemoveFileFromDeletionQueue(const std::string& filename);
-
-  void TEST_SetFileDeletionDelay(std::chrono::seconds delay);
 
   Status PrepareOptions(const ConfigOptions& config_options) override;
   Status ValidateOptions(const DBOptions& /*db_opts*/,
@@ -274,15 +268,19 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus UploadCloudManifest(const std::string& local_dbname,
                                const std::string& cookie) const;
 
-  // Get current number of scheduled jobs in cloud scheduler
-  // Used for test only
-  size_t TEST_NumScheduledJobs() const;
-
   // Delete invisible files in cloud.
   //
   // REQUIRES: Dest bucket set
   IOStatus DeleteCloudInvisibleFiles(
       const std::vector<std::string>& active_cookies) override;
+
+#ifndef NDEBUG
+  void TEST_InitEmptyCloudManifest();
+  void TEST_DisableCloudManifest() { test_disable_cloud_manifest_ = true; }
+  // Get current number of scheduled jobs in cloud scheduler
+  // Used for test only
+  size_t TEST_NumScheduledJobs() const;
+#endif
 
  protected:
   Status CheckValidity() const;
@@ -362,8 +360,6 @@ class CloudFileSystemImpl : public CloudFileSystem {
   // purger_cv_);
   bool purger_is_running_;
   std::thread purge_thread_;
-
-  std::shared_ptr<CloudScheduler> scheduler_;
 
   // A background thread that deletes orphaned objects in cloud storage
   void Purger();

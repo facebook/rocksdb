@@ -4,6 +4,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
@@ -398,10 +399,13 @@ class CloudFileSystemOptions {
 
   // Experimental option!
   // Delay after files(including both invisible and obsolete files) are
-  // scheduled to be deleted
+  // scheduled to be deleted.
+  // If not set, file deletion won't be scheduled asynchronously but deleted
+  // right away. Note this is different from setting the value to 0, in which
+  // case the file deletion is still scheduled async.
   //
   // Default: 1 hour
-  std::chrono::seconds cloud_file_deletion_delay;
+  std::optional<std::chrono::seconds> cloud_file_deletion_delay;
 
   CloudFileSystemOptions(
       CloudType _cloud_type = CloudType::kCloudAws,

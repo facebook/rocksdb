@@ -78,4 +78,11 @@ void CloudFileDeletionScheduler::DoDeleteFile(const std::string& fname,
 
   runnable();
 }
+
+#ifndef NDEBUG
+size_t CloudFileDeletionScheduler::TEST_NumScheduledJobs() const {
+  return scheduler_->TEST_NumScheduledJobs();
+}
+#endif
+
 }

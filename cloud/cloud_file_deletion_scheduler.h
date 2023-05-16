@@ -31,10 +31,8 @@ class CloudFileDeletionScheduler
   rocksdb::IOStatus ScheduleFileDeletion(const std::string& filename,
                                          FileDeletionRunnable runnable);
 
-  void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    file_deletion_delay_ = delay;
-  }
+#ifndef NDEBUG
+  size_t TEST_NumScheduledJobs() const;
 
   // Return all the files that are scheduled to be deleted(but not deleted yet)
   std::vector<std::string> TEST_FilesToDelete() const {
@@ -46,6 +44,7 @@ class CloudFileDeletionScheduler
     }
     return files;
   }
+#endif
 
  private:
   // execute the `FileDeletionRunnable`

@@ -696,12 +696,13 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   CloudFileSystem* cfs = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);
+  // Delete cloud files immediately
+  coptions.cloud_file_deletion_delay = std::nullopt;
   Status st = CloudFileSystem::NewAwsFileSystem(parent->GetFileSystem(),
                                                 coptions, info_log_, &cfs);
   auto* cimpl = dynamic_cast<CloudFileSystemImpl*>(cfs);
   assert(cimpl);
   cimpl->TEST_DisableCloudManifest();
-  cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
   ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());

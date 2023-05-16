@@ -58,6 +58,10 @@ class CloudTest : public testing::Test {
     clone_dir_ = test::TmpDir() + "/ctest-" + test_id_;
     cloud_fs_options_.TEST_Initialize("dbcloudtest.", dbname_);
     cloud_fs_options_.resync_manifest_on_open = true;
+    cloud_fs_options_.use_aws_transfer_manager = true;
+    // To catch any possible file deletion bugs, cloud files are deleted
+    // right away
+    cloud_fs_options_.cloud_file_deletion_delay = std::nullopt;
 
     options_.create_if_missing = true;
     options_.stats_dump_period_sec = 0;
@@ -158,11 +162,6 @@ class CloudTest : public testing::Test {
 
   void CreateCloudEnv() {
     CloudFileSystem* cfs;
-    cloud_fs_options_.use_aws_transfer_manager = true;
-    // To catch any possible file deletion bugs, we set file deletion delay to
-    // smallest possible
-    cloud_fs_options_.cloud_file_deletion_delay =
-        std::chrono::seconds(0);
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
                                                 cloud_fs_options_,
                                                 options_.info_log, &cfs));
@@ -261,10 +260,6 @@ class CloudTest : public testing::Test {
       return st;
     }
 
-    // To catch any possible file deletion bugs, we set file deletion delay to
-    // smallest possible
-    auto* cimpl = static_cast<CloudFileSystemImpl*>(cfs);
-    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     // sets the env to be used by the env wrapper, and returns that env
     env->reset(
         new CompositeEnvWrapper(base_env_, std::shared_ptr<FileSystem>(cfs)));
@@ -958,10 +953,10 @@ TEST_F(CloudTest, DelayFileDeletion) {
 
   // Create aws env
   cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.cloud_file_deletion_delay = std::chrono::seconds(2);
   CreateCloudEnv();
   auto* cimpl = GetCloudFileSystemImpl();
   cimpl->TEST_InitEmptyCloudManifest();
-  cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(2));
 
   auto createFile = [&]() {
     std::unique_ptr<FSWritableFile> writer;
@@ -2641,7 +2636,6 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
 
 // Verify invisible CLOUDMANIFEST file deleteion
 TEST_F(CloudTest, CloudManifestFileDeletionTest) {
-
   // create CLOUDMANIFEST file in s3
   cloud_fs_options_.cookie_on_open = "";
   cloud_fs_options_.new_cookie_on_open = "";
@@ -2654,30 +2648,35 @@ TEST_F(CloudTest, CloudManifestFileDeletionTest) {
   OpenDB();
   CloseDB();
 
+  auto checkCloudManifestFileExistence = [&](std::vector<std::string> cookies) {
+    for (auto cookie : cookies) {
+      EXPECT_OK(
+          GetCloudFileSystemImpl()->GetStorageProvider()->ExistsCloudObject(
+              GetCloudFileSystemImpl()->GetDestBucketName(),
+              MakeCloudManifestFile(
+                  GetCloudFileSystemImpl()->GetDestObjectPath(), cookie)));
+    }
+  };
+
   // double check that the CM files are indeed created
-  for (auto cookie: {"", "1"}) {
-    EXPECT_OK(GetCloudFileSystemImpl()->GetStorageProvider()->ExistsCloudObject(
-        GetCloudFileSystemImpl()->GetDestBucketName(),
-        MakeCloudManifestFile(GetCloudFileSystemImpl()->GetDestObjectPath(),
-                              cookie)));
-  }
+  checkCloudManifestFileExistence({"", "1"});
 
   // set large file deletion delay so that files are not deleted immediately
-  GetCloudFileSystemImpl()->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  cloud_fs_options_.cloud_file_deletion_delay = std::chrono::hours(1);
+  EXPECT_EQ(GetCloudFileSystemImpl()->TEST_NumScheduledJobs(), 0);
 
   // now we reopen the db with empty cookie_on_open and new_cookie_on_open =
   // "1". Double check that CLOUDMANIFEST-1 is not deleted!
   OpenDB();
-  EXPECT_EQ(GetCloudFileSystemImpl()->TEST_NumScheduledJobs(), 0);
+  checkCloudManifestFileExistence({"", "1"});
   CloseDB();
-
 
   // switch to new cookie
   cloud_fs_options_.cookie_on_open = "1";
   cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   // double check that CLOUDMANIFEST is never deleted
-  EXPECT_EQ(GetCloudFileSystemImpl()->TEST_NumScheduledJobs(), 0);
+  checkCloudManifestFileExistence({"", "1", "2"});
   CloseDB();
 }
 

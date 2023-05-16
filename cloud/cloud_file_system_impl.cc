@@ -33,9 +33,10 @@ CloudFileSystemImpl::CloudFileSystemImpl(
     const CloudFileSystemOptions& opts, const std::shared_ptr<FileSystem>& base,
     const std::shared_ptr<Logger>& l)
     : CloudFileSystem(opts, base, l), purger_is_running_(true) {
-  scheduler_ = CloudScheduler::Get();
-  cloud_file_deletion_scheduler_ =
-      CloudFileDeletionScheduler::Create(scheduler_, opts.cloud_file_deletion_delay);
+  if (opts.cloud_file_deletion_delay) {
+    cloud_file_deletion_scheduler_ = CloudFileDeletionScheduler::Create(
+        CloudScheduler::Get(), *opts.cloud_file_deletion_delay);
+  }
 }
 
 CloudFileSystemImpl::~CloudFileSystemImpl() {
@@ -786,19 +787,13 @@ IOStatus CloudFileSystemImpl::DeleteFile(const std::string& logical_fname,
   return st;
 }
 
-void CloudFileSystemImpl::RemoveFileFromDeletionQueue(
-    const std::string& filename) {
-  cloud_file_deletion_scheduler_->UnscheduleFileDeletion(filename);
-}
-
-void CloudFileSystemImpl::TEST_SetFileDeletionDelay(
-    std::chrono::seconds delay) {
-  cloud_file_deletion_scheduler_->TEST_SetFileDeletionDelay(delay);
-}
-
 IOStatus CloudFileSystemImpl::CopyLocalFileToDest(
     const std::string& local_name, const std::string& dest_name) {
-  RemoveFileFromDeletionQueue(basename(local_name));
+  if (cloud_file_deletion_scheduler_) {
+    // Remove file from deletion queue
+    cloud_file_deletion_scheduler_->UnscheduleFileDeletion(
+        basename(local_name));
+  }
   return GetStorageProvider()->PutCloudObject(local_name, GetDestBucketName(),
                                               dest_name);
 }
@@ -809,6 +804,9 @@ IOStatus CloudFileSystemImpl::DeleteCloudFileFromDest(
   auto base = basename(fname);
   auto path = GetDestObjectPath() + pathsep + base;
   auto bucket = GetDestBucketName();
+  if (!cloud_file_deletion_scheduler_) {
+    return GetStorageProvider()->DeleteCloudObject(bucket, path);
+  }
   std::weak_ptr<Logger> info_log_wp = info_log_;
   std::weak_ptr<CloudStorageProvider> storage_provider_wp =
       GetStorageProvider();
@@ -1023,10 +1021,6 @@ bool CloudFileSystemImpl::IsFileInvisible(
     }
   }
   return false;
-}
-
-void CloudFileSystemImpl::TEST_InitEmptyCloudManifest() {
-  CloudManifest::CreateForEmptyDatabase("", &cloud_manifest_);
 }
 
 IOStatus CloudFileSystemImpl::CreateNewIdentityFile(
@@ -2060,9 +2054,6 @@ IOStatus CloudFileSystemImpl::UploadCloudManifest(
   return st;
 }
 
-size_t CloudFileSystemImpl::TEST_NumScheduledJobs() const {
-  return scheduler_->TEST_NumScheduledJobs();
-};
 
 IOStatus CloudFileSystemImpl::ApplyCloudManifestDelta(
     const CloudManifestDelta& delta, bool* delta_applied) {
@@ -2361,6 +2352,17 @@ IOStatus CloudFileSystemImpl::FindAllLiveFiles(
 std::string CloudFileSystemImpl::CloudManifestFile(const std::string& dbname) {
   return MakeCloudManifestFile(dbname, cloud_fs_options.cookie_on_open);
 }
+
+#ifndef NDEBUG
+void CloudFileSystemImpl::TEST_InitEmptyCloudManifest() {
+  CloudManifest::CreateForEmptyDatabase("", &cloud_manifest_);
+}
+
+size_t CloudFileSystemImpl::TEST_NumScheduledJobs() const {
+  return cloud_file_deletion_scheduler_ ? cloud_file_deletion_scheduler_->TEST_NumScheduledJobs() : 0;
+}
+
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
