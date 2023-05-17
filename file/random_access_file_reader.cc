@@ -19,7 +19,7 @@
 #include "table/format.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>

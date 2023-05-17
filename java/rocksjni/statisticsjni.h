@@ -13,7 +13,7 @@
 #include <set>
 #include <string>
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {

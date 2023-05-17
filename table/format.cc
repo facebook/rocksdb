@@ -14,9 +14,9 @@
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"

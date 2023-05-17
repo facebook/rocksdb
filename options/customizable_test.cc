@@ -35,7 +35,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
