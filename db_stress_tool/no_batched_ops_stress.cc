@@ -753,7 +753,7 @@ class NonBatchedOpsStressTest : public StressTest {
           char expected_value[100];
           if (s.ok()) {
             Slice from_db_slice(values[i]);
-            if (!ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+            if (ExpectedValueHelper::MustHaveNotExisted(expected, expected)) {
               fprintf(stderr,
                       "MultiGet returned value different from what was written "
                       "for key %s\n",
