@@ -101,7 +101,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -244,7 +246,18 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
@@ -2295,7 +2308,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -2436,7 +2451,18 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);

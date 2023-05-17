@@ -37,6 +37,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "table/compaction_merging_iterator.h"
 
@@ -3282,6 +3283,55 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
   }
   return ttl_expired_files_count;
 }
+
+bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
+                                 const MutableCFOptions& mutable_cf_options,
+                                 const std::vector<FileMetaData*>& files) {
+  const std::vector<FileTemperatureAge>& ages =
+      mutable_cf_options.compaction_options_fifo
+          .file_temperature_age_thresholds;
+  if (ages.empty()) {
+    return false;
+  }
+  if (files.empty()) {
+    return false;
+  }
+  int64_t _current_time;
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+  // We use oldest_ancestor_time of a file to be the estimate age of
+  // the file just older than it. This is the same logic used in
+  // FIFOCompactionPicker::PickTemperatureChangeCompaction().
+  if (status.ok() && current_time >= ages[0].age) {
+    uint64_t create_time_threshold = current_time - ages[0].age;
+    Temperature target_temp;
+    assert(files.size() >= 1);
+    for (size_t index = files.size() - 1; index >= 1; --index) {
+      FileMetaData* cur_file = files[index];
+      FileMetaData* prev_file = files[index - 1];
+      if (!cur_file->being_compacted) {
+        uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
+        if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
+          return false;
+        }
+        if (oldest_ancestor_time > create_time_threshold) {
+          return false;
+        }
+        target_temp = ages[0].temperature;
+        for (size_t i = 1; i < ages.size(); ++i) {
+          if (current_time >= ages[i].age &&
+              oldest_ancestor_time <= current_time - ages[i].age) {
+            target_temp = ages[i].temperature;
+          }
+        }
+        if (cur_file->temperature != target_temp) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 }  // anonymous namespace
 
 void VersionStorageInfo::ComputeCompactionScore(
@@ -3339,22 +3389,25 @@ void VersionStorageInfo::ComputeCompactionScore(
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 mutable_cf_options.compaction_options_fifo.max_table_files_size;
-        if (mutable_cf_options.compaction_options_fifo.allow_compaction ||
-            mutable_cf_options.compaction_options_fifo.age_for_warm > 0) {
-          // Warm tier move can happen at any time. It's too expensive to
-          // check very file's timestamp now. For now, just trigger it
-          // slightly more frequently than FIFO compaction so that this
-          // happens first.
+        if (score < 1 &&
+            mutable_cf_options.compaction_options_fifo.allow_compaction) {
           score = std::max(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
               score);
         }
-        if (mutable_cf_options.ttl > 0) {
-          score = std::max(
-              static_cast<double>(GetExpiredTtlFilesCount(
-                  immutable_options, mutable_cf_options, files_[level])),
-              score);
+        if (score < 1 && mutable_cf_options.ttl > 0) {
+          score =
+              std::max(static_cast<double>(GetExpiredTtlFilesCount(
+                           immutable_options, mutable_cf_options, files_[0])),
+                       score);
+        }
+        if (score < 1 &&
+            ShouldChangeFileTemperature(immutable_options, mutable_cf_options,
+                                        files_[0])) {
+          // For FIFO, just need a large enough score to trigger compaction.
+          const double kScoreForNeedCompaction = 1.1;
+          score = kScoreForNeedCompaction;
         }
       } else {
         score = static_cast<double>(num_sorted_runs) /
@@ -6353,7 +6406,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->oldest_blob_file_number, f->oldest_ancester_time,
                        f->file_creation_time, f->epoch_number, f->file_checksum,
                        f->file_checksum_func_name, f->unique_id,
-                       f->compensated_range_deletion_size);
+                       f->compensated_range_deletion_size, f->tail_size);
         }
       }
 

@@ -34,8 +34,8 @@ class CacheShardBase {
   std::string GetPrintableOptions() const { return ""; }
   using HashVal = uint64_t;
   using HashCref = uint64_t;
-  static inline HashVal ComputeHash(const Slice& key) {
-    return GetSliceNPHash64(key);
+  static inline HashVal ComputeHash(const Slice& key, uint32_t seed) {
+    return GetSliceNPHash64(key, seed);
   }
   static inline uint32_t HashPieceForSharding(HashCref hash) {
     return Lower32of64(hash);
@@ -89,9 +89,7 @@ class CacheShardBase {
 // Portions of ShardedCache that do not depend on the template parameter
 class ShardedCacheBase : public Cache {
  public:
-  ShardedCacheBase(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit,
-                   std::shared_ptr<MemoryAllocator> memory_allocator);
+  explicit ShardedCacheBase(const ShardedCacheOptions& opts);
   virtual ~ShardedCacheBase() = default;
 
   int GetNumShardBits() const;
@@ -106,6 +104,8 @@ class ShardedCacheBase : public Cache {
   size_t GetUsage(Handle* handle) const override;
   std::string GetPrintableOptions() const override;
 
+  uint32_t GetHashSeed() const override { return hash_seed_; }
+
  protected:  // fns
   virtual void AppendPrintableOptions(std::string& str) const = 0;
   size_t GetPerShardCapacity() const;
@@ -114,6 +114,7 @@ class ShardedCacheBase : public Cache {
  protected:                        // data
   std::atomic<uint64_t> last_id_;  // For NewId
   const uint32_t shard_mask_;
+  const uint32_t hash_seed_;
 
   // Dynamic configuration parameters, guarded by config_mutex_
   bool strict_capacity_limit_;
@@ -134,10 +135,8 @@ class ShardedCache : public ShardedCacheBase {
   using HashCref = typename CacheShard::HashCref;
   using HandleImpl = typename CacheShard::HandleImpl;
 
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocator> allocator)
-      : ShardedCacheBase(capacity, num_shard_bits, strict_capacity_limit,
-                         allocator),
+  explicit ShardedCache(const ShardedCacheOptions& opts)
+      : ShardedCacheBase(opts),
         shards_(reinterpret_cast<CacheShard*>(port::cacheline_aligned_alloc(
             sizeof(CacheShard) * GetNumShards()))),
         destroy_shards_in_dtor_(false) {}
@@ -175,7 +174,7 @@ class ShardedCache : public ShardedCacheBase {
                 size_t charge, Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     assert(helper);
-    HashVal hash = CacheShard::ComputeHash(key);
+    HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     auto h_out = reinterpret_cast<HandleImpl**>(handle);
     return GetShard(hash).Insert(key, hash, obj, helper, charge, h_out,
                                  priority);
@@ -185,7 +184,7 @@ class ShardedCache : public ShardedCacheBase {
                            const CacheItemHelper* helper, size_t charge,
                            bool allow_uncharged) override {
     assert(helper);
-    HashVal hash = CacheShard::ComputeHash(key);
+    HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     HandleImpl* result = GetShard(hash).CreateStandalone(
         key, hash, obj, helper, charge, allow_uncharged);
     return reinterpret_cast<Handle*>(result);
@@ -195,14 +194,14 @@ class ShardedCache : public ShardedCacheBase {
                  CreateContext* create_context = nullptr,
                  Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override {
-    HashVal hash = CacheShard::ComputeHash(key);
+    HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     HandleImpl* result = GetShard(hash).Lookup(key, hash, helper,
                                                create_context, priority, stats);
     return reinterpret_cast<Handle*>(result);
   }
 
   void Erase(const Slice& key) override {
-    HashVal hash = CacheShard::ComputeHash(key);
+    HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     GetShard(hash).Erase(key, hash);
   }
 

@@ -115,6 +115,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kFastCompressionEstimatedDataSize,
         props.fast_compression_estimated_data_size);
   }
+  Add(TablePropertiesNames::kTailStartOffset, props.tail_start_offset);
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -307,6 +308,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->slow_compression_estimated_data_size},
       {TablePropertiesNames::kFastCompressionEstimatedDataSize,
        &new_table_properties->fast_compression_estimated_data_size},
+      {TablePropertiesNames::kTailStartOffset,
+       &new_table_properties->tail_start_offset},
   };
 
   std::string last_key;

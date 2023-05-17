@@ -242,6 +242,46 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   }
 }
 
+TEST_F(DBStatisticsTest, BlockChecksumStats) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Scenario 0: only WAL data. Not verified so require ticker to be zero.
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 1: Flushed table verified in `VerifyChecksum()`. This opens a
+  // `TableReader` to verify each of the four blocks (meta-index, table
+  // properties, index, and data block).
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 2: Corrupted table verified in `VerifyChecksum()`. The corruption
+  // is in the fourth and final verified block, i.e., the data block.
+  std::unordered_map<std::string, uint64_t> table_files;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files));
+  ASSERT_EQ(1, table_files.size());
+  std::string table_name = table_files.begin()->first;
+  // Assumes the data block starts at offset zero.
+  ASSERT_OK(test::CorruptFile(options.env, table_name, 0 /* offset */,
+                              3 /* bytes_to_corrupt */));
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_NOK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -205,6 +205,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
     {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
+    {BLOCK_CHECKSUM_MISMATCH_COUNT, "rocksdb.block.checksum.mismatch.count"},
     {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"},
     {BLOB_DB_CACHE_MISS, "rocksdb.blobdb.cache.miss"},
     {BLOB_DB_CACHE_HIT, "rocksdb.blobdb.cache.hit"},

@@ -37,6 +37,10 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
           footer_.checksum_type(), slice_.data(), block_size_,
           file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+      if (!io_status_.ok()) {
+        assert(io_status_.IsCorruption());
+        RecordTick(ioptions_.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+      }
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);

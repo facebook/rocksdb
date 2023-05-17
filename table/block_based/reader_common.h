@@ -24,6 +24,9 @@ inline MemoryAllocator* GetMemoryAllocator(
 
 // Assumes block has a trailer as in format.h. file_name and offset provided
 // for generating a diagnostic message in returned status.
+//
+// Returns Status::OK() on checksum match, or Status::Corruption() on checksum
+// mismatch.
 extern Status VerifyBlockChecksum(ChecksumType type, const char* data,
                                   size_t block_size,
                                   const std::string& file_name,

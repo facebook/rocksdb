@@ -22,6 +22,174 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+// This class is not thread-safe.
+class ExpectedValue {
+ public:
+  static uint32_t GetValueBaseMask() { return VALUE_BASE_MASK; }
+  static uint32_t GetValueBaseDelta() { return VALUE_BASE_DELTA; }
+  static uint32_t GetDelCounterDelta() { return DEL_COUNTER_DELTA; }
+  static uint32_t GetDelMask() { return DEL_MASK; }
+  static bool IsValueBaseValid(uint32_t value_base) {
+    return IsValuePartValid(value_base, VALUE_BASE_MASK);
+  }
+
+  explicit ExpectedValue(uint32_t expected_value)
+      : expected_value_(expected_value) {}
+
+  bool Exists() const { return PendingWrite() || !IsDeleted(); }
+
+  uint32_t Read() const { return expected_value_; }
+
+  void Put(bool pending);
+
+  bool Delete(bool pending);
+
+  void SyncPut(uint32_t value_base);
+
+  void SyncPendingPut();
+
+  void SyncDelete();
+
+  uint32_t GetValueBase() const { return GetValuePart(VALUE_BASE_MASK); }
+
+  uint32_t NextValueBase() const {
+    return GetIncrementedValuePart(VALUE_BASE_MASK, VALUE_BASE_DELTA);
+  }
+
+  void SetValueBase(uint32_t new_value_base) {
+    SetValuePart(VALUE_BASE_MASK, new_value_base);
+  }
+
+  bool PendingWrite() const {
+    const uint32_t pending_write = GetValuePart(PENDING_WRITE_MASK);
+    return pending_write != 0;
+  }
+
+  void SetPendingWrite() {
+    SetValuePart(PENDING_WRITE_MASK, PENDING_WRITE_MASK);
+  }
+
+  void ClearPendingWrite() { ClearValuePart(PENDING_WRITE_MASK); }
+
+  uint32_t GetDelCounter() const { return GetValuePart(DEL_COUNTER_MASK); }
+
+  uint32_t NextDelCounter() const {
+    return GetIncrementedValuePart(DEL_COUNTER_MASK, DEL_COUNTER_DELTA);
+  }
+
+  void SetDelCounter(uint32_t new_del_counter) {
+    SetValuePart(DEL_COUNTER_MASK, new_del_counter);
+  }
+
+  bool PendingDelete() const {
+    const uint32_t pending_del = GetValuePart(PENDING_DEL_MASK);
+    return pending_del != 0;
+  }
+
+  void SetPendingDel() { SetValuePart(PENDING_DEL_MASK, PENDING_DEL_MASK); }
+
+  void ClearPendingDel() { ClearValuePart(PENDING_DEL_MASK); }
+
+  bool IsDeleted() const {
+    const uint32_t deleted = GetValuePart(DEL_MASK);
+    return deleted != 0;
+  }
+
+  void SetDeleted() { SetValuePart(DEL_MASK, DEL_MASK); }
+
+  void ClearDeleted() { ClearValuePart(DEL_MASK); }
+
+  uint32_t GetFinalValueBase() const;
+
+  uint32_t GetFinalDelCounter() const;
+
+ private:
+  static bool IsValuePartValid(uint32_t value_part, uint32_t value_part_mask) {
+    return (value_part & (~value_part_mask)) == 0;
+  }
+
+  // The 32-bit expected_value_ is divided into following parts:
+  // Bit 0 - 14: value base
+  static constexpr uint32_t VALUE_BASE_MASK = 0x7fff;
+  static constexpr uint32_t VALUE_BASE_DELTA = 1;
+  // Bit 15: whether write to this value base is pending (0 equals `false`)
+  static constexpr uint32_t PENDING_WRITE_MASK = (uint32_t)1 << 15;
+  // Bit 16 - 29: deletion counter (i.e, number of times this value base has
+  // been deleted)
+  static constexpr uint32_t DEL_COUNTER_MASK = 0x3fff0000;
+  static constexpr uint32_t DEL_COUNTER_DELTA = (uint32_t)1 << 16;
+  // Bit 30: whether deletion of this value base is pending (0 equals `false`)
+  static constexpr uint32_t PENDING_DEL_MASK = (uint32_t)1 << 30;
+  // Bit 31: whether this value base is deleted (0 equals `false`)
+  static constexpr uint32_t DEL_MASK = (uint32_t)1 << 31;
+
+  uint32_t GetValuePart(uint32_t value_part_mask) const {
+    return expected_value_ & value_part_mask;
+  }
+
+  uint32_t GetIncrementedValuePart(uint32_t value_part_mask,
+                                   uint32_t value_part_delta) const {
+    uint32_t current_value_part = GetValuePart(value_part_mask);
+    ExpectedValue temp_expected_value(current_value_part + value_part_delta);
+    return temp_expected_value.GetValuePart(value_part_mask);
+  }
+
+  void SetValuePart(uint32_t value_part_mask, uint32_t new_value_part) {
+    assert(IsValuePartValid(new_value_part, value_part_mask));
+    ClearValuePart(value_part_mask);
+    expected_value_ |= new_value_part;
+  }
+
+  void ClearValuePart(uint32_t value_part_mask) {
+    expected_value_ &= (~value_part_mask);
+  }
+
+  uint32_t expected_value_;
+};
+
+class PendingExpectedValue {
+ public:
+  explicit PendingExpectedValue(std::atomic<uint32_t>* value_ptr,
+                                ExpectedValue orig_value,
+                                ExpectedValue final_value)
+      : value_ptr_(value_ptr),
+        orig_value_(orig_value),
+        final_value_(final_value) {}
+
+  void Commit() {
+    // To prevent low-level instruction reordering that results
+    // in setting expected value happens before db write
+    std::atomic_thread_fence(std::memory_order_release);
+    value_ptr_->store(final_value_.Read());
+  }
+
+  uint32_t GetFinalValueBase() { return final_value_.GetValueBase(); }
+
+ private:
+  std::atomic<uint32_t>* const value_ptr_;
+  const ExpectedValue orig_value_;
+  const ExpectedValue final_value_;
+};
+
+class ExpectedValueHelper {
+ public:
+  // Return whether value is expected not to exist from begining till the end
+  // of the read based on `pre_read_expected_value` and
+  // `pre_read_expected_value`.
+  static bool MustHaveNotExisted(ExpectedValue pre_read_expected_value,
+                                 ExpectedValue post_read_expected_value);
+
+  // Return whether value is expected to exist from begining till the end of
+  // the read based on `pre_read_expected_value` and
+  // `pre_read_expected_value`.
+  static bool MustHaveExisted(ExpectedValue pre_read_expected_value,
+                              ExpectedValue post_read_expected_value);
+
+  // Return whether the `value_base` falls within the expected value base
+  static bool InExpectedValueBaseRange(uint32_t value_base,
+                                       ExpectedValue pre_read_expected_value,
+                                       ExpectedValue post_read_expected_value);
+};
 
 // An `ExpectedState` provides read/write access to expected values for every
 // key.
@@ -38,41 +206,77 @@ class ExpectedState {
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf);
 
-  // @param pending True if the update may have started but is not yet
-  //    guaranteed finished. This is useful for crash-recovery testing when the
-  //    process may crash before updating the expected values array.
+  // Prepare a Put that will be started but not finished yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PreparePut(int cf, int64_t key);
 
-  // Requires external locking covering `key` in `cf`.
-  uint32_t Get(int cf, int64_t key) const;
+  // Does not requires external locking.
+  ExpectedValue Get(int cf, int64_t key);
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
+  // Prepare a Delete that will be started but not finished yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  bool Delete(int cf, int64_t key, bool pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareDelete(int cf, int64_t key,
+                                     bool* prepared = nullptr);
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
-  //
-  // Requires external locking covering `key` in `cf`.
-  bool SingleDelete(int cf, int64_t key, bool pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key);
 
-  // @param pending See comment above Put()
-  // Returns number of keys deleted by the call.
-  //
-  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
-  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending);
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
+  // to prevent concurrent write or delete to the same `key`.
+  std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
+                                                       int64_t begin_key,
+                                                       int64_t end_key);
 
-  // Requires external locking covering `key` in `cf`.
+  // Update the expected value for start of an incomplete write or delete
+  // operation on the key assoicated with this expected value
+  void Precommit(int cf, int64_t key, const ExpectedValue& value);
+
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // delete to the same `key`.
   bool Exists(int cf, int64_t key);
 
+  // Sync the `value_base` to the corresponding expected value
+  //
+  // Requires external locking covering `key` in `cf` or be in single thread
+  // to prevent concurrent write or delete to the same `key`
+  void SyncPut(int cf, int64_t key, uint32_t value_base);
+
+  // Sync the corresponding expected value to be pending Put
+  //
+  // Requires external locking covering `key` in `cf` or be in single thread
+  // to prevent concurrent write or delete to the same `key`
+  void SyncPendingPut(int cf, int64_t key);
+
+  // Sync the corresponding expected value to be deleted
+  //
+  // Requires external locking covering `key` in `cf` or be in single thread
+  // to prevent concurrent write or delete to the same `key`
+  void SyncDelete(int cf, int64_t key);
+
+  // Sync the corresponding expected values to be deleted
+  //
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
+  // to prevent concurrent write or delete to the same `key`
+  void SyncDeleteRange(int cf, int64_t begin_key, int64_t end_key);
+
  private:
-  // Requires external locking covering `key` in `cf`.
+  // Does not requires external locking.
   std::atomic<uint32_t>& Value(int cf, int64_t key) const {
     return values_[cf * max_key_ + key];
+  }
+
+  // Does not requires external locking
+  ExpectedValue Load(int cf, int64_t key) const {
+    return ExpectedValue(Value(cf, key).load());
   }
 
   const size_t max_key_;
@@ -160,44 +364,51 @@ class ExpectedStateManager {
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
 
-  // @param pending True if the update may have started but is not yet
-  //    guaranteed finished. This is useful for crash-recovery testing when the
-  //    process may crash before updating the expected values array.
-  //
-  // Requires external locking covering `key` in `cf`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    return latest_->Put(cf, key, value_base, pending);
+  // See ExpectedState::PreparePut()
+  PendingExpectedValue PreparePut(int cf, int64_t key) {
+    return latest_->PreparePut(cf, key);
   }
 
-  // Requires external locking covering `key` in `cf`.
-  uint32_t Get(int cf, int64_t key) const { return latest_->Get(cf, key); }
+  // See ExpectedState::Get()
+  ExpectedValue Get(int cf, int64_t key) { return latest_->Get(cf, key); }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
-  //
-  // Requires external locking covering `key` in `cf`.
-  bool Delete(int cf, int64_t key, bool pending) {
-    return latest_->Delete(cf, key, pending);
+  // See ExpectedState::PrepareDelete()
+  PendingExpectedValue PrepareDelete(int cf, int64_t key) {
+    return latest_->PrepareDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
-  //
-  // Requires external locking covering `key` in `cf`.
-  bool SingleDelete(int cf, int64_t key, bool pending) {
-    return latest_->SingleDelete(cf, key, pending);
+  // See ExpectedState::PrepareSingleDelete()
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key) {
+    return latest_->PrepareSingleDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns number of keys deleted by the call.
-  //
-  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
-  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
-    return latest_->DeleteRange(cf, begin_key, end_key, pending);
+  // See ExpectedState::PrepareDeleteRange()
+  std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
+                                                       int64_t begin_key,
+                                                       int64_t end_key) {
+    return latest_->PrepareDeleteRange(cf, begin_key, end_key);
   }
 
-  // Requires external locking covering `key` in `cf`.
+  // See ExpectedState::Exists()
   bool Exists(int cf, int64_t key) { return latest_->Exists(cf, key); }
+
+  // See ExpectedState::SyncPut()
+  void SyncPut(int cf, int64_t key, uint32_t value_base) {
+    return latest_->SyncPut(cf, key, value_base);
+  }
+
+  // See ExpectedState::SyncPendingPut()
+  void SyncPendingPut(int cf, int64_t key) {
+    return latest_->SyncPendingPut(cf, key);
+  }
+
+  // See ExpectedState::SyncDelete()
+  void SyncDelete(int cf, int64_t key) { return latest_->SyncDelete(cf, key); }
+
+  // See ExpectedState::SyncDeleteRange()
+  void SyncDeleteRange(int cf, int64_t begin_key, int64_t end_key) {
+    return latest_->SyncDeleteRange(cf, begin_key, end_key);
+  }
 
  protected:
   const size_t max_key_;

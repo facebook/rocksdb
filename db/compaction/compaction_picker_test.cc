@@ -148,7 +148,7 @@ class CompactionPickerTestBase : public testing::Test {
         smallest_seq, largest_seq, marked_for_compact, temperature,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
@@ -1005,29 +1005,28 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   }
 }
 
-TEST_F(CompactionPickerTest, FIFOToWarm1) {
+TEST_F(CompactionPickerTest, FIFOToCold1) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
+  uint64_t kColdThreshold = 2000;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kCold, kColdThreshold}};
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
   mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   int64_t current_time = 0;
   ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
   uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
-  Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
-      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
-  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100);
-  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000);
+      static_cast<uint64_t>(current_time) - kColdThreshold;
+  Add(0 /* level */, 4U /* file_number */, "260", "300", 1 * kFileSize, 0, 2500,
+      2600, 0, true, Temperature::kUnknown,
+      threshold_time - 2000 /* oldest_ancestor_time */);
+  // Qualifies for compaction to kCold.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
       Temperature::kUnknown, threshold_time - 3000);
   UpdateVersionStorageInfo();
@@ -1037,33 +1036,36 @@ TEST_F(CompactionPickerTest, FIFOToWarm1) {
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
 }
 
-TEST_F(CompactionPickerTest, FIFOToWarm2) {
+TEST_F(CompactionPickerTest, FIFOToCold2) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
+  uint64_t kColdThreshold = 2000;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kCold, kColdThreshold}};
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
   mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   int64_t current_time = 0;
   ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
   uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
+      static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
       Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
-  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000);
+      Temperature::kUnknown, threshold_time);
+  // The following two files qualify for compaction to kCold.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
       Temperature::kUnknown, threshold_time - 3000);
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
@@ -1075,34 +1077,40 @@ TEST_F(CompactionPickerTest, FIFOToWarm2) {
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(3U, compaction->input(0, 1)->fd.GetNumber());
 }
 
-TEST_F(CompactionPickerTest, FIFOToWarmMaxSize) {
+TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
+  uint64_t kColdThreshold = 2000;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kCold, kColdThreshold}};
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
   mutable_cf_options_.max_compaction_bytes = kFileSize * 9;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   int64_t current_time = 0;
   ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
   uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
+      static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
       Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
       Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
       Temperature::kUnknown, threshold_time - 2000);
+  // The following two files qualify for compaction to kCold.
+  // But only the last two should be included to respect `max_compaction_bytes`.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
       Temperature::kUnknown, threshold_time - 3000);
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
@@ -1116,40 +1124,45 @@ TEST_F(CompactionPickerTest, FIFOToWarmMaxSize) {
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
 }
 
-TEST_F(CompactionPickerTest, FIFOToWarmWithExistingWarm) {
+TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
+  uint64_t kColdThreshold = 2000;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kCold, kColdThreshold}};
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
   mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   int64_t current_time = 0;
   ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
   uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
+      static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
       Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
       Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
       Temperature::kUnknown, threshold_time - 2000);
+  // The following two files qualify for compaction to kCold.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
       Temperature::kUnknown, threshold_time - 3000);
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
       Temperature::kUnknown, threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kWarm, threshold_time - 5000);
+      Temperature::kCold, threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -1157,28 +1170,32 @@ TEST_F(CompactionPickerTest, FIFOToWarmWithExistingWarm) {
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
   ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(3U, compaction->input(0, 1)->fd.GetNumber());
 }
 
-TEST_F(CompactionPickerTest, FIFOToWarmWithOngoing) {
+TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const uint64_t kFileSize = 100000;
   const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
+  uint64_t kColdThreshold = 2000;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kCold, kColdThreshold}};
   mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
   mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   int64_t current_time = 0;
   ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
   uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
+      static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
       Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
@@ -1186,63 +1203,77 @@ TEST_F(CompactionPickerTest, FIFOToWarmWithOngoing) {
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
       Temperature::kUnknown, threshold_time - 2000);
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kUnknown, threshold_time - 3000);
+      Temperature::kCold, threshold_time - 3000);
+  // Qualifies for compaction to kCold.
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
       Temperature::kUnknown, threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kWarm, threshold_time - 5000);
-  file_map_[2].first->being_compacted = true;
+      Temperature::kCold, threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
-  // Stop if a file is being compacted
-  ASSERT_TRUE(compaction.get() == nullptr);
-}
-
-TEST_F(CompactionPickerTest, FIFOToWarmWithHotBetweenWarms) {
-  NewVersionStorage(1, kCompactionStyleFIFO);
-  const uint64_t kFileSize = 100000;
-  const uint64_t kMaxSize = kFileSize * 100000;
-  uint64_t kWarmThreshold = 2000;
-
-  fifo_options_.max_table_files_size = kMaxSize;
-  fifo_options_.age_for_warm = kWarmThreshold;
-  mutable_cf_options_.compaction_options_fifo = fifo_options_;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
-  mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
-  FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
-
-  int64_t current_time = 0;
-  ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
-  uint64_t threshold_time =
-      static_cast<uint64_t>(current_time) - kWarmThreshold;
-  Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
-      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
-  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100);
-  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000);
-  Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kWarm, threshold_time - 3000);
-  Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
-      Temperature::kUnknown, threshold_time - 4000);
-  Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kWarm, threshold_time - 5000);
-  UpdateVersionStorageInfo();
-
-  ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
-  std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
-  // Stop if a file is being compacted
   ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, FIFOToColdAndWarm) {
+  NewVersionStorage(1, kCompactionStyleFIFO);
+  const uint64_t kFileSize = 100000;
+  const uint64_t kMaxSize = kFileSize * 100000;
+  uint64_t kWarmThreshold = 10000;
+  uint64_t kHotThreshold = 2000;
+
+  fifo_options_.max_table_files_size = kMaxSize;
+  // Test that multiple threshold works.
+  fifo_options_.file_temperature_age_thresholds = {
+      {Temperature::kHot, kHotThreshold}, {Temperature::kWarm, kWarmThreshold}};
+  mutable_cf_options_.compaction_options_fifo = fifo_options_;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 100;
+  mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
+  FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+  int64_t current_time = 0;
+  ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
+  uint64_t hot_threshold_time =
+      static_cast<uint64_t>(current_time) - kHotThreshold;
+  uint64_t warm_threshold_time =
+      static_cast<uint64_t>(current_time) - kWarmThreshold;
+  Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
+      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
+      Temperature::kUnknown, hot_threshold_time + 100);
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
+      Temperature::kUnknown, hot_threshold_time - 200);
+  // Qualifies for Hot
+  Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
+      Temperature::kUnknown, warm_threshold_time - 100);
+  // Qualifies for Warm
+  Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
+      Temperature::kUnknown, warm_threshold_time - 4000);
+  Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
+      Temperature::kUnknown, warm_threshold_time - 5000);
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
+  std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kChangeTemperature);
+  // Assumes compaction picker picks older files first.
+  ASSERT_EQ(compaction->output_temperature(), Temperature::kWarm);
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
+}
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);

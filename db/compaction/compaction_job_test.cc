@@ -373,7 +373,7 @@ class CompactionJobTestBase : public testing::Test {
     } else if (table_type_ == TableTypeForTest::kMockTable) {
       file_size = 10;
       EXPECT_OK(mock_table_factory_->CreateMockTable(
-          env_, GenerateFileName(file_number), std::move(contents)));
+          env_, GenerateFileName(file_number), contents));
     } else {
       assert(false);
     }
@@ -386,7 +386,7 @@ class CompactionJobTestBase : public testing::Test {
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-        0);
+        0, 0);
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
