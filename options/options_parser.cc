@@ -75,6 +75,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   std::unique_ptr<WritableFileWriter> writable;
   writable.reset(new WritableFileWriter(std::move(wf), file_name, EnvOptions(),
                                         nullptr /* statistics */));
+  TEST_SYNC_POINT("PersistRocksDBOptions:create");
 
   std::string options_file_content;
 
@@ -135,6 +136,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   if (s.ok()) {
     s = writable->Close();
   }
+  TEST_SYNC_POINT("PersistRocksDBOptions:written");
   if (s.ok()) {
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         config_options, db_opt, cf_names, cf_opts, file_name, fs);
@@ -679,6 +681,15 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     Status s = base_config->GetOption(config_options, mismatch, &base_value);
     if (s.ok()) {
       s = file_config->GetOption(config_options, mismatch, &file_value);
+      // In file_opt, certain options like MergeOperator may be nullptr due to
+      //   factor methods not available. So we use opt_map to get
+      //   option value to use in the error message below.
+      if (s.ok() && file_value == kNullptrString && opt_map) {
+        auto const& opt_val_str = (opt_map->find(mismatch));
+        if (opt_val_str != opt_map->end()) {
+          file_value = opt_val_str->second;
+        }
+      }
     }
     int offset = snprintf(buffer, sizeof(buffer),
                           "[RocksDBOptionsParser]: "

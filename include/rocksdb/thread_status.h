@@ -56,6 +56,7 @@ struct ThreadStatus {
     OP_UNKNOWN = 0,
     OP_COMPACTION,
     OP_FLUSH,
+    OP_DBOPEN,
     NUM_OP_TYPES
   };
 

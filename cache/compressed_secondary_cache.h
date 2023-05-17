@@ -10,7 +10,7 @@
 #include <memory>
 
 #include "cache/lru_cache.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -69,18 +69,8 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
 class CompressedSecondaryCache : public SecondaryCache {
  public:
-  CompressedSecondaryCache(
-      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      double high_pri_pool_ratio, double low_pri_pool_ratio,
-      std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-      bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-      CacheMetadataChargePolicy metadata_charge_policy =
-          kDefaultCacheMetadataChargePolicy,
-      CompressionType compression_type = CompressionType::kLZ4Compression,
-      uint32_t compress_format_version = 2,
-      bool enable_custom_split_merge = false,
-      const CacheEntryRoleSet& do_not_compress_roles = {
-          CacheEntryRole::kFilterBlock});
+  explicit CompressedSecondaryCache(
+      const CompressedSecondaryCacheOptions& opts);
   ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }

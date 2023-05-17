@@ -138,6 +138,16 @@ Status ImportColumnFamilyJob::Run() {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
+    uint64_t tail_size = 0;
+    bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
+                                  (f.table_properties.num_entries ==
+                                   f.table_properties.num_range_deletions);
+    if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
+      uint64_t file_size = f.fd.GetFileSize();
+      assert(f.table_properties.tail_start_offset <= file_size);
+      tail_size = file_size - f.table_properties.tail_start_offset;
+    }
+
     VersionEdit dummy_version_edit;
     dummy_version_edit.AddFile(
         file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
@@ -145,7 +155,7 @@ Status ImportColumnFamilyJob::Run() {
         file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
         current_time, file_metadata.epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, f.unique_id, 0);
+        kUnknownFileChecksumFuncName, f.unique_id, 0, tail_size);
     s = dummy_version_builder.Apply(&dummy_version_edit);
   }
   if (s.ok()) {
@@ -250,6 +260,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
+          sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
@@ -275,6 +286,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // in file_meta.
   if (file_meta.smallest.empty()) {
     assert(file_meta.largest.empty());
+    // TODO: plumb Env::IOActivity
     ReadOptions ro;
     std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
         ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
@@ -350,4 +362,3 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   return status;
 }
 }  // namespace ROCKSDB_NAMESPACE
-

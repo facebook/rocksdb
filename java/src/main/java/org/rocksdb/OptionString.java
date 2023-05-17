@@ -214,6 +214,11 @@ public class OptionString {
         return value;
       } else if (isValueChar()) {
         return Value.fromList(parseList());
+      } else if (is(kvPairSeparator)) {
+        // e.g. empty vector embedded in a struct option looks like
+        // struct_opt = {vector_opt=;...}
+        final List<String> entries = new ArrayList<>();
+        return Value.fromList(entries);
       }
 
       exception("No valid value character(s) for value in key=value");

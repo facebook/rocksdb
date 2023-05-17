@@ -98,7 +98,8 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table_reader,
+      uint8_t block_protection_bytes_per_key,
+      std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -153,7 +154,8 @@ class BlockBasedTable : public TableReader {
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
   // IO or iteration error.
-  Status Prefetch(const Slice* begin, const Slice* end) override;
+  Status Prefetch(const ReadOptions& read_options, const Slice* begin,
+                  const Slice* end) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -161,15 +163,16 @@ class BlockBasedTable : public TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  uint64_t ApproximateOffsetOf(const Slice& key,
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key,
                                TableReaderCaller caller) override;
 
   // Given start and end keys, return the approximate data size in the file
   // between the keys. The returned value is in terms of file bytes, and so
   // includes effects like compression of the underlying data.
   // The start key must not be greater than the end key.
-  uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                           TableReaderCaller caller) override;
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, TableReaderCaller caller) override;
 
   Status ApproximateKeyAnchors(const ReadOptions& read_options,
                                std::vector<Anchor>& anchors) override;
@@ -222,8 +225,9 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
-                                     bool /* pin */) {
+    virtual Status CacheDependencies(
+        const ReadOptions& /*ro*/, bool /* pin */,
+        FilePrefetchBuffer* /* tail_prefetch_buffer */) {
       return Status::OK();
     }
   };
@@ -265,7 +269,8 @@ class BlockBasedTable : public TableReader {
 
   // Retrieve all key value pairs from data blocks in the table.
   // The key retrieved are internal keys.
-  Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
+  Status GetKVPairsFromDataBlocks(const ReadOptions& read_options,
+                                  std::vector<KVPairBlock>* kv_pair_blocks);
 
   struct Rep;
 
@@ -454,7 +459,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats);
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
+      uint64_t tail_size, Logger* const logger);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
@@ -477,7 +483,8 @@ class BlockBasedTable : public TableReader {
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
 
-  Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
+  Status VerifyChecksumInMetaBlocks(const ReadOptions& read_options,
+                                    InternalIteratorBase<Slice>* index_iter);
   Status VerifyChecksumInBlocks(const ReadOptions& read_options,
                                 InternalIteratorBase<IndexValue>* index_iter);
 

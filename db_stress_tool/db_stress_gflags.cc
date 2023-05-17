@@ -975,6 +975,11 @@ DEFINE_uint32(
     "specified number of bytes per key. Currently the supported "
     "nonzero values are 1, 2, 4 and 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in blocks at the "
+              "specified number of bytes per key. Currently the supported "
+              "nonzero values are 1, 2, 4 and 8.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
@@ -1050,6 +1055,11 @@ DEFINE_int32(
 DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
+
+DEFINE_bool(enable_thread_tracking,
+            ROCKSDB_NAMESPACE::Options().enable_thread_tracking,
+            "If true, the status of the threads involved in this DB will be "
+            "tracked and available via GetThreadList() API.");
 
 DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
              "If non-zero, when TestIterate() is to be called, there is a "

@@ -196,6 +196,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
+  // TODO: plumb Env::IOActivity
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
@@ -963,9 +964,6 @@ bool DBIter::FindValueForCurrentKey() {
     assert(last_key_entry_type == ikey_.type);
   }
 
-  Status s;
-  s.PermitUncheckedError();
-
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -1041,11 +1039,6 @@ bool DBIter::FindValueForCurrentKey() {
           "Unknown value type: " +
           std::to_string(static_cast<unsigned int>(last_key_entry_type)));
       return false;
-  }
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
   }
   valid_ = true;
   return true;

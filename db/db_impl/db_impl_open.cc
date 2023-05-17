@@ -19,11 +19,12 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src,
@@ -615,7 +616,8 @@ Status DBImpl::Recover(
                            f->oldest_blob_file_number, f->oldest_ancester_time,
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
-                           f->unique_id, f->compensated_range_deletion_size);
+                           f->unique_id, f->compensated_range_deletion_size,
+                           f->tail_size);
               ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64
@@ -923,8 +925,9 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
   assert(versions_->descriptor_log_ == nullptr);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   Status s = versions_->LogAndApply(
-      recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_,
+      recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_, read_options,
       recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
   if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
@@ -1451,7 +1454,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         recovery_ctx->UpdateVersionEdits(cfd, iter->second);
       }
 
-      if (flushed) {
+      if (flushed || !data_seen) {
         VersionEdit wal_deletion;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
           wal_deletion.DeleteWalsBefore(max_wal_number + 1);
@@ -1577,6 +1580,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
+  ro.io_activity = Env::IOActivity::kDBOpen;
   Arena arena;
   Status s;
   TableProperties table_properties;
@@ -1635,10 +1639,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       SeqnoToTimeMapping empty_seqno_time_mapping;
       Version* version = cfd->current();
       version->Ref();
+      const ReadOptions read_option(Env::IOActivity::kDBOpen);
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
-          file_options_for_compaction_, cfd->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta, &blob_file_additions,
+          file_options_for_compaction_, read_option, cfd->table_cache(),
+          iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
           snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
           snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
           io_tracer_, BlobFileCreationReason::kRecovery,
@@ -1669,14 +1674,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
-                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction, meta.temperature,
-                  meta.oldest_blob_file_number, meta.oldest_ancester_time,
-                  meta.file_creation_time, meta.epoch_number,
-                  meta.file_checksum, meta.file_checksum_func_name,
-                  meta.unique_id, meta.compensated_range_deletion_size);
+    edit->AddFile(
+        level, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
+        meta.smallest, meta.largest, meta.fd.smallest_seqno,
+        meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
+        meta.oldest_blob_file_number, meta.oldest_ancester_time,
+        meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+        meta.file_checksum_func_name, meta.unique_id,
+        meta.compensated_range_deletion_size, meta.tail_size);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1739,8 +1744,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   const bool kSeqPerBatch = true;
   const bool kBatchPerTxn = true;
-  return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                      !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
+  Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                          !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::ResetThreadStatus();
+  return s;
 }
 
 // TODO: Implement the trimming in flush code path.

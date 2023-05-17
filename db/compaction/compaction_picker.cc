@@ -20,7 +20,7 @@
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 #include "util/string_util.h"

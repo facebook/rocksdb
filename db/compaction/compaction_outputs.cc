@@ -43,6 +43,7 @@ Status CompactionOutputs::Finish(const Status& intput_status,
   const uint64_t current_bytes = builder_->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
   }
   current_output().finished = true;
@@ -574,6 +575,7 @@ Status CompactionOutputs::AddRangeDels(
   auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
   Slice last_tombstone_start_user_key{};
   bool reached_lower_bound = false;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
     auto kv = tombstone.Serialize();
@@ -713,7 +715,7 @@ Status CompactionOutputs::AddRangeDels(
           approx_opts.files_size_error_margin = 0.1;
           auto approximate_covered_size =
               compaction_->input_version()->version_set()->ApproximateSize(
-                  approx_opts, compaction_->input_version(),
+                  approx_opts, read_options, compaction_->input_version(),
                   tombstone_start.Encode(), tombstone_end.Encode(),
                   compaction_->output_level() + 1 /* start_level */,
                   -1 /* end_level */, kCompaction);

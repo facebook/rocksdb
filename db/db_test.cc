@@ -66,7 +66,7 @@
 #include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -3460,6 +3460,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  (void)count;
   delete miter;
   delete dbiter;
   return ok;

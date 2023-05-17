@@ -101,7 +101,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -244,7 +246,18 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
@@ -2295,7 +2308,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
-      {"compaction_options_fifo", "23"},
+      {"compaction_options_fifo",
+       "{allow_compaction=true;max_table_files_size=11002244;"
+       "file_temperature_age_thresholds={{temperature=kCold;age=12345}}}"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -2436,7 +2451,18 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
-            static_cast<uint64_t>(23));
+            static_cast<uint64_t>(11002244));
+  ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds.size(),
+      1);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_cf_opt.compaction_options_fifo.file_temperature_age_thresholds[0].age,
+      12345);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
@@ -3926,6 +3952,36 @@ class OptionsSanityCheckTest : public OptionsParserTest,
 
   const std::string kOptionsFileName = "OPTIONS";
 };
+
+TEST_P(OptionsSanityCheckTest, MergeOperatorErrorMessage) {
+  ColumnFamilyOptions opts;
+  Random rnd(301);
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  std::string merge_op_name = opts.merge_operator->Name();
+  ASSERT_OK(PersistCFOptions(opts));
+
+  // Test when going from merge operator -> nullptr
+  opts.merge_operator = nullptr;
+  Status s =
+      SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  std::string err_msg = s.ToString();
+  std::string specified = "The specified one is " + kNullptrString;
+  std::string persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+
+  // Test when using a different merge operator
+  opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+  s = SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelLooselyCompatible);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  err_msg = s.ToString();
+  specified =
+      "The specified one is " + std::string(opts.merge_operator->Name());
+  persisted = "the persisted one is " + merge_op_name;
+  ASSERT_TRUE(err_msg.find(specified) != std::string::npos);
+  ASSERT_TRUE(err_msg.find(persisted) != std::string::npos);
+}
 
 TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;

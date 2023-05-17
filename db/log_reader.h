@@ -11,6 +11,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
@@ -18,6 +20,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/udt_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -73,6 +76,12 @@ class Reader {
                           WALRecoveryMode wal_recovery_mode =
                               WALRecoveryMode::kTolerateCorruptedTailRecords,
                           uint64_t* record_checksum = nullptr);
+
+  // Return the recorded user-defined timestamp size that have been read so
+  // far. This only applies to WAL logs.
+  const std::unordered_map<uint32_t, size_t>& GetRecordedTimestampSize() const {
+    return recorded_cf_to_ts_sz_;
+  }
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -154,6 +163,10 @@ class Reader {
   // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
   XXH3_state_t* uncompress_hash_state_;
 
+  // The recorded user-defined timestamp sizes that have been read so far. This
+  // is only for WAL logs.
+  std::unordered_map<uint32_t, size_t> recorded_cf_to_ts_sz_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -190,6 +203,9 @@ class Reader {
   void ReportDrop(size_t bytes, const Status& reason);
 
   void InitCompression(const CompressionTypeRecord& compression_record);
+
+  Status UpdateRecordedTimestampSize(
+      const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {

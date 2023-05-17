@@ -116,8 +116,9 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                 bool prefetch_index_and_filter_in_cache = true,
                                 Status* status = nullptr) {
     const MutableCFOptions moptions(options_);
-    TableReaderOptions table_reader_options = TableReaderOptions(
-        ioptions, moptions.prefix_extractor, EnvOptions(), comparator);
+    TableReaderOptions table_reader_options =
+        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+                           comparator, 0 /* block_protection_bytes_per_key */);
 
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file);
@@ -499,6 +500,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
+  options.statistics = CreateDBStatistics();
   ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
@@ -528,8 +530,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
                               static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   Status s = table->VerifyChecksum(ReadOptions(),
                                    TableReaderCaller::kUserVerifyChecksum);
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 

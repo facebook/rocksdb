@@ -12,7 +12,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -29,7 +29,7 @@
 #include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 

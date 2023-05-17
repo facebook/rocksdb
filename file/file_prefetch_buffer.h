@@ -15,7 +15,7 @@
 #include <string>
 
 #include "file/readahead_file_info.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -179,6 +179,8 @@ class FilePrefetchBuffer {
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
   }
+
+  bool Enabled() const { return enable_; }
 
   // Load data into the buffer from a file.
   // reader                : the file reader.

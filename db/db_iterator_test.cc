@@ -16,7 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 

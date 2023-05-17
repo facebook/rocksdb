@@ -220,6 +220,7 @@ TEST_P(PrefetchTest, Basic) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       num_keys++;
     }
+    (void)num_keys;
   }
 
   // Make sure prefetch is called only if file system support prefetch.
@@ -231,6 +232,93 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_FALSE(fs->IsPrefetchCalled());
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
+  }
+  Close();
+}
+
+TEST_P(PrefetchTest, BlockBasedTableTailPrefetch) {
+  const bool support_prefetch =
+      std::get<0>(GetParam()) &&
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
+  // Second param is if directIO is enabled or not
+  const bool use_direct_io = std::get<1>(GetParam());
+  const bool use_file_prefetch_buffer = !support_prefetch || use_direct_io;
+
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), support_prefetch);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  Options options;
+  SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions bbto;
+  bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  bbto.partition_filters = true;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    ROCKSDB_GTEST_BYPASS("Direct IO is not supported");
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  ASSERT_OK(Put("k1", "v1"));
+
+  HistogramData pre_flush_file_read;
+  options.statistics->histogramData(FILE_READ_FLUSH_MICROS,
+                                    &pre_flush_file_read);
+  ASSERT_OK(Flush());
+  HistogramData post_flush_file_read;
+  options.statistics->histogramData(FILE_READ_FLUSH_MICROS,
+                                    &post_flush_file_read);
+  if (use_file_prefetch_buffer) {
+    // `PartitionedFilterBlockReader/PartitionIndexReader::CacheDependencies()`
+    // should read from the prefetched tail in file prefetch buffer instead of
+    // initiating extra SST reads. Therefore `BlockBasedTable::PrefetchTail()`
+    // should be the only SST read in table verification during flush.
+    ASSERT_EQ(post_flush_file_read.count - pre_flush_file_read.count, 1);
+  } else {
+    // Without the prefetched tail in file prefetch buffer,
+    // `PartitionedFilterBlockReader/PartitionIndexReader::CacheDependencies()`
+    // will initiate extra SST reads
+    ASSERT_GT(post_flush_file_read.count - pre_flush_file_read.count, 1);
+  }
+  ASSERT_OK(Put("k1", "v2"));
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  HistogramData pre_compaction_file_read;
+  options.statistics->histogramData(FILE_READ_COMPACTION_MICROS,
+                                    &pre_compaction_file_read);
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  HistogramData post_compaction_file_read;
+  options.statistics->histogramData(FILE_READ_COMPACTION_MICROS,
+                                    &post_compaction_file_read);
+  if (use_file_prefetch_buffer) {
+    // `PartitionedFilterBlockReader/PartitionIndexReader::CacheDependencies()`
+    // should read from the prefetched tail in file prefetch buffer instead of
+    // initiating extra SST reads.
+    //
+    // Therefore the 3 reads are
+    // (1) `ProcessKeyValueCompaction()` of input file 1
+    // (2) `ProcessKeyValueCompaction()` of input file 2
+    // (3) `BlockBasedTable::PrefetchTail()` of output file during table
+    // verification in compaction
+    ASSERT_EQ(post_compaction_file_read.count - pre_compaction_file_read.count,
+              3);
+  } else {
+    // Without the prefetched tail in file prefetch buffer,
+    // `PartitionedFilterBlockReader/PartitionIndexReader::CacheDependencies()`
+    // as well as reading other parts of the tail (e.g, footer, table
+    // properties..) will initiate extra SST reads
+    ASSERT_GT(post_compaction_file_read.count - pre_compaction_file_read.count,
+              3);
   }
   Close();
 }
@@ -1803,6 +1891,7 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
     }
     MoveFilesToLevel(2);
   }
+  (void)total_keys;
 
   int num_keys_first_batch = 0;
   int num_keys_second_batch = 0;

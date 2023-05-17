@@ -19,8 +19,9 @@ struct FileMetaData;
 
 class VersionEditHandlerBase {
  public:
-  explicit VersionEditHandlerBase()
-      : max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options)
+      : read_options_(read_options),
+        max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
 
   virtual ~VersionEditHandlerBase() {}
 
@@ -31,8 +32,9 @@ class VersionEditHandlerBase {
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
 
  protected:
-  explicit VersionEditHandlerBase(uint64_t max_read_size)
-      : max_manifest_read_size_(max_read_size) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options,
+                                  uint64_t max_read_size)
+      : read_options_(read_options), max_manifest_read_size_(max_read_size) {}
   virtual Status Initialize() { return Status::OK(); }
 
   virtual Status ApplyVersionEdit(VersionEdit& edit,
@@ -45,6 +47,8 @@ class VersionEditHandlerBase {
 
   Status status_;
 
+  const ReadOptions& read_options_;
+
  private:
   AtomicGroupReadBuffer read_buffer_;
   const uint64_t max_manifest_read_size_;
@@ -52,7 +56,8 @@ class VersionEditHandlerBase {
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
  public:
-  ListColumnFamiliesHandler() : VersionEditHandlerBase() {}
+  explicit ListColumnFamiliesHandler(const ReadOptions& read_options)
+      : VersionEditHandlerBase(read_options) {}
 
   ~ListColumnFamiliesHandler() override {}
 
@@ -72,9 +77,9 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
 
 class FileChecksumRetriever : public VersionEditHandlerBase {
  public:
-  FileChecksumRetriever(uint64_t max_read_size,
+  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size,
                         FileChecksumList& file_checksum_list)
-      : VersionEditHandlerBase(max_read_size),
+      : VersionEditHandlerBase(read_options, max_read_size),
         file_checksum_list_(file_checksum_list) {}
 
   ~FileChecksumRetriever() override {}
@@ -111,12 +116,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_missing_files, no_error_if_files_missing,
-                           io_tracer, /*skip_load_table_files=*/false,
-                           epoch_number_requirement) {}
+      : VersionEditHandler(
+            read_only, column_families, version_set, track_missing_files,
+            no_error_if_files_missing, io_tracer, read_options,
+            /*skip_load_table_files=*/false, epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -137,7 +143,8 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options, bool skip_load_table_files,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
 
@@ -212,6 +219,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   VersionEditHandlerPointInTime(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
@@ -238,10 +246,11 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
   explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
                           VersionSet* version_set,
                           const std::shared_ptr<IOTracer>& io_tracer,
+                          const ReadOptions& read_options,
                           EpochNumberRequirement epoch_number_requirement =
                               EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
-                                      version_set, io_tracer,
+                                      version_set, io_tracer, read_options,
                                       epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
@@ -281,12 +290,13 @@ class DumpManifestHandler : public VersionEditHandler {
  public:
   DumpManifestHandler(std::vector<ColumnFamilyDescriptor> column_families,
                       VersionSet* version_set,
-                      const std::shared_ptr<IOTracer>& io_tracer, bool verbose,
-                      bool hex, bool json)
+                      const std::shared_ptr<IOTracer>& io_tracer,
+                      const ReadOptions& read_options, bool verbose, bool hex,
+                      bool json)
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
             /*track_missing_files=*/false,
-            /*no_error_if_files_missing=*/false, io_tracer,
+            /*no_error_if_files_missing=*/false, io_tracer, read_options,
             /*skip_load_table_files=*/true),
         verbose_(verbose),
         hex_(hex),

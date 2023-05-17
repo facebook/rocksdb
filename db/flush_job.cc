@@ -141,11 +141,12 @@ FlushJob::FlushJob(
 FlushJob::~FlushJob() { ThreadStatusUtil::ResetThreadStatus(); }
 
 void FlushJob::ReportStartedFlush() {
-  ThreadStatusUtil::SetColumnFamily(cfd_, cfd_->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetColumnFamily(cfd_);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
   ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
                                                job_context_->job_id);
+
   IOSTATS_RESET(bytes_written);
 }
 
@@ -379,6 +380,7 @@ Status FlushJob::MemPurge() {
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
   // Range Tombstones (from DeleteRanges).
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -669,6 +671,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   // Cochran formula for determining sample size.
   // 95% confidence interval, 7% precision.
   //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
+  // TODO: plumb Env::IOActivity
   double n0 = 196.0;
   ReadOptions ro;
   ro.total_order_seek = true;
@@ -841,6 +844,7 @@ Status FlushJob::WriteLevel0Table() {
         range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
+    ro.io_activity = Env::IOActivity::kFlush;
     Arena arena;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
@@ -930,17 +934,19 @@ Status FlushJob::WriteLevel0Table() {
           meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
-      s = BuildTable(
-          dbname_, versions_, db_options_, tboptions, file_options_,
-          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_,
-          earliest_write_conflict_snapshot_, job_snapshot_seq,
-          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
-          cfd_->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
-          job_context_->job_id, io_priority, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, base_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      s = BuildTable(dbname_, versions_, db_options_, tboptions, file_options_,
+                     read_options, cfd_->table_cache(), iter.get(),
+                     std::move(range_del_iters), &meta_, &blob_file_additions,
+                     existing_snapshots_, earliest_write_conflict_snapshot_,
+                     job_snapshot_seq, snapshot_checker_,
+                     mutable_cf_options_.paranoid_file_checks,
+                     cfd_->internal_stats(), &io_s, io_tracer_,
+                     BlobFileCreationReason::kFlush, seqno_to_time_mapping_,
+                     event_logger_, job_context_->job_id, io_priority,
+                     &table_properties_, write_hint, full_history_ts_low,
+                     blob_callback_, base_, &num_input_entries,
+                     &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
@@ -1001,7 +1007,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
                    meta_.file_creation_time, meta_.epoch_number,
                    meta_.file_checksum, meta_.file_checksum_func_name,
-                   meta_.unique_id, meta_.compensated_range_deletion_size);
+                   meta_.unique_id, meta_.compensated_range_deletion_size,
+                   meta_.tail_size);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.

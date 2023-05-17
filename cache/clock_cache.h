@@ -407,7 +407,7 @@ class HyperClockTable {
                   CacheMetadataChargePolicy metadata_charge_policy,
                   MemoryAllocator* allocator,
                   const Cache::EvictionCallback* eviction_callback,
-                  const Opts& opts);
+                  const uint32_t* hash_seed, const Opts& opts);
   ~HyperClockTable();
 
   Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
@@ -447,6 +447,8 @@ class HyperClockTable {
   size_t GetStandaloneUsage() const {
     return standalone_usage_.load(std::memory_order_relaxed);
   }
+
+  uint32_t GetHashSeed() const { return hash_seed_; }
 
   // Acquire/release N references
   void TEST_RefN(HandleImpl& handle, size_t n);
@@ -546,6 +548,9 @@ class HyperClockTable {
   // A reference to Cache::eviction_callback_
   const Cache::EvictionCallback& eviction_callback_;
 
+  // A reference to ShardedCacheBase::hash_seed_
+  const uint32_t& hash_seed_;
+
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
   // operations in ClockCacheShard.
@@ -573,7 +578,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
                   CacheMetadataChargePolicy metadata_charge_policy,
                   MemoryAllocator* allocator,
                   const Cache::EvictionCallback* eviction_callback,
-                  const typename Table::Opts& opts);
+                  const uint32_t* hash_seed, const typename Table::Opts& opts);
 
   // For CacheShard concept
   using HandleImpl = typename Table::HandleImpl;
@@ -583,22 +588,23 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   static inline uint32_t HashPieceForSharding(HashCref hash) {
     return Upper32of64(hash[0]);
   }
-  static inline HashVal ComputeHash(const Slice& key) {
+  static inline HashVal ComputeHash(const Slice& key, uint32_t seed) {
     assert(key.size() == kCacheKeySize);
     HashVal in;
     HashVal out;
     // NOTE: endian dependence
     // TODO: use GetUnaligned?
     std::memcpy(&in, key.data(), kCacheKeySize);
-    BijectiveHash2x64(in[1], in[0], &out[1], &out[0]);
+    BijectiveHash2x64(in[1], in[0] ^ seed, &out[1], &out[0]);
     return out;
   }
 
   // For reconstructing key from hashed_key. Requires the caller to provide
   // backing storage for the Slice in `unhashed`
   static inline Slice ReverseHash(const UniqueId64x2& hashed,
-                                  UniqueId64x2* unhashed) {
+                                  UniqueId64x2* unhashed, uint32_t seed) {
     BijectiveUnhash2x64(hashed[1], hashed[0], &(*unhashed)[1], &(*unhashed)[0]);
+    (*unhashed)[0] ^= seed;
     // NOTE: endian dependence
     return Slice(reinterpret_cast<const char*>(unhashed), kCacheKeySize);
   }
@@ -682,10 +688,7 @@ class HyperClockCache
  public:
   using Shard = ClockCacheShard<HyperClockTable>;
 
-  HyperClockCache(size_t capacity, size_t estimated_value_size,
-                  int num_shard_bits, bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy,
-                  std::shared_ptr<MemoryAllocator> memory_allocator);
+  explicit HyperClockCache(const HyperClockCacheOptions& opts);
 
   const char* Name() const override { return "HyperClockCache"; }
 

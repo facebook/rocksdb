@@ -68,7 +68,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     // uncompression dict is typically at the end of the file and would
     // most likely break the sequentiality of the access pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        ro.async_io ? nullptr : prefetch_buffer, no_io, ro.verify_checksums,
+        ro.async_io ? nullptr : prefetch_buffer, ro, no_io, ro.verify_checksums,
         get_context, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);

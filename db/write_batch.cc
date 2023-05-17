@@ -59,7 +59,7 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/system_clock.h"
@@ -2036,6 +2036,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
+        // TODO: plumb Env::IOActivity
         ReadOptions ropts;
         // it's going to be overwritten for sure, so no point caching data block
         // containing the old version
@@ -2480,6 +2481,7 @@ class MemTableInserter : public WriteBatch::Handler {
       // operations in the same batch.
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
+      // TODO: plumb Env::IOActivity
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 

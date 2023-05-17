@@ -478,6 +478,7 @@ class InternalStats {
     uint32_t copies_of_last_collection = 0;
     uint64_t last_start_time_micros_ = 0;
     uint64_t last_end_time_micros_ = 0;
+    uint32_t hash_seed = 0;
 
     void Clear() {
       // Wipe everything except collection_count

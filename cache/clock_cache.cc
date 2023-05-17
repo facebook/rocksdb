@@ -16,7 +16,7 @@
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "rocksdb/env.h"
 #include "util/hash.h"
@@ -130,7 +130,8 @@ HyperClockTable::HyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
     CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
-    const Cache::EvictionCallback* eviction_callback, const Opts& opts)
+    const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
+    const Opts& opts)
     : length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
       length_bits_mask_((size_t{1} << length_bits_) - 1),
@@ -138,7 +139,8 @@ HyperClockTable::HyperClockTable(
                                            kStrictLoadFactor)),
       array_(new HandleImpl[size_t{1} << length_bits_]),
       allocator_(allocator),
-      eviction_callback_(*eviction_callback) {
+      eviction_callback_(*eviction_callback),
+      hash_seed_(*hash_seed) {
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     usage_ += size_t{GetTableSize()} * sizeof(HandleImpl);
@@ -1010,7 +1012,7 @@ inline void HyperClockTable::Evict(size_t requested_charge,
         if (eviction_callback_) {
           took_ownership =
               eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
-                                     h.GetHash(), &unhashed),
+                                     h.GetHash(), &unhashed, hash_seed_),
                                  reinterpret_cast<Cache::Handle*>(&h));
         }
         if (!took_ownership) {
@@ -1039,11 +1041,11 @@ ClockCacheShard<Table>::ClockCacheShard(
     size_t capacity, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
-    const Cache::EvictionCallback* eviction_callback,
+    const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
       table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
-             eviction_callback, opts),
+             eviction_callback, hash_seed, opts),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit) {
   // Initial charge metadata should not exceed capacity
@@ -1082,10 +1084,11 @@ void ClockCacheShard<Table>::ApplyToSomeEntries(
     *state = index_end << (sizeof(size_t) * 8u - length_bits);
   }
 
+  auto hash_seed = table_.GetHashSeed();
   table_.ConstApplyToEntriesRange(
-      [callback](const HandleImpl& h) {
+      [callback, hash_seed](const HandleImpl& h) {
         UniqueId64x2 unhashed;
-        callback(ReverseHash(h.hashed_key, &unhashed), h.value,
+        callback(ReverseHash(h.hashed_key, &unhashed, hash_seed), h.value,
                  h.GetTotalCharge(), h.helper);
       },
       index_begin, index_end, false);
@@ -1282,25 +1285,20 @@ size_t ClockCacheShard<Table>::GetTableAddressCount() const {
 // Explicit instantiation
 template class ClockCacheShard<HyperClockTable>;
 
-HyperClockCache::HyperClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    std::shared_ptr<MemoryAllocator> memory_allocator)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(memory_allocator)) {
-  assert(estimated_value_size > 0 ||
-         metadata_charge_policy != kDontChargeCacheMetadata);
+HyperClockCache::HyperClockCache(const HyperClockCacheOptions& opts)
+    : ShardedCache(opts) {
+  assert(opts.estimated_entry_charge > 0 ||
+         opts.metadata_charge_policy != kDontChargeCacheMetadata);
   // TODO: should not need to go through two levels of pointer indirection to
   // get to table entries
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = this->memory_allocator();
-  const Cache::EvictionCallback* eviction_callback = &eviction_callback_;
-  InitShards([=](Shard* cs) {
-    HyperClockTable::Opts opts;
-    opts.estimated_value_size = estimated_value_size;
-    new (cs) Shard(per_shard, strict_capacity_limit, metadata_charge_policy,
-                   alloc, eviction_callback, opts);
+  InitShards([&](Shard* cs) {
+    HyperClockTable::Opts table_opts;
+    table_opts.estimated_value_size = opts.estimated_entry_charge;
+    new (cs) Shard(per_shard, opts.strict_capacity_limit,
+                   opts.metadata_charge_policy, alloc, &eviction_callback_,
+                   &hash_seed_, table_opts);
   });
 }
 
@@ -1460,21 +1458,23 @@ std::shared_ptr<Cache> NewClockCache(
 }
 
 std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
-  auto my_num_shard_bits = num_shard_bits;
-  if (my_num_shard_bits >= 20) {
+  // For sanitized options
+  HyperClockCacheOptions opts = *this;
+  if (opts.num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
-  if (my_num_shard_bits < 0) {
+  if (opts.num_shard_bits < 0) {
     // Use larger shard size to reduce risk of large entries clustering
     // or skewing individual shards.
     constexpr size_t min_shard_size = 32U * 1024U * 1024U;
-    my_num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
+    opts.num_shard_bits =
+        GetDefaultCacheShardBits(opts.capacity, min_shard_size);
   }
-  std::shared_ptr<Cache> cache = std::make_shared<clock_cache::HyperClockCache>(
-      capacity, estimated_entry_charge, my_num_shard_bits,
-      strict_capacity_limit, metadata_charge_policy, memory_allocator);
-  if (secondary_cache) {
-    cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
+  std::shared_ptr<Cache> cache =
+      std::make_shared<clock_cache::HyperClockCache>(opts);
+  if (opts.secondary_cache) {
+    cache = std::make_shared<CacheWithSecondaryAdapter>(cache,
+                                                        opts.secondary_cache);
   }
   return cache;
 }

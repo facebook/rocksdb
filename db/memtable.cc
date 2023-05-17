@@ -26,7 +26,7 @@
 #include "memory/arena.h"
 #include "memory/memory_usage.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
@@ -256,7 +256,7 @@ void MemTable::UpdateOldestKeyTime() {
 }
 
 Status MemTable::VerifyEntryChecksum(const char* entry,
-                                     size_t protection_bytes_per_key,
+                                     uint32_t protection_bytes_per_key,
                                      bool allow_data_in_errors) {
   if (protection_bytes_per_key == 0) {
     return Status::OK();
@@ -285,28 +285,11 @@ Status MemTable::VerifyEntryChecksum(const char* entry,
   Slice value = Slice(value_ptr, value_length);
 
   const char* checksum_ptr = value_ptr + value_length;
-  uint64_t expected = ProtectionInfo64()
-                          .ProtectKVO(user_key, value, type)
-                          .ProtectS(seq)
-                          .GetVal();
-  bool match = true;
-  switch (protection_bytes_per_key) {
-    case 1:
-      match = static_cast<uint8_t>(checksum_ptr[0]) ==
-              static_cast<uint8_t>(expected);
-      break;
-    case 2:
-      match = DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
-      break;
-    case 4:
-      match = DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
-      break;
-    case 8:
-      match = DecodeFixed64(checksum_ptr) == expected;
-      break;
-    default:
-      assert(false);
-  }
+  bool match =
+      ProtectionInfo64()
+          .ProtectKVO(user_key, value, type)
+          .ProtectS(seq)
+          .Verify(static_cast<uint8_t>(protection_bytes_per_key), checksum_ptr);
   if (!match) {
     std::string msg(
         "Corrupted memtable entry, per key-value checksum verification "
@@ -526,7 +509,7 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
-  size_t protection_bytes_per_key_;
+  uint32_t protection_bytes_per_key_;
   Status status_;
   Logger* logger_;
 
@@ -599,6 +582,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   assert(!IsFragmentedRangeTombstonesConstructed(false));
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    // TODO: plumb Env::IOActivity
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
@@ -683,28 +667,15 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
     return;
   }
 
-  uint64_t checksum = 0;
   if (kv_prot_info == nullptr) {
-    checksum =
-        ProtectionInfo64().ProtectKVO(key, value, type).ProtectS(s).GetVal();
+    ProtectionInfo64()
+        .ProtectKVO(key, value, type)
+        .ProtectS(s)
+        .Encode(static_cast<uint8_t>(moptions_.protection_bytes_per_key),
+                checksum_ptr);
   } else {
-    checksum = kv_prot_info->GetVal();
-  }
-  switch (moptions_.protection_bytes_per_key) {
-    case 1:
-      checksum_ptr[0] = static_cast<uint8_t>(checksum);
-      break;
-    case 2:
-      EncodeFixed16(checksum_ptr, static_cast<uint16_t>(checksum));
-      break;
-    case 4:
-      EncodeFixed32(checksum_ptr, static_cast<uint32_t>(checksum));
-      break;
-    case 8:
-      EncodeFixed64(checksum_ptr, checksum);
-      break;
-    default:
-      assert(false);
+    kv_prot_info->Encode(
+        static_cast<uint8_t>(moptions_.protection_bytes_per_key), checksum_ptr);
   }
 }
 
@@ -901,7 +872,7 @@ struct Saver {
   ReadCallback* callback_;
   bool* is_blob_index;
   bool allow_data_in_errors;
-  size_t protection_bytes_per_key;
+  uint32_t protection_bytes_per_key;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);

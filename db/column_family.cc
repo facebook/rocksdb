@@ -1141,6 +1141,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
   Arena arena;
+  // TODO: plumb Env::IOActivity
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
@@ -1426,6 +1427,37 @@ Status ColumnFamilyData::ValidateOptions(
     return Status::NotSupported(
         "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
         "or 8 bytes per key.");
+  }
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.block_protection_bytes_per_key) == supported.end()) {
+    return Status::NotSupported(
+        "Block per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
+
+  if (!cf_options.compaction_options_fifo.file_temperature_age_thresholds
+           .empty()) {
+    if (cf_options.compaction_style != kCompactionStyleFIFO) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds only supports FIFO "
+          "compaction.");
+    } else if (cf_options.num_levels > 1) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds is only supported when "
+          "num_levels = 1.");
+    } else {
+      const auto& ages =
+          cf_options.compaction_options_fifo.file_temperature_age_thresholds;
+      assert(ages.size() >= 1);
+      // check that age is sorted
+      for (size_t i = 0; i < ages.size() - 1; ++i) {
+        if (ages[i].age >= ages[i + 1].age) {
+          return Status::NotSupported(
+              "Option file_temperature_age_thresholds requires elements to be "
+              "sorted in increasing order with respect to `age` field.");
+        }
+      }
+    }
   }
   return s;
 }

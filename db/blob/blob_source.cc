@@ -13,7 +13,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
@@ -209,7 +209,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -372,8 +373,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s =
-        blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                                   &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         BlobReadRequest* const req = _blob_reqs[i].first;
