@@ -3969,6 +3969,9 @@ Status DBImpl::WaitForCompact(bool abort_on_pause) {
           bg_flush_scheduled_ || unscheduled_compactions_ ||
           unscheduled_flushes_) &&
          (error_handler_.GetBGError().ok())) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return Status::ShutdownInProgress();
+    }
     bg_cv_.Wait();
   }
   return error_handler_.GetBGError();
