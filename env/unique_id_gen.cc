@@ -230,8 +230,10 @@ void UnpredictableUniqueIdGen::GenerateNextWithEntropy(uint64_t* upper,
 
 #ifndef NDEBUG
 UnpredictableUniqueIdGen::UnpredictableUniqueIdGen(TEST_ZeroInitialized) {
-  pool_.fill(0);
-  counter_ = 0;
+  for (auto& p : pool_) {
+    p.store(0);
+  }
+  counter_.store(0);
 }
 #endif
 
