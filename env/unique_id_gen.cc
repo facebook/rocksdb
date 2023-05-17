@@ -230,7 +230,8 @@ void UnpredictableUniqueIdGen::GenerateNextWithEntropy(uint64_t* upper,
 
 #ifndef NDEBUG
 UnpredictableUniqueIdGen::UnpredictableUniqueIdGen(TEST_ZeroInitialized) {
-  std::memset(this, 0, sizeof(*this));
+  pool_.fill(0);
+  counter_ = 0;
 }
 #endif
 
