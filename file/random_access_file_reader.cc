@@ -26,6 +26,7 @@ const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
     kReadHistograms{{
         FILE_READ_FLUSH_MICROS,
         FILE_READ_COMPACTION_MICROS,
+        FILE_READ_DB_OPEN_MICROS,
     }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
