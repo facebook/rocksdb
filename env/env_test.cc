@@ -3191,7 +3191,7 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
       thread_local UnpredictableUniqueIdGen gen{
-      UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
       // Even without the counter (reset it to thread id), we get quality
       // single-threaded results.
       gen.TEST_counter().store(Env::Default()->GetThreadID());
@@ -3204,6 +3204,32 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
   t.Run();
 }
 
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest4) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      // Even if we reset the state to thread ID each time, RDTSC instruction
+      // suffices for quality single-threaded results.
+      UnpredictableUniqueIdGen gen{
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+#ifdef __SSE4_2__  // Our rough check for RDTSC
+  t.Run();
+#else
+  ROCKSDB_GTEST_BYPASS("Requires IA32 with RDTSC");
+  // because nanosecond time might not be high enough fidelity to have
+  // incremented after a few hundred instructions, especially in cases where
+  // we really only have microsecond fidelity. Also, wall clock might not be
+  // monotonic.
+#endif
+}
 
 TEST_F(EnvTest, FailureToCreateLockFile) {
   auto env = Env::Default();
