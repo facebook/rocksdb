@@ -3193,7 +3193,8 @@ TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
       thread_local UnpredictableUniqueIdGen gen{
           UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
       // Even without the counter (reset it to thread id), we get quality
-      // single-threaded results.
+      // single-threaded results (because part of each result is fed back
+      // into pool).
       gen.TEST_counter().store(Env::Default()->GetThreadID());
       gen.GenerateNext(&p.first, &p.second);
       return p;

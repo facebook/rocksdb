@@ -18,8 +18,12 @@
 #include "rocksdb/version.h"
 #include "util/hash.h"
 
-#if defined(__SSE4_2__)
-#include <immintrin.h>
+#ifdef __SSE4_2__
+#ifdef _WIN32
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 #else
 #include "rocksdb/system_clock.h"
 #endif
@@ -171,11 +175,11 @@ void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
 }
 
 void UnpredictableUniqueIdGen::Reset() {
-  for (size_t i = 0; i < 8; i += 2) {
+  for (size_t i = 0; i < pool_.size(); i += 2) {
     uint64_t a, b;
     GenerateRawUniqueId(&a, &b);
     pool_[i] = a;
-    pool_[i] = b;
+    pool_[i + 1] = b;
   }
 }
 
@@ -184,7 +188,7 @@ void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
   // Use timing information (if available) to add to entropy. (Not a disaster
   // if unavailable on some platforms. High performance is important.)
 #if defined(__SSE4_2__)  // More than enough to guarantee rdtsc instruction
-  extra_entropy = static_cast<uint64_t>(__rdtsc());
+  extra_entropy = static_cast<uint64_t>(_rdtsc());
 #else
   extra_entropy = SystemClock::Default()->NowNanos();
 #endif
