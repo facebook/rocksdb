@@ -7,15 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/rate_limiter.h"
-
 #include <algorithm>
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,

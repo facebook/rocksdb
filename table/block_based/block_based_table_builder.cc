@@ -29,7 +29,7 @@
 #include "db/dbformat.h"
 #include "index_builder.h"
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"

@@ -46,7 +46,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
