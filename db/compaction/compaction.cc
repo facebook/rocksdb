@@ -580,26 +580,21 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
           input_vstorage_->LevelFiles(lvl);
       for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
         auto* f = files[level_ptrs->at(lvl)];
-        // Advanced until the first file with f->largest < begin_key
+        // Advanced until the first file with begin_key <= f->largest.user_key()
         if (user_cmp->CompareWithoutTimestamp(begin_key,
-                                              f->largest.user_key()) <= 0) {
+                                              f->largest.user_key()) > 0) {
           continue;
         }
-        // We are already after the last file in this level.
-        if (level_ptrs->at(lvl) + 1 == files.size()) {
-          level_ptrs->at(lvl)++;
-          // Future range tombstones do not overlap with this level.
+        // We know that the previous file prev_f, if exists, has
+        // prev_f->largest.user_key() < begin_key.
+        if (user_cmp->CompareWithoutTimestamp(end_key,
+                                              f->smallest.user_key()) <= 0) {
           break;
+        } else {
+          // We have end_key > f->smallest_user_key() and begin_key <=
+          // f->largest.user_key().
+          return false /* overlap */;
         }
-        assert(level_ptrs->at(lvl) + 1 < files.size());
-        auto* next_f = files[level_ptrs->at(lvl) + 1];
-        // Assume that begin_key < end_key. We know f->largest < begin_key.
-        // We need end_key <= next file's smallest
-        if (user_cmp->CompareWithoutTimestamp(
-                end_key, next_f->smallest.user_key()) > 0) {
-          return false /* overlaps */;
-        }
-        break;
       }
     }
     return true /* does not overlap */;
