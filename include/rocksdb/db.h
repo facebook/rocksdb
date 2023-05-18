@@ -1448,14 +1448,17 @@ class DB {
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
 
-  // Waits for the following to finish: compactions scheduled or already
-  // running and flushes scheduled or already running. This does not wait for
-  // the pending compactions or flushes in the queue (a.k.a. unscheduled). This
-  // method may never return if there's sufficient ongoing writes that keeps
-  // flush and compaction going without stopping. The user would have to cease
-  // all the writes to DB to make this eventually return in a stable state.
-  // (there could be a still periodic compaction that could make user wait a bit
-  // longer)
+  // Wait for all flush and compactions jobs to finish. Jobs to wait include the
+  // unscheduled (queued, but not scheduled yet). If the db is shutting down,
+  // Status::ShutdownInProgress will be returned. If PauseBackgroundWork() was
+  // called prior to this, this may potentially wait for unscheduled jobs
+  // indefinitely. abort_on_pause in the option can be set to true to abort, and
+  // Status::Aborted will be returned immediately.
+  //
+  // NOTE: This may also never return if there's sufficient ongoing writes that
+  // keeps flush and compaction going without stopping. The user would have to
+  // cease all the writes to DB to make this eventually return in a stable
+  // state.
   virtual Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) {
     return Status::NotSupported("WaitForCompact Not implemented");

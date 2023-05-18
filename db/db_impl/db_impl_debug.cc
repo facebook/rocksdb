@@ -178,15 +178,8 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
-Status DBImpl::TEST_WaitForCompact(bool abort_on_pause) {
-  // Wait until the compaction completes
-  return WaitForCompact(abort_on_pause);
-}
-
 Status DBImpl::TEST_WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
-  // Wait until the compaction completes with options to flush before compaction
-  // and close db after compaction
   return WaitForCompact(wait_for_compact_options);
 }
 
