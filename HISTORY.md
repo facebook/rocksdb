@@ -9,6 +9,7 @@
 * New statistics `rocksdb.file.read.db.open.micros` that measures read time of block-based SST tables or blob files during db open.
 
 ### Public API Changes
+* EXPERIMENTAL: Add new API `DB::ClipColumnFamily` to clip the key in CF to a certain range. It will physically deletes all keys outside the range including tombstones.
 * Add `MakeSharedCache()` construction functions to various cache Options objects, and deprecated the `NewWhateverCache()` functions with long parameter lists.
 
 ### Behavior changes

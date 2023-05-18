@@ -534,6 +534,11 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) override;
+
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_options) override;
 

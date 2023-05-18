@@ -1763,6 +1763,25 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+  // EXPERIMENTAL
+  // ClipColumnFamily() will clip the entries in the CF according to the range
+  // [begin_key,
+  // end_key).
+  // Returns OK on success, and a non-OK status on error.
+  // Any entries outside this range will be completely deleted (including
+  // tombstones).
+  // The main difference between ClipColumnFamily(begin, end) and
+  // DeleteRange(begin, end)
+  // is that the former physically deletes all keys outside the range, but is
+  // more heavyweight than the latter.
+  // This feature is mainly used to ensure that there is no overlapping Key when
+  // calling
+  // CreateColumnFamilyWithImports() to import multiple CFs.
+  // Note that: concurrent updates cannot be performed during Clip.
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) = 0;
+
   // Verify the checksums of files in db. Currently the whole-file checksum of
   // table files are checked.
   virtual Status VerifyFileChecksums(const ReadOptions& /*read_options*/) {
