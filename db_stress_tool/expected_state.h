@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "db/dbformat.h"
+#include "db_stress_tool/expected_value.h"
 #include "file/file_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -22,177 +23,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-// This class is not thread-safe.
-class ExpectedValue {
- public:
-  static uint32_t GetValueBaseMask() { return VALUE_BASE_MASK; }
-  static uint32_t GetValueBaseDelta() { return VALUE_BASE_DELTA; }
-  static uint32_t GetDelCounterDelta() { return DEL_COUNTER_DELTA; }
-  static uint32_t GetDelMask() { return DEL_MASK; }
-  static bool IsValueBaseValid(uint32_t value_base) {
-    return IsValuePartValid(value_base, VALUE_BASE_MASK);
-  }
-
-  explicit ExpectedValue(uint32_t expected_value)
-      : expected_value_(expected_value) {}
-
-  bool Exists() const { return PendingWrite() || !IsDeleted(); }
-
-  uint32_t Read() const { return expected_value_; }
-
-  void Put(bool pending);
-
-  bool Delete(bool pending);
-
-  void SyncPut(uint32_t value_base);
-
-  void SyncPendingPut();
-
-  void SyncDelete();
-
-  uint32_t GetValueBase() const { return GetValuePart(VALUE_BASE_MASK); }
-
-  uint32_t NextValueBase() const {
-    return GetIncrementedValuePart(VALUE_BASE_MASK, VALUE_BASE_DELTA);
-  }
-
-  void SetValueBase(uint32_t new_value_base) {
-    SetValuePart(VALUE_BASE_MASK, new_value_base);
-  }
-
-  bool PendingWrite() const {
-    const uint32_t pending_write = GetValuePart(PENDING_WRITE_MASK);
-    return pending_write != 0;
-  }
-
-  void SetPendingWrite() {
-    SetValuePart(PENDING_WRITE_MASK, PENDING_WRITE_MASK);
-  }
-
-  void ClearPendingWrite() { ClearValuePart(PENDING_WRITE_MASK); }
-
-  uint32_t GetDelCounter() const { return GetValuePart(DEL_COUNTER_MASK); }
-
-  uint32_t NextDelCounter() const {
-    return GetIncrementedValuePart(DEL_COUNTER_MASK, DEL_COUNTER_DELTA);
-  }
-
-  void SetDelCounter(uint32_t new_del_counter) {
-    SetValuePart(DEL_COUNTER_MASK, new_del_counter);
-  }
-
-  bool PendingDelete() const {
-    const uint32_t pending_del = GetValuePart(PENDING_DEL_MASK);
-    return pending_del != 0;
-  }
-
-  void SetPendingDel() { SetValuePart(PENDING_DEL_MASK, PENDING_DEL_MASK); }
-
-  void ClearPendingDel() { ClearValuePart(PENDING_DEL_MASK); }
-
-  bool IsDeleted() const {
-    const uint32_t deleted = GetValuePart(DEL_MASK);
-    return deleted != 0;
-  }
-
-  void SetDeleted() { SetValuePart(DEL_MASK, DEL_MASK); }
-
-  void ClearDeleted() { ClearValuePart(DEL_MASK); }
-
-  uint32_t GetFinalValueBase() const;
-
-  uint32_t GetFinalDelCounter() const;
-
- private:
-  static bool IsValuePartValid(uint32_t value_part, uint32_t value_part_mask) {
-    return (value_part & (~value_part_mask)) == 0;
-  }
-
-  // The 32-bit expected_value_ is divided into following parts:
-  // Bit 0 - 14: value base
-  static constexpr uint32_t VALUE_BASE_MASK = 0x7fff;
-  static constexpr uint32_t VALUE_BASE_DELTA = 1;
-  // Bit 15: whether write to this value base is pending (0 equals `false`)
-  static constexpr uint32_t PENDING_WRITE_MASK = (uint32_t)1 << 15;
-  // Bit 16 - 29: deletion counter (i.e, number of times this value base has
-  // been deleted)
-  static constexpr uint32_t DEL_COUNTER_MASK = 0x3fff0000;
-  static constexpr uint32_t DEL_COUNTER_DELTA = (uint32_t)1 << 16;
-  // Bit 30: whether deletion of this value base is pending (0 equals `false`)
-  static constexpr uint32_t PENDING_DEL_MASK = (uint32_t)1 << 30;
-  // Bit 31: whether this value base is deleted (0 equals `false`)
-  static constexpr uint32_t DEL_MASK = (uint32_t)1 << 31;
-
-  uint32_t GetValuePart(uint32_t value_part_mask) const {
-    return expected_value_ & value_part_mask;
-  }
-
-  uint32_t GetIncrementedValuePart(uint32_t value_part_mask,
-                                   uint32_t value_part_delta) const {
-    uint32_t current_value_part = GetValuePart(value_part_mask);
-    ExpectedValue temp_expected_value(current_value_part + value_part_delta);
-    return temp_expected_value.GetValuePart(value_part_mask);
-  }
-
-  void SetValuePart(uint32_t value_part_mask, uint32_t new_value_part) {
-    assert(IsValuePartValid(new_value_part, value_part_mask));
-    ClearValuePart(value_part_mask);
-    expected_value_ |= new_value_part;
-  }
-
-  void ClearValuePart(uint32_t value_part_mask) {
-    expected_value_ &= (~value_part_mask);
-  }
-
-  uint32_t expected_value_;
-};
-
-class PendingExpectedValue {
- public:
-  explicit PendingExpectedValue(std::atomic<uint32_t>* value_ptr,
-                                ExpectedValue orig_value,
-                                ExpectedValue final_value)
-      : value_ptr_(value_ptr),
-        orig_value_(orig_value),
-        final_value_(final_value) {}
-
-  void Commit() {
-    // To prevent low-level instruction reordering that results
-    // in setting expected value happens before db write
-    std::atomic_thread_fence(std::memory_order_release);
-    value_ptr_->store(final_value_.Read());
-  }
-
-  uint32_t GetFinalValueBase() { return final_value_.GetValueBase(); }
-
- private:
-  std::atomic<uint32_t>* const value_ptr_;
-  const ExpectedValue orig_value_;
-  const ExpectedValue final_value_;
-};
-
-class ExpectedValueHelper {
- public:
-  // Return whether value is expected not to exist from begining till the end
-  // of the read based on `pre_read_expected_value` and
-  // `pre_read_expected_value`.
-  static bool MustHaveNotExisted(ExpectedValue pre_read_expected_value,
-                                 ExpectedValue post_read_expected_value);
-
-  // Return whether value is expected to exist from begining till the end of
-  // the read based on `pre_read_expected_value` and
-  // `pre_read_expected_value`.
-  static bool MustHaveExisted(ExpectedValue pre_read_expected_value,
-                              ExpectedValue post_read_expected_value);
-
-  // Return whether the `value_base` falls within the expected value base
-  static bool InExpectedValueBaseRange(uint32_t value_base,
-                                       ExpectedValue pre_read_expected_value,
-                                       ExpectedValue post_read_expected_value);
-};
-
-// An `ExpectedState` provides read/write access to expected values for every
-// key.
+// `ExpectedState` provides read/write access to expected values stored in
+// `ExpectedState` for every key.
 class ExpectedState {
  public:
   explicit ExpectedState(size_t max_key, size_t num_column_families);
@@ -492,7 +324,6 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   // member function.
   Status Open() override;
 };
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // GFLAGS
