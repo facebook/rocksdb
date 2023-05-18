@@ -10,13 +10,13 @@ import java.util.List;
 import java.util.Objects;
 
 public class OptionString {
-  private final static char kvPairSeparator = ';';
-  private final static char kvSeparator = '=';
-  private final static char complexValueBegin = '{';
-  private final static char complexValueEnd = '}';
-  private final static char wrappedValueBegin = '{';
-  private final static char wrappedValueEnd = '}';
-  private final static char arrayValueSeparator = ':';
+  private static final char kvPairSeparator = ';';
+  private static final char kvSeparator = '=';
+  private static final char complexValueBegin = '{';
+  private static final char complexValueEnd = '}';
+  private static final char wrappedValueBegin = '{';
+  private static final char wrappedValueEnd = '}';
+  private static final char arrayValueSeparator = ':';
 
   static class Value {
     final List<String> list;

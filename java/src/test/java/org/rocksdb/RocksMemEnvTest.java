@@ -32,12 +32,8 @@ public class RocksMemEnvTest {
     };
 
     try (final Env env = new RocksMemEnv(Env.getDefault());
-         final Options options = new Options()
-             .setCreateIfMissing(true)
-             .setEnv(env);
-         final FlushOptions flushOptions = new FlushOptions()
-             .setWaitForFlush(true);
-    ) {
+         final Options options = new Options().setCreateIfMissing(true).setEnv(env);
+         final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
       try (final RocksDB db = RocksDB.open(options, "/dir/db")) {
         // write key/value pairs using MemEnv
         for (int i = 0; i < keys.length; i++) {

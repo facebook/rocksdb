@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/compression.h"
 #include "util/string_util.h"

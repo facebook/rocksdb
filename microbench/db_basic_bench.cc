@@ -303,7 +303,7 @@ static void DBPut(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -410,7 +410,7 @@ static void ManualCompaction(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -510,7 +510,7 @@ static void ManualFlush(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -594,7 +594,7 @@ static void DBGet(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -707,7 +707,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
       }
     }
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1115,7 +1115,7 @@ static void IteratorSeek(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1206,7 +1206,7 @@ static void IteratorNext(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1270,7 +1270,7 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
       }
     }
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1368,7 +1368,7 @@ static void IteratorPrev(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1460,7 +1460,7 @@ static void PrefixSeek(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact(true);
+    s = db_full->WaitForCompact();
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;

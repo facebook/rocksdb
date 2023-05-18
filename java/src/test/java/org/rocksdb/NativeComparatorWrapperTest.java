@@ -5,14 +5,14 @@
 
 package org.rocksdb;
 
+import static org.junit.Assert.assertEquals;
+
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Random;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import java.util.*;
-import java.util.Comparator;
-
-import static org.junit.Assert.assertEquals;
 
 public class NativeComparatorWrapperTest {
   static {
@@ -39,7 +39,7 @@ public class NativeComparatorWrapperTest {
       try (final RocksDB db = RocksDB.open(opt, dbPath)) {
         for (int i = 0; i < ITERATIONS; i++) {
           final String strKey = randomString();
-          final byte key[] = strKey.getBytes();
+          final byte[] key = strKey.getBytes();
           // does key already exist (avoid duplicates)
           if (i > 0 && db.get(key) != null) {
             i--; // generate a different key
@@ -51,12 +51,7 @@ public class NativeComparatorWrapperTest {
       }
 
       // sort the stored keys into ascending alpha-numeric order
-      Arrays.sort(storedKeys, new Comparator<String>() {
-        @Override
-        public int compare(final String o1, final String o2) {
-          return o1.compareTo(o2);
-        }
-      });
+      Arrays.sort(storedKeys, Comparator.naturalOrder());
 
       // re-open db and read from start to end
       // string keys should be in ascending

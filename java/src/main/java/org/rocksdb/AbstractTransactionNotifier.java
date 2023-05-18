@@ -41,10 +41,10 @@ public abstract class AbstractTransactionNotifier
 
   /**
    * Deletes underlying C++ TransactionNotifier pointer.
-   *
+   * <p>
    * Note that this function should be called only after all
    * Transactions referencing the comparator are closed.
-   * Otherwise an undefined behavior will occur.
+   * Otherwise, an undefined behavior will occur.
    */
   @Override
   protected void disposeInternal() {

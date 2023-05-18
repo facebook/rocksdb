@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
