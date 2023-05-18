@@ -48,9 +48,9 @@ public class CompressionOptions extends RocksObject {
    * loaded into the compression library before compressing/uncompressing each
    * data block of subsequent files in the subcompaction. Effectively, this
    * improves compression ratios when there are repetitions across data blocks.
-   *
+   * <p>
    * A value of 0 indicates the feature is disabled.
-   *
+   * <p>
    * Default: 0.
    *
    * @param maxDictBytes Maximum bytes to use for the dictionary
@@ -75,10 +75,10 @@ public class CompressionOptions extends RocksObject {
    * Maximum size of training data passed to zstd's dictionary trainer. Using
    * zstd's dictionary trainer can achieve even better compression ratio
    * improvements than using {@link #setMaxDictBytes(int)} alone.
-   *
+   * <p>
    * The training data will be used to generate a dictionary
    * of {@link #maxDictBytes()}.
-   *
+   * <p>
    * Default: 0.
    *
    * @param zstdMaxTrainBytes Maximum bytes to use for training ZStd.
@@ -104,10 +104,10 @@ public class CompressionOptions extends RocksObject {
    * For bottommost_compression_opts, to enable it, user must set enabled=true.
    * Otherwise, bottommost compression will use compression_opts as default
    * compression options.
-   *
+   * <p>
    * For compression_opts, if compression_opts.enabled=false, it is still
    * used as compression options for compression process.
-   *
+   * <p>
    * Default: false.
    *
    * @param enabled true to use these compression options
@@ -131,8 +131,7 @@ public class CompressionOptions extends RocksObject {
     return enabled(nativeHandle_);
   }
 
-
-  private native static long newCompressionOptions();
+  private static native long newCompressionOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setWindowBits(final long handle, final int windowBits);

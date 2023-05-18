@@ -15,7 +15,7 @@
 #include <string>
 
 #include "file/readahead_file_info.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"

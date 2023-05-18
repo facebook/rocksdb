@@ -14,7 +14,7 @@
 #include <string>
 
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"

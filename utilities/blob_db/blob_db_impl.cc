@@ -22,7 +22,7 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/instrumented_mutex.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"

@@ -31,8 +31,7 @@ class BatchedOpsStressTest : public StressTest {
 
     const std::string key_body = Key(rand_keys[0]);
 
-    const uint32_t value_base =
-        thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+    const uint32_t value_base = thread->rand.Next();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const std::string value_body = Slice(value, sz).ToString();
 

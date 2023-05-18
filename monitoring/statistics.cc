@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "monitoring/statistics.h"
+#include "rocksdb/statistics.h"
 
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
@@ -256,6 +256,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
     {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
     {FILE_READ_COMPACTION_MICROS, "rocksdb.file.read.compaction.micros"},
+    {FILE_READ_DB_OPEN_MICROS, "rocksdb.file.read.db.open.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},

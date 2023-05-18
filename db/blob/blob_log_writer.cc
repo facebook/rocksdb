@@ -10,7 +10,7 @@
 
 #include "db/blob/blob_log_format.h"
 #include "file/writable_file_writer.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
