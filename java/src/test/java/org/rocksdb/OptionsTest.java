@@ -8,8 +8,6 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.*;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,11 +26,11 @@ public class OptionsTest {
 
   @Test
   public void copyConstructor() {
-    Options origOpts = new Options();
+    final Options origOpts = new Options();
     origOpts.setNumLevels(rand.nextInt(8));
     origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
     origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
-    Options copyOpts = new Options(origOpts);
+    final Options copyOpts = new Options(origOpts);
     assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
     assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
     assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
@@ -675,9 +673,8 @@ public class OptionsTest {
 
   @Test
   public void setWriteBufferManager() throws RocksDBException {
-    try (final Options opt = new Options();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache)) {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
@@ -685,9 +682,8 @@ public class OptionsTest {
 
   @Test
   public void setWriteBufferManagerWithZeroBufferSize() throws RocksDBException {
-    try (final Options opt = new Options();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(0l, cache)) {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(0L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
@@ -695,8 +691,8 @@ public class OptionsTest {
 
   @Test
   public void setWriteBufferManagerWithAllowStall() throws RocksDBException {
-    try (final Options opt = new Options(); final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache, true)) {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache, true)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
       assertThat(opt.writeBufferManager().allowStall()).isEqualTo(true);
@@ -1476,15 +1472,15 @@ public class OptionsTest {
                }
              }) {
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
-      List<AbstractEventListener> listeners = options.listeners();
+      final List<AbstractEventListener> listeners = options.listeners();
       assertEquals(el1, listeners.get(0));
       assertEquals(el2, listeners.get(1));
-      options.setListeners(Collections.<AbstractEventListener>emptyList());
+      options.setListeners(Collections.emptyList());
       listeners.get(0).onTableFileDeleted(null);
       assertTrue(wasCalled1.get());
       listeners.get(1).onMemTableSealed(null);
       assertTrue(wasCalled2.get());
-      List<AbstractEventListener> listeners2 = options.listeners();
+      final List<AbstractEventListener> listeners2 = options.listeners();
       assertNotNull(listeners2);
       assertEquals(0, listeners2.size());
     }

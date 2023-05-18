@@ -54,7 +54,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * The wait timeout in milliseconds when a transaction attempts to lock a key.
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
    * will be used
@@ -69,11 +69,11 @@ public class TransactionOptions extends RocksObject
   /**
    * If positive, specifies the wait timeout in milliseconds when
    * a transaction attempts to lock a key.
-   *
+   * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
    * will be used
-   *
+   * <p>
    * Default: -1
    *
    * @param lockTimeout the lock timeout in milliseconds
@@ -88,7 +88,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Expiration duration in milliseconds.
-   *
+   * <p>
    * If non-negative, transactions that last longer than this many milliseconds
    * will fail to commit. If not set, a forgotten transaction that is never
    * committed, rolled back, or deleted will never relinquish any locks it
@@ -103,12 +103,12 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Expiration duration in milliseconds.
-   *
+   * <p>
    * If non-negative, transactions that last longer than this many milliseconds
    * will fail to commit. If not set, a forgotten transaction that is never
    * committed, rolled back, or deleted will never relinquish any locks it
    * holds. This could prevent keys from being written by other writers.
-   *
+   * <p>
    * Default: -1
    *
    * @param expiration the expiration duration in milliseconds
@@ -133,7 +133,7 @@ public class TransactionOptions extends RocksObject
 
   /**
    * Sets the number of traversals to make during deadlock detection.
-   *
+   * <p>
    * Default: 50
    *
    * @param deadlockDetectDepth the number of traversals to make during
@@ -168,7 +168,7 @@ public class TransactionOptions extends RocksObject
     return this;
   }
 
-  private native static long newTransactionOptions();
+  private static native long newTransactionOptions();
   private native boolean isSetSnapshot(final long handle);
   private native void setSetSnapshot(final long handle,
       final boolean setSnapshot);

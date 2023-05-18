@@ -69,5 +69,5 @@ public class BloomFilter extends Filter {
     this(bitsPerKey);
   }
 
-  private native static long createNewBloomFilter(final double bitsKeyKey);
+  private static native long createNewBloomFilter(final double bitsKeyKey);
 }

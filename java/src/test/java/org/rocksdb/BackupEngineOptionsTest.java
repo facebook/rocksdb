@@ -15,8 +15,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class BackupEngineOptionsTest {
-  private final static String ARBITRARY_PATH =
-      System.getProperty("java.io.tmpdir");
+  private static final String ARBITRARY_PATH = System.getProperty("java.io.tmpdir");
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -61,13 +60,10 @@ public class BackupEngineOptionsTest {
     try (final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupEngineOptions.infoLog()).isNull();
 
-      try(final Options options = new Options();
-          final Logger logger = new Logger(options){
-            @Override
-            protected void log(InfoLogLevel infoLogLevel, String logMsg) {
-
-            }
-          }) {
+      try (final Options options = new Options(); final Logger logger = new Logger(options) {
+        @Override
+        protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {}
+      }) {
         backupEngineOptions.setInfoLog(logger);
         assertThat(backupEngineOptions.infoLog()).isEqualTo(logger);
       }
@@ -85,7 +81,7 @@ public class BackupEngineOptionsTest {
 
   @Test
   public void destroyOldData() {
-    try (final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH);) {
+    try (final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final boolean value = rand.nextBoolean();
       backupEngineOptions.setDestroyOldData(value);
       assertThat(backupEngineOptions.destroyOldData()).isEqualTo(value);
@@ -154,7 +150,7 @@ public class BackupEngineOptionsTest {
   @Test
   public void shareFilesWithChecksum() {
     try (final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
-      boolean value = rand.nextBoolean();
+      final boolean value = rand.nextBoolean();
       backupEngineOptions.setShareFilesWithChecksum(value);
       assertThat(backupEngineOptions.shareFilesWithChecksum()).isEqualTo(value);
     }
@@ -181,7 +177,7 @@ public class BackupEngineOptionsTest {
   @Test
   public void failBackupDirIsNull() {
     exception.expect(IllegalArgumentException.class);
-    try (final BackupEngineOptions opts = new BackupEngineOptions(null)) {
+    try (final BackupEngineOptions ignored = new BackupEngineOptions(null)) {
       //no-op
     }
   }
@@ -202,7 +198,7 @@ public class BackupEngineOptionsTest {
 
   @Test
   public void failShareTableFilesIfDisposed() {
-    try (BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.shareTableFiles();
     }
   }
@@ -291,7 +287,8 @@ public class BackupEngineOptionsTest {
     }
   }
 
-  private BackupEngineOptions setupUninitializedBackupEngineOptions(ExpectedException exception) {
+  private BackupEngineOptions setupUninitializedBackupEngineOptions(
+      final ExpectedException exception) {
     final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH);
     backupEngineOptions.close();
     exception.expect(AssertionError.class);

@@ -122,7 +122,7 @@ public class MutableColumnFamilyOptionsTest {
         + "max_write_buffer_size_to_maintain=0;  memtable_insert_with_hint_prefix_extractor=nullptr;  level_compaction_dynamic_level_bytes=false;  "
         + "inplace_update_support=false;  experimental_mempurge_threshold=0.003";
 
-    MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder cf =
+    final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder cf =
         MutableColumnFamilyOptions.parse(optionsString, true);
 
     // Check the values from the parsed string which are column family options
