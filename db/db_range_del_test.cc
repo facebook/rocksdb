@@ -1690,6 +1690,8 @@ TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   ASSERT_EQ("0,1,0,1", FilesPerLevel());
 
   env_->MockSleepForSeconds(20 * 60 * 60);
+  // Prevent range tombstone from being dropped during compaction.
+  const Snapshot* snapshot = db_->GetSnapshot();
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              Key(11), Key(12)));
   ASSERT_OK(Put(Key(0), rnd.RandomString(1 << 10)));
@@ -1703,6 +1705,7 @@ TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   // File 1: (qualified for TTL): Key(5) - Key(10)
   // File 1: DeleteRange [11, 12)
   ASSERT_EQ("0,3,0,1", FilesPerLevel());
+  db_->ReleaseSnapshot(snapshot);
 }
 
 // Test SST partitioner cut after every single key

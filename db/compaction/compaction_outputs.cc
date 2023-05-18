@@ -701,7 +701,7 @@ Status CompactionOutputs::AddRangeDels(
     // tombstone_end. Since tombstone_start* <= upper_bound from the above proof
     // and tombstone_start* < tombstone_end, tombstone_start* <=
     // min(tombstone_end, upper_bound), so the two ranges overlap.
-    //
+
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
     assert(icmp.Compare(tombstone_start, tombstone_end) <= 0);

@@ -589,6 +589,7 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
         // prev_f->largest.user_key() < begin_key.
         if (user_cmp->CompareWithoutTimestamp(end_key,
                                               f->smallest.user_key()) <= 0) {
+          // not overlapping with this level
           break;
         } else {
           // We have end_key > f->smallest_user_key() and begin_key <=
