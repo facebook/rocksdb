@@ -5129,6 +5129,8 @@ class TickerTypeJni {
         return -0x3A;
       case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT:
         return -0x3B;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
+        return -0x3C;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5490,6 +5492,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS;
       case -0x3B:
         return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
+      case -0x3C:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5623,6 +5627,8 @@ class HistogramTypeJni {
         return 0x3A;
       case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
         return 0x3B;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS:
+        return 0x3C;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5746,6 +5752,8 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
       case 0x3B:
         return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
+      case 0x3C:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

@@ -394,7 +394,13 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  // Number of block checksum verifications
   BLOCK_CHECKSUM_COMPUTE_COUNT,
+  // Number of times RocksDB detected a corruption while verifying a block
+  // checksum. RocksDB does not remember corruptions that happened during user
+  // reads so the same block corruption may be detected multiple times.
+  BLOCK_CHECKSUM_MISMATCH_COUNT,
+
   MULTIGET_COROUTINE_COUNT,
 
   // Integrated BlobDB specific stats
@@ -506,9 +512,10 @@ enum Histograms : uint32_t {
   // Time spent in reading block-based or plain SST table
   SST_READ_MICROS,
   // Time spent in reading SST table (currently only block-based table) or blob
-  // file for flush or compaction
+  // file corresponding to `Env::IOActivity`
   FILE_READ_FLUSH_MICROS,
   FILE_READ_COMPACTION_MICROS,
+  FILE_READ_DB_OPEN_MICROS,
 
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,

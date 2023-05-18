@@ -63,7 +63,7 @@ public enum HistogramType {
 
   /**
    * number of bytes decompressed.
-   *
+   * <p>
    * number of bytes is when uncompressed; i.e. before/after respectively
    */
   BYTES_DECOMPRESSED((byte) 0x1B),
@@ -172,6 +172,8 @@ public enum HistogramType {
   FILE_READ_FLUSH_MICROS((byte) 0x3A),
 
   FILE_READ_COMPACTION_MICROS((byte) 0x3B),
+
+  FILE_READ_DB_OPEN_MICROS((byte) 0x3C),
 
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);

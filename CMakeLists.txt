@@ -253,33 +253,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
   endif(HAS_LOONGARCH64)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 
-option(PORTABLE "build a portable binary" OFF)
-option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
-option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
-option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
-if(PORTABLE)
-  add_definitions(-DROCKSDB_PORTABLE)
-
-  # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
-  # is available, it is available by default.
-  if(FORCE_SSE42 AND NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
-  endif()
-  if(MSVC)
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
-    endif()
-    # MSVC automatically enables BMI / lzcnt with AVX2.
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    endif()
-  else()
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
-    endif()
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
-    endif()
+set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
+if(PORTABLE STREQUAL 1)
+  # Usually nothing to do; compiler default is typically the most general
+  if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     endif()
@@ -287,10 +264,21 @@ if(PORTABLE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
+elseif(PORTABLE MATCHES [^0]+)
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
+  endif()
 else()
   if(MSVC)
+    # NOTE: No auto-detection of current CPU, but instead assume some useful
+    # level of optimization is supported
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
+    # Require instruction set from current CPU (with some legacy or opt-out
+    # exceptions)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
@@ -303,25 +291,6 @@ include(CheckCXXSourceCompiles)
 set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
-endif()
-
-CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
 
 # Check if -latomic is required or not
@@ -1010,12 +979,6 @@ if ( ROCKSDB_PLUGINS )
   endforeach()
 endif()
 
-if(HAVE_SSE42 AND NOT MSVC)
-  set_source_files_properties(
-    util/crc32c.cc
-    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
-endif()
-
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
   list(APPEND SOURCES
     util/crc32c_ppc.c
@@ -1327,6 +1290,7 @@ if(WITH_TESTS)
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
+        db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc
         db/db_flush_test.cc

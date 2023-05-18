@@ -10,6 +10,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "db/log_format.h"
 #include "rocksdb/compression_type.h"
@@ -87,6 +89,15 @@ class Writer {
                      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
   IOStatus AddCompressionTypeRecord();
 
+  // If there are column families in `cf_to_ts_sz` not included in
+  // `recorded_cf_to_ts_sz_` and its user-defined timestamp size is non-zero,
+  // adds a record of type kUserDefinedTimestampSizeType or
+  // kRecyclableUserDefinedTimestampSizeType for these column families.
+  // This timestamp size record applies to all subsequent records.
+  IOStatus MaybeAddUserDefinedTimestampSizeRecord(
+      const std::unordered_map<uint32_t, size_t>& cf_to_ts_sz,
+      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
+
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
@@ -122,6 +133,11 @@ class Writer {
   StreamingCompress* compress_;
   // Reusable compressed output buffer
   std::unique_ptr<char[]> compressed_buffer_;
+
+  // The recorded user-defined timestamp size that have been written so far.
+  // Since the user-defined timestamp size cannot be changed while the DB is
+  // running, existing entry in this map cannot be updated.
+  std::unordered_map<uint32_t, size_t> recorded_cf_to_ts_sz_;
 };
 
 }  // namespace log

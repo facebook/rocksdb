@@ -483,12 +483,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
 
-      constexpr uint32_t value_base = 0;
+      PendingExpectedValue pending_expected_value =
+          shared->PreparePut(cf_idx, k);
+      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
       const Slice v(value, sz);
 
-      shared->Put(cf_idx, k, value_base, true /* pending */);
 
       std::string ts;
       if (FLAGS_user_timestamp_size > 0) {
@@ -534,7 +535,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         }
       }
 
-      shared->Put(cf_idx, k, value_base, false /* pending */);
+      pending_expected_value.Commit();
       if (!s.ok()) {
         break;
       }
@@ -614,8 +615,7 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
     for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
       uint64_t key_val;
       if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
-        shared->Put(static_cast<int>(i) /* cf_idx */, key_val,
-                    0 /* value_base */, true /* pending */);
+        shared->SyncPendingPut(static_cast<int>(i) /* cf_idx */, key_val);
       }
     }
   }
@@ -2671,7 +2671,7 @@ void StressTest::Open(SharedState* shared) {
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                    ->WaitForCompact(true /* wait_unscheduled */);
+                    ->WaitForCompact();
             if (!s.ok()) {
               for (auto cf : column_families_) {
                 delete cf;

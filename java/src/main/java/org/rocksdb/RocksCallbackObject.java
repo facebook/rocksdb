@@ -11,10 +11,10 @@ import java.util.List;
  * RocksCallbackObject is similar to {@link RocksObject} but varies
  * in its construction as it is designed for Java objects which have functions
  * which are called from C++ via JNI.
- *
+ * <p>
  * RocksCallbackObject is the base-class any RocksDB classes that acts as a
  * callback from some underlying underlying native C++ {@code rocksdb} object.
- *
+ * <p>
  * The use of {@code RocksObject} should always be preferred over
  * {@link RocksCallbackObject} if callbacks are not required.
  */

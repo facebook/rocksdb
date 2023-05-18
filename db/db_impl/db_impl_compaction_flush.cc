@@ -1170,7 +1170,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         // at L1 (or LBase), if applicable.
         int level = first_overlapped_level;
         final_output_level = level;
-        int output_level, base_level;
+        int output_level = 0, base_level = 0;
         while (level < max_overlapped_level || level == 0) {
           output_level = level + 1;
           if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
@@ -1758,7 +1758,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->epoch_number,
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
-          f->compensated_range_deletion_size);
+          f->compensated_range_deletion_size, f->tail_size);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -3457,7 +3457,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->epoch_number, f->file_checksum,
             f->file_checksum_func_name, f->unique_id,
-            f->compensated_range_deletion_size);
+            f->compensated_range_deletion_size, f->tail_size);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -3957,16 +3957,24 @@ void DBImpl::GetSnapshotContext(
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
 
-Status DBImpl::WaitForCompact(bool wait_unscheduled) {
-  // Wait until the compaction completes
+Status DBImpl::WaitForCompact(bool abort_on_pause) {
   InstrumentedMutexLock l(&mutex_);
-  while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-          bg_flush_scheduled_ ||
-          (wait_unscheduled && unscheduled_compactions_)) &&
-         (error_handler_.GetBGError().ok())) {
-    bg_cv_.Wait();
+  for (;;) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return Status::ShutdownInProgress();
+    }
+    if (bg_work_paused_ && abort_on_pause) {
+      return Status::Aborted();
+    }
+    if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_ || unscheduled_compactions_ ||
+         unscheduled_flushes_) &&
+        (error_handler_.GetBGError().ok())) {
+      bg_cv_.Wait();
+    } else {
+      return error_handler_.GetBGError();
+    }
   }
-  return error_handler_.GetBGError();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

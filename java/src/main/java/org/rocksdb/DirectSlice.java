@@ -10,13 +10,13 @@ import java.nio.ByteBuffer;
 /**
  * Base class for slices which will receive direct
  * ByteBuffer based access to the underlying data.
- *
+ * <p>
  * ByteBuffer backed slices typically perform better with
  * larger keys and values. When using smaller keys and
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-  public final static DirectSlice NONE = new DirectSlice();
+  public static final DirectSlice NONE = new DirectSlice();
 
   /**
    * Indicates whether we have to free the memory pointed to by the Slice
@@ -29,7 +29,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
    * at creation time.
-   *
+   * <p>
    * Note: You should be aware that it is intentionally marked as
    * package-private. This is so that developers cannot construct their own
    * default DirectSlice objects (at present). As developers cannot construct
@@ -123,9 +123,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     disposeInternal(nativeHandle);
   }
 
-  private native static long createNewDirectSlice0(final ByteBuffer data,
-      final int length);
-  private native static long createNewDirectSlice1(final ByteBuffer data);
+  private static native long createNewDirectSlice0(final ByteBuffer data, final int length);
+  private static native long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
   private native void clear0(long handle, boolean internalBuffer,

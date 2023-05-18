@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"

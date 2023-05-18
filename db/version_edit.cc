@@ -238,6 +238,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                   f.compensated_range_deletion_size);
       PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
     }
+    if (f.tail_size) {
+      PutVarint32(dst, NewFileCustomTag::kTailSize);
+      std::string varint_tail_size;
+      PutVarint64(&varint_tail_size, f.tail_size);
+      PutLengthPrefixedSlice(dst, Slice(varint_tail_size));
+    }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
@@ -414,6 +420,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kCompensatedRangeDeletionSize:
           if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
             return "Invalid compensated range deletion size";
+          }
+          break;
+        case kTailSize:
+          if (!GetVarint64(&field, &f.tail_size)) {
+            return "invalid tail start offset";
           }
           break;
         default:
@@ -851,6 +862,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       InternalUniqueIdToExternal(&id);
       r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
     }
+    r.append(" tail size:");
+    AppendNumberTo(&r, f.tail_size);
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -966,6 +979,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
         // permanent
         jw << "Temperature" << static_cast<int>(f.temperature);
       }
+      jw << "TailSize" << f.tail_size;
       jw.EndArrayedObject();
     }
 

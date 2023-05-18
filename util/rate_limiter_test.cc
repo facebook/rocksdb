@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/rate_limiter.h"
-
 #include <chrono>
 #include <cinttypes>
 #include <cstdint>
@@ -20,6 +18,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -414,6 +413,51 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
     }
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(RateLimiterTest, AvailableByteSizeExhaustTest) {
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  const std::chrono::seconds kTimePerRefill(1);
+
+  // This test makes sure available_bytes_ get exhausted first before queuing
+  // any remaining bytes when requested_bytes > available_bytes
+  const int64_t available_bytes_per_period = 500;
+
+  std::shared_ptr<RateLimiter> limiter = std::make_shared<GenericRateLimiter>(
+      available_bytes_per_period,
+      std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      false /* auto_tuned */);
+
+  // Step 1. Request 100 and wait for the refill
+  // so that the remaining available bytes are 400
+  limiter->Request(100, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+  special_env.SleepForMicroseconds(
+      static_cast<int>(std::chrono::microseconds(kTimePerRefill).count()));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest", [&](void* arg) {
+        port::Mutex* request_mutex = (port::Mutex*)arg;
+        request_mutex->Unlock();
+        // Step 3. Check GetTotalBytesThrough = available_bytes_per_period
+        // to make sure that the first request (100) and the part of the second
+        // request (400) made through when the remaining of the second request
+        // got queued
+        ASSERT_EQ(available_bytes_per_period,
+                  limiter->GetTotalBytesThrough(Env::IO_USER));
+        request_mutex->Lock();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Step 2. Request 500, which is greater than the remaining available bytes
+  // (400)
+  limiter->Request(500, Env::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostEnqueueRequest");
 }
 
 TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
