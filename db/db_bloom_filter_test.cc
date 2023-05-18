@@ -209,57 +209,35 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
     ASSERT_OK(dbfull()->Flush(fo));
 
     ASSERT_EQ("foo", Get("barbarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ(
-        0,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+
     ASSERT_EQ("foo2", Get("barbarbar2"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ(
-        0,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+
     ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-    ASSERT_EQ(
-        0,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
-    ASSERT_EQ(
-        1,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
 
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
-    ASSERT_EQ(
-        2,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
 
     ro.total_order_seek = true;
     // NOTE: total_order_seek no longer affects Get()
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
-    ASSERT_EQ(
-        3,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
 
     // No bloom on extractor changed
     ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
-    ASSERT_EQ(
-        3,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     // No bloom on extractor changed, after re-open
     options.prefix_extractor.reset(NewCappedPrefixTransform(10));
     Reopen(options);
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
-    ASSERT_EQ(
-        3,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     get_perf_context()->Reset();
   }
@@ -294,33 +272,27 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     ASSERT_OK(dbfull()->Flush(fo));
 
     ASSERT_EQ("foo", Get("barbarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     ASSERT_EQ("foo2", Get("barbarbar2"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
 
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
 
     ro.total_order_seek = true;
     // NOTE: total_order_seek no longer affects Get()
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
-    ASSERT_EQ(
-        3,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
 
     // No bloom on extractor changed
     ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
-    ASSERT_EQ(
-        3,
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
 
     get_perf_context()->Reset();
   }
@@ -358,11 +330,11 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
 
     Reopen(options);
     ASSERT_EQ("NOT_FOUND", Get("foo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("bar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     ASSERT_EQ("foo", Get("foobar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     // Reopen with whole key filtering enabled and prefix extractor
     // NULL. Bloom filter should be off for both of whole key and
@@ -372,13 +344,17 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     options.prefix_extractor.reset();
     Reopen(options);
 
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("foo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("bar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("foo", Get("foobar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     // Write DB with only full key filtering.
     ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
     // Needs insert some keys to make sure files are not filtered out by key
@@ -394,13 +370,17 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     Reopen(options);
 
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("foo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("bar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("foo", Get("foobar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
 
     // Try to create a DB with mixed files:
     ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
@@ -426,15 +406,16 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     // Now we have two files:
     // File 1: An older file with prefix bloom.
     // File 2: A newer file with whole bloom filter.
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+    // IAMHERE
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
     ASSERT_EQ("NOT_FOUND", Get("foo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
     ASSERT_EQ("NOT_FOUND", Get("bar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
     ASSERT_EQ("foo", Get("foobar"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 4);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
     ASSERT_EQ("bar", Get("barfoo"));
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 4);
+    ASSERT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 0);
 
     // Reopen with the same setting: only whole key is used
     Reopen(options);
@@ -696,11 +677,8 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   PutAndGetFn();
 
   // Verify filter is accessed (and constructed)
-  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
-            maxKey * 2);
-  EXPECT_EQ(
-      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
-      maxKey);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_FULL_POSITIVE), maxKey * 2);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), maxKey);
   props.clear();
   ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
   EXPECT_NE(props["filter_size"], "0");
@@ -715,11 +693,8 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   GetFn();
 
   // Verify filter is accessed
-  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
-            maxKey * 2);
-  EXPECT_EQ(
-      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
-      maxKey);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_FULL_POSITIVE), maxKey * 2);
+  EXPECT_EQ(PopTicker(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), maxKey);
 
   // But new filters are not generated (configuration details unknown)
   DestroyAndReopen(options);
@@ -864,9 +839,8 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
       ASSERT_EQ("val", Get(prefix + "Z"));  // Filter positive
       // Filter negative, with high probability
       ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));
-      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
-                2);
-      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+      EXPECT_EQ(PopTicker(options, BLOOM_FILTER_FULL_POSITIVE), 2);
+      EXPECT_EQ(PopTicker(options, BLOOM_FILTER_USEFUL), 1);
     }
   }
 }
@@ -1705,7 +1679,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     }
     // Since we have two tables / two filters, we might have Bloom checks on
     // our queries, but no more than one "useful" per query on a found key.
-    EXPECT_LE(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey);
+    EXPECT_LE(PopTicker(options, BLOOM_FILTER_USEFUL), maxKey);
 
     // Check that we have two filters, each about
     // fifo: 0.12% FP rate (15 bits per key)
@@ -1714,8 +1688,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
       ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
     }
     {
-      auto useful_count =
-          TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+      auto useful_count = PopTicker(options, BLOOM_FILTER_USEFUL);
       EXPECT_GE(useful_count, maxKey * 2 * (fifo ? 0.9980 : 0.975));
       EXPECT_LE(useful_count, maxKey * 2 * (fifo ? 0.9995 : 0.98));
     }
@@ -1732,8 +1705,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
         ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
       }
       {
-        auto useful_count =
-            TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+        auto useful_count = PopTicker(options, BLOOM_FILTER_USEFUL);
         EXPECT_GE(useful_count, maxKey * 0.90);
         EXPECT_LE(useful_count, maxKey * 0.91);
       }
@@ -2027,13 +1999,14 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
   std::array<Status, Q> statuses;
   std::array<PinnableSlice, Q> values;
 
-  TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
-  TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
-  TestGetAndResetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL);
-  TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
-  TestGetAndResetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED);
-  TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE);
-  TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+  PopTicker(options, BLOCK_CACHE_FILTER_HIT);
+  PopTicker(options, BLOCK_CACHE_FILTER_MISS);
+  PopTicker(options, BLOOM_FILTER_PREFIX_USEFUL);
+  PopTicker(options, BLOOM_FILTER_USEFUL);
+  PopTicker(options, BLOOM_FILTER_PREFIX_CHECKED);
+  PopTicker(options, BLOOM_FILTER_FULL_POSITIVE);
+  PopTicker(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+  PopTicker(options, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
 
   // Check that initial clump of keys only loads one partition filter from
   // block cache.
@@ -2063,26 +2036,22 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
     }
 
     // Confirm correct Bloom stats (no FPs)
-    uint64_t filter_useful = TestGetAndResetTickerCount(
-        options,
-        use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL : BLOOM_FILTER_USEFUL);
+    uint64_t filter_useful =
+        PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL
+                                       : BLOOM_FILTER_USEFUL);
     uint64_t filter_checked =
-        TestGetAndResetTickerCount(options, use_prefix_
-                                                ? BLOOM_FILTER_PREFIX_CHECKED
-                                                : BLOOM_FILTER_FULL_POSITIVE) +
+        PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_CHECKED
+                                       : BLOOM_FILTER_FULL_POSITIVE) +
         (use_prefix_ ? 0 : filter_useful);
     EXPECT_EQ(filter_useful, number_not_found);
     EXPECT_EQ(filter_checked, Q);
-    if (!use_prefix_) {
-      EXPECT_EQ(
-          TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
-          Q - number_not_found);
-    }
+    EXPECT_EQ(PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_TRUE_POSITIVE
+                                             : BLOOM_FILTER_FULL_TRUE_POSITIVE),
+              Q - number_not_found);
 
     // Confirm no duplicate loading same filter partition
-    uint64_t filter_accesses =
-        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT) +
-        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+    uint64_t filter_accesses = PopTicker(options, BLOCK_CACHE_FILTER_HIT) +
+                               PopTicker(options, BLOCK_CACHE_FILTER_MISS);
     if (stride == 1) {
       EXPECT_EQ(filter_accesses, 1);
     } else {
@@ -2118,26 +2087,22 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
     }
 
     // Confirm correct Bloom stats (might see some FPs)
-    uint64_t filter_useful = TestGetAndResetTickerCount(
-        options,
-        use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL : BLOOM_FILTER_USEFUL);
+    uint64_t filter_useful =
+        PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL
+                                       : BLOOM_FILTER_USEFUL);
     uint64_t filter_checked =
-        TestGetAndResetTickerCount(options, use_prefix_
-                                                ? BLOOM_FILTER_PREFIX_CHECKED
-                                                : BLOOM_FILTER_FULL_POSITIVE) +
+        PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_CHECKED
+                                       : BLOOM_FILTER_FULL_POSITIVE) +
         (use_prefix_ ? 0 : filter_useful);
     EXPECT_GE(filter_useful, number_not_found - 2);  // possible FP
     EXPECT_EQ(filter_checked, Q);
-    if (!use_prefix_) {
-      EXPECT_EQ(
-          TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
-          Q - number_not_found);
-    }
+    EXPECT_EQ(PopTicker(options, use_prefix_ ? BLOOM_FILTER_PREFIX_TRUE_POSITIVE
+                                             : BLOOM_FILTER_FULL_TRUE_POSITIVE),
+              Q - number_not_found);
 
     // Confirm no duplicate loading of same filter partition
-    uint64_t filter_accesses =
-        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT) +
-        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+    uint64_t filter_accesses = PopTicker(options, BLOCK_CACHE_FILTER_HIT) +
+                               PopTicker(options, BLOCK_CACHE_FILTER_MISS);
     if (filter_accesses == 2) {
       // Spanned across partitions.
       ++found_spanning;
@@ -2636,6 +2601,9 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
   int count = 0;
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     count++;
+    // Access key & value as if we were using them
+    (void)iter->key();
+    (void)iter->value();
   }
   EXPECT_OK(iter->status());
   return count;
@@ -2675,6 +2643,12 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcd0000"), 4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                1);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
+      ASSERT_EQ(TestGetTickerCount(
+                    options, NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH),
+                1);
     }
     {
       Slice upper_bound("abcdzzzz");
@@ -2683,8 +2657,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcd0000"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                2);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:5"}}));
     ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
@@ -2698,8 +2673,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcdxx00"), 4);
       // should check bloom filter since upper bound meets requirement
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 3);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                3);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     {
       // [abcdxx01, abcey) is not valid bound since upper bound is too long for
@@ -2711,8 +2687,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcdxx01"), 4);
       // should skip bloom filter since upper bound is too long
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 3);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                3);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     {
       // [abcdxx02, abcdy) is a valid bound since the prefix is the same
@@ -2724,8 +2701,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "abcdxx02"), 4);
       // should check bloom filter since upper bound matches transformed seek
       // key
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     {
       // [aaaaaaaa, abce) is not a valid bound since 1) they don't share the
@@ -2737,8 +2715,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "aaaaaaaa"), 0);
       // should skip bloom filter since mismatch is found
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:3"}}));
     {
@@ -2750,8 +2729,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     // Same with re-open
     options.prefix_extractor.reset(NewFixedPrefixTransform(3));
@@ -2763,8 +2743,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
     }
     // Set back to capped:4 and verify BF is always read
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
@@ -2776,8 +2757,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 1);
     }
     // Same if there's a problem initally loading prefix transform
     SyncPoint::GetInstance()->SetCallBack(
@@ -2792,8 +2774,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 6);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+                4);
+      ASSERT_EQ(TestGetTickerCount(options, NON_LAST_LEVEL_SEEK_FILTERED), 2);
     }
     SyncPoint::GetInstance()->DisableProcessing();
   }
@@ -2828,7 +2811,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     dbfull()->Flush(FlushOptions());
     std::unique_ptr<Iterator> iter_old(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 1);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 1);
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
     ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
@@ -2836,10 +2820,11 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     read_options.iterate_upper_bound = &upper_bound;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter, "foo"), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 1);
     ASSERT_EQ(CountIter(iter, "gpk"), 0);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
+    ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 0);
 
     // second SST with capped:3 BF
     ASSERT_OK(Put("foo3", "bar3"));
@@ -2851,14 +2836,15 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // BF is cappped:3 now
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+      ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
+      ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 2);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // both counters are incremented because BF is "not changed" for 1 of the
       // 2 SST files, so filter is checked once and found no match.
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
+      ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 1);
+      ASSERT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH), 0);
     }
+    // IAMHERE
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
     ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),

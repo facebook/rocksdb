@@ -732,9 +732,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       } while (iiter->Valid());
 
       if (matched && filter != nullptr) {
-        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
-        PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
-                                  rep_->level);
+        if (rep_->whole_key_filtering) {
+          RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+          PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
+                                    rep_->level);
+        } else {
+          RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
+        }
       }
       if (s.ok() && !iiter->status().IsNotFound()) {
         s = iiter->status();
