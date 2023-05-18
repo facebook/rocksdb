@@ -183,6 +183,13 @@ Status DBImpl::TEST_WaitForCompact(bool abort_on_pause) {
   return WaitForCompact(abort_on_pause);
 }
 
+Status DBImpl::TEST_WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
+  // Wait until the compaction completes with options to flush before compaction
+  // and close db after compaction
+  return WaitForCompact(wait_for_compact_options);
+}
+
 Status DBImpl::TEST_WaitForPurge() {
   InstrumentedMutexLock l(&mutex_);
   while (bg_purge_scheduled_ && error_handler_.GetBGError().ok()) {

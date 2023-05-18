@@ -3957,13 +3957,14 @@ void DBImpl::GetSnapshotContext(
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
 
-Status DBImpl::WaitForCompact(bool abort_on_pause) {
+Status DBImpl::WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
-    if (bg_work_paused_ && abort_on_pause) {
+    if (bg_work_paused_ && wait_for_compact_options.abort_on_pause) {
       return Status::Aborted();
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||

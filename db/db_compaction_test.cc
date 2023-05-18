@@ -3285,6 +3285,132 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   TEST_SYNC_POINT(
       "DBCompactionTest::SuggestCompactRangeNoTwoLevel0Compactions:2");
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, it closes the DB
+  // Upon reopen, wait for the compaction to finish and checks for the number of
+  // compaction finished
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  int compaction_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():EndStatusSet", [&](void* arg) {
+        auto status = static_cast<Status*>(arg);
+        if (status->ok()) {
+          compaction_finished++;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("2", FilesPerLevel());
+  // There has been no compaction. Only flushes from memtable.
+  ASSERT_EQ(0, compaction_finished);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionJob::Run():Start",
+        "DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish"}});
+
+  // Now trigger L0 compaction by adding a file
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  // Before compaction job finishes, close the db.
+  Close();
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish");
+
+  // Reopen the db and we expect the compaction to be triggered.
+  Reopen(options);
+
+  // Wait for compaction to finish
+  WaitForCompactOptions wait_for_impact_options;
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(wait_for_impact_options));
+  ASSERT_GT(compaction_finished, 0);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactWithOptionToFlush) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // After creating enough L0 files that one more file will trigger the
+  // compaction, write some data in memtable. Calls WaitForCompact with option
+  // to flush. This will flush the memtable to a new L0 file which will trigger
+  // compaction. Lastly check for expected number of files, closing + reopening
+  // DB won't trigger any compaction
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  int compaction_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():EndStatusSet", [&](void* arg) {
+        auto status = static_cast<Status*>(arg);
+        if (status->ok()) {
+          compaction_finished++;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // More data written in memtable
+  ASSERT_OK(Put("some_random_key", rnd.RandomString(100 /* len */)));
+  ASSERT_EQ("2", FilesPerLevel());
+
+  // There has been no compaction. Only flushes from memtable.
+  ASSERT_EQ(0, compaction_finished);
+
+  // Wait for compaction to finish with option to flush
+  WaitForCompactOptions wait_for_impact_options;
+  wait_for_impact_options.flush = true;
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(wait_for_impact_options));
+  ASSERT_EQ(1, compaction_finished);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // close the db
+  Close();
+
+  // Reopen the db and we expect flush has been done and we have 3 L0 files
+  Reopen(options);
+  ASSERT_EQ("3", FilesPerLevel());
 }
 
 static std::string ShortKey(int i) {

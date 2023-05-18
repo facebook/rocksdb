@@ -2080,4 +2080,10 @@ struct LiveFilesStorageInfoOptions {
   uint64_t wal_size_for_flush = 0;
 };
 
+struct WaitForCompactOptions {
+  // If true and PauseBackgroundWork() is called while waiting, Status::Aborted
+  // is returned immediately
+  bool abort_on_pause = false;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

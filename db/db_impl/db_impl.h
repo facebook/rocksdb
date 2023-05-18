@@ -1062,12 +1062,13 @@ class DBImpl : public DB {
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
   // Status::ShutdownInProgress will be returned. If PauseBackgroundWork() was
   // called prior to this, this may potentially wait for unscheduled jobs
-  // indefinitely. abort_on_pause can be set to true to abort, and
+  // indefinitely. abort_on_pause in the option can be set to true to abort, and
   // Status::Aborted will be returned immediately. This may also never return if
   // there's sufficient ongoing writes that keeps flush and compaction going
   // without stopping. The user would have to cease all the writes to DB to make
   // this eventually return in a stable state.
-  Status WaitForCompact(bool abort_on_pause = false);
+  Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override;
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
@@ -1106,8 +1107,10 @@ class DBImpl : public DB {
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
-  // Wait for any compaction
-  Status TEST_WaitForCompact(bool abort_on_pause = false);
+  // with options to flush before waiting for compaction to finish and close db
+  // upon the completion of compaction
+  Status TEST_WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options);
 
   // Wait for any background purge
   Status TEST_WaitForPurge();

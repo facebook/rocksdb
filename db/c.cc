@@ -119,6 +119,7 @@ using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
 using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
+using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
@@ -273,6 +274,9 @@ struct rocksdb_optimistictransactiondb_t {
 };
 struct rocksdb_optimistictransaction_options_t {
   OptimisticTransactionOptions rep;
+};
+struct rocksdb_wait_for_compact_options_t {
+  WaitForCompactOptions rep;
 };
 
 struct rocksdb_compactionfiltercontext_t {
@@ -6554,6 +6558,11 @@ void rocksdb_disable_manual_compaction(rocksdb_t* db) {
 
 void rocksdb_enable_manual_compaction(rocksdb_t* db) {
   db->rep->EnableManualCompaction();
+}
+void rocksdb_wait_for_compact(
+    rocksdb_t* db,
+    rocksdb_wait_for_compact_options_t* wait_for_compact_options) {
+  db->rep->WaitForCompact(wait_for_compact_options->rep);
 }
 
 }  // end extern "C"

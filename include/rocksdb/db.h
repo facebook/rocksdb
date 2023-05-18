@@ -53,6 +53,7 @@ struct Options;
 struct ReadOptions;
 struct TableProperties;
 struct WriteOptions;
+struct WaitForCompactOptions;
 class Env;
 class EventListener;
 class FileSystem;
@@ -1446,6 +1447,19 @@ class DB {
   // manual compactions, and must not be called more times than
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
+
+  // Waits for the following to finish: compactions scheduled or already
+  // running and flushes scheduled or already running. This does not wait for
+  // the pending compactions or flushes in the queue (a.k.a. unscheduled). This
+  // method may never return if there's sufficient ongoing writes that keeps
+  // flush and compaction going without stopping. The user would have to cease
+  // all the writes to DB to make this eventually return in a stable state.
+  // (there could be a still periodic compaction that could make user wait a bit
+  // longer)
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) {
+    return Status::NotSupported("WaitForCompact Not implemented");
+  }
 
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
