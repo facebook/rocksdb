@@ -711,7 +711,14 @@ class NonBatchedOpsStressTest : public StressTest {
       Status s = statuses[i];
       bool is_consistent = true;
       // Only do the consistency check if no error was injected and MultiGet
-      // didn't return an unexpected error
+      // didn't return an unexpected error.
+      // If not use transaction, the consistency check for each key included:
+      //   1) Check results from db `Get` and db `MultiGet` are consistent.
+      // If FLAGS_use_txn enabled, the consistency check for each key included:
+      //   1) Check results from transaction `Get` and transaction `MultiGet`
+      //      are consistent.
+      //   2) Check the result from transaction `Get` is consistent with the
+      //      transaction's own write if it has any.
       if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
         Status tmp_s;
         std::string value;
@@ -744,6 +751,8 @@ class NonBatchedOpsStressTest : public StressTest {
           is_consistent = false;
         }
 
+        // If FLAGS_use_txn is true, continue the consistency check to compare
+        // read result from transaction to the transaction's own write.
         if (is_consistent && use_txn) {
           assert(!expected_values.empty());
           if (!expected_values[i].has_value()) {
@@ -752,7 +761,7 @@ class NonBatchedOpsStressTest : public StressTest {
           ExpectedValue expected = expected_values[i].value();
           char expected_value[100];
           if (s.ok()) {
-            Slice from_db_slice(values[i]);
+            Slice from_txn_slice(values[i]);
             if (ExpectedValueHelper::MustHaveNotExisted(expected, expected)) {
               fprintf(stderr,
                       "MultiGet returned value different from what was written "
@@ -766,7 +775,7 @@ class NonBatchedOpsStressTest : public StressTest {
               size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
                                         sizeof(expected_value));
               Slice expected_value_slice(expected_value, sz);
-              if (expected_value_slice.compare(from_db_slice) == 0) {
+              if (expected_value_slice.compare(from_txn_slice) == 0) {
                 continue;
               }
               fprintf(stderr,
@@ -774,7 +783,7 @@ class NonBatchedOpsStressTest : public StressTest {
                       "for key %s\n",
                       keys[i].ToString(true /* hex */).c_str());
               fprintf(stderr, "MultiGet returned value %s\n",
-                      from_db_slice.ToString(true /* hex */).c_str());
+                      from_txn_slice.ToString(true /* hex */).c_str());
               fprintf(stderr, "Transaction has non-committed value %s\n",
                       expected_value_slice.ToString(true /* hex */).c_str());
               is_consistent = false;
