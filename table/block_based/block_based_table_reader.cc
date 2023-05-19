@@ -1951,8 +1951,13 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
         prefix_extractor->Transform(user_key_without_ts), no_io, const_ikey_ptr,
         get_context, lookup_context, read_options);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED);
-    if (!may_match) {
+    if (may_match) {
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, rep_->level);
+    } else {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_USEFUL);
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
     }
   }
   return may_match;
@@ -1989,10 +1994,18 @@ void BlockBasedTable::FullFilterKeysMayMatch(
                              read_options);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
+    if (after_keys) {
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, after_keys,
+                                rep_->level);
+    }
     uint64_t filtered_keys = before_keys - after_keys;
     if (filtered_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_USEFUL,
                  filtered_keys);
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
+                                rep_->level);
     }
   }
 }
@@ -2222,11 +2235,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     if (matched && filter != nullptr) {
       if (rep_->whole_key_filtering) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
-        PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
-                                  rep_->level);
       } else {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
       }
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
+                                rep_->level);
     }
 
     if (s.ok() && !iiter->status().IsNotFound()) {
