@@ -123,10 +123,12 @@ class SSTDumpToolTest : public testing::Test {
 
     std::string column_family_name;
     int unknown_level = -1;
+    const WriteOptions write_options;
     tb.reset(opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
-            imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, CompressionOptions(),
+            imoptions, moptions, read_options, write_options, ikc,
+            &int_tbl_prop_collector_factories, CompressionType::kNoCompression,
+            CompressionOptions(),
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
             column_family_name, unknown_level),
         file_writer.get()));
@@ -160,7 +162,7 @@ class SSTDumpToolTest : public testing::Test {
       }
     }
     ASSERT_OK(tb->Finish());
-    ASSERT_OK(file_writer->Close());
+    ASSERT_OK(file_writer->Close(IOOptions()));
   }
 
  protected:
@@ -417,9 +419,9 @@ TEST_F(SSTDumpToolTest, ValidSSTPath) {
   std::string sst_file = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, sst_file);
   std::string text_file = MakeFilePath("text_file");
-  ASSERT_OK(WriteStringToFile(opts.env, "Hello World!", text_file));
+  ASSERT_OK(WriteStringToFile(opts.env, "Hello World!", text_file, false));
   std::string fake_sst = MakeFilePath("fake_sst.sst");
-  ASSERT_OK(WriteStringToFile(opts.env, "Not an SST file!", fake_sst));
+  ASSERT_OK(WriteStringToFile(opts.env, "Not an SST file!", fake_sst, false));
 
   for (const auto& command_arg : {"--command=verify", "--command=identify"}) {
     snprintf(usage[1], kOptLength, "%s", command_arg);

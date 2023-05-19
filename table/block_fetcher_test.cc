@@ -77,11 +77,13 @@ class BlockFetcherTest : public testing::Test {
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
     IntTblPropCollectorFactories factories;
+    const ReadOptions read_options;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, CompressionOptions(),
-                            0 /* column_family_id */, kDefaultColumnFamilyName,
-                            -1 /* level */),
+        TableBuilderOptions(ioptions, moptions, read_options, write_options,
+                            comparator, &factories, compression_type,
+                            CompressionOptions(), 0 /* column_family_id */,
+                            kDefaultColumnFamilyName, -1 /* level */),
         writer.get()));
 
     // Build table.

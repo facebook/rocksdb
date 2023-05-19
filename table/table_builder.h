@@ -102,6 +102,7 @@ struct TableReaderOptions {
 struct TableBuilderOptions {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
+      const ReadOptions& _read_options, const WriteOptions& _write_options,
       const InternalKeyComparator& _internal_comparator,
       const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
@@ -115,6 +116,8 @@ struct TableBuilderOptions {
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
+        read_options(_read_options),
+        write_options(_write_options),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
@@ -133,6 +136,8 @@ struct TableBuilderOptions {
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
+  const ReadOptions& read_options;
+  const WriteOptions& write_options;
   const InternalKeyComparator& internal_comparator;
   const IntTblPropCollectorFactories* int_tbl_prop_collector_factories;
   const CompressionType compression_type;

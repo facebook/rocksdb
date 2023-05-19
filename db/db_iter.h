@@ -126,6 +126,10 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
+    ThreadStatus::OperationType cur_op_type =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
@@ -134,6 +138,7 @@ class DBIter final : public Iterator {
     ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
+    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
   void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);

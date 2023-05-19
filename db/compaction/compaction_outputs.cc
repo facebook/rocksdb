@@ -62,12 +62,15 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
                                             Statistics* statistics,
                                             bool use_fsync) {
   IOStatus io_s;
-  if (input_status.ok()) {
+  IOOptions opts;
+  io_s = WritableFileWriter::PrepareIOOptions(
+      WriteOptions(Env::IOActivity::kCompaction), opts);
+  if (input_status.ok() && io_s.ok()) {
     StopWatch sw(clock, statistics, COMPACTION_OUTFILE_SYNC_MICROS);
-    io_s = file_writer_->Sync(use_fsync);
+    io_s = file_writer_->Sync(opts, use_fsync);
   }
   if (input_status.ok() && io_s.ok()) {
-    io_s = file_writer_->Close();
+    io_s = file_writer_->Close(opts);
   }
 
   if (input_status.ok() && io_s.ok()) {

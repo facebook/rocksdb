@@ -1168,7 +1168,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
   Arena arena;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);

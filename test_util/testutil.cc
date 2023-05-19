@@ -463,15 +463,16 @@ bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
   Random rnd(301);
   std::string test_string = rnd.RandomString(4096);
   Slice data(test_string);
-  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  IOOptions opts;
+  Status s = WriteStringToFile(fs.get(), data, tmp, true, opts);
   if (s.ok()) {
     std::unique_ptr<FSRandomAccessFile> file;
     auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
     if (io_s.ok()) {
-      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
-                        .IsNotSupported());
+      supported =
+          !(file->Prefetch(0, data.size(), opts, nullptr).IsNotSupported());
     }
-    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+    s = fs->DeleteFile(tmp, opts, nullptr);
   }
   return s.ok() && supported;
 }
@@ -521,7 +522,7 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     for (int i = 0; i < bytes_to_corrupt; i++) {
       contents[i + offset] ^= 0x80;
     }
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   if (s.ok() && verify_checksum) {
     Options options;
@@ -544,7 +545,7 @@ Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
   s = ReadFileToString(env, fname, &contents);
   if (s.ok()) {
     contents.resize(static_cast<size_t>(new_length), 'b');
-    s = WriteStringToFile(env, contents, fname);
+    s = WriteStringToFile(env, contents, fname, false /* should_sync */);
   }
   return s;
 }

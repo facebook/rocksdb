@@ -57,8 +57,8 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 
   const std::string kFileName = "OPTIONS-123456";
-  ASSERT_OK(PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName,
-                                  env_->GetFileSystem().get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), db_opt, cf_names, cf_opts,
+                                  kFileName, env_->GetFileSystem().get()));
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
@@ -125,8 +125,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
-  ASSERT_OK(PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName,
-                                  env_->GetFileSystem().get()));
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), db_opt, cf_names, cf_opts,
+                                  kFileName, env_->GetFileSystem().get()));
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
 
@@ -758,8 +758,8 @@ TEST_F(OptionsUtilTest, WalDirInOptins) {
   options.wal_dir = dbname_;
   std::string options_file;
   ASSERT_OK(GetLatestOptionsFileName(dbname_, options.env, &options_file));
-  ASSERT_OK(PersistRocksDBOptions(options, {"default"}, {options},
-                                  dbname_ + "/" + options_file,
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), options, {"default"},
+                                  {options}, dbname_ + "/" + options_file,
                                   options.env->GetFileSystem().get()));
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, dbname_);
@@ -779,4 +779,3 @@ int main(int argc, char** argv) {
 #endif  // GFLAGS
   return RUN_ALL_TESTS();
 }
-

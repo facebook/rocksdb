@@ -5691,7 +5691,7 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
         ASSERT_OK(ReadFileToString(env_, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
-        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+        ASSERT_OK(WriteStringToFile(env_, file_content, fname, false));
         break;
       }
     }

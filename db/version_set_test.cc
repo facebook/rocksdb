@@ -1322,11 +1322,11 @@ class VersionSetTestBase {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
       new_db.EncodeTo(&record);
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       for (const auto& e : new_cfs) {
         record.clear();
         e.EncodeTo(&record);
-        s = (*log_writer)->AddRecord(record);
+        s = (*log_writer)->AddRecord(WriteOptions(), record);
         ASSERT_OK(s);
       }
     }
@@ -1342,11 +1342,11 @@ class VersionSetTestBase {
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    ASSERT_OK(SetIdentityFile(env_, dbname_));
+    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
-    Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+    Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
     ASSERT_OK(s);
 
     EXPECT_OK(versions_->Recover(column_families_, false));
@@ -1392,7 +1392,7 @@ class VersionSetTestBase {
     mutex_.Lock();
     Status s = versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, &edit, &mutex_, nullptr);
+        read_options_, write_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1406,7 +1406,7 @@ class VersionSetTestBase {
     mutex_.Lock();
     Status s = versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, vedits, &mutex_, nullptr);
+        read_options_, write_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1418,7 +1418,8 @@ class VersionSetTestBase {
     VersionEdit dummy;
     ASSERT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, &dummy, &mutex_, db_directory, new_descriptor_log));
+        read_options_, write_options_, &dummy, &mutex_, db_directory,
+        new_descriptor_log));
     mutex_.Unlock();
   }
 
@@ -1436,7 +1437,7 @@ class VersionSetTestBase {
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
                                MutableCFOptions(cf_options), read_options_,
-                               &new_cf, &mutex_,
+                               write_options_, &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
     mutex_.Unlock();
@@ -1459,6 +1460,8 @@ class VersionSetTestBase {
   ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
   const ReadOptions read_options_;
+  const WriteOptions write_options_;
+
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1483,6 +1486,7 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
   const ReadOptions read_options;
+  const WriteOptions write_options;
 
   autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
@@ -1510,8 +1514,9 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
-                                    edit_lists, &mutex_, nullptr);
+  Status s =
+      versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
+                             write_options, edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1713,7 +1718,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   mutex_.Lock();
   Status s = versions_->LogAndApply(
       versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-      read_options_, &edit, &mutex_, nullptr);
+      read_options_, write_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -2454,7 +2459,8 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               read_options_, edits_, &mutex_, nullptr);
+                               read_options_, write_options_, edits_, &mutex_,
+                               nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -2514,7 +2520,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(fs_.get(), dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
   }
 
   void SetupIncompleteTrailingAtomicGroup(int atomic_group_size) {
@@ -2526,7 +2532,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(fs_.get(), dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
   }
 
   void SetupCorruptedAtomicGroup(int atomic_group_size) {
@@ -2540,7 +2546,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(fs_.get(), dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
   }
 
   void SetupIncorrectAtomicGroup(int atomic_group_size) {
@@ -2556,7 +2562,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(fs_.get(), dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr));
   }
 
   void SetupTestSyncPoints() {
@@ -2602,7 +2608,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
     for (int i = 0; i < num_edits; i++) {
       std::string record;
       edits_[i].EncodeTo(&record);
-      ASSERT_OK(log_writer_->AddRecord(record));
+      ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
     }
   }
 
@@ -2724,7 +2730,7 @@ TEST_F(VersionSetAtomicGroupTest,
   // edits.
   std::string last_record;
   edits_[kAtomicGroupSize - 1].EncodeTo(&last_record);
-  EXPECT_OK(log_writer_->AddRecord(last_record));
+  EXPECT_OK(log_writer_->AddRecord(WriteOptions(), last_record));
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   mu.Lock();
@@ -2896,12 +2902,13 @@ class VersionSetTestDropOneCF : public VersionSetTestBase,
 //  last column family in an atomic group.
 TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   const ReadOptions read_options;
+  const WriteOptions write_options;
 
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
   PrepareManifest(&column_families, &last_seqno, &log_writer);
-  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
 
   EXPECT_OK(versions_->Recover(column_families, false /* read_only */));
@@ -2924,9 +2931,9 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   cfd_to_drop->Ref();
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
   mutex_.Lock();
-  s = versions_->LogAndApply(cfd_to_drop,
-                             *cfd_to_drop->GetLatestMutableCFOptions(),
-                             read_options, &drop_cf_edit, &mutex_, nullptr);
+  s = versions_->LogAndApply(
+      cfd_to_drop, *cfd_to_drop->GetLatestMutableCFOptions(), read_options,
+      write_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -2976,7 +2983,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
   s = versions_->LogAndApply(cfds, mutable_cf_options_list, read_options,
-                             edit_lists, &mutex_, nullptr);
+                             write_options, edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
@@ -3010,7 +3017,7 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
     log_writer->reset(new log::Writer(std::move(file_writer), 0, true));
     std::string record;
     ASSERT_TRUE(new_db.EncodeTo(&record));
-    s = (*log_writer)->AddRecord(record);
+    s = (*log_writer)->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
     // Create new column family
     VersionEdit new_cf;
@@ -3020,7 +3027,7 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
     new_cf.SetNextFile(2);
     record.clear();
     ASSERT_TRUE(new_cf.EncodeTo(&record));
-    s = (*log_writer)->AddRecord(record);
+    s = (*log_writer)->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
 
@@ -3034,8 +3041,8 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
 TEST_F(EmptyDefaultCfNewManifest, Recover) {
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s =
-      SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                            /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3066,7 +3073,7 @@ class VersionSetTestEmptyDb
     assert(nullptr != log_writer);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      ASSERT_OK(SetIdentityFile(env_, dbname_));
+      ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
@@ -3085,7 +3092,7 @@ class VersionSetTestEmptyDb
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
       new_db.EncodeTo(&record);
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
     }
   }
@@ -3099,8 +3106,8 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s =
-      SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                            /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -3140,11 +3147,12 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
   {
     std::string record;
     new_cf1.EncodeTo(&record);
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                     /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -3187,11 +3195,12 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
     new_cf.SetColumnFamily(cf_id++);
     std::string record;
     ASSERT_TRUE(new_cf.EncodeTo(&record));
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                     /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -3234,7 +3243,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     new_cf.SetColumnFamily(cf_id++);
     std::string record;
     ASSERT_TRUE(new_cf.EncodeTo(&record));
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   {
@@ -3245,11 +3254,12 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     tmp_edit.SetLastSequence(0);
     std::string record;
     ASSERT_TRUE(tmp_edit.EncodeTo(&record));
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                     /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -3292,7 +3302,7 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     new_cf.SetColumnFamily(cf_id++);
     std::string record;
     ASSERT_TRUE(new_cf.EncodeTo(&record));
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   {
@@ -3302,11 +3312,12 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     tmp_edit.SetLastSequence(0);
     std::string record;
     ASSERT_TRUE(tmp_edit.EncodeTo(&record));
-    s = log_writer_->AddRecord(record);
+    s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                     /* dir_contains_current_file */ nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -3407,7 +3418,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     {
       std::string record;
       ASSERT_TRUE(new_db.EncodeTo(&record));
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
     }
     const std::vector<std::string> cf_names = {
@@ -3425,7 +3436,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       new_cf.SetColumnFamily(cf_id);
       std::string record;
       ASSERT_TRUE(new_cf.EncodeTo(&record));
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
 
       VersionEdit cf_files;
@@ -3433,7 +3444,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       cf_files.SetLogNumber(0);
       record.clear();
       ASSERT_TRUE(cf_files.EncodeTo(&record));
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
       ++cf_id;
     }
@@ -3444,7 +3455,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       edit.SetLastSequence(seq);
       std::string record;
       ASSERT_TRUE(edit.EncodeTo(&record));
-      s = (*log_writer)->AddRecord(record);
+      s = (*log_writer)->AddRecord(WriteOptions(), record);
       ASSERT_OK(s);
     }
     *last_seqno = seq + 1;
@@ -3485,9 +3496,12 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
           std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
       IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
+      const ReadOptions read_options;
+      const WriteOptions write_options;
       std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
           TableBuilderOptions(
-              immutable_options_, mutable_cf_options_, *internal_comparator_,
+              immutable_options_, mutable_cf_options_, read_options,
+              write_options, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
               CompressionOptions(),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
@@ -3496,7 +3510,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      ASSERT_OK(fwriter->Flush());
+      ASSERT_OK(fwriter->Flush(IOOptions()));
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
@@ -3528,7 +3542,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     assert(log_writer_.get() != nullptr);
     std::string record;
     ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
-    Status s = log_writer_->AddRecord(record);
+    Status s = log_writer_->AddRecord(WriteOptions(), record);
     ASSERT_OK(s);
   }
 
@@ -3573,7 +3587,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3631,7 +3645,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
   log_writer_.reset();
-  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -3685,7 +3699,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+  Status s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
