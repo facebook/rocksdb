@@ -195,6 +195,18 @@ extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
 extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                           size_t ts_sz);
 
+// `key` is an internal key containing a user key without timestamp. Create a
+// new key in *result by padding a min timestamp of size `ts_sz` to the user key
+// and copying the remaining internal key bytes.
+extern void PadInternalKeyWithMinTimestamp(std::string* result,
+                                           const Slice& key, size_t ts_sz);
+
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result by stripping the timestamp from
+// the user key and copying the remaining internal key bytes.
+extern void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                          size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
@@ -502,6 +514,39 @@ class IterKey {
     memcpy(buf_ + shared_len, non_shared_data, non_shared_len);
     key_ = buf_;
     key_size_ = total_size;
+  }
+
+  // A version of `TrimAppend` assuming the last bytes of length
+  // `padded_user_key_len` in the user key part of `key_` is not counted towards
+  // shared bytes. And the decoded key needed a min timestamp of length
+  // `padded_user_key_len` pad to the user key.
+  void TrimAppendWithTimestamp(const size_t shared_len,
+                               const char* non_shared_data,
+                               const size_t non_shared_len,
+                               const size_t padded_user_key_len) {
+    std::string key_with_ts;
+    if (IsUserKey()) {
+      TrimAppend(shared_len, non_shared_data, non_shared_len);
+      AppendKeyWithMinTimestamp(&key_with_ts, GetKey(), padded_user_key_len);
+    } else {
+      std::string internal_key_without_ts;
+      // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
+      size_t sharable_user_key_len =
+          key_size_ - kNumInternalBytes - padded_user_key_len;
+      size_t shared_user_key_len = std::min(shared_len, sharable_user_key_len);
+      internal_key_without_ts.append(key_, shared_user_key_len);
+      // Some shared bytes come from the last few internal bytes.
+      if (shared_len > sharable_user_key_len) {
+        size_t shared_internal_bytes_len = shared_len - sharable_user_key_len;
+        size_t user_key_len = key_size_ - kNumInternalBytes;
+        internal_key_without_ts.append(key_ + user_key_len,
+                              shared_internal_bytes_len);
+      }
+      internal_key_without_ts.append(non_shared_data, non_shared_len);
+      PadInternalKeyWithMinTimestamp(&key_with_ts, internal_key_without_ts,
+                                     padded_user_key_len);
+    }
+    SetKey(key_with_ts);
   }
 
   Slice SetKey(const Slice& key, bool copy = true) {

@@ -28,7 +28,9 @@ class BlockBuilder {
                         bool use_value_delta_encoding = false,
                         BlockBasedTableOptions::DataBlockIndexType index_type =
                             BlockBasedTableOptions::kDataBlockBinarySearch,
-                        double data_block_hash_table_util_ratio = 0.75);
+                        double data_block_hash_table_util_ratio = 0.75, size_t ts_sz = 0,
+                        bool persist_user_defined_timestamps = true,
+                        bool is_user_key = false);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -83,11 +85,22 @@ class BlockBuilder {
                                  const Slice* const delta_value,
                                  size_t buffer_size);
 
+  inline const Slice MaybeStripTimestampFromKey(std::string* key_buf,
+                                                const Slice& key);
+
   const int block_restart_interval_;
   // TODO(myabandeh): put it into a separate IndexBlockBuilder
   const bool use_delta_encoding_;
   // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
   const bool use_value_delta_encoding_;
+  // size in bytes for the user-defined timestamp in user key
+  const size_t ts_sz_;
+  // whether the user-defined timestamp part in user keys should be persisted.
+  // If false, it will be stripped from the key before it's encoded.
+  const bool persist_user_defined_timestamps_;
+  // whether the keys provided to build this block are all user keys. If not,
+  // the keys are internal keys.
+  const bool is_user_key_;
 
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
