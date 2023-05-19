@@ -166,6 +166,8 @@ class WriteThread {
            PreReleaseCallback* _pre_release_callback = nullptr,
            PostMemTableCallback* _post_memtable_callback = nullptr)
         : batch(_batch),
+          // TODO: store a copy of WriteOptions instead of its seperated data
+          // members
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
           disable_wal(write_options.disableWAL),

@@ -32,6 +32,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
@@ -58,7 +59,8 @@ Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
     const FileOptions& file_options, const ReadOptions& read_options,
-    TableCache* table_cache, InternalIterator* iter,
+    const WriteOptions& write_options, TableCache* table_cache,
+    InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
@@ -168,7 +170,7 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
-          ioptions.stats, ioptions.listeners,
+          ioptions.stats, Histograms::SST_WRITE_MICROS, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
           tmp_set.Contains(FileType::kTableFile), false));
 
@@ -188,10 +190,11 @@ Status BuildTable(
          blob_file_additions)
             ? new BlobFileBuilder(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  tboptions.db_id, tboptions.db_session_id, job_id,
-                  tboptions.column_family_id, tboptions.column_family_name,
-                  io_priority, write_hint, io_tracer, blob_callback,
-                  blob_creation_reason, &blob_file_paths, blob_file_additions)
+                  &write_options, tboptions.db_id, tboptions.db_session_id,
+                  job_id, tboptions.column_family_id,
+                  tboptions.column_family_name, io_priority, write_hint,
+                  io_tracer, blob_callback, blob_creation_reason,
+                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
@@ -346,13 +349,16 @@ Status BuildTable(
 
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
-    if (s.ok() && !empty) {
+    IOOptions opts;
+    *io_status =
+        WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
+    if (s.ok() && io_status->ok() && !empty) {
       StopWatch sw(ioptions.clock, ioptions.stats, TABLE_SYNC_MICROS);
-      *io_status = file_writer->Sync(ioptions.use_fsync);
+      *io_status = file_writer->Sync(opts, ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
     if (s.ok() && io_status->ok() && !empty) {
-      *io_status = file_writer->Close();
+      *io_status = file_writer->Close(opts);
     }
     if (s.ok() && io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
@@ -436,8 +442,13 @@ Status BuildTable(
     constexpr IODebugContext* dbg = nullptr;
 
     if (table_file_created) {
-      Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
-      ignored.PermitUncheckedError();
+      IOOptions opts;
+      Status prepare =
+          WritableFileWriter::PrepareIOOptions(write_options, opts);
+      if (prepare.ok()) {
+        Status ignored = fs->DeleteFile(fname, opts, dbg);
+        ignored.PermitUncheckedError();
+      }
     }
 
     assert(blob_file_additions || blob_file_paths.empty());

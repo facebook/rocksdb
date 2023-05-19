@@ -86,9 +86,8 @@ class Writer {
 
   ~Writer();
 
-  IOStatus AddRecord(const Slice& slice,
-                     Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
-  IOStatus AddCompressionTypeRecord();
+  IOStatus AddRecord(const WriteOptions& write_options, const Slice& slice);
+  IOStatus AddCompressionTypeRecord(const WriteOptions& write_options);
 
   // If there are column families in `cf_to_ts_sz` not included in
   // `recorded_cf_to_ts_sz_` and its user-defined timestamp size is non-zero,
@@ -96,17 +95,17 @@ class Writer {
   // kRecyclableUserDefinedTimestampSizeType for these column families.
   // This timestamp size record applies to all subsequent records.
   IOStatus MaybeAddUserDefinedTimestampSizeRecord(
-      const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz,
-      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
+      const WriteOptions& write_options,
+      const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz);
 
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
   uint64_t get_log_number() const { return log_number_; }
 
-  IOStatus WriteBuffer();
+  IOStatus WriteBuffer(const WriteOptions& write_options);
 
-  IOStatus Close();
+  IOStatus Close(const WriteOptions& write_options);
 
   bool BufferIsEmpty();
 
@@ -121,9 +120,8 @@ class Writer {
   // record type stored in the header.
   uint32_t type_crc_[kMaxRecordType + 1];
 
-  IOStatus EmitPhysicalRecord(
-      RecordType type, const char* ptr, size_t length,
-      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
+  IOStatus EmitPhysicalRecord(const WriteOptions& write_options,
+                              RecordType type, const char* ptr, size_t length);
 
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()

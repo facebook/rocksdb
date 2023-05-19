@@ -105,10 +105,11 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
     compression_opts.max_dict_bytes = compression_dict_bytes;
     compression_opts.max_dict_buffer_bytes = compression_dict_bytes;
     IntTblPropCollectorFactories factories;
+    const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         options_.table_factory->NewTableBuilder(
-            TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                                compression_type, compression_opts,
+            TableBuilderOptions(ioptions, moptions, write_options, comparator,
+                                &factories, compression_type, compression_opts,
                                 0 /* column_family_id */,
                                 kDefaultColumnFamilyName, -1 /* level */),
             writer.get()));

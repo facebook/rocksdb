@@ -53,6 +53,7 @@ inline Histograms GetFileReadHistograms(Statistics* stats,
   }
   return Histograms::HISTOGRAM_ENUM_MAX;
 }
+
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);

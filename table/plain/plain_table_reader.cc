@@ -126,7 +126,7 @@ Status PlainTableReader::Open(
   }
 
   std::unique_ptr<TableProperties> props;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, read_options, &props);
@@ -300,7 +300,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents index_block_contents;
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   Status s =
       ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,

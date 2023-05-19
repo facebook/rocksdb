@@ -1,0 +1,1 @@
+Provide new statistics: `rocksdb.sst.write.micros` to measure time spent in writing block-based or plain SST table; `rocksdb.file.write.{flush|compaction|db.open}.micros` to measure time spent in writing SST table (currently only block-based table) or blob file for flush, compaction or db open.

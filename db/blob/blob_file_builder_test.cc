@@ -113,6 +113,7 @@ class BlobFileBuilderTest : public testing::Test {
   FileSystem* fs_;
   SystemClock* clock_;
   FileOptions file_options_;
+  WriteOptions write_options_;
 };
 
 TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
@@ -144,8 +145,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -229,8 +230,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -317,8 +318,8 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -372,8 +373,8 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -456,8 +457,8 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -536,8 +537,8 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 
@@ -594,6 +595,7 @@ class BlobFileBuilderIOErrorTest
   std::unique_ptr<Env> mock_env_;
   FileSystem* fs_;
   FileOptions file_options_;
+  WriteOptions write_options_;
   std::string sync_point_;
 };
 
@@ -634,8 +636,8 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
 
   BlobFileBuilder builder(
       TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
-      &file_options_, "" /*db_id*/, "" /*db_session_id*/, job_id,
-      column_family_id, column_family_name, io_priority, write_hint,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, io_priority, write_hint,
       nullptr /*IOTracer*/, nullptr /*BlobFileCompletionCallback*/,
       BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
 

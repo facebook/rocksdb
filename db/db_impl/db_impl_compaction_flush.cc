@@ -19,6 +19,10 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
+#include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -112,12 +116,16 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   return true;
 }
 
-IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
+IOStatus DBImpl::SyncClosedLogs(const WriteOptions& write_options,
+                                JobContext* job_context,
                                 VersionEdit* synced_wals) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   InstrumentedMutexLock l(&log_write_mutex_);
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
+  IOOptions io_options;
+  IOStatus io_s =
+      WritableFileWriter::PrepareIOOptions(write_options, io_options);
   while (logs_.front().number < current_log_number &&
          logs_.front().IsSyncing()) {
     log_sync_cv_.Wait();
@@ -129,7 +137,6 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
     logs_to_sync.push_back(log.writer);
   }
 
-  IOStatus io_s;
   if (!logs_to_sync.empty()) {
     log_write_mutex_.Unlock();
 
@@ -142,7 +149,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       if (error_handler_.IsRecoveryInProgress()) {
         log->file()->reset_seen_error();
       }
-      io_s = log->file()->Sync(immutable_db_options_.use_fsync);
+
+      io_s = log->file()->Sync(io_options, immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
@@ -151,7 +159,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
         if (error_handler_.IsRecoveryInProgress()) {
           log->file()->reset_seen_error();
         }
-        io_s = log->Close();
+        // TODO: plumb Env::IOActivity, Env::IOPriority
+        io_s = log->Close(WriteOptions());
         if (!io_s.ok()) {
           break;
         }
@@ -159,7 +168,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
     }
     if (io_s.ok()) {
       io_s = directories_.GetWalDir()->FsyncWithDirOptions(
-          IOOptions(), nullptr,
+          io_options, nullptr,
           DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
@@ -198,6 +207,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->IsFlushPending());
   assert(versions_);
   assert(versions_->GetColumnFamilySet());
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+  const WriteOptions write_options(Env::IOActivity::kFlush);
   // If there are more than one column families, we need to make sure that
   // all the log files except the most recent one are synced. Otherwise if
   // the host crashes after flushing and before WAL is persistent, the
@@ -262,12 +273,11 @@ Status DBImpl::FlushMemTableToOutputFile(
     // times.
     VersionEdit synced_wals;
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s = SyncClosedLogs(write_options, job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      const ReadOptions read_options(Env::IOActivity::kFlush);
-      log_io_s =
-          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
+      log_io_s = status_to_io_status(
+          ApplyWALToManifest(read_options, write_options, &synced_wals));
       TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile:CommitWal:1",
                                nullptr);
     }
@@ -461,6 +471,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   mutex_.AssertHeld();
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+  const WriteOptions write_options(Env::IOActivity::kFlush);
 
   autovector<ColumnFamilyData*> cfds;
   for (const auto& arg : bg_flush_args) {
@@ -547,12 +559,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // single column family case.
     VersionEdit synced_wals;
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s = SyncClosedLogs(write_options, job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      const ReadOptions read_options(Env::IOActivity::kFlush);
-      log_io_s =
-          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
+      log_io_s = status_to_io_status(
+          ApplyWALToManifest(read_options, write_options, &synced_wals));
     }
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
@@ -643,12 +654,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = Status::OK();
   }
 
+  IOOptions io_options;
+  IOStatus prepare_ioopts_s =
+      WritableFileWriter::PrepareIOOptions(write_options, io_options);
+  if (!prepare_ioopts_s.ok()) {
+    s = prepare_ioopts_s;
+  }
   if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
         Status error_status = dir->FsyncWithDirOptions(
-            IOOptions(), nullptr,
+            io_options, nullptr,
             DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
         if (!error_status.ok()) {
           s = error_status;
@@ -1043,8 +1060,10 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
+
   TEST_SYNC_POINT_CALLBACK("DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
                            &edit);
 
@@ -1058,7 +1077,7 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    read_options, &edit, &mutex_,
+                                    read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
   if (!s.ok()) {
     return s;
@@ -1748,6 +1767,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   }
 
   const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const WriteOptions write_options(Env::IOActivity::kCompaction);
 
   SuperVersionContext sv_context(/* create_superversion */ true);
 
@@ -1864,9 +1884,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    Status status =
-        versions_->LogAndApply(cfd, mutable_cf_options, read_options, &edit,
-                               &mutex_, directories_.GetDbDir());
+    Status status = versions_->LogAndApply(cfd, mutable_cf_options,
+                                           read_options, write_options, &edit,
+                                           &mutex_, directories_.GetDbDir());
 
     cfd->compaction_picker()->UnregisterCompaction(c.get());
     c.reset();
@@ -3425,6 +3445,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
 
   const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const WriteOptions write_options(Env::IOActivity::kCompaction);
 
   bool is_manual = (manual_compaction != nullptr);
   std::unique_ptr<Compaction> c;
@@ -3637,7 +3658,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
     status = versions_->LogAndApply(
         c->column_family_data(), *c->mutable_cf_options(), read_options,
-        c->edit(), &mutex_, directories_.GetDbDir(),
+        write_options, c->edit(), &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
         [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);
@@ -3708,7 +3729,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
     status = versions_->LogAndApply(
         c->column_family_data(), *c->mutable_cf_options(), read_options,
-        c->edit(), &mutex_, directories_.GetDbDir(),
+        write_options, c->edit(), &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
         [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);

@@ -54,7 +54,8 @@ extern Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
     const FileOptions& file_options, const ReadOptions& read_options,
-    TableCache* table_cache, InternalIterator* iter,
+    const WriteOptions& write_options, TableCache* table_cache,
+    InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,

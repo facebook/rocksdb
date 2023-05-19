@@ -1152,14 +1152,15 @@ class VersionSet {
   virtual ~VersionSet();
 
   Status LogAndApplyToDefaultColumnFamily(
-      const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      VersionEdit* edit, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
     const MutableCFOptions* cf_options =
         default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, *cf_options, read_options, edit, mu,
-                       dir_contains_current_file, new_descriptor_log,
+    return LogAndApply(default_cf, *cf_options, read_options, write_options,
+                       edit, mu, dir_contains_current_file, new_descriptor_log,
                        column_family_options);
   }
 
@@ -1172,7 +1173,8 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
-      const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
+      const ReadOptions& read_options, const WriteOptions& write_options,
+      VersionEdit* edit, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
       const std::function<void(const Status&)>& manifest_wcb = {}) {
@@ -1184,16 +1186,17 @@ class VersionSet {
     autovector<VersionEdit*> edit_list;
     edit_list.emplace_back(edit);
     edit_lists.emplace_back(edit_list);
-    return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
-                       mu, dir_contains_current_file, new_descriptor_log,
-                       column_family_options, {manifest_wcb});
+    return LogAndApply(cfds, mutable_cf_options_list, read_options,
+                       write_options, edit_lists, mu, dir_contains_current_file,
+                       new_descriptor_log, column_family_options,
+                       {manifest_wcb});
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, const WriteOptions& write_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
@@ -1204,9 +1207,10 @@ class VersionSet {
     mutable_cf_options_list.emplace_back(&mutable_cf_options);
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
-    return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
-                       mu, dir_contains_current_file, new_descriptor_log,
-                       column_family_options, {manifest_wcb});
+    return LogAndApply(cfds, mutable_cf_options_list, read_options,
+                       write_options, edit_lists, mu, dir_contains_current_file,
+                       new_descriptor_log, column_family_options,
+                       {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -1215,7 +1219,7 @@ class VersionSet {
   virtual Status LogAndApply(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, const WriteOptions& write_options,
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
@@ -1521,6 +1525,7 @@ class VersionSet {
         new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
+    // TODO: plumb Env::IOActivity, Env::IOPriority
     const ReadOptions read_options;
     version->PrepareAppend(mutable_cf_options, read_options, update_stats);
     AppendVersion(cfd, version);
@@ -1569,6 +1574,7 @@ class VersionSet {
 
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
+      const WriteOptions& write_options,
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
       const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
 
@@ -1656,7 +1662,8 @@ class VersionSet {
                                FSDirectory* dir_contains_current_file,
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options,
-                               const ReadOptions& read_options);
+                               const ReadOptions& read_options,
+                               const WriteOptions& write_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit,
                            SequenceNumber* max_last_sequence);
@@ -1708,7 +1715,7 @@ class ReactiveVersionSet : public VersionSet {
 
  private:
   std::unique_ptr<ManifestTailer> manifest_tailer_;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options_;
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
@@ -1717,6 +1724,7 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const ReadOptions& /* read_options */,
+      const WriteOptions& /* write_options */,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,

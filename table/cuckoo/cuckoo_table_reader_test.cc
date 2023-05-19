@@ -104,7 +104,7 @@ class CuckooReaderTest : public testing::Test {
     ASSERT_OK(builder.Finish());
     ASSERT_EQ(num_items, builder.NumEntries());
     file_size = builder.FileSize();
-    ASSERT_OK(file_writer->Close());
+    ASSERT_OK(file_writer->Close(IOOptions()));
 
     // Check reader now.
     std::unique_ptr<RandomAccessFileReader> file_reader;
@@ -431,7 +431,7 @@ void WriteFile(const std::vector<std::string>& keys, const uint64_t num,
   }
   ASSERT_OK(builder.Finish());
   ASSERT_EQ(num, builder.NumEntries());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
 
   uint64_t file_size;
   ASSERT_OK(
@@ -571,4 +571,3 @@ int main(int argc, char** argv) {
 }
 
 #endif  // GFLAGS.
-

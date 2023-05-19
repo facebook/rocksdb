@@ -298,7 +298,7 @@ Status MockTableFactory::GetAndWriteNextID(WritableFileWriter* file,
   *next_id = next_id_.fetch_add(1);
   char buf[4];
   EncodeFixed32(buf, *next_id);
-  return file->Append(Slice(buf, 4));
+  return file->Append(IOOptions(), Slice(buf, 4));
 }
 
 Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,

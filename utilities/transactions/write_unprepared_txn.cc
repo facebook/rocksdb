@@ -727,6 +727,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   assert(GetId() > 0);
   Status s;
   auto read_at_seq = kMaxSequenceNumber;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
@@ -882,6 +883,7 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   assert(save_points_ != nullptr && save_points_->size() > 0);
   const LockTracker& tracked_keys = *save_points_->top().new_locks_;
 
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   roptions.snapshot = top.snapshot_->snapshot();
   SequenceNumber min_uncommitted =

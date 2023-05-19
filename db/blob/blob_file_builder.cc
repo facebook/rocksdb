@@ -34,9 +34,10 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    std::string db_id, std::string db_session_id, int job_id,
-    uint32_t column_family_id, const std::string& column_family_name,
-    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
+    const WriteOptions* write_options, std::string db_id,
+    std::string db_session_id, int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::IOPriority io_priority,
+    Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -44,18 +45,19 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
-                      db_id, db_session_id, job_id, column_family_id,
-                      column_family_name, io_priority, write_hint, io_tracer,
-                      blob_callback, creation_reason, blob_file_paths,
-                      blob_file_additions) {}
+                      write_options, db_id, db_session_id, job_id,
+                      column_family_id, column_family_name, io_priority,
+                      write_hint, io_tracer, blob_callback, creation_reason,
+                      blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    std::string db_id, std::string db_session_id, int job_id,
-    uint32_t column_family_id, const std::string& column_family_name,
-    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
+    const WriteOptions* write_options, std::string db_id,
+    std::string db_session_id, int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::IOPriority io_priority,
+    Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -69,6 +71,7 @@ BlobFileBuilder::BlobFileBuilder(
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
+      write_options_(write_options),
       db_id_(std::move(db_id)),
       db_session_id_(std::move(db_session_id)),
       job_id_(job_id),
@@ -87,6 +90,7 @@ BlobFileBuilder::BlobFileBuilder(
   assert(fs_);
   assert(immutable_options_);
   assert(file_options_);
+  assert(write_options_);
   assert(blob_file_paths_);
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
@@ -214,7 +218,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_,
       immutable_options_->clock, io_tracer_, statistics,
-      immutable_options_->listeners,
+      Histograms::BLOB_WRITE_MICROS, immutable_options_->listeners,
       immutable_options_->file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kBlobFile), false));
 
@@ -231,7 +235,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
                        expiration_range);
 
   {
-    Status s = blob_log_writer->WriteHeader(header);
+    Status s = blob_log_writer->WriteHeader(*write_options_, header);
 
     TEST_SYNC_POINT_CALLBACK(
         "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
@@ -296,7 +300,8 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   uint64_t key_offset = 0;
 
-  Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
+  Status s =
+      writer_->AddRecord(*write_options_, key, blob, &key_offset, blob_offset);
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AddRecord", &s);
 
@@ -321,7 +326,8 @@ Status BlobFileBuilder::CloseBlobFile() {
   std::string checksum_method;
   std::string checksum_value;
 
-  Status s = writer_->AppendFooter(footer, &checksum_method, &checksum_value);
+  Status s = writer_->AppendFooter(*write_options_, footer, &checksum_method,
+                                   &checksum_value);
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
 

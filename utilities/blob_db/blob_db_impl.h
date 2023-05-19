@@ -167,7 +167,7 @@ class BlobDBImpl : public BlobDB {
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
 
-  Status SyncBlobFiles() override;
+  Status SyncBlobFiles(const WriteOptions& write_options) override;
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
@@ -245,11 +245,13 @@ class BlobDBImpl : public BlobDB {
   // to a single thread (like in the case of new files written during
   // compaction/GC), the locks on write_mutex_ and the blob file's mutex_ can be
   // avoided.
-  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
+  Status CloseBlobFile(const WriteOptions& write_options,
+                       std::shared_ptr<BlobFile> bfile);
 
   // Close a file if its size exceeds blob_file_size
   // REQUIRES: lock held on write_mutex_.
-  Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
+  Status CloseBlobFileIfNeeded(const WriteOptions& write_options,
+                               std::shared_ptr<BlobFile>& bfile);
 
   // Mark file as obsolete and move the file to obsolete file list.
   //
@@ -261,13 +263,15 @@ class BlobDBImpl : public BlobDB {
                       const Slice& value, uint64_t expiration,
                       WriteBatch* batch);
 
-  Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
+  Status AppendBlob(const WriteOptions& write_options,
+                    const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
                     const Slice& value, uint64_t expiration,
                     std::string* index_entry);
 
   // Create a new blob file and associated writer.
-  Status CreateBlobFileAndWriter(bool has_ttl,
+  Status CreateBlobFileAndWriter(const WriteOptions& write_options,
+                                 bool has_ttl,
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
@@ -275,11 +279,13 @@ class BlobDBImpl : public BlobDB {
 
   // Get the open non-TTL blob log file, or create a new one if no such file
   // exists.
-  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
+  Status SelectBlobFile(const WriteOptions& write_options,
+                        std::shared_ptr<BlobFile>* blob_file);
 
   // Get the open TTL blob log file for a certain expiration, or create a new
   // one if no such file exists.
-  Status SelectBlobFileTTL(uint64_t expiration,
+  Status SelectBlobFileTTL(const WriteOptions& write_options,
+                           uint64_t expiration,
                            std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
@@ -363,7 +369,7 @@ class BlobDBImpl : public BlobDB {
   void MarkUnreferencedBlobFilesObsolete();
   void MarkUnreferencedBlobFilesObsoleteDuringOpen();
 
-  void UpdateLiveSSTSize();
+  void UpdateLiveSSTSize(const WriteOptions& write_options);
 
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);
@@ -394,8 +400,11 @@ class BlobDBImpl : public BlobDB {
   // If is_fifo = true, FIFO eviction will be triggered to make room for the
   // new blob. If force_evict = true, FIFO eviction will evict blob files
   // even eviction will not make enough room for the new blob.
-  Status CheckSizeAndEvictBlobFiles(uint64_t blob_size,
+  Status CheckSizeAndEvictBlobFiles(const WriteOptions& write_options,
+                                    uint64_t blob_size,
                                     bool force_evict = false);
+
+  Status CloseImpl();
 
   // name of the database directory
   std::string dbname_;

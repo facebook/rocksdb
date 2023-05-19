@@ -57,7 +57,7 @@ void WriteBlobFile(uint32_t column_family_id,
   BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
                        expiration_range);
 
-  ASSERT_OK(blob_log_writer.WriteHeader(header));
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
 
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
@@ -67,7 +67,8 @@ void WriteBlobFile(uint32_t column_family_id,
   uint64_t key_offset = 0;
   uint64_t blob_offset = 0;
 
-  ASSERT_OK(blob_log_writer.AddRecord(key, blob, &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), key, blob, &key_offset,
+                                      &blob_offset));
 
   BlobLogFooter footer;
   footer.blob_count = 1;
@@ -76,8 +77,8 @@ void WriteBlobFile(uint32_t column_family_id,
   std::string checksum_method;
   std::string checksum_value;
 
-  ASSERT_OK(
-      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
+                                         &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace

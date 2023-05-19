@@ -38,32 +38,43 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
 }
 
 Writer::~Writer() {
+  ThreadStatus::OperationType cur_op_type =
+      ThreadStatusUtil::GetThreadOperation();
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   if (dest_) {
-    WriteBuffer().PermitUncheckedError();
+    WriteBuffer(WriteOptions()).PermitUncheckedError();
   }
   if (compress_) {
     delete compress_;
   }
+  ThreadStatusUtil::SetThreadOperation(cur_op_type);
 }
 
-IOStatus Writer::WriteBuffer() {
+IOStatus Writer::WriteBuffer(const WriteOptions& write_options) {
   if (dest_->seen_error()) {
     return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
-  return dest_->Flush();
+  IOOptions opts;
+  IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (!s.ok()) {
+    return s;
+  }
+  return dest_->Flush(opts);
 }
 
-IOStatus Writer::Close() {
+IOStatus Writer::Close(const WriteOptions& write_options) {
   IOStatus s;
-  if (dest_) {
-    s = dest_->Close();
+  IOOptions opts;
+  s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (s.ok() && dest_) {
+    s = dest_->Close(opts);
     dest_.reset();
   }
   return s;
 }
 
-IOStatus Writer::AddRecord(const Slice& slice,
-                           Env::IOPriority rate_limiter_priority) {
+IOStatus Writer::AddRecord(const WriteOptions& write_options,
+                           const Slice& slice) {
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -83,6 +94,8 @@ IOStatus Writer::AddRecord(const Slice& slice,
   }
 
   IOStatus s;
+  IOOptions opts;
+  s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   do {
     const int64_t leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
@@ -92,9 +105,10 @@ IOStatus Writer::AddRecord(const Slice& slice,
         // Fill the trailer (literal below relies on kHeaderSize and
         // kRecyclableHeaderSize being <= 11)
         assert(header_size <= 11);
-        s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        s = dest_->Append(opts,
+                          Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
                                 static_cast<size_t>(leftover)),
-                          0 /* crc32c_checksum */, rate_limiter_priority);
+                          0 /* crc32c_checksum */);
         if (!s.ok()) {
           break;
         }
@@ -144,7 +158,7 @@ IOStatus Writer::AddRecord(const Slice& slice,
       type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
     }
 
-    s = EmitPhysicalRecord(type, ptr, fragment_length, rate_limiter_priority);
+    s = EmitPhysicalRecord(write_options, type, ptr, fragment_length);
     ptr += fragment_length;
     left -= fragment_length;
     begin = false;
@@ -152,14 +166,14 @@ IOStatus Writer::AddRecord(const Slice& slice,
 
   if (s.ok()) {
     if (!manual_flush_) {
-      s = dest_->Flush(rate_limiter_priority);
+      s = dest_->Flush(opts);
     }
   }
 
   return s;
 }
 
-IOStatus Writer::AddCompressionTypeRecord() {
+IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   // Should be the first record
   assert(block_offset_ == 0);
 
@@ -171,11 +185,13 @@ IOStatus Writer::AddCompressionTypeRecord() {
   CompressionTypeRecord record(compression_type_);
   std::string encode;
   record.EncodeTo(&encode);
-  IOStatus s =
-      EmitPhysicalRecord(kSetCompressionType, encode.data(), encode.size());
+  IOStatus s = EmitPhysicalRecord(write_options, kSetCompressionType,
+                                  encode.data(), encode.size());
+  IOOptions io_opts;
+  s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
   if (s.ok()) {
     if (!manual_flush_) {
-      s = dest_->Flush();
+      s = dest_->Flush(io_opts);
     }
     // Initialize fields required for compression
     const size_t max_output_buffer_len =
@@ -197,8 +213,8 @@ IOStatus Writer::AddCompressionTypeRecord() {
 }
 
 IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
-    const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz,
-    Env::IOPriority rate_limiter_priority) {
+    const WriteOptions& write_options,
+    const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz) {
   std::vector<std::pair<uint32_t, size_t>> ts_sz_to_record;
   for (const auto& [cf_id, ts_sz] : cf_to_ts_sz) {
     if (recorded_cf_to_ts_sz_.count(cf_id) != 0) {
@@ -219,14 +235,14 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
   record.EncodeTo(&encoded);
   RecordType type = recycle_log_files_ ? kRecyclableUserDefinedTimestampSizeType
                                        : kUserDefinedTimestampSizeType;
-  return EmitPhysicalRecord(type, encoded.data(), encoded.size(),
-                            rate_limiter_priority);
+  return EmitPhysicalRecord(write_options, type, encoded.data(),
+                            encoded.size());
 }
 
 bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
 
-IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
-                                    Env::IOPriority rate_limiter_priority) {
+IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
+                                    RecordType t, const char* ptr, size_t n) {
   assert(n <= 0xffff);  // Must fit in two bytes
 
   size_t header_size;
@@ -266,10 +282,13 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
-  IOStatus s = dest_->Append(Slice(buf, header_size), 0 /* crc32c_checksum */,
-                             rate_limiter_priority);
+  IOOptions opts;
+  IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = dest_->Append(Slice(ptr, n), payload_crc, rate_limiter_priority);
+    s = dest_->Append(opts, Slice(buf, header_size), 0 /* crc32c_checksum */);
+  }
+  if (s.ok()) {
+    s = dest_->Append(opts, Slice(ptr, n), payload_crc);
   }
   block_offset_ += header_size + n;
   return s;
