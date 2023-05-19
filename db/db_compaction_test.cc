@@ -9658,6 +9658,15 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
 
   DestroyAndReopen(options);
   Random rnd(301);
+  // Populate L2 so that manual compaction will compact to at least L2.
+  // Otherwise, there is still a possibility of race condition where
+  // the manual compaction thread believes that max non-empty level is L1
+  // while there is some auto compaction that moves some files from L1 to L2.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1000), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(5), rnd.RandomString(kBaseLevelBytes / 3)));
   ASSERT_OK(
@@ -9670,18 +9679,23 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
       db_->Put(WriteOptions(), Key(1), rnd.RandomString(kBaseLevelBytes / 2)));
   // After L0 -> L1 manual compaction, an automatic compaction will compact
   // both files from L1 to L2. Here the dependency makes manual compaction wait
-  // for auto-compaction to pick a compaction before proceedind.
+  // for auto-compaction to pick a compaction before proceeding.
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
         "DBImpl::RunManualCompaction()::1"}});
   SyncPoint::GetInstance()->EnableProcessing();
+  std::string begin_str = Key(1);
+  std::string end_str = Key(6);
+  Slice begin_slice = begin_str;
+  Slice end_slice = end_str;
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
 
   // With kForce specified, expected output is that manual compaction compacts
-  // the two files in L2 into a single file in L2
-  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+  // to L2 and L2 contains 2 files: one for Key(1000) and one for Key(1), Key(5)
+  // and Key(6).
+  ASSERT_EQ(NumTableFilesAtLevel(2), 2);
 }
 
 TEST_F(DBCompactionTest,
@@ -9712,11 +9726,8 @@ TEST_F(DBCompactionTest,
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(4), rnd.RandomString(kBaseLevelBytes / 3)));
   ASSERT_OK(Flush());
-  std::string begin_str = Key(3);
-  std::string end_str = Key(4);
-  Slice begin_slice = begin_str;
-  Slice end_slice = end_str;
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_slice, &end_slice));
+
+  MoveFilesToLevel(5);
   ASSERT_EQ(1, NumTableFilesAtLevel(5));
 
   ASSERT_OK(
@@ -9735,8 +9746,10 @@ TEST_F(DBCompactionTest,
   // L6 into a single file.
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  begin_str = Key(1);
-  begin_slice = begin_str;
+  std::string begin_str = Key(1);
+  std::string end_str = Key(4);
+  Slice begin_slice = begin_str;
+  Slice end_slice = end_str;
   ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
   ASSERT_EQ(2, NumTableFilesAtLevel(6));
   ASSERT_EQ(0, NumTableFilesAtLevel(5));

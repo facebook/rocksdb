@@ -1066,7 +1066,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
-    int max_overlapped_level = kInvalidLevel;
     {
       SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
       Version* current_version = super_version->current;
@@ -1142,10 +1141,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                                                     begin, end);
         }
         if (overlap) {
-          if (first_overlapped_level == kInvalidLevel) {
-            first_overlapped_level = level;
-          }
-          max_overlapped_level = level;
+          first_overlapped_level = level;
+          break;
         }
       }
       CleanupSuperVersion(super_version);
@@ -1153,14 +1150,13 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        // TODO: does universal or FIFO needs to check conflicting range?
         assert(first_overlapped_level == 0);
         s = RunManualCompaction(
             cfd, first_overlapped_level, first_overlapped_level, options, begin,
             end, exclusive, true /* disallow_trivial_move */,
             std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
             trim_ts);
-        final_output_level = max_overlapped_level;
+        final_output_level = first_overlapped_level;
       } else {
         assert(cfd->ioptions()->compaction_style == kCompactionStyleLevel);
         uint64_t next_file_number = versions_->current_next_file_number();
@@ -1172,7 +1168,27 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         int level = first_overlapped_level;
         final_output_level = level;
         int output_level = 0, base_level = 0;
-        while (level < max_overlapped_level || level == 0) {
+        for (;;) {
+          if (cfd->ioptions()->level_compaction_dynamic_level_bytes) {
+            assert(final_output_level < cfd->ioptions()->num_levels);
+            if (final_output_level + 1 == cfd->ioptions()->num_levels) {
+              break;
+            }
+          } else {
+            // TODO(cbi): there is still a race condition here where
+            // if a background compaction is compact some file beyond
+            // current()->storage_info()->num_non_empty_levels(), we
+            // may not get correct final_output_level. This should
+            // happen very infrequently and should not happen once
+            // a user populates the last level of the LSM.
+            InstrumentedMutexLock l(&mutex_);
+            assert(final_output_level <
+                   cfd->current()->storage_info()->num_non_empty_levels());
+            if (final_output_level + 1 ==
+                cfd->current()->storage_info()->num_non_empty_levels()) {
+              break;
+            }
+          }
           output_level = level + 1;
           if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
               level == 0) {
@@ -1204,6 +1220,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         if (s.ok()) {
           assert(final_output_level > 0);
           // bottommost level intra-level compaction
+          // TODO: the following does not hold anymore, fix failing tests.
+          //  and maybe mention this behavior in change log.
           // TODO(cbi): this preserves earlier behavior where if
           //  max_overlapped_level = 0 and bottommost_level_compaction is
           //  kIfHaveCompactionFilter, we only do a L0 -> LBase compaction
@@ -1214,7 +1232,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
           //  compaction filter.
           if ((options.bottommost_level_compaction ==
                    BottommostLevelCompaction::kIfHaveCompactionFilter &&
-               max_overlapped_level != 0 &&
                (cfd->ioptions()->compaction_filter != nullptr ||
                 cfd->ioptions()->compaction_filter_factory != nullptr)) ||
               options.bottommost_level_compaction ==
