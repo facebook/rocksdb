@@ -1816,8 +1816,8 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 bool BlockBasedTable::PrefixRangeMayMatch(
     const Slice& internal_key, const ReadOptions& read_options,
     const SliceTransform* options_prefix_extractor,
-    const bool need_upper_bound_check,
-    BlockCacheLookupContext* lookup_context) const {
+    const bool need_upper_bound_check, BlockCacheLookupContext* lookup_context,
+    bool* filter_checked) const {
   if (!rep_->filter_policy) {
     return true;
   }
@@ -1842,7 +1842,7 @@ bool BlockBasedTable::PrefixRangeMayMatch(
   bool may_match = true;
 
   FilterBlockReader* const filter = rep_->filter.get();
-  bool filter_checked = false;
+  *filter_checked = false;
   if (filter != nullptr) {
     const bool no_io = read_options.read_tier == kBlockCacheTier;
 
@@ -1850,16 +1850,8 @@ bool BlockBasedTable::PrefixRangeMayMatch(
     may_match = filter->RangeMayExist(
         read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
         rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-        &filter_checked, need_upper_bound_check, no_io, lookup_context,
+        filter_checked, need_upper_bound_check, no_io, lookup_context,
         read_options);
-  }
-
-  if (filter_checked) {
-    Statistics* statistics = rep_->ioptions.stats;
-    RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
-    if (!may_match) {
-      RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);
-    }
   }
 
   return may_match;
@@ -1875,6 +1867,13 @@ bool BlockBasedTable::PrefixExtractorChanged(
     return PrefixExtractorChangedHelper(rep_->table_properties.get(),
                                         prefix_extractor);
   }
+}
+
+Statistics* BlockBasedTable::GetStatistics() const {
+  return rep_->ioptions.stats;
+}
+bool BlockBasedTable::IsLastLevel() const {
+  return rep_->level == rep_->ioptions.num_levels - 1;
 }
 
 InternalIterator* BlockBasedTable::NewIterator(
@@ -1937,18 +1936,29 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   if (rep_->whole_key_filtering) {
     may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
                                     get_context, lookup_context, read_options);
+    if (may_match) {
+      RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, rep_->level);
+    } else {
+      RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
+    }
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
-             prefix_extractor->InDomain(user_key_without_ts) &&
-             !filter->PrefixMayMatch(
-                 prefix_extractor->Transform(user_key_without_ts), no_io,
-                 const_ikey_ptr, get_context, lookup_context, read_options)) {
+             prefix_extractor->InDomain(user_key_without_ts)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
-    may_match = false;
-  }
-  if (may_match) {
-    RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE);
-    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, rep_->level);
+    may_match = filter->PrefixMayMatch(
+        prefix_extractor->Transform(user_key_without_ts), no_io, const_ikey_ptr,
+        get_context, lookup_context, read_options);
+    RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED);
+    if (may_match) {
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, rep_->level);
+    } else {
+      RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_USEFUL);
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
+    }
   }
   return may_match;
 }
@@ -1984,10 +1994,18 @@ void BlockBasedTable::FullFilterKeysMayMatch(
                              read_options);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
+    if (after_keys) {
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, after_keys,
+                                rep_->level);
+    }
     uint64_t filtered_keys = before_keys - after_keys;
     if (filtered_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_USEFUL,
                  filtered_keys);
+      // Includes prefix stats
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
+                                rep_->level);
     }
   }
 }
@@ -2100,10 +2118,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       FullFilterKeyMayMatch(filter, key, no_io, prefix_extractor, get_context,
                             &lookup_context, read_options);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
-  if (!may_match) {
-    RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
-    PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
-  } else {
+  if (may_match) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
@@ -2218,10 +2233,16 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       }
     }
     if (matched && filter != nullptr) {
-      RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+      if (rep_->whole_key_filtering) {
+        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+      } else {
+        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
+      }
+      // Includes prefix stats
       PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                 rep_->level);
     }
+
     if (s.ok() && !iiter->status().IsNotFound()) {
       s = iiter->status();
     }
