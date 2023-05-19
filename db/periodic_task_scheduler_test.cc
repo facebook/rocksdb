@@ -138,7 +138,7 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(1, daily_report_counter);
 
   const int kDaySeconds = 86400;
-  int sleep_seconds = kDaySeconds - mock_clock_->NowSeconds();
+  int sleep_seconds = kDaySeconds - static_cast<int>(mock_clock_->NowSeconds());
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(sleep_seconds); });
   ASSERT_EQ(2, daily_report_counter);
