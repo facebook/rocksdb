@@ -566,14 +566,19 @@ class NonBatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
-    std::vector<Slice> keys;
+    std::vector<Slice> all_keys;
     key_str.reserve(num_keys);
-    keys.reserve(num_keys);
-    std::vector<PinnableSlice> values(num_keys);
-    std::vector<Status> statuses(num_keys);
+    all_keys.reserve(num_keys);
+    std::vector<PinnableSlice> all_values(num_keys);
+    std::vector<Status> all_statuses(num_keys);
     // When Flags_use_txn is enabled, we also do a read your write check.
-    std::vector<std::optional<ExpectedValue>> expected_values;
-    expected_values.reserve(num_keys);
+    std::vector<std::optional<ExpectedValue>> all_ryw_expected_values;
+    all_ryw_expected_values.reserve(num_keys);
+    // When Flags_use_txn is enabled, we also do a read your write check while
+    // reading without a snapshot for keys with writes.
+    std::vector<Slice> keys_with_writes;
+    std::vector<std::optional<ExpectedValue>> ryw_expected_values_with_writes;
+
     SharedState* shared = thread->shared;
 
     int column_family = rand_column_families[0];
@@ -617,12 +622,12 @@ class NonBatchedOpsStressTest : public StressTest {
     for (size_t i = 0; i < num_keys; ++i) {
       uint64_t rand_key = rand_keys[i];
       key_str.emplace_back(Key(rand_key));
-      keys.emplace_back(key_str.back());
+      all_keys.emplace_back(key_str.back());
       if (use_txn) {
         if (!shared->AllowsOverwrite(rand_key) &&
             shared->Exists(column_family, rand_key)) {
           // Just do read your write checks for keys that allow overwrites.
-          expected_values.push_back(std::nullopt);
+          all_ryw_expected_values.push_back(std::nullopt);
           continue;
         }
         // With a 1 in 10 probability, insert the just added key in the batch
@@ -634,25 +639,31 @@ class NonBatchedOpsStressTest : public StressTest {
           switch (op) {
             case 0:
             case 1: {
+              keys_with_writes.push_back(key_str.back());
               ExpectedValue put_value(thread->rand.Next());
               put_value.Put(false /* pending */);
-              expected_values.emplace_back(put_value);
+              all_ryw_expected_values.emplace_back(put_value);
+              ryw_expected_values_with_writes.push_back(
+                  all_ryw_expected_values.back());
               char value[100];
               size_t sz =
                   GenerateValue(put_value.GetValueBase(), value, sizeof(value));
               Slice v(value, sz);
               if (op == 0) {
-                s = txn->Put(cfh, keys.back(), v);
+                s = txn->Put(cfh, all_keys.back(), v);
               } else {
-                s = txn->Merge(cfh, keys.back(), v);
+                s = txn->Merge(cfh, all_keys.back(), v);
               }
               break;
             }
             case 2: {
+              keys_with_writes.push_back(key_str.back());
               ExpectedValue delete_value(0);
               delete_value.Delete(false /* pending */);
-              expected_values.emplace_back(delete_value);
-              s = txn->Delete(cfh, keys.back());
+              all_ryw_expected_values.emplace_back(delete_value);
+              ryw_expected_values_with_writes.push_back(
+                  all_ryw_expected_values.back());
+              s = txn->Delete(cfh, all_keys.back());
               break;
             }
             default:
@@ -663,29 +674,40 @@ class NonBatchedOpsStressTest : public StressTest {
             std::terminate();
           }
         } else {
-          expected_values.push_back(std::nullopt);
+          all_ryw_expected_values.push_back(std::nullopt);
         }
       }
     }
 
+    size_t num_keys_with_writes = keys_with_writes.size();
+    std::vector<PinnableSlice> values_with_writes;
+    values_with_writes.reserve(num_keys_with_writes);
+    std::vector<Status> statuses_with_writes;
+    statuses_with_writes.reserve(num_keys_with_writes);
+    ReadOptions read_with_no_snapshot = readoptionscopy;
+    // The snapshot will be released at the end of the test.
+    read_with_no_snapshot.snapshot = nullptr;
     if (!use_txn) {
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
         SharedState::ignore_read_error = false;
       }
-      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
-                    statuses.data());
+      db_->MultiGet(readoptionscopy, cfh, num_keys, all_keys.data(),
+                    all_values.data(), all_statuses.data());
       if (fault_fs_guard) {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
     } else {
-      txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
-                    statuses.data());
+      txn->MultiGet(readoptionscopy, cfh, num_keys, all_keys.data(),
+                    all_values.data(), all_statuses.data());
+      txn->MultiGet(read_with_no_snapshot, cfh, keys_with_writes.size(),
+                    keys_with_writes.data(), values_with_writes.data(),
+                    statuses_with_writes.data());
     }
 
     if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
       int stat_nok = 0;
-      for (const auto& s : statuses) {
+      for (const auto& s : all_statuses) {
         if (!s.ok() && !s.IsNotFound()) {
           stat_nok++;
         }
@@ -707,129 +729,163 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->DisableErrorInjection();
     }
 
-    for (size_t i = 0; i < statuses.size(); ++i) {
-      Status s = statuses[i];
-      bool is_consistent = true;
-      // Only do the consistency check if no error was injected and MultiGet
-      // didn't return an unexpected error.
-      // If not use transaction, the consistency check for each key included:
-      //   1) Check results from db `Get` and db `MultiGet` are consistent.
-      // If FLAGS_use_txn enabled, the consistency check for each key included:
-      //   1) Check results from transaction `Get` and transaction `MultiGet`
-      //      are consistent.
-      //   2) Check the result from transaction `Get` is consistent with the
-      //      transaction's own write if it has any.
-      if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
-        Status tmp_s;
-        std::string value;
+    auto check_consistency = [&](const ReadOptions& readoptions,
+                                 const std::vector<Slice>& keys,
+                                 const std::vector<PinnableSlice>& values,
+                                 const std::vector<Status>& statuses,
+                                 const std::vector<
+                                     std::optional<ExpectedValue>>&
+                                     ryw_expected_values) {
+      for (size_t i = 0; i < statuses.size(); ++i) {
+        const Status& s = statuses[i];
+        bool is_consistent = true;
+        // Only do the consistency check if no error was injected and
+        // MultiGet didn't return an unexpected error. If not use
+        // transaction, the consistency check for each key included:
+        //   1) Check results from db `Get` and db `MultiGet` are
+        //   consistent.
+        // If FLAGS_use_txn enabled, the consistency check for each key
+        // included:
+        //   1) Check results from transaction `Get` and transaction
+        //   `MultiGet`
+        //      are consistent.
+        //   2) Check the result from transaction `Get` is consistent with
+        //   the
+        //      transaction's own write if it has any.
+        if (do_consistency_check && !error_count &&
+            (s.ok() || s.IsNotFound())) {
+          Status tmp_s;
+          std::string value;
 
-        if (use_txn) {
-          tmp_s = txn->Get(readoptionscopy, cfh, keys[i], &value);
-        } else {
-          tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
-        }
-        if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
-          fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
-          is_consistent = false;
-        } else if (!s.ok() && tmp_s.ok()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
-          fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
-          is_consistent = false;
-        } else if (s.ok() && tmp_s.IsNotFound()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
-          fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
-          is_consistent = false;
-        } else if (s.ok() && value != values[i].ToString()) {
-          fprintf(stderr, "MultiGet returned different results with key %s\n",
-                  keys[i].ToString(true).c_str());
-          fprintf(stderr, "MultiGet returned value %s\n",
-                  values[i].ToString(true).c_str());
-          fprintf(stderr, "Get returned value %s\n",
-                  Slice(value).ToString(true /* hex */).c_str());
-          is_consistent = false;
-        }
-
-        // If FLAGS_use_txn is true, continue the consistency check to compare
-        // read result from transaction to the transaction's own write.
-        if (is_consistent && use_txn) {
-          assert(!expected_values.empty());
-          if (!expected_values[i].has_value()) {
-            continue;
+          if (use_txn) {
+            tmp_s = txn->Get(readoptions, cfh, keys[i], &value);
+          } else {
+            tmp_s = db_->Get(readoptions, cfh, keys[i], &value);
           }
-          ExpectedValue expected = expected_values[i].value();
-          char expected_value[100];
-          if (s.ok()) {
-            Slice from_txn_slice(values[i]);
-            if (ExpectedValueHelper::MustHaveNotExisted(expected, expected)) {
-              fprintf(stderr,
-                      "MultiGet returned value different from what was written "
-                      "for key %s\n",
-                      keys[i].ToString(true).c_str());
-              fprintf(stderr,
-                      "MultiGet returned ok, transaction has non-committed "
-                      "delete.\n");
-              is_consistent = false;
-            } else {
-              size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
-                                        sizeof(expected_value));
-              Slice expected_value_slice(expected_value, sz);
-              if (expected_value_slice.compare(from_txn_slice) == 0) {
-                continue;
+          if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
+            fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
+            is_consistent = false;
+          } else if (!s.ok() && tmp_s.ok()) {
+            fprintf(stderr, "MultiGet returned different results with key %s\n",
+                    keys[i].ToString(true).c_str());
+            fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
+            is_consistent = false;
+          } else if (s.ok() && tmp_s.IsNotFound()) {
+            fprintf(stderr, "MultiGet returned different results with key %s\n",
+                    keys[i].ToString(true).c_str());
+            fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
+            is_consistent = false;
+          } else if (s.ok() && value != values[i].ToString()) {
+            fprintf(stderr, "MultiGet returned different results with key %s\n",
+                    keys[i].ToString(true).c_str());
+            fprintf(stderr, "MultiGet returned value %s\n",
+                    values[i].ToString(true).c_str());
+            fprintf(stderr, "Get returned value %s\n",
+                    Slice(value).ToString(true /* hex */).c_str());
+            is_consistent = false;
+          }
+
+          // If FLAGS_use_txn is true, continue the consistency check to
+          // compare read result from transaction to the transaction's own
+          // write.
+          if (is_consistent && use_txn) {
+            assert(!ryw_expected_values.empty());
+            if (!ryw_expected_values[i].has_value()) {
+              continue;
+            }
+            const ExpectedValue& expected = ryw_expected_values[i].value();
+            char expected_value[100];
+            if (s.ok()) {
+              Slice from_txn_slice(values[i]);
+              if (ExpectedValueHelper::MustHaveNotExisted(expected, expected)) {
+                fprintf(stderr,
+                        "MultiGet returned value different from what was "
+                        "written "
+                        "for key %s\n",
+                        keys[i].ToString(true).c_str());
+                fprintf(stderr,
+                        "MultiGet returned ok, transaction has non-committed "
+                        "delete.\n");
+                is_consistent = false;
+              } else {
+                size_t sz =
+                    GenerateValue(expected.GetValueBase(), expected_value,
+                                  sizeof(expected_value));
+                Slice expected_value_slice(expected_value, sz);
+                if (expected_value_slice.compare(from_txn_slice) == 0) {
+                  continue;
+                }
+                fprintf(stderr,
+                        "MultiGet returned value different from what was "
+                        "written "
+                        "for key %s\n",
+                        keys[i].ToString(true /* hex */).c_str());
+                fprintf(stderr, "MultiGet returned value %s\n",
+                        from_txn_slice.ToString(true /* hex */).c_str());
+                fprintf(stderr, "Transaction has non-committed value %s\n",
+                        expected_value_slice.ToString(true /* hex */).c_str());
+                is_consistent = false;
               }
-              fprintf(stderr,
-                      "MultiGet returned value different from what was written "
-                      "for key %s\n",
-                      keys[i].ToString(true /* hex */).c_str());
-              fprintf(stderr, "MultiGet returned value %s\n",
-                      from_txn_slice.ToString(true /* hex */).c_str());
-              fprintf(stderr, "Transaction has non-committed value %s\n",
-                      expected_value_slice.ToString(true /* hex */).c_str());
-              is_consistent = false;
-            }
-          } else if (s.IsNotFound()) {
-            if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
-              size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
-                                        sizeof(expected_value));
-              Slice expected_value_slice(expected_value, sz);
-              fprintf(stderr,
-                      "MultiGet returned value different from what was written "
-                      "for key %s\n",
-                      keys[i].ToString(true).c_str());
-              fprintf(stderr,
-                      "MultiGet returned not found, transaction has "
-                      "non-committed value.\n");
-              is_consistent = false;
+            } else if (s.IsNotFound()) {
+              if (ExpectedValueHelper::MustHaveExisted(expected, expected)) {
+                size_t sz =
+                    GenerateValue(expected.GetValueBase(), expected_value,
+                                  sizeof(expected_value));
+                Slice expected_value_slice(expected_value, sz);
+                fprintf(stderr,
+                        "MultiGet returned value different from what was "
+                        "written "
+                        "for key %s\n",
+                        keys[i].ToString(true).c_str());
+                fprintf(stderr,
+                        "MultiGet returned not found, transaction has "
+                        "non-committed value.\n");
+                is_consistent = false;
+              }
             }
           }
         }
-      }
 
-      if (!is_consistent) {
-        fprintf(stderr, "TestMultiGet error: is_consistent is false\n");
-        thread->stats.AddErrors(1);
-        // Fail fast to preserve the DB state
-        thread->shared->SetVerificationFailure();
-        break;
-      } else if (s.ok()) {
-        // found case
-        thread->stats.AddGets(1, 1);
-      } else if (s.IsNotFound()) {
-        // not found case
-        thread->stats.AddGets(1, 0);
-      } else if (s.IsMergeInProgress() && use_txn) {
-        // With txn this is sometimes expected.
-        thread->stats.AddGets(1, 1);
-      } else {
-        if (error_count == 0) {
-          // errors case
-          fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
+        if (!is_consistent) {
+          fprintf(stderr, "TestMultiGet error: is_consistent is false\n");
           thread->stats.AddErrors(1);
+          // Fail fast to preserve the DB state
+          thread->shared->SetVerificationFailure();
+          break;
+        } else if (s.ok()) {
+          // found case
+          thread->stats.AddGets(1, 1);
+        } else if (s.IsNotFound()) {
+          // not found case
+          thread->stats.AddGets(1, 0);
+        } else if (s.IsMergeInProgress() && use_txn) {
+          // With txn this is sometimes expected.
+          thread->stats.AddGets(1, 1);
         } else {
-          thread->stats.AddVerifiedErrors(1);
+          if (error_count == 0) {
+            // errors case
+            fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
+            thread->stats.AddErrors(1);
+          } else {
+            thread->stats.AddVerifiedErrors(1);
+          }
         }
       }
+    };
+
+    // Consistency check for all keys regardless of whether transaction is used.
+    // `all_ryw_expected_values` are for read-your-own-write check that only
+    // applies to transaction. Reading from a snapshot is required for `Get` and
+    // `MultiGet` to have repeatable reads regardless of using transaction
+    // because only a small portion of keys have overwrites in the transaction.
+    check_consistency(readoptionscopy, all_keys, all_values, all_statuses,
+                      all_ryw_expected_values);
+    if (use_txn) {
+      // Also do a consistency check without reading from a snapshot for keys
+      // with writes when transaction is enabled.
+      check_consistency(read_with_no_snapshot, keys_with_writes,
+                        values_with_writes, statuses_with_writes,
+                        ryw_expected_values_with_writes);
     }
 
     if (readoptionscopy.snapshot) {
@@ -838,7 +894,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (use_txn) {
       RollbackTxn(txn);
     }
-    return statuses;
+    return all_statuses;
   }
 
   void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
