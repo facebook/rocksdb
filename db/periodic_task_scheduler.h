@@ -83,6 +83,15 @@ class PeriodicTaskScheduler {
   // default global Timer instance
   static Timer* Default();
 
+  struct TaskRegistrationConfig {
+    std::string name_prefix;
+    uint64_t period_seconds;
+    bool delay_initially;
+  };
+
+  Status Register(PeriodicTaskType task_type, const PeriodicTaskFunc& fn,
+                  const TaskRegistrationConfig& config);
+
   // Internal structure to store task information
   struct TaskInfo {
     TaskInfo(std::string _name, uint64_t _repeat_every_sec)
