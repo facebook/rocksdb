@@ -6894,7 +6894,20 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedGeneralCache();
+  // BEGIN check that Cache classes as aliases of each other.
+  // Currently, GeneralCache and BlockCache are aliases for Cache.
+  // This is expected to change (carefully, intentionally)
+  std::shared_ptr<GeneralCache> general_cache = options.row_cache;
+  std::shared_ptr<Cache> cache = general_cache;
+  std::shared_ptr<BlockCache> block_cache = general_cache;
+  general_cache = cache;
+  block_cache = cache;
+  general_cache = block_cache;
+  cache = block_cache;
+  // END check that Cache classes as aliases of each other.
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar"));

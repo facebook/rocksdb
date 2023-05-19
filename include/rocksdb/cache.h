@@ -25,6 +25,26 @@ class Cache;  // defined in advanced_cache.h
 struct ConfigOptions;
 class SecondaryCache;
 
+// These definitions begin source compatibility for a future change in which
+// a specific class for block cache is split away from general caches, so that
+// the block cache API can continue to become more specialized and
+// customizeable, including in ways incompatible with a general cache. For
+// example, HyperClockCache is not usable as a general cache because it expects
+// only fixed-size block cache keys, but this limitation is not yet reflected
+// in the API function signatures.
+// * Phase 1 (done) - Make both BlockCache and GeneralCache aliases for Cache,
+// and make a factory function for general caches. Encourage users of row_cache
+// (not common) to switch to the factory function for general caches.
+// * Phase 2 - Split off GenericCache as its own class, removing secondary
+// cache support features and more from the API to simplify it. Between Phase 1
+// and Phase 2 users of row_cache will need to update their code. Any time
+// after Phase 2, the block cache API can become more specialized in ways
+// incompatible with general caches.
+// * Phase 3 - Move existing RocksDB uses of Cache to BlockCache, and deprecate
+// (but not yet remove) Cache as an alias for BlockCache.
+using BlockCache = Cache;
+using GeneralCache = Cache;
+
 // Classifications of block cache entries.
 //
 // Developer notes: Adding a new enum to this class requires corresponding
@@ -135,7 +155,8 @@ struct ShardedCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-  // A SecondaryCache instance to use the non-volatile tier.
+  // A SecondaryCache instance to use the non-volatile tier. For a GeneralCache
+  // this option must be kept as default empty.
   std::shared_ptr<SecondaryCache> secondary_cache;
 
   // See hash_seed comments below
@@ -236,6 +257,10 @@ struct LRUCacheOptions : public ShardedCacheOptions {
 
   // Construct an instance of LRUCache using these options
   std::shared_ptr<Cache> MakeSharedCache() const;
+
+  // Construct an instance of LRUCache for use as a general cache (e.g. for
+  // row_cache). Some options are not relevant to general caches.
+  std::shared_ptr<GeneralCache> MakeSharedGeneralCache() const;
 };
 
 // DEPRECATED wrapper function
