@@ -1775,6 +1775,12 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+  virtual Status CreateColumnFamilyWithImports(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<ExportImportFilesMetaData>& metadatas,
+      ColumnFamilyHandle** handle) = 0;
+
   // EXPERIMENTAL
   // ClipColumnFamily() will clip the entries in the CF according to the range
   // [begin_key,
@@ -1790,6 +1796,7 @@ class DB {
   // calling
   // CreateColumnFamilyWithImports() to import multiple CFs.
   // Note that: concurrent updates cannot be performed during Clip.
+
   virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
                                   const Slice& begin_key,
                                   const Slice& end_key) = 0;
