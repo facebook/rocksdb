@@ -110,6 +110,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+extern "C" void RocksDbDailyReport(DB* db) __attribute__((__weak__));
+
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
     "___rocksdb_stats_history___");
@@ -274,6 +276,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(
       PeriodicTaskType::kRecordSeqnoTime,
       [this]() { this->RecordSeqnoToTimeMapping(); });
+  periodic_task_functions_.emplace(PeriodicTaskType::kDailyReport,
+                                   [this]() { RocksDbDailyReport(this); });
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -823,6 +827,11 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   Status s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
       periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+  if (s.ok() && RocksDbDailyReport != nullptr) {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kDailyReport,
+        periodic_task_functions_.at(PeriodicTaskType::kDailyReport));
+  }
 
   return s;
 }

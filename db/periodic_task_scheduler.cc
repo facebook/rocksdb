@@ -45,6 +45,9 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
            {"record_seq_time" /* name_prefix */,
             kInvalidPeriodSec /* period_seconds */,
             true /* delay_initially */}},
+          {PeriodicTaskType::kDailyReport,
+           {"daily_report" /* name_prefix */, 24 * 60 * 60 /* period_seconds */,
+            false /* delay_initially */}},
       };
 
   auto config = kDefaultConfigs.at(task_type);

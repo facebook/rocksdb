@@ -12,6 +12,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+extern "C" void RocksDbDailyReport(DB* /* db */) {
+  TEST_SYNC_POINT("RocksDbDailyReport:StartRunning");
+}
+
 class PeriodicTaskSchedulerTest : public DBTestBase {
  public:
   PeriodicTaskSchedulerTest()
@@ -56,9 +60,19 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushInfoLog:StartRunning",
       [&](void*) { flush_info_log_counter++; });
+
+  int daily_report_counter = 0;
+  SyncPoint::GetInstance()->SetCallBack("RocksDbDailyReport:StartRunning",
+                                        [&](void*) { daily_report_counter++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(nullptr);
+  ASSERT_EQ(0, dump_st_counter);
+  ASSERT_EQ(0, pst_st_counter);
+  ASSERT_EQ(0, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
 
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_persist_period_sec);
@@ -70,11 +84,12 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
 
   const PeriodicTaskScheduler& scheduler =
       dbfull()->TEST_GetPeriodicTaskScheduler();
-  ASSERT_EQ(3, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(4, scheduler.TEST_GetValidTaskNum());
 
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
   ASSERT_EQ(1, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
 
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
@@ -82,6 +97,7 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
   ASSERT_EQ(2, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
 
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
@@ -89,6 +105,7 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(3, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
 
   // Disable scheduler with SetOption
   ASSERT_OK(dbfull()->SetDBOptions(
@@ -102,21 +119,29 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(4, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
 
-  ASSERT_EQ(1u, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(2u, scheduler.TEST_GetValidTaskNum());
 
   // Re-enable one task
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  ASSERT_EQ(2, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(3, scheduler.TEST_GetValidTaskNum());
 
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(4, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(5, flush_info_log_counter);
+  ASSERT_EQ(1, daily_report_counter);
+
+  const int kDaySeconds = 86400;
+  int sleep_seconds = kDaySeconds - mock_clock_->NowSeconds();
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(sleep_seconds); });
+  ASSERT_EQ(2, daily_report_counter);
 
   Close();
 }
@@ -150,7 +175,7 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
   auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
 
   const PeriodicTaskScheduler& scheduler = dbi->TEST_GetPeriodicTaskScheduler();
-  ASSERT_EQ(kInstanceNum * 3, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(kInstanceNum * 4, scheduler.TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
   dbi->TEST_WaitForPeriodicTaskRun(

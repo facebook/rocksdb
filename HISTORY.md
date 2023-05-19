@@ -7,6 +7,7 @@
 * Introduced a new option `CompactionOptionsFIFO::file_temperature_age_thresholds` that allows FIFO compaction to compact files to different temperatures based on key age (#11428).
 * Added a new ticker stat to count how many times RocksDB detected a corruption while verifying a block checksum: `BLOCK_CHECKSUM_MISMATCH_COUNT`.
 * New statistics `rocksdb.file.read.db.open.micros` that measures read time of block-based SST tables or blob files during db open.
+* Add an interface `RocksDbDailyReport(DB* db)` that, if defined by the user, will be called immediately after opening the DB and every day after that.
 
 ### Public API Changes
 * Add `MakeSharedCache()` construction functions to various cache Options objects, and deprecated the `NewWhateverCache()` functions with long parameter lists.
