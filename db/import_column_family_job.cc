@@ -77,7 +77,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     }
 
     if (num_files == 0) {
-      return Status::InvalidArgument("The list of files is empty");
+      status = Status::InvalidArgument("The list of files is empty");
+      return status;
     }
     cf_file_info.smallest_internal_key = smallest;
     cf_file_info.largest_internal_key = largest;
