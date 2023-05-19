@@ -22,16 +22,27 @@ namespace ROCKSDB_NAMESPACE {
 struct EnvOptions;
 class SystemClock;
 
+// All file information of an imported CF, mainly used to
+// calculate whether there is overlap between CFs
+struct ColumnFamilyIngestFileInfo {
+  // Smallest internal key in cf
+  InternalKey smallest_internal_key;
+  // Largest internal key in cf
+  InternalKey largest_internal_key;
+  // Num of ingest files
+  int num_files;
+};
+
 // Imports a set of sst files as is into a new column family. Logic is similar
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
  public:
-  ImportColumnFamilyJob(VersionSet* versions, ColumnFamilyData* cfd,
-                        const ImmutableDBOptions& db_options,
-                        const EnvOptions& env_options,
-                        const ImportColumnFamilyOptions& import_options,
-                        const std::vector<LiveFileMetaData>& metadata,
-                        const std::shared_ptr<IOTracer>& io_tracer)
+  ImportColumnFamilyJob(
+      VersionSet* versions, ColumnFamilyData* cfd,
+      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<std::vector<LiveFileMetaData>>& metadatas,
+      const std::shared_ptr<IOTracer>& io_tracer)
       : clock_(db_options.clock),
         versions_(versions),
         cfd_(cfd),
@@ -39,7 +50,7 @@ class ImportColumnFamilyJob {
         fs_(db_options_.fs, io_tracer),
         env_options_(env_options),
         import_options_(import_options),
-        metadata_(metadata),
+        metadatas_(metadatas),
         io_tracer_(io_tracer) {}
 
   // Prepare the job by copying external files into the DB.
@@ -75,6 +86,7 @@ class ImportColumnFamilyJob {
   autovector<IngestedFileInfo> files_to_import_;
   VersionEdit edit_;
   const ImportColumnFamilyOptions& import_options_;
+  const std::vector<std::vector<LiveFileMetaData>> metadatas_;
   std::vector<LiveFileMetaData> metadata_;
   const std::shared_ptr<IOTracer> io_tracer_;
 };

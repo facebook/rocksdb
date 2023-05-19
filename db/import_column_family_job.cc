@@ -29,33 +29,75 @@ namespace ROCKSDB_NAMESPACE {
 Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                                       SuperVersion* sv) {
   Status status;
+  std::vector<ColumnFamilyIngestFileInfo> cf_ingest_infos;
+  for (const auto& metadata_per_cf : metadatas_) {
+    // Read the information of files we are importing
+    ColumnFamilyIngestFileInfo cf_file_info;
+    InternalKey smallest, largest;
+    int num_files = 0;
+    for (size_t i = 0; i < metadata_per_cf.size(); i++) {
+      auto file_metadata = metadata_per_cf[i];
+      const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
+      IngestedFileInfo file_to_import;
+      status = GetIngestedFileInfo(file_path, next_file_number++, sv,
+                                   file_metadata, &file_to_import);
+      if (!status.ok()) {
+        return status;
+      }
 
-  // Read the information of files we are importing
-  for (const auto& file_metadata : metadata_) {
-    const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
-    IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, next_file_number++, sv,
-                                 file_metadata, &file_to_import);
-    if (!status.ok()) {
-      return status;
+      if (file_to_import.num_entries == 0) {
+        status = Status::InvalidArgument("File contain no entries");
+        return status;
+      }
+
+      if (!file_to_import.smallest_internal_key.Valid() ||
+          !file_to_import.largest_internal_key.Valid()) {
+        status = Status::Corruption("File has corrupted keys");
+        return status;
+      }
+
+      files_to_import_.push_back(file_to_import);
+      metadata_.push_back(file_metadata);
+      num_files++;
+
+      // Calculate the smallest and largest keys of all files in this CF
+      if (i == 0) {
+        smallest = file_to_import.smallest_internal_key;
+        largest = file_to_import.largest_internal_key;
+      } else {
+        if (cfd_->internal_comparator().Compare(
+                smallest, file_to_import.smallest_internal_key) < 0) {
+          smallest = file_to_import.smallest_internal_key;
+        }
+        if (cfd_->internal_comparator().Compare(
+                largest, file_to_import.largest_internal_key) > 0) {
+          largest = file_to_import.largest_internal_key;
+        }
+      }
     }
-    files_to_import_.push_back(file_to_import);
+
+    if (num_files == 0) {
+      return Status::InvalidArgument("The list of files is empty");
+    }
+    cf_file_info.smallest_internal_key = smallest;
+    cf_file_info.largest_internal_key = largest;
+    cf_file_info.num_files = num_files;
+    cf_ingest_infos.push_back(cf_file_info);
   }
 
-  auto num_files = files_to_import_.size();
-  if (num_files == 0) {
-    status = Status::InvalidArgument("The list of files is empty");
-    return status;
-  }
+  std::sort(cf_ingest_infos.begin(), cf_ingest_infos.end(),
+            [this](const ColumnFamilyIngestFileInfo& info1,
+                   const ColumnFamilyIngestFileInfo& info2) {
+              return cfd_->internal_comparator().Compare(
+                         info1.smallest_internal_key,
+                         info2.smallest_internal_key) < 0;
+            });
 
-  for (const auto& f : files_to_import_) {
-    if (f.num_entries == 0) {
-      status = Status::InvalidArgument("File contain no entries");
-      return status;
-    }
-
-    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      status = Status::Corruption("File has corrupted keys");
+  for (size_t i = 0; i + 1 < cf_ingest_infos.size(); i++) {
+    if (cfd_->internal_comparator().Compare(
+            cf_ingest_infos[i].largest_internal_key,
+            cf_ingest_infos[i + 1].smallest_internal_key) >= 0) {
+      status = Status::InvalidArgument("CFs have overlapping ranges");
       return status;
     }
   }
