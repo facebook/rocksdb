@@ -21,7 +21,7 @@
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -392,6 +392,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
         "db_stress_tool/expected_state.cc",
+        "db_stress_tool/expected_value.cc",
         "db_stress_tool/multi_ops_txns_stress.cc",
         "db_stress_tool/no_batched_ops_stress.cc",
         "test_util/testutil.cc",
@@ -4745,6 +4746,12 @@ cpp_unittest_wrapper(name="db_block_cache_test",
 
 cpp_unittest_wrapper(name="db_bloom_filter_test",
             srcs=["db/db_bloom_filter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_clip_test",
+            srcs=["db/db_clip_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

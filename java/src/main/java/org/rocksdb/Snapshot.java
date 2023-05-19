@@ -29,7 +29,7 @@ public class Snapshot extends RocksObject {
 
   @Override
   protected final void disposeInternal(final long handle) {
-    /**
+    /*
      * Nothing to release, we never own the pointer for a
      * Snapshot. The pointer
      * to the snapshot is released by the database

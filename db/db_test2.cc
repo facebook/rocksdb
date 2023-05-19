@@ -3044,7 +3044,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
                   .IsManualCompactionPaused());
 
   // Wait for compactions to get scheduled and stopped
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Get file names after compaction is stopped
   files_meta.clear();
@@ -3064,7 +3064,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
                                  files_before_compact, 0)
                   .IsManualCompactionPaused());
   // Wait for manual compaction to get scheduled and finish
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   files_meta.clear();
   files_after_compact.clear();
@@ -3097,7 +3097,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::vector<LiveFileMetaData> files_meta;
   dbfull()->GetLiveFilesMetaData(&files_meta);
@@ -3139,7 +3139,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   // As manual compaction disabled, not even reach sync point
   ASSERT_EQ(run_manual_compactions, 0);
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
@@ -3148,7 +3148,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
       "CompactionJob::Run():PausingManualCompaction:1");
   dbfull()->EnableManualCompaction();
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3203,14 +3203,14 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(run_manual_compactions, 1);
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3262,7 +3262,7 @@ TEST_F(DBTest2, CancelManualCompaction1) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Since compactions are disabled, we shouldn't start compacting.
   // E.g. we should call the compaction function exactly one time.
@@ -3286,7 +3286,7 @@ TEST_F(DBTest2, CancelManualCompaction1) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(compactions_run, 3);
 
@@ -3298,7 +3298,7 @@ TEST_F(DBTest2, CancelManualCompaction1) {
   // Compactions should work again if we re-enable them..
   compact_options.canceled->store(false, std::memory_order_relaxed);
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3362,7 +3362,7 @@ TEST_F(DBTest2, CancelManualCompaction2) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // NOTE: as we set compact_options.max_subcompacitons = 1, and store true to
   // the canceled variable from the single compacting thread (via callback),
@@ -3380,7 +3380,7 @@ TEST_F(DBTest2, CancelManualCompaction2) {
   // Compactions should work again if we re-enable them..
   compact_options.canceled->store(false, std::memory_order_relaxed);
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3455,7 +3455,7 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_GT(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -3470,7 +3470,7 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -3492,7 +3492,7 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
 
   compact_options.canceled->store(false, std::memory_order_release);
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_GT(listener->num_compaction_started_, 0);
   ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
@@ -5823,7 +5823,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_OK(Flush());
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "8"));
   ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,4,1", FilesPerLevel());
 
   ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));

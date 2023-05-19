@@ -15,7 +15,7 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
     extends RocksCallbackObject {
 
   public AbstractCompactionFilterFactory() {
-    super(null);
+    super(0L);
   }
 
   @Override
@@ -55,7 +55,7 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
 
   /**
    * A name which identifies this compaction filter
-   *
+   * <p>
    * The name will be printed to the LOG file on start up for diagnosis
    *
    * @return name which identifies this compaction filter.

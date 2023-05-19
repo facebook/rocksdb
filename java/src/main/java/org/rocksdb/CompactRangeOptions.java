@@ -10,11 +10,10 @@ package org.rocksdb;
  * any compaction that is using this CompactRangeOptions.
  */
 public class CompactRangeOptions extends RocksObject {
-
-  private final static byte VALUE_kSkip = 0;
-  private final static byte VALUE_kIfHaveCompactionFilter = 1;
-  private final static byte VALUE_kForce = 2;
-  private final static byte VALUE_kForceOptimized = 3;
+  private static final byte VALUE_kSkip = 0;
+  private static final byte VALUE_kIfHaveCompactionFilter = 1;
+  private static final byte VALUE_kForce = 2;
+  private static final byte VALUE_kForceOptimized = 3;
 
   // For level based compaction, we can configure if we want to skip/force bottommost level
   // compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
@@ -219,7 +218,7 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
-  private native static long newCompactRangeOptions();
+  private static native long newCompactRangeOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native boolean exclusiveManualCompaction(final long handle);

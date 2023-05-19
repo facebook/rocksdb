@@ -59,12 +59,12 @@ public class WriteOptionsTest {
 
   @Test
   public void copyConstructor() {
-    WriteOptions origOpts = new WriteOptions();
+    final WriteOptions origOpts = new WriteOptions();
     origOpts.setDisableWAL(rand.nextBoolean());
     origOpts.setIgnoreMissingColumnFamilies(rand.nextBoolean());
     origOpts.setSync(rand.nextBoolean());
     origOpts.setMemtableInsertHintPerBatch(true);
-    WriteOptions copyOpts = new WriteOptions(origOpts);
+    final WriteOptions copyOpts = new WriteOptions(origOpts);
     assertThat(origOpts.disableWAL()).isEqualTo(copyOpts.disableWAL());
     assertThat(origOpts.ignoreMissingColumnFamilies()).isEqualTo(
             copyOpts.ignoreMissingColumnFamilies());

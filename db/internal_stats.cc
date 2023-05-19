@@ -1688,8 +1688,16 @@ void InternalStats::DumpDBStatsWriteStall(std::string* value) {
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
   *value = str.str();
 }
@@ -1871,8 +1879,16 @@ void InternalStats::DumpCFStatsWriteStall(std::string* value,
   std::ostringstream str;
   str << "Write Stall (count): ";
 
-  for (const auto& name_and_stat : write_stall_stats_map) {
-    str << name_and_stat.first << ": " << name_and_stat.second << ", ";
+  for (auto write_stall_stats_map_iter = write_stall_stats_map.begin();
+       write_stall_stats_map_iter != write_stall_stats_map.end();
+       write_stall_stats_map_iter++) {
+    const auto& name_and_stat = *write_stall_stats_map_iter;
+    str << name_and_stat.first << ": " << name_and_stat.second;
+    if (std::next(write_stall_stats_map_iter) == write_stall_stats_map.end()) {
+      str << "\n";
+    } else {
+      str << ", ";
+    }
   }
 
   if (total_stall_count) {

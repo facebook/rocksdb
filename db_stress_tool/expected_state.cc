@@ -3,85 +3,122 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
 #ifdef GFLAGS
 
-#include "db_stress_tool/expected_state.h"
 
 #include "db/wide/wide_column_serialization.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/expected_state.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
     : max_key_(max_key),
       num_column_families_(num_column_families),
       values_(nullptr) {}
 
 void ExpectedState::ClearColumnFamily(int cf) {
-  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
-            SharedState::DELETION_SENTINEL);
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
+  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */), del_mask);
 }
 
-void ExpectedState::Put(int cf, int64_t key, uint32_t value_base,
-                        bool pending) {
-  if (!pending) {
-    // prevent expected-value update from reordering before Write
-    std::atomic_thread_fence(std::memory_order_release);
+void ExpectedState::Precommit(int cf, int64_t key, const ExpectedValue& value) {
+  Value(cf, key).store(value.Read());
+  // To prevent low-level instruction reordering that results
+  // in db write happens before setting pending state in expected value
+  std::atomic_thread_fence(std::memory_order_release);
+}
+
+PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  const ExpectedValue orig_expected_value = expected_value;
+  expected_value.Put(true /* pending */);
+  const ExpectedValue pending_expected_value = expected_value;
+  expected_value.Put(false /* pending */);
+  const ExpectedValue final_expected_value = expected_value;
+  Precommit(cf, key, pending_expected_value);
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
+}
+
+ExpectedValue ExpectedState::Get(int cf, int64_t key) { return Load(cf, key); }
+
+PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
+                                                  bool* prepared) {
+  ExpectedValue expected_value = Load(cf, key);
+  const ExpectedValue orig_expected_value = expected_value;
+  bool res = expected_value.Delete(true /* pending */);
+  if (prepared) {
+    *prepared = res;
   }
-  Value(cf, key).store(pending ? SharedState::UNKNOWN_SENTINEL : value_base,
-                       std::memory_order_relaxed);
-  if (pending) {
-    // prevent Write from reordering before expected-value update
-    std::atomic_thread_fence(std::memory_order_release);
+  if (!res) {
+    return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                                orig_expected_value);
   }
+  const ExpectedValue pending_expected_value = expected_value;
+  expected_value.Delete(false /* pending */);
+  const ExpectedValue final_expected_value = expected_value;
+  Precommit(cf, key, pending_expected_value);
+  return PendingExpectedValue(&Value(cf, key), orig_expected_value,
+                              final_expected_value);
 }
 
-uint32_t ExpectedState::Get(int cf, int64_t key) const {
-  return Value(cf, key);
+PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key) {
+  return PrepareDelete(cf, key);
 }
 
-bool ExpectedState::Delete(int cf, int64_t key, bool pending) {
-  if (Value(cf, key) == SharedState::DELETION_SENTINEL) {
-    return false;
-  }
-  Put(cf, key, SharedState::DELETION_SENTINEL, pending);
-  return true;
-}
-
-bool ExpectedState::SingleDelete(int cf, int64_t key, bool pending) {
-  return Delete(cf, key, pending);
-}
-
-int ExpectedState::DeleteRange(int cf, int64_t begin_key, int64_t end_key,
-                               bool pending) {
-  int covered = 0;
+std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
+    int cf, int64_t begin_key, int64_t end_key) {
+  std::vector<PendingExpectedValue> pending_expected_values;
   for (int64_t key = begin_key; key < end_key; ++key) {
-    if (Delete(cf, key, pending)) {
-      ++covered;
+    bool prepared = false;
+    PendingExpectedValue pending_expected_value =
+        PrepareDelete(cf, key, &prepared);
+    if (prepared) {
+      pending_expected_values.push_back(pending_expected_value);
     }
   }
-  return covered;
+  return pending_expected_values;
 }
 
 bool ExpectedState::Exists(int cf, int64_t key) {
-  // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
-  // is disallowed can't be accidentally added a second time, in which case
-  // SingleDelete wouldn't be able to properly delete the key. It does allow
-  // the case where a SingleDelete might be added which covers nothing, but
-  // that's not a correctness issue.
-  uint32_t expected_value = Value(cf, key).load();
-  return expected_value != SharedState::DELETION_SENTINEL;
+  return Load(cf, key).Exists();
 }
 
 void ExpectedState::Reset() {
+  const uint32_t del_mask = ExpectedValue::GetDelMask();
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Value(static_cast<int>(i), j)
-          .store(SharedState::DELETION_SENTINEL, std::memory_order_relaxed);
+      Value(static_cast<int>(i), j).store(del_mask, std::memory_order_relaxed);
     }
+  }
+}
+
+void ExpectedState::SyncPut(int cf, int64_t key, uint32_t value_base) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPut(value_base);
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncPendingPut(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncPendingPut();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDelete(int cf, int64_t key) {
+  ExpectedValue expected_value = Load(cf, key);
+  expected_value.SyncDelete();
+  Value(cf, key).store(expected_value.Read());
+}
+
+void ExpectedState::SyncDeleteRange(int cf, int64_t begin_key,
+                                    int64_t end_key) {
+  for (int64_t key = begin_key; key < end_key; ++key) {
+    SyncDelete(cf, key);
   }
 }
 
@@ -385,7 +422,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
     }
-    uint32_t value_id = GetValueBase(value);
+    uint32_t value_base = GetValueBase(value);
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
@@ -393,8 +430,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                      key, value);
     }
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
-                false /* pending */);
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
     ++num_write_ops_;
     return Status::OK();
   }
@@ -431,8 +467,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     const uint32_t value_base = GetValueBase(columns.front().value());
 
-    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_base,
-                false /* pending */);
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
 
     ++num_write_ops_;
 
@@ -454,8 +489,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         column_family_id, key);
     }
 
-    state_->Delete(column_family_id, static_cast<int64_t>(key_id),
-                   false /* pending */);
+    state_->SyncDelete(column_family_id, static_cast<int64_t>(key_id));
     ++num_write_ops_;
     return Status::OK();
   }
@@ -499,8 +533,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
           buffered_writes_.get(), column_family_id, begin_key, end_key);
     }
 
-    state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
-                        static_cast<int64_t>(end_key_id), false /* pending */);
+    state_->SyncDeleteRange(column_family_id,
+                            static_cast<int64_t>(begin_key_id),
+                            static_cast<int64_t>(end_key_id));
     ++num_write_ops_;
     return Status::OK();
   }
