@@ -566,18 +566,14 @@ class NonBatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
-    std::vector<Slice> all_keys;
+    std::vector<Slice> keys;
     key_str.reserve(num_keys);
-    all_keys.reserve(num_keys);
-    std::vector<PinnableSlice> all_values(num_keys);
-    std::vector<Status> all_statuses(num_keys);
+    keys.reserve(num_keys);
+    std::vector<PinnableSlice> values(num_keys);
+    std::vector<Status> statuses(num_keys);
     // When Flags_use_txn is enabled, we also do a read your write check.
-    std::vector<std::optional<ExpectedValue>> all_ryw_expected_values;
-    all_ryw_expected_values.reserve(num_keys);
-    // When Flags_use_txn is enabled, we also do a read your write check while
-    // reading without a snapshot for keys with writes.
-    std::vector<Slice> keys_with_writes;
-    std::vector<std::optional<ExpectedValue>> ryw_expected_values_with_writes;
+    std::vector<std::optional<ExpectedValue>> ryw_expected_values;
+    ryw_expected_values.reserve(num_keys);
 
     SharedState* shared = thread->shared;
 
@@ -622,12 +618,12 @@ class NonBatchedOpsStressTest : public StressTest {
     for (size_t i = 0; i < num_keys; ++i) {
       uint64_t rand_key = rand_keys[i];
       key_str.emplace_back(Key(rand_key));
-      all_keys.emplace_back(key_str.back());
+      keys.emplace_back(key_str.back());
       if (use_txn) {
         if (!shared->AllowsOverwrite(rand_key) &&
             shared->Exists(column_family, rand_key)) {
           // Just do read your write checks for keys that allow overwrites.
-          all_ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.push_back(std::nullopt);
           continue;
         }
         // With a 1 in 10 probability, insert the just added key in the batch
@@ -640,31 +636,25 @@ class NonBatchedOpsStressTest : public StressTest {
           switch (op) {
             case 0:
             case 1: {
-              keys_with_writes.push_back(key_str.back());
-              ExpectedValue put_value(thread->rand.Next());
+              ExpectedValue put_value;
               put_value.Put(false /* pending */);
-              all_ryw_expected_values.emplace_back(put_value);
-              ryw_expected_values_with_writes.push_back(
-                  all_ryw_expected_values.back());
+              ryw_expected_values.emplace_back(put_value);
               char value[100];
               size_t sz =
                   GenerateValue(put_value.GetValueBase(), value, sizeof(value));
               Slice v(value, sz);
               if (op == 0) {
-                s = txn->Put(cfh, all_keys.back(), v);
+                s = txn->Put(cfh, keys.back(), v);
               } else {
-                s = txn->Merge(cfh, all_keys.back(), v);
+                s = txn->Merge(cfh, keys.back(), v);
               }
               break;
             }
             case 2: {
-              keys_with_writes.push_back(key_str.back());
-              ExpectedValue delete_value(0);
+              ExpectedValue delete_value;
               delete_value.Delete(false /* pending */);
-              all_ryw_expected_values.emplace_back(delete_value);
-              ryw_expected_values_with_writes.push_back(
-                  all_ryw_expected_values.back());
-              s = txn->Delete(cfh, all_keys.back());
+              ryw_expected_values.emplace_back(delete_value);
+              s = txn->Delete(cfh, keys.back());
               break;
             }
             default:
@@ -675,41 +665,30 @@ class NonBatchedOpsStressTest : public StressTest {
             std::terminate();
           }
         } else {
-          all_ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.push_back(std::nullopt);
         }
       }
     }
 
-    size_t num_keys_with_writes = keys_with_writes.size();
-    std::vector<PinnableSlice> values_with_writes;
-    values_with_writes.reserve(num_keys_with_writes);
-    std::vector<Status> statuses_with_writes;
-    statuses_with_writes.reserve(num_keys_with_writes);
-    ReadOptions read_with_no_snapshot = readoptionscopy;
-    // The snapshot will be released at the end of the test.
-    read_with_no_snapshot.snapshot = nullptr;
     if (!use_txn) {
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
         SharedState::ignore_read_error = false;
       }
-      db_->MultiGet(readoptionscopy, cfh, num_keys, all_keys.data(),
-                    all_values.data(), all_statuses.data());
+      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
       if (fault_fs_guard) {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
     } else {
       assert(txn);
-      txn->MultiGet(readoptionscopy, cfh, num_keys, all_keys.data(),
-                    all_values.data(), all_statuses.data());
-      txn->MultiGet(read_with_no_snapshot, cfh, keys_with_writes.size(),
-                    keys_with_writes.data(), values_with_writes.data(),
-                    statuses_with_writes.data());
+      txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
     }
 
     if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
       int stat_nok = 0;
-      for (const auto& s : all_statuses) {
+      for (const auto& s : statuses) {
         if (!s.ok() && !s.IsNotFound()) {
           stat_nok++;
         }
@@ -732,7 +711,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     auto ryw_check =
-        [](const Slice& key, const Slice& value, const Status& s,
+        [](const Slice& key, const PinnableSlice& value, const Status& s,
            const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
       if (!ryw_expected_value.has_value()) {
         return true;
@@ -759,7 +738,8 @@ class NonBatchedOpsStressTest : public StressTest {
                 "MultiGet returned not found, transaction has "
                 "non-committed value.\n");
         return false;
-      } else if (s.ok()) {
+      } else if (s.ok() &&
+                 ExpectedValueHelper::MustHaveExisted(expected, expected)) {
         Slice from_txn_slice(value);
         size_t sz = GenerateValue(expected.GetValueBase(), expected_value,
                                   sizeof(expected_value));
@@ -780,33 +760,27 @@ class NonBatchedOpsStressTest : public StressTest {
       return true;
     };
 
-    auto check_consistency =
-        [&](const ReadOptions& readoptions, const Slice& key,
-            const PinnableSlice& expected_value, const Status& s,
+    auto check_multiget =
+        [&](const Slice& key, const PinnableSlice& expected_value,
+            const Status& s,
             const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
       bool is_consistent = true;
+      bool is_ryw_correct = true;
       // Only do the consistency check if no error was injected and
-      // MultiGet didn't return an unexpected error. If not use
-      // transaction, the consistency check for each key included:
-      //   1) Check results from db `Get` and db `MultiGet` are
-      //   consistent.
-      // If FLAGS_use_txn enabled, the consistency check for each key
-      // included:
-      //   1) Check results from transaction `Get` and transaction
-      //   `MultiGet`
-      //      are consistent.
-      //   2) Check the result from transaction `Get` is consistent with
-      //   the
-      //      transaction's own write if it has any.
+      // MultiGet didn't return an unexpected error. If test does not use
+      // transaction, the consistency check for each key included check results
+      // from db `Get` and db `MultiGet` are consistent.
+      // If test use transaction, after consistency check, also do a read your
+      // own write check.
       if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
         Status tmp_s;
         std::string value;
 
         if (use_txn) {
           assert(txn);
-          tmp_s = txn->Get(readoptions, cfh, key, &value);
+          tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
         } else {
-          tmp_s = db_->Get(readoptions, cfh, key, &value);
+          tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
         }
         if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
@@ -830,17 +804,21 @@ class NonBatchedOpsStressTest : public StressTest {
                   Slice(value).ToString(true /* hex */).c_str());
           is_consistent = false;
         }
+      }
 
-        // If FLAGS_use_txn is true, continue the consistency check to
-        // compare read result from transaction to the transaction's own
-        // write.
-        if (is_consistent && use_txn) {
-          is_consistent = ryw_check(key, value, s, ryw_expected_value);
-        }
+      // If test uses transaction, continue to do a read your own write check.
+      if (is_consistent && use_txn) {
+        is_ryw_correct = ryw_check(key, expected_value, s, ryw_expected_value);
       }
 
       if (!is_consistent) {
         fprintf(stderr, "TestMultiGet error: is_consistent is false\n");
+        thread->stats.AddErrors(1);
+        // Fail fast to preserve the DB state
+        thread->shared->SetVerificationFailure();
+        return false;
+      } else if (!is_ryw_correct) {
+        fprintf(stderr, "TestMultiGet error: is_ryw_correct is false\n");
         thread->stats.AddErrors(1);
         // Fail fast to preserve the DB state
         thread->shared->SetVerificationFailure();
@@ -866,34 +844,14 @@ class NonBatchedOpsStressTest : public StressTest {
       return true;
     };
 
-    // Consistency check for all keys regardless of whether transaction is used.
-    // `all_ryw_expected_values` are for read-your-own-write check that only
-    // applies to transaction. Reading from a snapshot is required for `Get` and
-    // `MultiGet` to have repeatable reads regardless of using transaction
-    // because only a small portion of keys have overwrites in the transaction.
-    size_t num_of_keys = all_keys.size();
+    size_t num_of_keys = keys.size();
+    assert(values.size() == num_of_keys);
+    assert(statuses.size() == num_of_keys);
+    assert(ryw_expected_values.size() == num_of_keys);
     for (size_t i = 0; i < num_of_keys; ++i) {
-      assert(all_values.size() == num_of_keys);
-      assert(all_statuses.size() == num_of_keys);
-      assert(all_ryw_expected_values.size() == num_of_keys);
-      if (!check_consistency(readoptionscopy, all_keys[i], all_values[i],
-                             all_statuses[i], all_ryw_expected_values[i])) {
+      if (!check_multiget(keys[i], values[i], statuses[i],
+                          ryw_expected_values[i])) {
         break;
-      }
-    }
-    if (use_txn) {
-      // Also do a consistency check without reading from a snapshot for keys
-      // with writes when transaction is enabled.
-      size_t num_of_ryw_keys = keys_with_writes.size();
-      for (size_t i = 0; i < num_of_ryw_keys; ++i) {
-        assert(values_with_writes.size() == num_of_ryw_keys);
-        assert(statuses_with_writes.size() == num_of_ryw_keys);
-        assert(ryw_expected_values_with_writes.size() == num_of_ryw_keys);
-        if (!check_consistency(read_with_no_snapshot, keys_with_writes[i],
-                               values_with_writes[i], statuses_with_writes[i],
-                               ryw_expected_values_with_writes[i])) {
-          break;
-        }
       }
     }
 
@@ -903,7 +861,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (use_txn) {
       RollbackTxn(txn);
     }
-    return all_statuses;
+    return statuses;
   }
 
   void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
