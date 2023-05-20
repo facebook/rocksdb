@@ -1318,6 +1318,10 @@ class DBTestBase : public testing::Test {
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
   }
+  // Short name for TestGetAndResetTickerCount
+  uint64_t PopTicker(const Options& options, Tickers ticker_type) {
+    return options.statistics->getAndResetTickerCount(ticker_type);
+  }
 
   // Note: reverting this setting within the same test run is not yet
   // supported
