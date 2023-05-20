@@ -1169,24 +1169,26 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         final_output_level = level;
         int output_level = 0, base_level = 0;
         for (;;) {
-          if (cfd->ioptions()->level_compaction_dynamic_level_bytes) {
-            assert(final_output_level < cfd->ioptions()->num_levels);
-            if (final_output_level + 1 == cfd->ioptions()->num_levels) {
-              break;
-            }
-          } else {
-            // TODO(cbi): there is still a race condition here where
-            // if a background compaction is compact some file beyond
-            // current()->storage_info()->num_non_empty_levels(), we
-            // may not get correct final_output_level. This should
-            // happen very infrequently and should not happen once
-            // a user populates the last level of the LSM.
-            InstrumentedMutexLock l(&mutex_);
-            assert(final_output_level <
-                   cfd->current()->storage_info()->num_non_empty_levels());
-            if (final_output_level + 1 ==
-                cfd->current()->storage_info()->num_non_empty_levels()) {
-              break;
+          // Always allow L0 -> L1 compaction
+          if (level > 0) {
+            if (cfd->ioptions()->level_compaction_dynamic_level_bytes) {
+              assert(final_output_level < cfd->ioptions()->num_levels);
+              if (final_output_level + 1 == cfd->ioptions()->num_levels) {
+                break;
+              }
+            } else {
+              // TODO(cbi): there is still a race condition here where
+              //  if a background compaction compacts some file beyond
+              //  current()->storage_info()->num_non_empty_levels() right after
+              //  the check here.This should happen very infrequently and should
+              //  not happen once a user populates the last level of the LSM.
+              InstrumentedMutexLock l(&mutex_);
+              // num_non_empty_levels may be lower after a compaction, so
+              // we check for >= here.
+              if (final_output_level + 1 >=
+                  cfd->current()->storage_info()->num_non_empty_levels()) {
+                break;
+              }
             }
           }
           output_level = level + 1;
@@ -1220,16 +1222,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         if (s.ok()) {
           assert(final_output_level > 0);
           // bottommost level intra-level compaction
-          // TODO: the following does not hold anymore, fix failing tests.
-          //  and maybe mention this behavior in change log.
-          // TODO(cbi): this preserves earlier behavior where if
-          //  max_overlapped_level = 0 and bottommost_level_compaction is
-          //  kIfHaveCompactionFilter, we only do a L0 -> LBase compaction
-          //  and do not do intra-LBase compaction even when user configures
-          //  compaction filter. We may want to still do a LBase -> LBase
-          //  compaction in case there is some file in LBase that did not go
-          //  through L0 -> LBase compaction, and hence did not go through
-          //  compaction filter.
           if ((options.bottommost_level_compaction ==
                    BottommostLevelCompaction::kIfHaveCompactionFilter &&
                (cfd->ioptions()->compaction_filter != nullptr ||
@@ -1239,7 +1231,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
               options.bottommost_level_compaction ==
                   BottommostLevelCompaction::kForce) {
             // Use `next_file_number` as `max_file_num_to_ignore` to avoid
-            // rewriting newly compacted files when it is kForceOptimized.
+            // rewriting newly compacted files when it is kForceOptimized
+            // or kIfHaveCompactionFilter with compaction filter set.
             s = RunManualCompaction(
                 cfd, final_output_level, final_output_level, options, begin,
                 end, exclusive, !trim_ts.empty() /* disallow_trivial_move */,
