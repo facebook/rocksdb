@@ -847,10 +847,17 @@ class NonBatchedOpsStressTest : public StressTest {
     size_t num_of_keys = keys.size();
     assert(values.size() == num_of_keys);
     assert(statuses.size() == num_of_keys);
-    assert(ryw_expected_values.size() == num_of_keys);
     for (size_t i = 0; i < num_of_keys; ++i) {
-      if (!check_multiget(keys[i], values[i], statuses[i],
-                          ryw_expected_values[i])) {
+      bool check_result = true;
+      if (use_txn) {
+        assert(ryw_expected_values.size() == num_of_keys);
+        check_result = check_multiget(keys[i], values[i], statuses[i],
+                                      ryw_expected_values[i]);
+      } else {
+        check_result = check_multiget(keys[i], values[i], statuses[i],
+                                      std::nullopt /* ryw_expected_value */);
+      }
+      if (!check_result) {
         break;
       }
     }
