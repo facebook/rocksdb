@@ -178,6 +178,9 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
+Status DBImpl::TEST_WaitForCompact() {
+  return WaitForCompact(WaitForCompactOptions());
+}
 Status DBImpl::TEST_WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
   return WaitForCompact(wait_for_compact_options);

@@ -1067,7 +1067,6 @@ class DBImpl : public DB {
   // there's sufficient ongoing writes that keeps flush and compaction going
   // without stopping. The user would have to cease all the writes to DB to make
   // this eventually return in a stable state.
-  Status WaitForCompact() { return WaitForCompact(WaitForCompactOptions()); }
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override;
 
@@ -1108,9 +1107,7 @@ class DBImpl : public DB {
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
-  Status TEST_WaitForCompact() {
-    return TEST_WaitForCompact(WaitForCompactOptions());
-  }
+  Status TEST_WaitForCompact();
   Status TEST_WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options);
 
