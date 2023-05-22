@@ -9704,9 +9704,9 @@ TEST_F(DBCompactionTest,
 
   Random rnd(301);
   ASSERT_OK(db_->Put(WriteOptions(), Key(5),
-                     rnd.RandomString(1.5 * kBaseLevelBytes)));
+                     rnd.RandomString(3 * kBaseLevelBytes / 2)));
   ASSERT_OK(Flush());
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
   ASSERT_OK(
