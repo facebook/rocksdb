@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "monitoring/statistics.h"
+#include "rocksdb/statistics.h"
 
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
@@ -83,6 +83,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
     {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
     {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
+    {BLOOM_FILTER_PREFIX_TRUE_POSITIVE,
+     "rocksdb.bloom.filter.prefix.true.positive"},
     {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
@@ -204,6 +206,21 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
+    {LAST_LEVEL_SEEK_FILTERED, "rocksdb.last.level.seek.filtered"},
+    {LAST_LEVEL_SEEK_FILTER_MATCH, "rocksdb.last.level.seek.filter.match"},
+    {LAST_LEVEL_SEEK_DATA, "rocksdb.last.level.seek.data"},
+    {LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+     "rocksdb.last.level.seek.data.useful.no.filter"},
+    {LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+     "rocksdb.last.level.seek.data.useful.filter.match"},
+    {NON_LAST_LEVEL_SEEK_FILTERED, "rocksdb.non.last.level.seek.filtered"},
+    {NON_LAST_LEVEL_SEEK_FILTER_MATCH,
+     "rocksdb.non.last.level.seek.filter.match"},
+    {NON_LAST_LEVEL_SEEK_DATA, "rocksdb.non.last.level.seek.data"},
+    {NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+     "rocksdb.non.last.level.seek.data.useful.no.filter"},
+    {NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+     "rocksdb.non.last.level.seek.data.useful.filter.match"},
     {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
     {BLOCK_CHECKSUM_MISMATCH_COUNT, "rocksdb.block.checksum.mismatch.count"},
     {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"},
@@ -256,6 +273,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
     {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
     {FILE_READ_COMPACTION_MICROS, "rocksdb.file.read.compaction.micros"},
+    {FILE_READ_DB_OPEN_MICROS, "rocksdb.file.read.db.open.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},

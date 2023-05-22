@@ -13,7 +13,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {

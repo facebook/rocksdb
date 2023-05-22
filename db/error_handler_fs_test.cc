@@ -1578,7 +1578,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
-    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true);
+    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact();
     ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
     fault_fs[i]->SetFilesystemActive(true);
   }
@@ -1587,7 +1587,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
-    ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
+    ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact());
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + std::to_string(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
@@ -1701,7 +1701,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
-    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true);
+    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact();
     switch (i) {
       case 0:
         ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
@@ -1723,7 +1723,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
       ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     }
     if (i == 1) {
-      ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
+      ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact());
     }
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + std::to_string(0), &prop));

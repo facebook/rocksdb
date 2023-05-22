@@ -41,7 +41,7 @@ public abstract class AbstractWalFilter
 
   private static short logRecordFoundResultToShort(
       final LogRecordFoundResult logRecordFoundResult) {
-    short result = (short)(logRecordFoundResult.walProcessingOption.getValue() << 8);
+    final short result = (short) (logRecordFoundResult.walProcessingOption.getValue() << 8);
     return (short)(result | (logRecordFoundResult.batchChanged ? 1 : 0));
   }
 
