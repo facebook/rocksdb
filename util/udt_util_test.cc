@@ -1,4 +1,5 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -144,7 +145,7 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
       if (dropped_cf.has_value() &&
           keys_with_ts[i].first == dropped_cf.value()) {
         ASSERT_EQ(keys_with_ts[i].first, keys_without_ts[i].first);
-        ASSERT_EQ(keys_with_ts[i].second.compare(keys_without_ts[i].second), 0);
+        ASSERT_EQ(keys_with_ts[i].second, keys_without_ts[i].second);
         continue;
       }
       const Slice& key_with_ts = keys_with_ts[i].second;

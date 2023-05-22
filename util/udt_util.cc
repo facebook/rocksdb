@@ -1,4 +1,5 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -20,18 +21,25 @@ enum class RecoveryType {
 
 RecoveryType GetRecoveryType(const size_t running_ts_sz,
                              const std::optional<size_t>& recorded_ts_sz) {
-  if (running_ts_sz == 0 && recorded_ts_sz.has_value()) {
-    assert(recorded_ts_sz.value() != 0);
-    return RecoveryType::kStripTimestamp;
-  } else if (running_ts_sz != 0) {
+  if (running_ts_sz == 0) {
     if (!recorded_ts_sz.has_value()) {
       // A column family id not recorded is equivalent to that column family has
       // zero timestamp size.
-      return RecoveryType::kPadTimestamp;
-    } else if (running_ts_sz != recorded_ts_sz.value()) {
-      return RecoveryType::kUnrecoverable;
+      return RecoveryType::kNoop;
     }
+    return RecoveryType::kStripTimestamp;
   }
+
+  assert(running_ts_sz != 0);
+
+  if (!recorded_ts_sz.has_value()) {
+    return RecoveryType::kPadTimestamp;
+  }
+
+  if (running_ts_sz != recorded_ts_sz.value()) {
+    return RecoveryType::kUnrecoverable;
+  }
+
   return RecoveryType::kNoop;
 }
 
@@ -74,17 +82,19 @@ Status CheckWriteBatchTimestampSizeConsistency(
         running_iter->second, record_iter != record_ts_sz.end()
                                   ? std::optional<size_t>(record_iter->second)
                                   : std::nullopt);
-    if (check_mode == TimestampSizeConsistencyMode::kVerifyConsistency &&
-        recovery_type != RecoveryType::kNoop) {
-      return Status::InvalidArgument(
-          "WriteBatch contains timestamp size inconsistency.");
-    } else if (recovery_type == RecoveryType::kUnrecoverable) {
-      return Status::InvalidArgument(
-          "WriteBatch contains unrecoverable timestamp size inconsistency.");
-    }
-    // If any column family needs reconcilation, it will mark the whole
-    // WriteBatch to need recovery and rebuilt.
     if (recovery_type != RecoveryType::kNoop) {
+      if (check_mode == TimestampSizeConsistencyMode::kVerifyConsistency) {
+        return Status::InvalidArgument(
+            "WriteBatch contains timestamp size inconsistency.");
+      }
+
+      if (recovery_type == RecoveryType::kUnrecoverable) {
+        return Status::InvalidArgument(
+            "WriteBatch contains unrecoverable timestamp size inconsistency.");
+      }
+
+      // If any column family needs reconciliation, it will mark the whole
+      // WriteBatch to need recovery and rebuilt.
       *ts_need_recovery = true;
     }
   }

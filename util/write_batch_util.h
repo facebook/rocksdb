@@ -1,4 +1,5 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -18,9 +19,7 @@ class ColumnFamilyCollector : public WriteBatch::Handler {
   std::unordered_set<uint32_t> column_family_ids_;
 
   Status AddColumnFamilyId(uint32_t column_family_id) {
-    if (column_family_ids_.find(column_family_id) == column_family_ids_.end()) {
-      column_family_ids_.insert(column_family_id);
-    }
+    column_family_ids_.insert(column_family_id);
     return Status::OK();
   }
 
