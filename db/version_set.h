@@ -992,6 +992,9 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  void GetSstFilesBoundaryKeys(Slice* smallest_user_key,
+                               Slice* largest_user_key);
+
   uint64_t GetSstFilesSize();
 
   // Retrieves the file_creation_time of the oldest file in the DB.

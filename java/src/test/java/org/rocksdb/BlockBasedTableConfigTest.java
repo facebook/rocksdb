@@ -110,7 +110,7 @@ public class BlockBasedTableConfigTest {
     tableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
     tableConfig.setChecksumType(ChecksumType.kNoChecksum);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
-      String opts = getOptionAsString(options);
+      final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kBinarySearch");
       assertThat(opts).contains("data_block_index_type=kDataBlockBinarySearch");
       assertThat(opts).contains("checksum=kNoChecksum");
@@ -121,7 +121,7 @@ public class BlockBasedTableConfigTest {
     tableConfig.setChecksumType(ChecksumType.kCRC32c);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
       options.useCappedPrefixExtractor(1); // Needed to use kHashSearch
-      String opts = getOptionAsString(options);
+      final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kHashSearch");
       assertThat(opts).contains("data_block_index_type=kDataBlockBinaryAndHash");
       assertThat(opts).contains("checksum=kCRC32c");
@@ -130,7 +130,7 @@ public class BlockBasedTableConfigTest {
     tableConfig.setIndexType(IndexType.kTwoLevelIndexSearch);
     tableConfig.setChecksumType(ChecksumType.kxxHash);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
-      String opts = getOptionAsString(options);
+      final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kTwoLevelIndexSearch");
       assertThat(opts).contains("checksum=kxxHash");
     }
@@ -138,30 +138,29 @@ public class BlockBasedTableConfigTest {
     tableConfig.setIndexType(IndexType.kBinarySearchWithFirstKey);
     tableConfig.setChecksumType(ChecksumType.kxxHash64);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
-      String opts = getOptionAsString(options);
+      final String opts = getOptionAsString(options);
       assertThat(opts).contains("index_type=kBinarySearchWithFirstKey");
       assertThat(opts).contains("checksum=kxxHash64");
     }
 
     tableConfig.setChecksumType(ChecksumType.kXXH3);
     try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
-      String opts = getOptionAsString(options);
+      final String opts = getOptionAsString(options);
       assertThat(opts).contains("checksum=kXXH3");
     }
   }
 
-  private String getOptionAsString(Options options) throws Exception {
+  private String getOptionAsString(final Options options) throws Exception {
     options.setCreateIfMissing(true);
-    String dbPath = dbFolder.getRoot().getAbsolutePath();
-    String result;
-    try (final RocksDB db = RocksDB.open(options, dbPath);
+    final String dbPath = dbFolder.getRoot().getAbsolutePath();
+    final String result;
+    try (final RocksDB ignored = RocksDB.open(options, dbPath);
          final Stream<Path> pathStream = Files.walk(Paths.get(dbPath))) {
-      Path optionsPath =
-          pathStream
-              .filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
+      final Path optionsPath =
+          pathStream.filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
               .findAny()
               .orElseThrow(() -> new AssertionError("Missing options file"));
-      byte[] optionsData = Files.readAllBytes(optionsPath);
+      final byte[] optionsData = Files.readAllBytes(optionsPath);
       result = new String(optionsData, StandardCharsets.UTF_8);
     }
     RocksDB.destroyDB(dbPath, options);
@@ -357,7 +356,7 @@ public class BlockBasedTableConfigTest {
         new BlockBasedTableConfig().setFormatVersion(99999);
 
     try (final Options options = new Options().setTableFormatConfig(blockBasedTableConfig);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       fail("Opening the database with an invalid format_version should have raised an exception");
     }
   }

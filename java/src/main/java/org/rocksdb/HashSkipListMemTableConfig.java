@@ -6,7 +6,7 @@ package org.rocksdb;
  * Such mem-table representation contains a fix-sized array of
  * buckets, where each bucket points to a skiplist (or null if the
  * bucket is empty).
- *
+ * <p>
  * Note that since this mem-table representation relies on the
  * key prefix, it is required to invoke one of the usePrefixExtractor
  * functions to specify how to extract key prefix given a key.

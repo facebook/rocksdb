@@ -9,7 +9,7 @@ import java.util.Objects;
 
 /**
  * Represents the status returned by a function call in RocksDB.
- *
+ * <p>
  * Currently only used with {@link RocksDBException} when the
  * status is not {@link Code#Ok}
  */
@@ -139,12 +139,12 @@ public class Status {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    Status status = (Status) o;
+    final Status status = (Status) o;
     return code == status.code && subCode == status.subCode && Objects.equals(state, status.state);
   }
 

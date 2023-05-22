@@ -18,84 +18,85 @@ public class CompactRangeOptionsTest {
 
   @Test
   public void exclusiveManualCompaction() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    boolean value = false;
-    opt.setExclusiveManualCompaction(value);
-    assertThat(opt.exclusiveManualCompaction()).isEqualTo(value);
-    value = true;
-    opt.setExclusiveManualCompaction(value);
-    assertThat(opt.exclusiveManualCompaction()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      opt.setExclusiveManualCompaction(false);
+      assertThat(opt.exclusiveManualCompaction()).isEqualTo(false);
+      opt.setExclusiveManualCompaction(true);
+      assertThat(opt.exclusiveManualCompaction()).isEqualTo(true);
+    }
   }
 
   @Test
   public void bottommostLevelCompaction() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    BottommostLevelCompaction value = BottommostLevelCompaction.kSkip;
-    opt.setBottommostLevelCompaction(value);
-    assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
-    value = BottommostLevelCompaction.kForce;
-    opt.setBottommostLevelCompaction(value);
-    assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
-    value = BottommostLevelCompaction.kIfHaveCompactionFilter;
-    opt.setBottommostLevelCompaction(value);
-    assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
-    value = BottommostLevelCompaction.kForceOptimized;
-    opt.setBottommostLevelCompaction(value);
-    assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      BottommostLevelCompaction value = BottommostLevelCompaction.kSkip;
+      opt.setBottommostLevelCompaction(value);
+      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+      value = BottommostLevelCompaction.kForce;
+      opt.setBottommostLevelCompaction(value);
+      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+      value = BottommostLevelCompaction.kIfHaveCompactionFilter;
+      opt.setBottommostLevelCompaction(value);
+      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+      value = BottommostLevelCompaction.kForceOptimized;
+      opt.setBottommostLevelCompaction(value);
+      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+    }
   }
 
   @Test
   public void changeLevel() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    boolean value = false;
-    opt.setChangeLevel(value);
-    assertThat(opt.changeLevel()).isEqualTo(value);
-    value = true;
-    opt.setChangeLevel(value);
-    assertThat(opt.changeLevel()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      opt.setChangeLevel(false);
+      assertThat(opt.changeLevel()).isEqualTo(false);
+      opt.setChangeLevel(true);
+      assertThat(opt.changeLevel()).isEqualTo(true);
+    }
   }
 
   @Test
   public void targetLevel() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    int value = 2;
-    opt.setTargetLevel(value);
-    assertThat(opt.targetLevel()).isEqualTo(value);
-    value = 3;
-    opt.setTargetLevel(value);
-    assertThat(opt.targetLevel()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      int value = 2;
+      opt.setTargetLevel(value);
+      assertThat(opt.targetLevel()).isEqualTo(value);
+      value = 3;
+      opt.setTargetLevel(value);
+      assertThat(opt.targetLevel()).isEqualTo(value);
+    }
   }
 
   @Test
   public void targetPathId() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    int value = 2;
-    opt.setTargetPathId(value);
-    assertThat(opt.targetPathId()).isEqualTo(value);
-    value = 3;
-    opt.setTargetPathId(value);
-    assertThat(opt.targetPathId()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      int value = 2;
+      opt.setTargetPathId(value);
+      assertThat(opt.targetPathId()).isEqualTo(value);
+      value = 3;
+      opt.setTargetPathId(value);
+      assertThat(opt.targetPathId()).isEqualTo(value);
+    }
   }
 
   @Test
   public void allowWriteStall() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    boolean value = false;
-    opt.setAllowWriteStall(value);
-    assertThat(opt.allowWriteStall()).isEqualTo(value);
-    value = true;
-    opt.setAllowWriteStall(value);
-    assertThat(opt.allowWriteStall()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      opt.setAllowWriteStall(false);
+      assertThat(opt.allowWriteStall()).isEqualTo(false);
+      opt.setAllowWriteStall(true);
+      assertThat(opt.allowWriteStall()).isEqualTo(true);
+    }
   }
 
   @Test
   public void maxSubcompactions() {
-    CompactRangeOptions opt = new CompactRangeOptions();
-    int value = 2;
-    opt.setMaxSubcompactions(value);
-    assertThat(opt.maxSubcompactions()).isEqualTo(value);
-    value = 3;
-    opt.setMaxSubcompactions(value);
-    assertThat(opt.maxSubcompactions()).isEqualTo(value);
+    try (final CompactRangeOptions opt = new CompactRangeOptions()) {
+      int value = 2;
+      opt.setMaxSubcompactions(value);
+      assertThat(opt.maxSubcompactions()).isEqualTo(value);
+      value = 3;
+      opt.setMaxSubcompactions(value);
+      assertThat(opt.maxSubcompactions()).isEqualTo(value);
+    }
   }
 }

@@ -63,10 +63,10 @@ public class WalFilterTest {
                 cfDescriptors, cfHandles)) {
         try (final WriteOptions writeOptions = new WriteOptions()) {
           // Write given keys in given batches
-          for (int i = 0; i < batchKeys.length; i++) {
+          for (final byte[][] batchKey : batchKeys) {
             final WriteBatch batch = new WriteBatch();
-            for (int j = 0; j < batchKeys[i].length; j++) {
-              batch.put(cfHandles.get(0), batchKeys[i][j], dummyString(1024));
+            for (final byte[] bytes : batchKey) {
+              batch.put(cfHandles.get(0), bytes, dummyString(1024));
             }
             db.write(writeOptions, batch);
           }

@@ -1826,6 +1826,49 @@ uint64_t Version::GetSstFilesSize() {
   return sst_files_size;
 }
 
+void Version::GetSstFilesBoundaryKeys(Slice* smallest_user_key,
+                                      Slice* largest_user_key) {
+  smallest_user_key->clear();
+  largest_user_key->clear();
+  bool initialized = false;
+  const Comparator* ucmp = storage_info_.user_comparator_;
+  for (int level = 0; level < cfd_->NumberLevels(); level++) {
+    if (storage_info_.LevelFiles(level).size() == 0) {
+      continue;
+    }
+    if (level == 0) {
+      // we need to consider all files on level 0
+      for (const auto& file : storage_info_.LevelFiles(level)) {
+        const Slice& start_user_key = file->smallest.user_key();
+        if (!initialized ||
+            ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
+          *smallest_user_key = start_user_key;
+        }
+        const Slice& end_user_key = file->largest.user_key();
+        if (!initialized ||
+            ucmp->Compare(end_user_key, *largest_user_key) > 0) {
+          *largest_user_key = end_user_key;
+        }
+        initialized = true;
+      }
+    } else {
+      // we only need to consider the first and last file
+      const Slice& start_user_key =
+          storage_info_.LevelFiles(level)[0]->smallest.user_key();
+      if (!initialized ||
+          ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
+        *smallest_user_key = start_user_key;
+      }
+      const Slice& end_user_key =
+          storage_info_.LevelFiles(level).back()->largest.user_key();
+      if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
+        *largest_user_key = end_user_key;
+      }
+      initialized = true;
+    }
+  }
+}
+
 void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {

@@ -732,7 +732,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       } while (iiter->Valid());
 
       if (matched && filter != nullptr) {
-        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+        if (rep_->whole_key_filtering) {
+          RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+        } else {
+          RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
+        }
+        // Includes prefix stats
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                   rep_->level);
       }

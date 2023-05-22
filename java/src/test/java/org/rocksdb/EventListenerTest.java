@@ -181,7 +181,7 @@ public class EventListenerTest {
       final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
-      ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
+      final ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
       columnFamilyHandle.close();
       assertThat(wasCbCalled.get()).isTrue();
     }
@@ -475,7 +475,7 @@ public class EventListenerTest {
 
   private static void assertNoCallbackErrors(
       final CapturingTestableEventListener capturingTestableEventListener) {
-    for (AssertionError error : capturingTestableEventListener.capturedAssertionErrors) {
+    for (final AssertionError error : capturingTestableEventListener.capturedAssertionErrors) {
       throw new Error("An assertion failed in callback", error);
     }
   }
@@ -565,16 +565,16 @@ public class EventListenerTest {
 
   private static class CapturingObjectAssert<T> extends ObjectAssert<T> {
     private final List<AssertionError> assertionErrors;
-    public CapturingObjectAssert(T t, List<AssertionError> assertionErrors) {
+    public CapturingObjectAssert(final T t, final List<AssertionError> assertionErrors) {
       super(t);
       this.assertionErrors = assertionErrors;
     }
 
     @Override
-    public ObjectAssert<T> isEqualTo(Object other) {
+    public ObjectAssert<T> isEqualTo(final Object other) {
       try {
         return super.isEqualTo(other);
-      } catch (AssertionError error) {
+      } catch (final AssertionError error) {
         assertionErrors.add(error);
         throw error;
       }
@@ -584,7 +584,7 @@ public class EventListenerTest {
     public ObjectAssert<T> isNotNull() {
       try {
         return super.isNotNull();
-      } catch (AssertionError error) {
+      } catch (final AssertionError error) {
         assertionErrors.add(error);
         throw error;
       }
@@ -596,8 +596,8 @@ public class EventListenerTest {
 
     final List<AssertionError> capturedAssertionErrors = new ArrayList<>();
 
-    protected <T> AbstractObjectAssert<?, T> assertThat(T actual) {
-      return new CapturingObjectAssert<T>(actual, capturedAssertionErrors);
+    protected <T> AbstractObjectAssert<?, T> assertThat(final T actual) {
+      return new CapturingObjectAssert<>(actual, capturedAssertionErrors);
     }
 
     public CapturingTestableEventListener() {}

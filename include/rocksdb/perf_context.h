@@ -25,6 +25,8 @@ namespace ROCKSDB_NAMESPACE {
 // Break down performance counters by level and store per-level perf context in
 // PerfContextByLevel
 struct PerfContextByLevelBase {
+  // These Bloom stats apply to point reads (Get/MultiGet) for whole key and
+  // prefix filters.
   // # of times bloom filter has avoided file reads, i.e., negatives.
   uint64_t bloom_filter_useful = 0;
   // # of times bloom FullFilter has not avoided the reads.
@@ -217,9 +219,9 @@ struct PerfContextBase {
   uint64_t bloom_memtable_hit_count;
   // total number of mem table bloom misses
   uint64_t bloom_memtable_miss_count;
-  // total number of SST table bloom hits
+  // total number of SST bloom hits
   uint64_t bloom_sst_hit_count;
-  // total number of SST table bloom misses
+  // total number of SST bloom misses
   uint64_t bloom_sst_miss_count;
 
   // Time spent waiting on key locks in transaction lock manager.

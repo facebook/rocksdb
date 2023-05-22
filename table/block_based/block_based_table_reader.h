@@ -117,7 +117,8 @@ class BlockBasedTable : public TableReader {
                            const ReadOptions& read_options,
                            const SliceTransform* options_prefix_extractor,
                            const bool need_upper_bound_check,
-                           BlockCacheLookupContext* lookup_context) const;
+                           BlockCacheLookupContext* lookup_context,
+                           bool* filter_checked) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -247,6 +248,9 @@ class BlockBasedTable : public TableReader {
                                           GetContext* get_context, size_t usage,
                                           bool redundant,
                                           Statistics* const statistics);
+
+  Statistics* GetStatistics() const;
+  bool IsLastLevel() const;
 
   // Get the size to read from storage for a BlockHandle. size_t because we
   // are about to load into memory.

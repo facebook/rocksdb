@@ -11,13 +11,12 @@ import java.util.Map;
 import java.util.Objects;
 
 public class MutableDBOptions extends AbstractMutableOptions {
-
   /**
    * User must use builder pattern, or parser.
    *
    * @param keys the keys
    * @param values the values
-   *
+   * <p>
    * See {@link #builder()} and {@link #parse(String)}.
    */
   private MutableDBOptions(final String[] keys, final String[] values) {
@@ -37,11 +36,11 @@ public class MutableDBOptions extends AbstractMutableOptions {
 
   /**
    * Parses a String representation of MutableDBOptions
-   *
+   * <p>
    * The format is: key1=value1;key2=value2;key3=value3 etc
-   *
+   * <p>
    * For int[] values, each int should be separated by a comma, e.g.
-   *
+   * <p>
    * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable db options
@@ -49,7 +48,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
    *
    * @return A builder for the mutable db options
    */
-  public static MutableDBOptionsBuilder parse(final String str, boolean ignoreUnknown) {
+  public static MutableDBOptionsBuilder parse(final String str, final boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
     final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
@@ -93,8 +92,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
   public static class MutableDBOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder, MutableDBOptionKey>
       implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {
-
-    private final static Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
+    private static final Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
     static {
       for(final MutableDBOptionKey key : DBOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);

@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * A ByteBuffer containing fetched data, together with a result for the fetch
  * and the total size of the object fetched.
- *
+ * <p>
  * Used for the individual results of
  * {@link RocksDB#multiGetByteBuffers(List, List)}
  * {@link RocksDB#multiGetByteBuffers(List, List, List)}

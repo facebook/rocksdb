@@ -157,11 +157,16 @@ enum Tickers : uint32_t {
 
   NUMBER_MERGE_FAILURES,
 
-  // number of times bloom was checked before creating iterator on a
-  // file, and the number of times the check was useful in avoiding
-  // iterator creation (and thus likely IOPs).
+  // Prefix filter stats when used for point lookups (Get / MultiGet).
+  // (For prefix filter stats on iterators, see *_LEVEL_SEEK_*.)
+  // Checked: filter was queried
   BLOOM_FILTER_PREFIX_CHECKED,
+  // Useful: filter returned false so prevented accessing data+index blocks
   BLOOM_FILTER_PREFIX_USEFUL,
+  // True positive: found a key matching the point query. When another key
+  // with the same prefix matches, it is considered a false positive by
+  // these statistics even though the filter returned a true positive.
+  BLOOM_FILTER_PREFIX_TRUE_POSITIVE,
 
   // Number of times we had to reseek inside an iteration to skip
   // over large number of keys with same userkey.
@@ -394,6 +399,32 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  // Statistics on iterator Seek() (and variants) for each sorted run. I.e. a
+  // single user Seek() can result in many sorted run Seek()s.
+  // The stats are split between last level and non-last level.
+  // Filtered: a filter such as prefix Bloom filter indicate the Seek() would
+  // not find anything relevant, so avoided a likely access to data+index
+  // blocks.
+  LAST_LEVEL_SEEK_FILTERED,
+  // Filter match: a filter such as prefix Bloom filter was queried but did
+  // not filter out the seek.
+  LAST_LEVEL_SEEK_FILTER_MATCH,
+  // At least one data block was accessed for a Seek() (or variant) on a
+  // sorted run.
+  LAST_LEVEL_SEEK_DATA,
+  // At least one value() was accessed for the seek (suggesting it was useful),
+  // and no filter such as prefix Bloom was queried.
+  LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+  // At least one value() was accessed for the seek (suggesting it was useful),
+  // after querying a filter such as prefix Bloom.
+  LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+  // The same set of stats, but for non-last level seeks.
+  NON_LAST_LEVEL_SEEK_FILTERED,
+  NON_LAST_LEVEL_SEEK_FILTER_MATCH,
+  NON_LAST_LEVEL_SEEK_DATA,
+  NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+  NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+
   // Number of block checksum verifications
   BLOCK_CHECKSUM_COMPUTE_COUNT,
   // Number of times RocksDB detected a corruption while verifying a block
@@ -512,9 +543,10 @@ enum Histograms : uint32_t {
   // Time spent in reading block-based or plain SST table
   SST_READ_MICROS,
   // Time spent in reading SST table (currently only block-based table) or blob
-  // file for flush or compaction
+  // file corresponding to `Env::IOActivity`
   FILE_READ_FLUSH_MICROS,
   FILE_READ_COMPACTION_MICROS,
+  FILE_READ_DB_OPEN_MICROS,
 
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,
@@ -665,7 +697,7 @@ class Statistics : public Customizable {
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
   virtual std::string getHistogramString(uint32_t /*type*/) const { return ""; }
-  virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
+  virtual void recordTick(uint32_t tickerType, uint64_t count = 1) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
   virtual void reportTimeToHistogram(uint32_t histogramType, uint64_t time) {
