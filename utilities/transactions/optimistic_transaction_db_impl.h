@@ -26,7 +26,7 @@ class OccLockBucketsImplBase : public OccLockBuckets {
 template <bool cache_aligned>
 class OccLockBucketsImpl : public OccLockBucketsImplBase {
  public:
-  OccLockBucketsImpl(size_t bucket_count) : locks_(bucket_count) {}
+  explicit OccLockBucketsImpl(size_t bucket_count) : locks_(bucket_count) {}
   port::Mutex& GetLockBucket(const Slice& key, uint64_t seed) override {
     return locks_.Get(key, seed);
   }

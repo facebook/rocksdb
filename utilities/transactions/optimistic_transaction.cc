@@ -125,6 +125,8 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   // In this way, txns from different threads all obey this rule so that
   // deadlock can be avoided.
   for (auto v : lk_ptrs) {
+    // WART: if an exception is thrown during a Lock(), previously locked will
+    // not be Unlock()ed. But a vector of MutexLock is likely inefficient.
     v->Lock();
   }
   Defer unlocks([&]() {

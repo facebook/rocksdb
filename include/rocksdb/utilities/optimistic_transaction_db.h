@@ -46,11 +46,15 @@ enum class OccValidationPolicy {
 
 class OccLockBuckets {
  public:
-  // Most details in internal derived class
-  // Users should not derive from this class
+  // Most details in internal derived class.
+  // Users should not derive from this class.
   virtual ~OccLockBuckets() {}
 
   virtual size_t ApproximateMemoryUsage() const = 0;
+
+ private:
+  friend class OccLockBucketsImplBase;
+  OccLockBuckets() {}
 };
 
 // An object for sharing a pool of locks across DB instances.
