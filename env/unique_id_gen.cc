@@ -176,6 +176,7 @@ void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
 
 void UnpredictableUniqueIdGen::Reset() {
   for (size_t i = 0; i < pool_.size(); i += 2) {
+    assert(i + 1 < pool_.size());
     uint64_t a, b;
     GenerateRawUniqueId(&a, &b);
     pool_[i] = a;
@@ -187,7 +188,7 @@ void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
   uint64_t extra_entropy;
   // Use timing information (if available) to add to entropy. (Not a disaster
   // if unavailable on some platforms. High performance is important.)
-#if defined(__SSE4_2__)  // More than enough to guarantee rdtsc instruction
+#ifdef __SSE4_2__  // More than enough to guarantee rdtsc instruction
   extra_entropy = static_cast<uint64_t>(_rdtsc());
 #else
   extra_entropy = SystemClock::Default()->NowNanos();
@@ -207,12 +208,13 @@ void UnpredictableUniqueIdGen::GenerateNextWithEntropy(uint64_t* upper,
   uint64_t a = count;
   uint64_t b = extra_entropy;
   // Invoking the hash function several times avoids copying all the inputs
-  // to a non-atomic buffer.
+  // to a contiguous, non-atomic buffer.
   BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
 
   // In hashing the rest of the pool with that, we don't need to worry about
   // races, but use atomic operations for sanitizer-friendliness.
   for (size_t i = 0; i < pool_.size(); i += 2) {
+    assert(i + 1 < pool_.size());
     a ^= pool_[i].load(std::memory_order_relaxed);
     b ^= pool_[i + 1].load(std::memory_order_relaxed);
     BijectiveHash2x64(a, b, &a, &b);  // Based on XXH128
