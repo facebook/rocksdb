@@ -3344,7 +3344,7 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
   Reopen(options);
 
   // Wait for compaction to finish
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
   ASSERT_GT(compaction_finished, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
