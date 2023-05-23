@@ -14,6 +14,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/configurable.h"
 #include "util/cast_util.h"
+#include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
