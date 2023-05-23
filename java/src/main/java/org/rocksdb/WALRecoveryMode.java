@@ -9,10 +9,9 @@ package org.rocksdb;
  * The WAL Recover Mode
  */
 public enum WALRecoveryMode {
-
   /**
    * Original levelDB recovery
-   *
+   * <p>
    * We tolerate incomplete record in trailing data on all logs
    * Use case : This is legacy behavior (default)
    */
@@ -20,7 +19,7 @@ public enum WALRecoveryMode {
 
   /**
    * Recover from clean shutdown
-   *
+   * <p>
    * We don't expect to find any corruption in the WAL
    * Use case : This is ideal for unit tests and rare applications that
    * can require high consistency guarantee
@@ -44,7 +43,7 @@ public enum WALRecoveryMode {
    */
   SkipAnyCorruptedRecords((byte)0x03);
 
-  private byte value;
+  private final byte value;
 
   WALRecoveryMode(final byte value) {
     this.value = value;

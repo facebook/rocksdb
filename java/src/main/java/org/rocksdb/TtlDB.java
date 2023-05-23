@@ -125,7 +125,7 @@ public class TtlDB extends RocksDB {
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
-    final int ttlVals[] = new int[ttlValues.size()];
+    final int[] ttlVals = new int[ttlValues.size()];
     for(int i = 0; i < ttlValues.size(); i++) {
       ttlVals[i] = ttlValues.get(i);
     }
@@ -144,12 +144,12 @@ public class TtlDB extends RocksDB {
    *
    * This is similar to {@link #close()} except that it
    * throws an exception if any error occurs.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    *
    * @throws RocksDBException if an error occurs whilst closing.
@@ -172,7 +172,7 @@ public class TtlDB extends RocksDB {
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    */
   @Override
@@ -230,16 +230,13 @@ public class TtlDB extends RocksDB {
 
   @Override protected native void disposeInternal(final long handle);
 
-  private native static long open(final long optionsHandle,
-      final String db_path, final int ttl, final boolean readOnly)
-      throws RocksDBException;
-  private native static long[] openCF(final long optionsHandle,
-      final String db_path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions, final int[] ttlValues,
+  private static native long open(final long optionsHandle, final String db_path, final int ttl,
+      final boolean readOnly) throws RocksDBException;
+  private static native long[] openCF(final long optionsHandle, final String db_path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions, final int[] ttlValues,
       final boolean readOnly) throws RocksDBException;
   private native long createColumnFamilyWithTtl(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private static native void closeDatabase(final long handle) throws RocksDBException;
 }

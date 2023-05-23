@@ -94,16 +94,15 @@ public class OptimisticTransactionDB extends RocksDB
     return otdb;
   }
 
-
   /**
    * This is similar to {@link #close()} except that it
    * throws an exception if any error occurs.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    *
    * @throws RocksDBException if an error occurs whilst closing.
@@ -121,12 +120,12 @@ public class OptimisticTransactionDB extends RocksDB
   /**
    * This is similar to {@link #closeE()} except that it
    * silently ignores any errors.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    */
   @Override
@@ -209,8 +208,7 @@ public class OptimisticTransactionDB extends RocksDB
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private static native void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

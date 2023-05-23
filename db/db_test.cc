@@ -66,7 +66,7 @@
 #include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -583,7 +583,7 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
         TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
     // For FIFO to pick a compaction
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
-    ASSERT_OK(dbfull()->TEST_WaitForCompact(false));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     for (int g = 0; g < kKeyCount; ++g) {
       std::string get_key = std::string(1, char('a' + g));
       int status_index = i / kKeyCount;
@@ -3107,6 +3107,13 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   using DB::GetPropertiesOfAllTables;
   Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* /*column_family*/,
@@ -4937,7 +4944,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -5024,7 +5031,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -6887,7 +6894,20 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedGeneralCache();
+  // BEGIN check that Cache classes as aliases of each other.
+  // Currently, GeneralCache and BlockCache are aliases for Cache.
+  // This is expected to change (carefully, intentionally)
+  std::shared_ptr<GeneralCache> general_cache = options.row_cache;
+  std::shared_ptr<Cache> cache = general_cache;
+  std::shared_ptr<BlockCache> block_cache = general_cache;
+  general_cache = cache;
+  block_cache = cache;
+  general_cache = block_cache;
+  cache = block_cache;
+  // END check that Cache classes as aliases of each other.
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar"));

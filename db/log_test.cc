@@ -45,9 +45,10 @@ static std::string RandomSkewedString(int i, Random* rnd) {
   return BigString(NumberString(i), rnd->Skewed(17));
 }
 
-// Param type is tuple<int, bool>
+// Param type is tuple<int, bool, CompressionType>
 // get<0>(tuple): non-zero if recycling log, zero if regular log
 // get<1>(tuple): true if allow retry after read EOF, false otherwise
+// get<2>(tuple): type of compression used
 class LogTest
     : public ::testing::TestWithParam<std::tuple<int, bool, CompressionType>> {
  private:
@@ -181,20 +182,30 @@ class LogTest
 
   Slice* get_reader_contents() { return &reader_contents_; }
 
-  void Write(const std::string& msg) {
+  void Write(
+      const std::string& msg,
+      const std::unordered_map<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
+    if (cf_to_ts_sz != nullptr && !cf_to_ts_sz->empty()) {
+      ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(*cf_to_ts_sz));
+    }
     ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
   size_t WrittenBytes() const { return dest_contents().size(); }
 
-  std::string Read(const WALRecoveryMode wal_recovery_mode =
-                       WALRecoveryMode::kTolerateCorruptedTailRecords) {
+  std::string Read(
+      const WALRecoveryMode wal_recovery_mode =
+          WALRecoveryMode::kTolerateCorruptedTailRecords,
+      std::unordered_map<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
     std::string scratch;
     Slice record;
     bool ret = false;
     uint64_t record_checksum;
     ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode,
                               &record_checksum);
+    if (cf_to_ts_sz != nullptr) {
+      *cf_to_ts_sz = reader_->GetRecordedTimestampSize();
+    }
     if (ret) {
       if (!allow_retry_read_) {
         // allow_retry_read_ means using FragmentBufferedReader which does not
@@ -257,6 +268,17 @@ class LogTest
       return "OK";
     }
   }
+
+  void CheckRecordAndTimestampSize(
+      std::string record,
+      std::unordered_map<uint32_t, size_t>& expected_ts_sz) {
+    std::unordered_map<uint32_t, size_t> recorded_ts_sz;
+    ASSERT_EQ(record,
+              Read(WALRecoveryMode::
+                       kTolerateCorruptedTailRecords /* wal_recovery_mode */,
+                   &recorded_ts_sz));
+    EXPECT_EQ(expected_ts_sz, recorded_ts_sz);
+  }
 };
 
 TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
@@ -270,6 +292,43 @@ TEST_P(LogTest, ReadWrite) {
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("", Read());
   ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(LogTest, ReadWriteWithTimestampSize) {
+  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint64_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  std::unordered_map<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  Write("", &ts_sz_two);
+  Write("xxxx");
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
+  std::unordered_map<uint32_t, size_t> expected_ts_sz_two;
+  // User-defined timestamp size records are accumulated and applied to
+  // subsequent records.
+  expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());
+  expected_ts_sz_two.insert(ts_sz_two.begin(), ts_sz_two.end());
+  CheckRecordAndTimestampSize("", expected_ts_sz_two);
+  CheckRecordAndTimestampSize("xxxx", expected_ts_sz_two);
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(LogTest, ReadWriteWithTimestampSizeZeroTimestampIgnored) {
+  std::unordered_map<uint32_t, size_t> ts_sz_one = {{1, sizeof(uint64_t)}};
+  Write("foo", &ts_sz_one);
+  std::unordered_map<uint32_t, size_t> ts_sz_two(ts_sz_one.begin(),
+                                                 ts_sz_one.end());
+  ts_sz_two.insert(std::make_pair(2, 0));
+  Write("bar", &ts_sz_two);
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
 }
@@ -685,6 +744,39 @@ TEST_P(LogTest, Recycle) {
   ASSERT_EQ("EOF", Read());
 }
 
+TEST_P(LogTest, RecycleWithTimestampSize) {
+  bool recyclable_log = (std::get<0>(GetParam()) != 0);
+  if (!recyclable_log) {
+    return;  // test is only valid for recycled logs
+  }
+  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint32_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  Write("baz");
+  Write("bif");
+  Write("blitz");
+  while (get_reader_contents()->size() < log::kBlockSize * 2) {
+    Write("xxxxxxxxxxxxxxxx");
+  }
+  std::unique_ptr<FSWritableFile> sink(
+      new test::OverwritingStringSink(get_reader_contents()));
+  std::unique_ptr<WritableFileWriter> dest_holder(new WritableFileWriter(
+      std::move(sink), "" /* don't care */, FileOptions()));
+  Writer recycle_writer(std::move(dest_holder), 123, true);
+  std::unordered_map<uint32_t, size_t> ts_sz_two = {
+      {2, sizeof(uint64_t)},
+  };
+  ASSERT_OK(recycle_writer.MaybeAddUserDefinedTimestampSizeRecord(ts_sz_two));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
+  ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
+  CheckRecordAndTimestampSize("foooo", ts_sz_two);
+  CheckRecordAndTimestampSize("bar", ts_sz_two);
+  ASSERT_EQ("EOF", Read());
+}
+
 // Do NOT enable compression for this instantiation.
 INSTANTIATE_TEST_CASE_P(
     Log, LogTest,
@@ -936,6 +1028,35 @@ TEST_P(CompressionLogTest, ReadWrite) {
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("", Read());
   ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(CompressionLogTest, ReadWriteWithTimestampSize) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint64_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  std::unordered_map<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  Write("", &ts_sz_two);
+  Write("xxxx");
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
+  std::unordered_map<uint32_t, size_t> expected_ts_sz_two;
+  // User-defined timestamp size records are accumulated and applied to
+  // subsequent records.
+  expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());
+  expected_ts_sz_two.insert(ts_sz_two.begin(), ts_sz_two.end());
+  CheckRecordAndTimestampSize("", expected_ts_sz_two);
+  CheckRecordAndTimestampSize("xxxx", expected_ts_sz_two);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
 }

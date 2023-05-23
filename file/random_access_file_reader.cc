@@ -19,13 +19,14 @@
 #include "table/format.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
     kReadHistograms{{
         FILE_READ_FLUSH_MICROS,
         FILE_READ_COMPACTION_MICROS,
+        FILE_READ_DB_OPEN_MICROS,
     }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {

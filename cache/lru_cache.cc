@@ -16,7 +16,7 @@
 
 #include "cache/secondary_cache_adapter.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 
@@ -710,5 +710,14 @@ std::shared_ptr<Cache> LRUCacheOptions::MakeSharedCache() const {
     cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
   }
   return cache;
+}
+
+std::shared_ptr<GeneralCache> LRUCacheOptions::MakeSharedGeneralCache() const {
+  if (secondary_cache) {
+    // Not allowed for a GeneralCache
+    return nullptr;
+  }
+  // Works while GeneralCache is an alias for Cache
+  return MakeSharedCache();
 }
 }  // namespace ROCKSDB_NAMESPACE

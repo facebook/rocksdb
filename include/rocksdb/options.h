@@ -1157,7 +1157,7 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  std::shared_ptr<Cache> row_cache = nullptr;
+  std::shared_ptr<GeneralCache> row_cache = nullptr;
 
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log

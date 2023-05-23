@@ -90,7 +90,7 @@ public class FlushJobInfo {
    * Determine if rocksdb is currently slowing-down all writes to prevent
    * creating too many Level 0 files as compaction seems not able to
    * catch up the write request speed.
-   *
+   * <p>
    * This indicates that there are too many files in Level 0.
    *
    * @return true if rocksdb is currently slowing-down all writes,
@@ -103,7 +103,7 @@ public class FlushJobInfo {
   /**
    * Determine if rocksdb is currently blocking any writes to prevent
    * creating more L0 files.
-   *
+   * <p>
    * This indicates that there are too many files in level 0.
    * Compactions should try to compact L0 files down to lower levels as soon
    * as possible.
@@ -151,12 +151,12 @@ public class FlushJobInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    FlushJobInfo that = (FlushJobInfo) o;
+    final FlushJobInfo that = (FlushJobInfo) o;
     return columnFamilyId == that.columnFamilyId && threadId == that.threadId && jobId == that.jobId
         && triggeredWritesSlowdown == that.triggeredWritesSlowdown
         && triggeredWritesStop == that.triggeredWritesStop && smallestSeqno == that.smallestSeqno

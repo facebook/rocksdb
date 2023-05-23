@@ -251,6 +251,8 @@ LIB_SOURCES =                                                   \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
+  util/udt_util.cc                                              \
+  util/write_batch_util.cc                                      \
   util/xxhash.cc                                                \
   utilities/agg_merge/agg_merge.cc                              \
   utilities/backup/backup_engine.cc                             \
@@ -377,6 +379,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
+  db_stress_tool/expected_value.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
   db_stress_tool/multi_ops_txns_stress.cc                      \
 
@@ -459,6 +462,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
+  db/db_clip_test.cc                                                    \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
   db/db_flush_test.cc                                                   \
@@ -591,6 +595,7 @@ TEST_MAIN_SOURCES =                                                     \
   util/timer_test.cc                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
+  util/udt_util_test.cc                                                 \
   util/work_queue_test.cc                                               \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \

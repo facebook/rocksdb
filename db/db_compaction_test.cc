@@ -1105,7 +1105,7 @@ TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
   ASSERT_OK(Put("bbbb1", "B"));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::vector<LiveFileMetaData> files;
   dbfull()->GetLiveFilesMetaData(&files);
@@ -5075,7 +5075,11 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     manual_compaction_thread.join();
     TEST_SYNC_POINT(
         "DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual");
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    if (i == 0) {
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    } else {
+      ASSERT_NOK(dbfull()->TEST_WaitForCompact());
+    }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
@@ -6740,10 +6744,8 @@ class DBCompactionTestL0FilesMisorderCorruption : public DBCompactionTest {
       if (compaction_path_to_test == "FindIntraL0Compaction" ||
           compaction_path_to_test == "CompactRange") {
         fifo_options.allow_compaction = true;
-        fifo_options.age_for_warm = 0;
       } else if (compaction_path_to_test == "CompactFile") {
         fifo_options.allow_compaction = false;
-        fifo_options.age_for_warm = 0;
       }
       options_.compaction_options_fifo = fifo_options;
     }
@@ -8593,7 +8595,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   Destroy(options);
 }
 
-TEST_F(DBCompactionTest, FIFOWarm) {
+TEST_F(DBCompactionTest, FIFOChangeTemperature) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.num_levels = 1;
@@ -8601,18 +8603,18 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   options.level0_file_num_compaction_trigger = 2;
   options.create_if_missing = true;
   CompactionOptionsFIFO fifo_options;
-  fifo_options.age_for_warm = 1000;
+  fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
   fifo_options.max_table_files_size = 100000000;
   options.compaction_options_fifo = fifo_options;
   env_->SetMockSleep();
   Reopen(options);
 
-  int total_warm = 0;
+  int total_cold = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewWritableFile::FileOptions.temperature", [&](void* arg) {
         Temperature temperature = *(static_cast<Temperature*>(arg));
-        if (temperature == Temperature::kWarm) {
-          total_warm++;
+        if (temperature == Temperature::kCold) {
+          total_cold++;
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -8649,9 +8651,9 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   ASSERT_EQ(4, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[2].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[3].temperature);
-  ASSERT_EQ(2, total_warm);
+  ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
+  ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
+  ASSERT_EQ(2, total_cold);
 
   Destroy(options);
 }
@@ -8716,7 +8718,7 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 }
 
 TEST_F(DBCompactionTest, DisableJustStartedManualCompaction) {
@@ -8848,7 +8850,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1", FilesPerLevel(0));
 }
 
