@@ -18,6 +18,50 @@ const Dummy kDummy{};
 Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
 }  // namespace
 
+// When CacheWithSecondaryAdapter is constructed with the distribute_cache_res
+// parameter set to true, it manages the entire memory budget across the
+// primary and secondary cache. The secondary cache is assumed to be in
+// memory, such as the CompressedSecondaryCache. When a placeholder entry
+// is inserted by a CacheReservationManager instance to reserve memory,
+// the CacheWithSecondaryAdapter ensures that the reservation is distributed
+// proportionally across the primary/secondary caches.
+//
+// The primary block cache is initially sized to the sum of the primary cache
+// budget + teh secondary cache budget, as follows -
+//   |---------    Primary Cache Configured Capacity  -----------|
+//   |---Secondary Cache Budget----|----Primary Cache Budget-----|
+//
+// A ConcurrentCacheReservationManager member in the CacheWithSecondaryAdapter,
+// pri_cache_res_,
+// is used to help with tracking the distribution of memory reservations.
+// Initially, it accounts for the entire secondary cache budget as a
+// reservation against the primary cache. This shrinks the usable capacity of
+// the primary cache to the budget that the user originally desired.
+//
+//   |--Reservation for Sec Cache--|-Pri Cache Usable Capacity---|
+//
+// When a reservation placeholder is inserted into the adapter, it is inserted
+// directly into the primary cache. This means the entire charge of the
+// placeholder is counted against the primary cache. To compensate and count
+// a portion of it against the secondary cache, the secondary cache Deflate()
+// method is called to shrink it. Since the Deflate() causes the secondary
+// actual usage to shrink, it is refelcted here by releasing an equal amount
+// from the pri_cache_res_ reservation.
+//
+// For example, if the pri/sec ratio is 50/50, this would be the state after
+// placeholder insertion -
+//
+//   |-Reservation for Sec Cache-|-Pri Cache Usable Capacity-|-R-|
+//
+// Likewise, when the user inserted placeholder is released, the secondary
+// cache Inflate() method is called to grow it, and the pri_cache_res_
+// reservation is increased by an equal amount.
+//
+// Another way of implementing this would have been to simply split the user
+// reservation into primary and seconary components. However, this would
+// require allocating a structure to track the associated secondary cache
+// reservation, which adds some complexity and overhead.
+//
 CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     std::shared_ptr<Cache> target,
     std::shared_ptr<SecondaryCache> secondary_cache, bool distribute_cache_res)
@@ -40,7 +84,8 @@ CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     // when a placeholder entry is inserted by the caller, its inserted
     // into the primary cache and the portion that should be assigned to the
     // secondary cache is freed from the reservation.
-    pri_cache_res_->UpdateCacheReservation(sec_capacity);
+    s = pri_cache_res_->UpdateCacheReservation(sec_capacity);
+    assert(s.ok());
     sec_cache_res_ratio_ = (double)sec_capacity / target_->GetCapacity();
   }
 }
