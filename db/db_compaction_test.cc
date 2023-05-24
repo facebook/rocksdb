@@ -3300,7 +3300,6 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
 
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumFiles + 1;
-  options.max_background_compactions = 1;
 
   DestroyAndReopen(options);
 
@@ -3326,21 +3325,12 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
   ASSERT_EQ("2", FilesPerLevel());
-  // There has been no compaction. Only flushes from memtable.
   ASSERT_EQ(0, compaction_finished);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CompactionJob::Run():Start",
-        "DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish"}});
-
-  // Now trigger L0 compaction by adding a file
+  // create compaction debt by adding one more L0 file then closing
   GenerateNewRandomFile(&rnd, /* nowait */ true);
-  ASSERT_OK(Flush());
-
-  // Before compaction job finishes, close the db.
   Close();
   ASSERT_EQ(0, compaction_finished);
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish");
 
   // Reopen the db and we expect the compaction to be triggered.
   Reopen(options);
@@ -3378,11 +3368,6 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseAborted) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CompactionJob::Run():Start",
-        "DBCompactionTest::WaitForCompactAbortOnPauseAborted"}});
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   // Now trigger L0 compaction by adding a file
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(Flush());
@@ -3390,15 +3375,11 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseAborted) {
   // Pause the background jobs.
   ASSERT_OK(dbfull()->PauseBackgroundWork());
 
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactAbortOnPauseAborted");
-
   WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
   waitForCompactOptions.abort_on_pause = true;
   Status s = dbfull()->WaitForCompact(waitForCompactOptions);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsAborted());
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
@@ -3426,11 +3407,6 @@ TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CompactionJob::Run():Start",
-        "DBCompactionTest::WaitForCompactContinueAfterPauseNotAborted"}});
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   // Now trigger L0 compaction by adding a file
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(Flush());
@@ -3438,17 +3414,12 @@ TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
   // Pause the background jobs.
   ASSERT_OK(dbfull()->PauseBackgroundWork());
 
-  TEST_SYNC_POINT(
-      "DBCompactionTest::WaitForCompactContinueAfterPauseNotAborted");
-
   // Continue the background jobs.
   ASSERT_OK(dbfull()->ContinueBackgroundWork());
 
   WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
   waitForCompactOptions.abort_on_pause = false;
   ASSERT_OK(dbfull()->WaitForCompact(waitForCompactOptions));
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
@@ -3477,8 +3448,8 @@ TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CompactionJob::Run():Start",
-        "DBCompactionTest::WaitForCompactShutdownWhileWaiting"}});
+      {{"DBCompactionTest::WaitForCompactShutdownWhileWaiting",
+        "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Now trigger L0 compaction by adding a file
