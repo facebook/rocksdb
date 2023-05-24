@@ -662,9 +662,6 @@ void DBTestBase::Reopen(const Options& options) {
   ASSERT_OK(TryReopen(options));
 }
 
-void DBTestBase::ReopenWithStackableTransactionDB(const Options& options) {
-  ASSERT_OK(TryReopenWithStackableTransactionDB(options));
-}
 void DBTestBase::Close() {
   for (auto h : handles_) {
     EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
@@ -678,12 +675,6 @@ void DBTestBase::DestroyAndReopen(const Options& options) {
   // Destroy using last options
   Destroy(last_options_);
   Reopen(options);
-}
-
-void DBTestBase::DestroyAndReopenWithStackableTransactionDB(
-    const Options& options) {
-  Destroy(last_options_);
-  ReopenWithStackableTransactionDB(options);
 }
 
 void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
@@ -717,27 +708,6 @@ Status DBTestBase::TryReopen(const Options& options) {
   last_options_ = options;
   MaybeInstallTimeElapseOnlySleep(options);
   return DB::Open(options, dbname_, &db_);
-}
-
-Status DBTestBase::TryReopenWithStackableTransactionDB(const Options& options) {
-  Close();
-  last_options_.table_factory.reset();
-  last_options_ = options;
-  MaybeInstallTimeElapseOnlySleep(options);
-
-  std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
-      kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
-
-  std::vector<size_t> compaction_enabled_cf_indices;
-  DBOptions db_opts = DBOptions(options);
-
-  Status s = DB::Open(options, dbname_, column_families, &handles_, &db_);
-  TransactionDB::PrepareWrap(&db_opts, &column_families,
-                             &compaction_enabled_cf_indices);
-  StackableDB* stackable_db = new StackableDB(db_);
-  return TransactionDB::WrapStackableDB(stackable_db, txn_db_options_,
-                                        compaction_enabled_cf_indices, handles_,
-                                        &transaction_db_);
 }
 
 bool DBTestBase::IsDirectIOSupported() {
