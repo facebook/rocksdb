@@ -218,7 +218,8 @@ TEST_F(FormatTest, IterKeyWithTimestampOperation) {
             "abcdefghijklmnopqrstuvwxyz0"
             "abcdefghijklmnopqrstuvwxyz" +
                 min_timestamp);
-  // IterKey holds an internal key.
+  // IterKey holds an internal key, the last 8 bytes hold the key footer, the
+  // timestamp is expected to be added before the key footer.
   std::string key_without_ts = "keywithoutts";
   k.SetInternalKey(key_without_ts + min_timestamp + "internal");
 

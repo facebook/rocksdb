@@ -446,17 +446,18 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Key to be exposed to users.
   Slice key_;
   SequenceNumber global_seqno_;
+  // Size of the user-defined timestamp.
+  size_t ts_sz_ = 0;
   // If user-defined timestamp is enabled but not persisted. A min timestamp
   // will be padded to the key during key parsing where it applies. Such as when
   // parsing keys from data block, index block, parsing the first internal
   // key from IndexValue entry. Min timestamp padding is different for when
   // `raw_key_` is a user key vs is an internal key.
   //
-  // These don't apply to meta block, as the key it contains are not real user
-  // keys, but property names.
-  bool user_defined_timestamp_persisted_ = true;
-  // Size of the user-defined timestamp.
-  size_t ts_sz_ = 0;
+  // This only applies to data block and index blocks including index block for
+  // data blocks, index block for partitioned filter blocks, index block for
+  // partitioned index blocks. In summary, this only applies to block whose key
+  // are real user keys or internal keys created from user keys.
   bool pad_min_timestamp_;
 
   // Per key-value checksum related states
@@ -540,8 +541,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     if (raw_ucmp != nullptr) {
       ts_sz_ = raw_ucmp->timestamp_size();
     }
-    user_defined_timestamp_persisted_ = user_defined_timestamp_persisted;
-    pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted_;
+    pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted;
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
     cur_entry_idx_ = -1;
@@ -574,8 +574,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   }
 
   void UpdateRawKeyAndMaybePadMinTimestamp(const Slice& key) {
-    std::string buf;
     if (pad_min_timestamp_) {
+      std::string buf;
       if (raw_key_.IsUserKey()) {
         AppendKeyWithMinTimestamp(&buf, key, ts_sz_);
       } else {

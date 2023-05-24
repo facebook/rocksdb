@@ -58,9 +58,9 @@ std::string GenerateInternalKey(int primary_key, int secondary_key,
 // different kinds of test key/value pairs for different scenario.
 void GenerateRandomKVs(std::vector<std::string> *keys,
                        std::vector<std::string> *values, const int from,
-                       const int len, size_t ts_sz = 0, const int step = 1,
+                       const int len, const int step = 1,
                        const int padding_size = 0,
-                       const int keys_share_prefix = 1) {
+                       const int keys_share_prefix = 1, size_t ts_sz = 0) {
   Random rnd(302);
 
   // generate different prefix
@@ -107,7 +107,8 @@ TEST_P(BlockTest, SimpleTest) {
                        shouldPersistUDT(), false /* is_user_key */);
   int num_records = 100000;
 
-  GenerateRandomKVs(&keys, &values, 0, num_records, ts_sz);
+  GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
+                    0 /* padding_size */, 1 /* keys_share_prefix */, ts_sz);
   // add a bunch of records to a block
   for (int i = 0; i < num_records; i++) {
     builder.Add(keys[i], values[i]);
@@ -232,8 +233,9 @@ TEST_P(BlockTest, SimpleIndexHash) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
   GenerateRandomKVs(&keys, &values, 0 /* first key id */,
-                    kMaxKey /* last key id */, ts_sz, 2 /* step */,
-                    8 /* padding size (8 bytes randomly generated suffix) */);
+                    kMaxKey /* last key id */, 2 /* step */,
+                    8 /* padding size (8 bytes randomly generated suffix) */,
+                    1 /* keys_share_prefix */, ts_sz);
 
   std::unique_ptr<BlockBuilder> builder;
   auto contents = GetBlockContents(
@@ -253,10 +255,9 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
   // Generate keys with same prefix.
   GenerateRandomKVs(&keys, &values, 0,  // first key id
                     kMaxKey,            // last key id
-                    ts_sz,
-                    2,   // step
-                    10,  // padding size,
-                    kPrefixGroup);
+                    2 /* step */,
+                    10 /* padding size (8 bytes randomly generated suffix) */,
+                    kPrefixGroup /* keys_share_prefix */, ts_sz);
 
   std::unique_ptr<BlockBuilder> builder;
   auto contents =
@@ -418,8 +419,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
   BlockBuilder builder(16);
   int num_records = 10000;
 
-  GenerateRandomKVs(&keys, &values, 0, num_records, 0 /* ts_sz */,
-                    1 /* step */);
+  GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */);
   // add a bunch of records to a block
   for (int i = 0; i < num_records; i++) {
     builder.Add(keys[i], values[i]);
@@ -903,7 +903,7 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
   const int kNumRecords = 20;
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  GenerateRandomKVs(&keys, &values, 0, kNumRecords, 0 /* ts_sz */, 1 /* step */,
+  GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */,
                     24 /* padding_size */);
   std::unique_ptr<BlockBuilder> builder;
   auto generate_block_content = [&]() {
@@ -1068,8 +1068,8 @@ TEST_P(DataBlockKVChecksumTest, ChecksumConstructionAndVerification) {
         num_restart_interval * static_cast<int>(GetRestartInterval());
     std::vector<std::string> keys;
     std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 0 /* ts_sz */,
-                      1 /* step */, 24 /* padding_size */);
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
     SyncPoint::GetInstance()->DisableProcessing();
     std::unique_ptr<Block_kData> data_block =
         GenerateDataBlock(keys, values, kNumRecords);
@@ -1325,8 +1325,8 @@ TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
     const int kNumRecords = num_restart_interval * GetRestartInterval();
     std::vector<std::string> keys;
     std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 0 /* ts_sz */,
-                      1 /* step */, 24 /* padding_size */);
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
     SyncPoint::GetInstance()->DisableProcessing();
     std::unique_ptr<Block_kMetaIndex> meta_block =
         GenerateMetaIndexBlock(keys, values, kNumRecords);
@@ -1389,8 +1389,8 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
         num_restart_interval * static_cast<int>(GetRestartInterval());
     std::vector<std::string> keys;
     std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 0 /* ts_sz */,
-                      1 /* step */, 24 /* padding_size */);
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
     SyncPoint::GetInstance()->SetCallBack(
         "BlockIter::UpdateKey::value", [](void *arg) {
           char *value = static_cast<char *>(arg);
@@ -1603,8 +1603,8 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
         num_restart_interval * static_cast<int>(GetRestartInterval());
     std::vector<std::string> keys;
     std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 0 /* ts_sz */,
-                      1 /* step */, 24 /* padding_size */);
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
+                      24 /* padding_size */);
     SyncPoint::GetInstance()->SetCallBack(
         "BlockIter::UpdateKey::value", [](void *arg) {
           char *value = static_cast<char *>(arg);

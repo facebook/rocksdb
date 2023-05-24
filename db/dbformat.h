@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 
+#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
@@ -516,37 +517,60 @@ class IterKey {
     key_size_ = total_size;
   }
 
-  // A version of `TrimAppend` assuming the last bytes of length
-  // `padded_user_key_len` in the user key part of `key_` is not counted towards
-  // shared bytes. And the decoded key needed a min timestamp of length
-  // `padded_user_key_len` pad to the user key.
+  // A version of `TrimAppend` assuming the last bytes of length `ts_sz` in the
+  // user key part of `key_` is not counted towards shared bytes. And the
+  // decoded key needed a min timestamp of length `ts_sz` pad to the user key.
   void TrimAppendWithTimestamp(const size_t shared_len,
                                const char* non_shared_data,
                                const size_t non_shared_len,
-                               const size_t padded_user_key_len) {
+                               const size_t ts_sz) {
+    std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
     std::string key_with_ts;
+    std::deque<Slice> key_parts_with_ts;
     if (IsUserKey()) {
-      TrimAppend(shared_len, non_shared_data, non_shared_len);
-      AppendKeyWithMinTimestamp(&key_with_ts, GetKey(), padded_user_key_len);
+      key_parts_with_ts.push_back(Slice(key_, shared_len));
+      key_parts_with_ts.push_back(Slice(non_shared_data, non_shared_len));
+      key_parts_with_ts.push_back(kTsMin);
     } else {
-      std::string internal_key_without_ts;
+      std::vector<Slice> ikey_parts_without_ts;
       // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
-      size_t sharable_user_key_len =
-          key_size_ - kNumInternalBytes - padded_user_key_len;
+      size_t sharable_user_key_len = key_size_ - kNumInternalBytes - ts_sz;
       size_t shared_user_key_len = std::min(shared_len, sharable_user_key_len);
-      internal_key_without_ts.append(key_, shared_user_key_len);
+      ikey_parts_without_ts.push_back(Slice(key_, shared_user_key_len));
       // Some shared bytes come from the last few internal bytes.
       if (shared_len > sharable_user_key_len) {
         size_t shared_internal_bytes_len = shared_len - sharable_user_key_len;
         size_t user_key_len = key_size_ - kNumInternalBytes;
-        internal_key_without_ts.append(key_ + user_key_len,
-                                       shared_internal_bytes_len);
+        ikey_parts_without_ts.push_back(
+            Slice(key_ + user_key_len, shared_internal_bytes_len));
       }
-      internal_key_without_ts.append(non_shared_data, non_shared_len);
-      PadInternalKeyWithMinTimestamp(&key_with_ts, internal_key_without_ts,
-                                     padded_user_key_len);
+      ikey_parts_without_ts.push_back(Slice(non_shared_data, non_shared_len));
+
+      // Find the right location to add the min timestamp Slice.
+      size_t accumulated_footer_size = 0;
+      bool ts_added = false;
+      for (size_t i = ikey_parts_without_ts.size(); i > 0; i--) {
+        const size_t slice_sz = ikey_parts_without_ts[i - 1].size();
+        if (accumulated_footer_size + slice_sz >= kNumInternalBytes &&
+            !ts_added) {
+          const char* slice_data = ikey_parts_without_ts[i - 1].data();
+          size_t left_sz =
+              accumulated_footer_size + slice_sz - kNumInternalBytes;
+          size_t right_sz = slice_sz - left_sz;
+          key_parts_with_ts.push_front(Slice(slice_data + left_sz, right_sz));
+          key_parts_with_ts.push_front(kTsMin);
+          key_parts_with_ts.push_front(Slice(slice_data, left_sz));
+          ts_added = true;
+        } else {
+          key_parts_with_ts.push_front(ikey_parts_without_ts[i - 1]);
+        }
+        accumulated_footer_size += slice_sz;
+      }
     }
-    SetKey(key_with_ts);
+    Slice new_key(SliceParts(&key_parts_with_ts.front(),
+                             static_cast<int>(key_parts_with_ts.size())),
+                  &key_with_ts);
+    SetKey(new_key);
   }
 
   Slice SetKey(const Slice& key, bool copy = true) {

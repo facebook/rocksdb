@@ -108,8 +108,10 @@ class BlockBuilder {
   // as the `first_internal_key` in an `IndexValue` for an index block, the
   // value part for a range deletion entry, their timestamp should be stripped
   // before calling `BlockBuilder::Add`.
-  // Timestamp stripping doesn't apply to meta block, as the key it contains are
-  // not real user keys, but property names.
+  // Timestamp stripping only applies to data block and index blocks including
+  // index block for data blocks, index block for partitioned filter blocks,
+  // index block for partitioned index blocks. In summary, this only applies to
+  // block whose key are real user keys or internal keys created from user keys.
   const bool is_user_key_;
 
   std::string buffer_;              // Destination buffer
