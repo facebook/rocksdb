@@ -981,9 +981,10 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
   CompressedSecCacheTestWithTiered() {
     LRUCacheOptions lru_opts;
     TieredVolatileCacheOptions opts;
-    lru_opts.capacity = 10 << 20;
-    opts.cache = NewLRUCache(lru_opts);
-    opts.comp_cache_opts.capacity = 5 << 20;
+    lru_opts.capacity = 70 << 20;
+    opts.cache_opts = &lru_opts;
+    opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+    opts.comp_cache_opts.capacity = 30 << 20;
     cache_ = NewTieredVolatileCache(opts);
     cache_res_mgr_ =
         std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
@@ -1011,19 +1012,45 @@ TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
-  EXPECT_LE(GetCache()->GetUsage(), (5 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (5 << 20) * 0.99);
+  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 
-  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(2 << 20));
-  EXPECT_LE(GetCache()->GetUsage(), (6 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (6 << 20) * 0.99);
-  EXPECT_LE(sec_cache->TEST_GetUsage(), (1 << 20) * 1.01);
-  EXPECT_GE(sec_cache->TEST_GetUsage(), (1 << 20) * 0.99);
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
+  EXPECT_LE(GetCache()->GetUsage(), (37 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (37 << 20) * 0.99);
+  EXPECT_LE(sec_cache->TEST_GetUsage(), (3 << 20) * 1.01);
+  EXPECT_GE(sec_cache->TEST_GetUsage(), (3 << 20) * 0.99);
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
-  EXPECT_LE(GetCache()->GetUsage(), (5 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (5 << 20) * 0.99);
+  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+}
+
+TEST_F(CompressedSecCacheTestWithTiered,
+       CacheReservationManagerMultipleUpdate) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+
+  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+
+  int i;
+  for (i = 0; i < 10; ++i) {
+    ASSERT_OK(cache_res_mgr()->UpdateCacheReservation((1 + i) << 20));
+  }
+  EXPECT_LE(GetCache()->GetUsage(), (37 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (37 << 20) * 0.99);
+  EXPECT_LE(sec_cache->TEST_GetUsage(), (3 << 20) * 1.01);
+  EXPECT_GE(sec_cache->TEST_GetUsage(), (3 << 20) * 0.99);
+
+  for (i = 10; i > 0; --i) {
+    ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(((i - 1) << 20)));
+  }
+  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
+  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 

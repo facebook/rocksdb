@@ -389,14 +389,26 @@ const char* CacheWithSecondaryAdapter::Name() const {
 
 std::shared_ptr<Cache> NewTieredVolatileCache(
     TieredVolatileCacheOptions& opts) {
-  if (!opts.cache) {
+  if (!opts.cache_opts) {
     return nullptr;
   }
 
+  std::shared_ptr<Cache> cache;
+  if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
+    LRUCacheOptions cache_opts =
+        *(static_cast<LRUCacheOptions*>(opts.cache_opts));
+    cache_opts.capacity += opts.comp_cache_opts.capacity;
+    cache = cache_opts.MakeSharedCache();
+  } else if (opts.cache_type == PrimaryCacheType::kCacheTypeHCC) {
+    HyperClockCacheOptions cache_opts =
+        *(static_cast<HyperClockCacheOptions*>(opts.cache_opts));
+    cache = cache_opts.MakeSharedCache();
+  } else {
+    return nullptr;
+  }
   std::shared_ptr<SecondaryCache> sec_cache;
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
 
-  return std::make_shared<CacheWithSecondaryAdapter>(opts.cache, sec_cache,
-                                                     true);
+  return std::make_shared<CacheWithSecondaryAdapter>(cache, sec_cache, true);
 }
 }  // namespace ROCKSDB_NAMESPACE

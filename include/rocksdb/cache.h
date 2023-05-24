@@ -440,11 +440,21 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
+enum PrimaryCacheType {
+  kCacheTypeLRU,  // LRU cache type
+  kCacheTypeHCC,  // Hyper Clock Cache type
+  kCacheTypeMax,
+};
+
 // A 2-tier cache with a primary block cache, and a compressed secondary
-// cache. The caller should allocate the primary block cache, with a capacity
-// equal to the total cache memory budget, i.e uncompressed and compressed
+// cache. The returned cache instance will internally allocate a primary
+// uncompressed cache of the specified type, and a compressed secondary
+// cache. Any cache memory reservations, such as WriteBufferManager
+// allocations costed to the block cache, will be distributed
+// proportionally across both the primary and secondary.
 struct TieredVolatileCacheOptions {
-  std::shared_ptr<Cache> cache;
+  ShardedCacheOptions* cache_opts;
+  PrimaryCacheType cache_type;
   CompressedSecondaryCacheOptions comp_cache_opts;
 };
 
