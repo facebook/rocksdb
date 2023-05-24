@@ -528,23 +528,23 @@ class IterKey {
     std::string key_with_ts;
     std::deque<Slice> key_parts_with_ts;
     if (IsUserKey()) {
-      key_parts_with_ts.push_back(Slice(key_, shared_len));
-      key_parts_with_ts.push_back(Slice(non_shared_data, non_shared_len));
-      key_parts_with_ts.push_back(kTsMin);
+      key_parts_with_ts.emplace_back(key_, shared_len);
+      key_parts_with_ts.emplace_back(non_shared_data, non_shared_len);
+      key_parts_with_ts.emplace_back(kTsMin);
     } else {
       std::vector<Slice> ikey_parts_without_ts;
       // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
       size_t sharable_user_key_len = key_size_ - kNumInternalBytes - ts_sz;
       size_t shared_user_key_len = std::min(shared_len, sharable_user_key_len);
-      ikey_parts_without_ts.push_back(Slice(key_, shared_user_key_len));
+      ikey_parts_without_ts.emplace_back(key_, shared_user_key_len);
       // Some shared bytes come from the last few internal bytes.
       if (shared_len > sharable_user_key_len) {
         size_t shared_internal_bytes_len = shared_len - sharable_user_key_len;
         size_t user_key_len = key_size_ - kNumInternalBytes;
-        ikey_parts_without_ts.push_back(
-            Slice(key_ + user_key_len, shared_internal_bytes_len));
+        ikey_parts_without_ts.emplace_back(key_ + user_key_len,
+                                           shared_internal_bytes_len);
       }
-      ikey_parts_without_ts.push_back(Slice(non_shared_data, non_shared_len));
+      ikey_parts_without_ts.emplace_back(non_shared_data, non_shared_len);
 
       // Find the right location to add the min timestamp Slice.
       size_t accumulated_footer_size = 0;
@@ -557,9 +557,9 @@ class IterKey {
           size_t left_sz =
               accumulated_footer_size + slice_sz - kNumInternalBytes;
           size_t right_sz = slice_sz - left_sz;
-          key_parts_with_ts.push_front(Slice(slice_data + left_sz, right_sz));
-          key_parts_with_ts.push_front(kTsMin);
-          key_parts_with_ts.push_front(Slice(slice_data, left_sz));
+          key_parts_with_ts.emplace_front(slice_data + left_sz, right_sz);
+          key_parts_with_ts.emplace_front(kTsMin);
+          key_parts_with_ts.emplace_front(slice_data, left_sz);
           ts_added = true;
         } else {
           key_parts_with_ts.push_front(ikey_parts_without_ts[i - 1]);
