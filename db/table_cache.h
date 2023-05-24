@@ -275,7 +275,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;
-  Striped<port::Mutex, Slice> loader_mutex_;
+  Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
 };

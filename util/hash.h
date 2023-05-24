@@ -128,10 +128,14 @@ inline uint32_t Upper32of64(uint64_t v) {
 }
 inline uint32_t Lower32of64(uint64_t v) { return static_cast<uint32_t>(v); }
 
-// std::hash compatible interface.
-// TODO: consider rename to SliceHasher32
-struct SliceHasher {
+// std::hash-like interface.
+struct SliceHasher32 {
   uint32_t operator()(const Slice& s) const { return GetSliceHash(s); }
+};
+struct SliceNPHasher64 {
+  uint64_t operator()(const Slice& s, uint64_t seed = 0) const {
+    return GetSliceNPHash64(s, seed);
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE
