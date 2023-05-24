@@ -3323,7 +3323,7 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
   ASSERT_EQ("2", FilesPerLevel());
   // There has been no compaction. Only flushes from memtable.
   ASSERT_EQ(0, compaction_finished);
@@ -3377,7 +3377,7 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseBeforeWaiting) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
   // Pause the background jobs.
   ASSERT_OK(dbfull()->PauseBackgroundWork());
@@ -3416,7 +3416,7 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseWhileWaiting) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"CompactionJob::Run():Start",
@@ -3464,7 +3464,7 @@ TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNoAbort) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"CompactionJob::Run():Start",
@@ -5281,7 +5281,9 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     if (i == 0) {
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
     } else {
-      ASSERT_NOK(dbfull()->TEST_WaitForCompact());
+      Status s = dbfull()->TEST_WaitForCompact();
+      ASSERT_NOK(s);
+      ASSERT_TRUE(s.IsShutdownInProgress());
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }

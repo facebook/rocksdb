@@ -1018,6 +1018,7 @@ class DBTestBase : public testing::Test {
   Options last_options_;
 
   TransactionDB* transaction_db_;
+  TransactionDBOptions txn_db_options_;
 
   // Skip some options, as they may not be applicable to a specific test.
   // To add more skip constants, use values 4, 8, 16, etc.

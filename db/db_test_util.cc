@@ -728,7 +728,6 @@ Status DBTestBase::TryReopenWithStackableTransactionDB(const Options& options) {
   std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
       kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
 
-  TransactionDBOptions txn_db_options;
   std::vector<size_t> compaction_enabled_cf_indices;
   DBOptions db_opts = DBOptions(options);
 
@@ -736,7 +735,7 @@ Status DBTestBase::TryReopenWithStackableTransactionDB(const Options& options) {
   TransactionDB::PrepareWrap(&db_opts, &column_families,
                              &compaction_enabled_cf_indices);
   StackableDB* stackable_db = new StackableDB(db_);
-  return TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+  return TransactionDB::WrapStackableDB(stackable_db, txn_db_options_,
                                         compaction_enabled_cf_indices, handles_,
                                         &transaction_db_);
 }
