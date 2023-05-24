@@ -2081,10 +2081,11 @@ struct LiveFilesStorageInfoOptions {
 };
 
 struct WaitForCompactOptions {
-  // If true and PauseBackgroundWork() is called before / while waiting,
-  // Status::Aborted will be returned immediately.
-  // Otherwise, WaitForCompact() may potentially wait for unscheduled jobs
-  // indefinitely
+  // A boolean to abort waiting in case of a pause (PauseBackgroundWork()
+  // called) If true, Status::Aborted will be returned immediately. If false,
+  // ContinueBackgroundWork() must be called to resume the background jobs.
+  // Otherwise, jobs that were queued, but not scheduled yet may never finish
+  // and WaitForCompact() may wait indefinitely.
   bool abort_on_pause = false;
 };
 

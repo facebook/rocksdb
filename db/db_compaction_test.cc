@@ -3300,6 +3300,7 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
 
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumFiles + 1;
+  options.max_background_compactions = 1;
 
   DestroyAndReopen(options);
 
@@ -3338,6 +3339,7 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
 
   // Before compaction job finishes, close the db.
   Close();
+  ASSERT_EQ(0, compaction_finished);
   TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish");
 
   // Reopen the db and we expect the compaction to be triggered.
@@ -3445,6 +3447,52 @@ TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
   WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
   waitForCompactOptions.abort_on_pause = false;
   ASSERT_OK(dbfull()->WaitForCompact(waitForCompactOptions));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, db shuts down (by calling
+  // CancelAllBackgroundWork()) Calling WaitForCompact should return
+  // Status::IsShutdownInProgress()
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionJob::Run():Start",
+        "DBCompactionTest::WaitForCompactShutdownWhileWaiting"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Now trigger L0 compaction by adding a file
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  // Shutdown before the compaction finishes
+  dbfull()->CancelAllBackgroundWork(false /* wait */);
+
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting");
+
+  Status s = dbfull()->WaitForCompact(WaitForCompactOptions());
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsShutdownInProgress());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
