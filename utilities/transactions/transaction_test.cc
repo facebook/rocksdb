@@ -2494,11 +2494,6 @@ TEST_P(TransactionTest, FlushTest2) {
 }
 
 TEST_P(TransactionTest, WaitForCompactAbortOnPause) {
-  // This test creates a scenario to trigger compaction by number of L0 files
-  // Before triggering the compaction, it pauses the compaction, then trigger
-  // compaction Calling WaitForCompact with option abort_on_pause=true should
-  // return Status::Aborted
-
   Status s = ReOpen();
   ASSERT_OK(s);
   assert(db != nullptr);
