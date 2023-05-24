@@ -1755,7 +1755,7 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
 
   MemTableSwitchRecord mem_switch_record;
   std::string replication_sequence;
-  if (immutable_db_options_.replication_log_listener) {
+  if (immutable_db_options_.replication_log_listener && !cfds.empty()) {
     mem_switch_record.next_log_num = versions_->NewFileNumber();
     replication_sequence = RecordMemTableSwitch(
         immutable_db_options_.replication_log_listener, mem_switch_record);
@@ -2048,7 +2048,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
 
   MemTableSwitchRecord mem_switch_record;
   std::string replication_sequence;
-  if (immutable_db_options_.replication_log_listener) {
+  if (immutable_db_options_.replication_log_listener && !cfds.empty()) {
     mem_switch_record.next_log_num = versions_->NewFileNumber();
     replication_sequence = RecordMemTableSwitch(
       immutable_db_options_.replication_log_listener,

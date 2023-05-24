@@ -1012,6 +1012,24 @@ TEST_F(ReplicationTest, AllowNewManifestWrite) {
   EXPECT_LT(followerMUS, leaderMUS);
 }
 
+// Memtable switch record won't be generated if all memtables are empty
+TEST_F(ReplicationTest, NoMemSwitchRecordIfEmpty) {
+  auto leader = openLeader();
+  openFollower();
+
+  auto cf = [](int i) { return "cf" + std::to_string(i); };
+
+  for (int i = 0; i < 10; ++i) {
+    createColumnFamily(cf(i));
+  }
+
+  EXPECT_GT(catchUpFollower(), 0);
+
+  ASSERT_OK(leader->Flush({}));
+  // no mem switch record
+  EXPECT_EQ(catchUpFollower(), 0);
+}
+
 TEST_F(ReplicationTest, Stress) {
   std::string val;
   auto leader = openLeader();
