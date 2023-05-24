@@ -39,7 +39,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"

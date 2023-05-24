@@ -2507,6 +2507,7 @@ TEST_P(TransactionTest, WaitForCompactAbortOnPause) {
   waitForCompactOptions.abort_on_pause = true;
   s = db->WaitForCompact(waitForCompactOptions);
   ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsNotSupported());
   ASSERT_TRUE(s.IsAborted());
 }
 
