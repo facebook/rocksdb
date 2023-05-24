@@ -1457,9 +1457,7 @@ class DB {
   // cease all the writes to DB to make this eventually return in a stable
   // state.
   virtual Status WaitForCompact(
-      const WaitForCompactOptions& /* wait_for_compact_options */) {
-    return Status::NotSupported("WaitForCompact Not implemented");
-  }
+      const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;

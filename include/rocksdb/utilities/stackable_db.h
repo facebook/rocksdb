@@ -347,6 +347,11 @@ class StackableDB : public DB {
     return db_->DisableManualCompaction();
   }
 
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override {
+    return db_->WaitForCompact(wait_for_compact_options);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);

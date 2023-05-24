@@ -20,7 +20,6 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/convenience.h"
-#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/concurrent_task_limiter_impl.h"
@@ -3367,21 +3366,7 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseBeforeWaiting) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumFiles + 1;
 
-  Destroy(options);
-
-  TransactionDB* transaction_db;
-  TransactionDBOptions txn_db_options;
-  std::vector<size_t> compaction_enabled_cf_indices;
-  std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
-      kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
-
-  ASSERT_OK(DB::Open(options, dbname_, column_families, &handles_, &db_));
-  TransactionDB::PrepareWrap(&options, &column_families,
-                             &compaction_enabled_cf_indices);
-  StackableDB* stackable_db = new StackableDB(db_);
-  ASSERT_OK(TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
-                                           compaction_enabled_cf_indices,
-                                           handles_, &transaction_db));
+  DestroyAndReopenWithStackableTransactionDB(options);
 
   // create the scenario where one more L0 file will trigger compaction
   Random rnd(301);
@@ -3403,7 +3388,7 @@ TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseBeforeWaiting) {
 
   WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
   waitForCompactOptions.abort_on_pause = true;
-  Status s = transaction_db->WaitForCompact(waitForCompactOptions);
+  Status s = transaction_db_->WaitForCompact(waitForCompactOptions);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsAborted());
 }

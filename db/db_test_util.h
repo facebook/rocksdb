@@ -39,6 +39,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
@@ -1016,6 +1017,8 @@ class DBTestBase : public testing::Test {
   int option_config_;
   Options last_options_;
 
+  TransactionDB* transaction_db_;
+
   // Skip some options, as they may not be applicable to a specific test.
   // To add more skip constants, use values 4, 8, 16, etc.
   enum OptionSkip {
@@ -1108,6 +1111,7 @@ class DBTestBase : public testing::Test {
                                      const Options& options);
 
   void Reopen(const Options& options);
+  void ReopenWithStackableTransactionDB(const Options& options);
 
   void Close();
 
@@ -1115,9 +1119,13 @@ class DBTestBase : public testing::Test {
 
   void Destroy(const Options& options, bool delete_cf_paths = false);
 
+  void DestroyAndReopenWithStackableTransactionDB(const Options& options);
+
   Status ReadOnlyReopen(const Options& options);
 
   Status TryReopen(const Options& options);
+
+  Status TryReopenWithStackableTransactionDB(const Options& options);
 
   bool IsDirectIOSupported();
 

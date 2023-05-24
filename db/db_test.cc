@@ -3264,6 +3264,11 @@ class ModelDB : public DB {
 
   void DisableManualCompaction() override { return; }
 
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) override {
+    return Status::OK();
+  }
+
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
 
