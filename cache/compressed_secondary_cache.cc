@@ -24,7 +24,9 @@ CompressedSecondaryCache::CompressedSecondaryCache(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))) {}
 
-CompressedSecondaryCache::~CompressedSecondaryCache() {}
+CompressedSecondaryCache::~CompressedSecondaryCache() {
+  assert(cache_res_mgr_->GetTotalReservedCacheSize() == 0);
+}
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CacheItemHelper* helper,

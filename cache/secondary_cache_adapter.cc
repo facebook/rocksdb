@@ -6,6 +6,7 @@
 #include "cache/secondary_cache_adapter.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,12 +47,20 @@ Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
 // a portion of it against the secondary cache, the secondary cache Deflate()
 // method is called to shrink it. Since the Deflate() causes the secondary
 // actual usage to shrink, it is refelcted here by releasing an equal amount
-// from the pri_cache_res_ reservation.
+// from the pri_cache_res_ reservation. The Deflate() in the secondary cache
+// can be, but is not required to be, implemented using its own cache
+// reservation manager.
 //
-// For example, if the pri/sec ratio is 50/50, this would be the state after
-// placeholder insertion -
+// For example, if the pri/sec ratio is 70/30, and the combined capacity is
+// 100MB, the intermediate and final  state after inserting a reservation
+// placeholder for 10MB would be as follows -
 //
-//   |-Reservation for Sec Cache-|-Pri Cache Usable Capacity-|-R-|
+//   |-Reservation for Sec Cache-|-Pri Cache Usable Capacity-|---R---|
+// 1. After inserting the placeholder in primary
+//   |-------  30MB -------------|------- 60MB -------------|-10MB--|
+// 2. After deflating the secondary and adjusting the reservation for
+//    secondary against the primary
+//   |-------  27MB -------------|------- 63MB -------------|-10MB--|
 //
 // Likewise, when the user inserted placeholder is released, the secondary
 // cache Inflate() method is called to grow it, and the pri_cache_res_
@@ -94,6 +103,12 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
   // `*this` will be destroyed before `*target_`, so we have to prevent
   // use after free
   target_->SetEvictionCallback({});
+#ifndef NDEBUG
+  size_t sec_capacity = 0;
+  Status s = secondary_cache_->GetCapacity(sec_capacity);
+  assert(s.ok());
+  assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+#endif  // NDEBUG
 }
 
 bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
@@ -396,12 +411,14 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
   std::shared_ptr<Cache> cache;
   if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
     LRUCacheOptions cache_opts =
-        *(static_cast<LRUCacheOptions*>(opts.cache_opts));
+        *(static_cast_with_check<LRUCacheOptions, ShardedCacheOptions>(
+            opts.cache_opts));
     cache_opts.capacity += opts.comp_cache_opts.capacity;
     cache = cache_opts.MakeSharedCache();
   } else if (opts.cache_type == PrimaryCacheType::kCacheTypeHCC) {
     HyperClockCacheOptions cache_opts =
-        *(static_cast<HyperClockCacheOptions*>(opts.cache_opts));
+        *(static_cast_with_check<HyperClockCacheOptions, ShardedCacheOptions>(
+            opts.cache_opts));
     cache = cache_opts.MakeSharedCache();
   } else {
     return nullptr;

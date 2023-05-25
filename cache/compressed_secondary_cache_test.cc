@@ -17,6 +17,7 @@
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -994,12 +995,14 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
   CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
 
   Cache* GetCache() {
-    return reinterpret_cast<CacheWithSecondaryAdapter*>(cache_.get())
+    return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
+               cache_.get())
         ->TEST_GetCache();
   }
 
   SecondaryCache* GetSecondaryCache() {
-    return reinterpret_cast<CacheWithSecondaryAdapter*>(cache_.get())
+    return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
+               cache_.get())
         ->TEST_GetSecondaryCache();
   }
 
@@ -1012,19 +1015,15 @@ TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
-  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
-  EXPECT_LE(GetCache()->GetUsage(), (37 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (37 << 20) * 0.99);
-  EXPECT_LE(sec_cache->TEST_GetUsage(), (3 << 20) * 1.01);
-  EXPECT_GE(sec_cache->TEST_GetUsage(), (3 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), (37 << 20) * 0.01);
+  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), (3 << 20) * 0.01);
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
-  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
@@ -1033,24 +1032,20 @@ TEST_F(CompressedSecCacheTestWithTiered,
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
-  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 
   int i;
   for (i = 0; i < 10; ++i) {
     ASSERT_OK(cache_res_mgr()->UpdateCacheReservation((1 + i) << 20));
   }
-  EXPECT_LE(GetCache()->GetUsage(), (37 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (37 << 20) * 0.99);
-  EXPECT_LE(sec_cache->TEST_GetUsage(), (3 << 20) * 1.01);
-  EXPECT_GE(sec_cache->TEST_GetUsage(), (3 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), (37 << 20) * 0.01);
+  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), (3 << 20) * 0.01);
 
   for (i = 10; i > 0; --i) {
     ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(((i - 1) << 20)));
   }
-  EXPECT_LE(GetCache()->GetUsage(), (30 << 20) * 1.01);
-  EXPECT_GE(GetCache()->GetUsage(), (30 << 20) * 0.99);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 

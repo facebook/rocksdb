@@ -199,6 +199,8 @@ struct ShardedCacheOptions {
         strict_capacity_limit(_strict_capacity_limit),
         memory_allocator(std::move(_memory_allocator)),
         metadata_charge_policy(_metadata_charge_policy) {}
+  // Make ShardedCacheOptions polymorphic
+  virtual ~ShardedCacheOptions() = default;
 };
 
 // LRUCache - A cache using LRU eviction to stay at or below a set capacity.
