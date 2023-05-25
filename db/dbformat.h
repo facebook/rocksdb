@@ -527,21 +527,22 @@ class IterKey {
     std::string key_with_ts;
     std::vector<Slice> key_parts_with_ts;
     if (IsUserKey()) {
-      key_parts_with_ts.reserve(3);
-      key_parts_with_ts.emplace_back(key_, shared_len);
-      key_parts_with_ts.emplace_back(non_shared_data, non_shared_len);
-      key_parts_with_ts.emplace_back(kTsMin);
+      key_parts_with_ts = {Slice(key_, shared_len),
+                           Slice(non_shared_data, non_shared_len),
+                           Slice(kTsMin)};
     } else {
       assert(shared_len + non_shared_len >= kNumInternalBytes);
       // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
+      // In naming below `*_len` variables, keyword `user_key` refers to the
+      // user key part of the existing key in `key_` as apposed to the new key.
+      // Similary, `internal_bytes` refers to the footer part of the existing
+      // key. These bytes potentially will move between user key part and the
+      // footer part in the new key.
       const size_t user_key_len = key_size_ - kNumInternalBytes;
       const size_t sharable_user_key_len = user_key_len - ts_sz;
       const size_t shared_user_key_len =
           std::min(shared_len, sharable_user_key_len);
-      const size_t shared_internal_bytes_len =
-          shared_len > sharable_user_key_len
-              ? shared_len - sharable_user_key_len
-              : 0;
+      const size_t shared_internal_bytes_len = shared_len - shared_user_key_len;
 
       // One Slice among the three Slices will get split into two Slices, plus
       // a timestamp slice.
