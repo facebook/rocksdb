@@ -10,7 +10,6 @@
 #pragma once
 #include <stdio.h>
 
-#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
@@ -526,47 +525,46 @@ class IterKey {
                                const size_t ts_sz) {
     std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
     std::string key_with_ts;
-    std::deque<Slice> key_parts_with_ts;
+    std::vector<Slice> key_parts_with_ts;
     if (IsUserKey()) {
+      key_parts_with_ts.reserve(3);
       key_parts_with_ts.emplace_back(key_, shared_len);
       key_parts_with_ts.emplace_back(non_shared_data, non_shared_len);
       key_parts_with_ts.emplace_back(kTsMin);
     } else {
-      std::vector<Slice> ikey_parts_without_ts;
+      assert(shared_len + non_shared_len >= kNumInternalBytes);
       // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
-      size_t sharable_user_key_len = key_size_ - kNumInternalBytes - ts_sz;
-      size_t shared_user_key_len = std::min(shared_len, sharable_user_key_len);
-      ikey_parts_without_ts.emplace_back(key_, shared_user_key_len);
-      // Some shared bytes come from the last few internal bytes.
-      if (shared_len > sharable_user_key_len) {
-        size_t shared_internal_bytes_len = shared_len - sharable_user_key_len;
-        size_t user_key_len = key_size_ - kNumInternalBytes;
-        ikey_parts_without_ts.emplace_back(key_ + user_key_len,
-                                           shared_internal_bytes_len);
-      }
-      ikey_parts_without_ts.emplace_back(non_shared_data, non_shared_len);
+      const size_t user_key_len = key_size_ - kNumInternalBytes;
+      const size_t sharable_user_key_len = user_key_len - ts_sz;
+      const size_t shared_user_key_len =
+          std::min(shared_len, sharable_user_key_len);
+      const size_t shared_internal_bytes_len =
+          shared_len > sharable_user_key_len
+              ? shared_len - sharable_user_key_len
+              : 0;
 
-      // Find the right location to add the min timestamp Slice.
-      size_t accumulated_footer_size = 0;
+      // One Slice among the three Slices will get split into two Slices, plus
+      // a timestamp slice.
+      key_parts_with_ts.reserve(5);
       bool ts_added = false;
-      for (size_t i = ikey_parts_without_ts.size(); i > 0; i--) {
-        const size_t slice_sz = ikey_parts_without_ts[i - 1].size();
-        if (accumulated_footer_size + slice_sz >= kNumInternalBytes &&
-            !ts_added) {
-          const char* slice_data = ikey_parts_without_ts[i - 1].data();
-          size_t left_sz =
-              accumulated_footer_size + slice_sz - kNumInternalBytes;
-          size_t right_sz = slice_sz - left_sz;
-          key_parts_with_ts.emplace_front(slice_data + left_sz, right_sz);
-          key_parts_with_ts.emplace_front(kTsMin);
-          key_parts_with_ts.emplace_front(slice_data, left_sz);
-          ts_added = true;
-        } else {
-          key_parts_with_ts.push_front(ikey_parts_without_ts[i - 1]);
-        }
-        accumulated_footer_size += slice_sz;
-      }
+      // Add slice parts and find the right location to add the min timestamp.
+      MaybeAddKeyPartsWithTimestamp(
+          key_, shared_user_key_len,
+          shared_internal_bytes_len + non_shared_len < kNumInternalBytes,
+          shared_len + non_shared_len - kNumInternalBytes, kTsMin,
+          key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(
+          key_ + user_key_len, shared_internal_bytes_len,
+          non_shared_len < kNumInternalBytes,
+          shared_internal_bytes_len + non_shared_len - kNumInternalBytes,
+          kTsMin, key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(non_shared_data, non_shared_len,
+                                    non_shared_len >= kNumInternalBytes,
+                                    non_shared_len - kNumInternalBytes, kTsMin,
+                                    key_parts_with_ts, &ts_added);
+      assert(ts_added);
     }
+
     Slice new_key(SliceParts(&key_parts_with_ts.front(),
                              static_cast<int>(key_parts_with_ts.size())),
                   &key_with_ts);
@@ -730,6 +728,23 @@ class IterKey {
   }
 
   void EnlargeBuffer(size_t key_size);
+
+  void MaybeAddKeyPartsWithTimestamp(const char* slice_data,
+                                     const size_t slice_sz, bool add_timestamp,
+                                     const size_t left_sz,
+                                     const std::string& min_timestamp,
+                                     std::vector<Slice>& key_parts,
+                                     bool* ts_added) {
+    if (add_timestamp && !*ts_added) {
+      assert(slice_sz >= left_sz);
+      key_parts.emplace_back(slice_data, left_sz);
+      key_parts.emplace_back(min_timestamp);
+      key_parts.emplace_back(slice_data + left_sz, slice_sz - left_sz);
+      *ts_added = true;
+    } else {
+      key_parts.emplace_back(slice_data, slice_sz);
+    }
+  }
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
