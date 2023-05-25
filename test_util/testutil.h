@@ -52,6 +52,22 @@ enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };
 extern std::string RandomKey(Random* rnd, int len,
                              RandomKeyType type = RandomKeyType::RANDOM);
 
+enum class UserDefinedTimestampTestMode {
+  // Test does not enable user-defined timestamp feature.
+  kNone,
+  // Test enables user-defined timestamp feature. Write/read with min timestamps
+  kNormal,
+  // Test enables user-defined timestamp feature. Write/read with min timestamps
+  // Set `persist_user_defined_timestamps` to false.
+  kStripUserDefinedTimestamp,
+};
+
+extern const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes();
+
+extern bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode);
+
+extern bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
+
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
 // the generated data.

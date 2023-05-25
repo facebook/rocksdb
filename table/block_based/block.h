@@ -188,6 +188,9 @@ class Block {
   // will not go away (for example, it's from mmapped file which will not be
   // closed).
   //
+  // `user_defined_timestamps_persisted` controls whether a min timestamp is
+  // padded while key is being parsed from the block.
+  //
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
@@ -195,7 +198,8 @@ class Block {
                                  SequenceNumber global_seqno,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr,
-                                 bool block_contents_pinned = false);
+                                 bool block_contents_pinned = false,
+                                 bool user_defined_timestamps_persisted = true);
 
   // Returns an MetaBlockIter for iterating over blocks containing metadata
   // (like Properties blocks).  Unlike data blocks, the keys for these blocks
@@ -227,13 +231,15 @@ class Block {
   // first_internal_key. It affects data serialization format, so the same value
   // have_first_key must be used when writing and reading index.
   // It is determined by IndexType property of the table.
-  IndexBlockIter* NewIndexIterator(const Comparator* raw_ucmp,
-                                   SequenceNumber global_seqno,
-                                   IndexBlockIter* iter, Statistics* stats,
-                                   bool total_order_seek, bool have_first_key,
-                                   bool key_includes_seq, bool value_is_full,
-                                   bool block_contents_pinned = false,
-                                   BlockPrefixIndex* prefix_index = nullptr);
+  // `user_defined_timestamps_persisted` controls whether a min timestamp is
+  // padded while key is being parsed from the block.
+  IndexBlockIter* NewIndexIterator(
+      const Comparator* raw_ucmp, SequenceNumber global_seqno,
+      IndexBlockIter* iter, Statistics* stats, bool total_order_seek,
+      bool have_first_key, bool key_includes_seq, bool value_is_full,
+      bool block_contents_pinned = false,
+      bool user_defined_timestamps_persisted = true,
+      BlockPrefixIndex* prefix_index = nullptr);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -440,6 +446,19 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Key to be exposed to users.
   Slice key_;
   SequenceNumber global_seqno_;
+  // Size of the user-defined timestamp.
+  size_t ts_sz_ = 0;
+  // If user-defined timestamp is enabled but not persisted. A min timestamp
+  // will be padded to the key during key parsing where it applies. Such as when
+  // parsing keys from data block, index block, parsing the first internal
+  // key from IndexValue entry. Min timestamp padding is different for when
+  // `raw_key_` is a user key vs is an internal key.
+  //
+  // This only applies to data block and index blocks including index block for
+  // data blocks, index block for partitioned filter blocks, index block for
+  // partitioned index blocks. In summary, this only applies to block whose key
+  // are real user keys or internal keys created from user keys.
+  bool pad_min_timestamp_;
 
   // Per key-value checksum related states
   const char* kv_checksum_;
@@ -505,6 +524,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   void InitializeBase(const Comparator* raw_ucmp, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
                       SequenceNumber global_seqno, bool block_contents_pinned,
+                      bool user_defined_timestamp_persisted,
+
                       uint8_t protection_bytes_per_key, const char* kv_checksum,
                       uint32_t block_restart_interval) {
     assert(data_ == nullptr);  // Ensure it is called only once
@@ -517,6 +538,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
     current_ = restarts_;
     restart_index_ = num_restarts_;
     global_seqno_ = global_seqno;
+    if (raw_ucmp != nullptr) {
+      ts_sz_ = raw_ucmp->timestamp_size();
+    }
+    pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted;
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
     cur_entry_idx_ = -1;
@@ -546,6 +571,20 @@ class BlockIter : public InternalIteratorBase<TValue> {
     error_msg.append(" Offset: " + std::to_string(current_) + ".");
     error_msg.append(" Entry index: " + std::to_string(cur_entry_idx_) + ".");
     CorruptionError(error_msg);
+  }
+
+  void UpdateRawKeyAndMaybePadMinTimestamp(const Slice& key) {
+    if (pad_min_timestamp_) {
+      std::string buf;
+      if (raw_key_.IsUserKey()) {
+        AppendKeyWithMinTimestamp(&buf, key, ts_sz_);
+      } else {
+        PadInternalKeyWithMinTimestamp(&buf, key, ts_sz_);
+      }
+      raw_key_.SetKey(buf, true /* copy */);
+    } else {
+      raw_key_.SetKey(key, false /* copy */);
+    }
   }
 
   // Must be called every time a key is found that needs to be returned to user,
@@ -658,11 +697,13 @@ class DataBlockIter final : public BlockIter<Slice> {
                   SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
+                  bool user_defined_timestamps_persisted,
                   DataBlockHashIndex* data_block_hash_index,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
                   uint32_t block_restart_interval) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
-                   block_contents_pinned, protection_bytes_per_key, kv_checksum,
+                   block_contents_pinned, user_defined_timestamps_persisted,
+                   protection_bytes_per_key, kv_checksum,
                    block_restart_interval);
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
@@ -763,6 +804,7 @@ class MetaBlockIter final : public BlockIter<Slice> {
     // the raw key being a user key.
     InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
+                   /* user_defined_timestamps_persisted */ true,
                    protection_bytes_per_key, kv_checksum,
                    block_restart_interval);
     raw_key_.SetIsUserKey(true);
@@ -800,12 +842,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
                   SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
                   bool have_first_key, bool key_includes_seq,
                   bool value_is_full, bool block_contents_pinned,
+                  bool user_defined_timestamps_persisted,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
                   uint32_t block_restart_interval) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
-                   protection_bytes_per_key, kv_checksum,
-                   block_restart_interval);
+                   user_defined_timestamps_persisted, protection_bytes_per_key,
+                   kv_checksum, block_restart_interval);
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
@@ -824,7 +867,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   IndexValue value() const override {
     assert(Valid());
-    if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
+    if (value_delta_encoded_ || global_seqno_state_ != nullptr ||
+        pad_min_timestamp_) {
       return decoded_value_;
     } else {
       IndexValue entry;
@@ -898,6 +942,10 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   };
 
   std::unique_ptr<GlobalSeqnoState> global_seqno_state_;
+
+  // Buffers the `first_internal_key` referred by `decoded_value_` when
+  // `pad_min_timestamp_` is true.
+  std::string first_internal_key_with_ts_;
 
   // Set *prefix_may_exist to false if no key possibly share the same prefix
   // as `target`. If not set, the result position should be the same as total

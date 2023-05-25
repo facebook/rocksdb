@@ -195,6 +195,18 @@ extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
 extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                           size_t ts_sz);
 
+// `key` is an internal key containing a user key without timestamp. Create a
+// new key in *result by padding a min timestamp of size `ts_sz` to the user key
+// and copying the remaining internal key bytes.
+extern void PadInternalKeyWithMinTimestamp(std::string* result,
+                                           const Slice& key, size_t ts_sz);
+
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result by stripping the timestamp from
+// the user key and copying the remaining internal key bytes.
+extern void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                          size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
@@ -504,6 +516,62 @@ class IterKey {
     key_size_ = total_size;
   }
 
+  // A version of `TrimAppend` assuming the last bytes of length `ts_sz` in the
+  // user key part of `key_` is not counted towards shared bytes. And the
+  // decoded key needed a min timestamp of length `ts_sz` pad to the user key.
+  void TrimAppendWithTimestamp(const size_t shared_len,
+                               const char* non_shared_data,
+                               const size_t non_shared_len,
+                               const size_t ts_sz) {
+    std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
+    std::string key_with_ts;
+    std::vector<Slice> key_parts_with_ts;
+    if (IsUserKey()) {
+      key_parts_with_ts = {Slice(key_, shared_len),
+                           Slice(non_shared_data, non_shared_len),
+                           Slice(kTsMin)};
+    } else {
+      assert(shared_len + non_shared_len >= kNumInternalBytes);
+      // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
+      // In naming below `*_len` variables, keyword `user_key` refers to the
+      // user key part of the existing key in `key_` as apposed to the new key.
+      // Similary, `internal_bytes` refers to the footer part of the existing
+      // key. These bytes potentially will move between user key part and the
+      // footer part in the new key.
+      const size_t user_key_len = key_size_ - kNumInternalBytes;
+      const size_t sharable_user_key_len = user_key_len - ts_sz;
+      const size_t shared_user_key_len =
+          std::min(shared_len, sharable_user_key_len);
+      const size_t shared_internal_bytes_len = shared_len - shared_user_key_len;
+
+      // One Slice among the three Slices will get split into two Slices, plus
+      // a timestamp slice.
+      key_parts_with_ts.reserve(5);
+      bool ts_added = false;
+      // Add slice parts and find the right location to add the min timestamp.
+      MaybeAddKeyPartsWithTimestamp(
+          key_, shared_user_key_len,
+          shared_internal_bytes_len + non_shared_len < kNumInternalBytes,
+          shared_len + non_shared_len - kNumInternalBytes, kTsMin,
+          key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(
+          key_ + user_key_len, shared_internal_bytes_len,
+          non_shared_len < kNumInternalBytes,
+          shared_internal_bytes_len + non_shared_len - kNumInternalBytes,
+          kTsMin, key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(non_shared_data, non_shared_len,
+                                    non_shared_len >= kNumInternalBytes,
+                                    non_shared_len - kNumInternalBytes, kTsMin,
+                                    key_parts_with_ts, &ts_added);
+      assert(ts_added);
+    }
+
+    Slice new_key(SliceParts(&key_parts_with_ts.front(),
+                             static_cast<int>(key_parts_with_ts.size())),
+                  &key_with_ts);
+    SetKey(new_key);
+  }
+
   Slice SetKey(const Slice& key, bool copy = true) {
     // is_user_key_ expected to be set already via SetIsUserKey
     return SetKeyImpl(key, copy);
@@ -661,6 +729,23 @@ class IterKey {
   }
 
   void EnlargeBuffer(size_t key_size);
+
+  void MaybeAddKeyPartsWithTimestamp(const char* slice_data,
+                                     const size_t slice_sz, bool add_timestamp,
+                                     const size_t left_sz,
+                                     const std::string& min_timestamp,
+                                     std::vector<Slice>& key_parts,
+                                     bool* ts_added) {
+    if (add_timestamp && !*ts_added) {
+      assert(slice_sz >= left_sz);
+      key_parts.emplace_back(slice_data, left_sz);
+      key_parts.emplace_back(min_timestamp);
+      key_parts.emplace_back(slice_data + left_sz, slice_sz - left_sz);
+      *ts_added = true;
+    } else {
+      key_parts.emplace_back(slice_data, slice_sz);
+    }
+  }
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
