@@ -2612,6 +2612,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule",
+        &unscheduled_flushes_);
     bg_flush_scheduled_++;
     FlushThreadArg* fta = new FlushThreadArg;
     fta->db_ = this;

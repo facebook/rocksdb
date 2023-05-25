@@ -3303,17 +3303,6 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
 
   DestroyAndReopen(options);
 
-  int compaction_finished = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():EndStatusSet", [&](void* arg) {
-        auto status = static_cast<Status*>(arg);
-        if (status->ok()) {
-          compaction_finished++;
-        }
-      });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   // create the scenario where one more L0 file will trigger compaction
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -3325,11 +3314,33 @@ TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
   ASSERT_EQ("2", FilesPerLevel());
-  ASSERT_EQ(0, compaction_finished);
+
+  int compaction_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():EndStatusSet", [&](void* arg) {
+        auto status = static_cast<Status*>(arg);
+        if (status->ok()) {
+          compaction_finished++;
+        }
+      });
+  // To make sure there's a flush/compaction debt
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule", [&](void* arg) {
+        auto unscheduled_flushes = *static_cast<int*>(arg);
+        ASSERT_GT(unscheduled_flushes, 0);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish",
+        "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // create compaction debt by adding one more L0 file then closing
   GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_EQ(0, compaction_finished);
   Close();
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish");
   ASSERT_EQ(0, compaction_finished);
 
   // Reopen the db and we expect the compaction to be triggered.
