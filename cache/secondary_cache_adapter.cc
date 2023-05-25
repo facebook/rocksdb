@@ -104,10 +104,12 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
   // use after free
   target_->SetEvictionCallback({});
 #ifndef NDEBUG
-  size_t sec_capacity = 0;
-  Status s = secondary_cache_->GetCapacity(sec_capacity);
-  assert(s.ok());
-  assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+  if (distribute_cache_res_) {
+    size_t sec_capacity = 0;
+    Status s = secondary_cache_->GetCapacity(sec_capacity);
+    assert(s.ok());
+    assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+  }
 #endif  // NDEBUG
 }
 
