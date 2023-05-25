@@ -3429,7 +3429,7 @@ TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
   ASSERT_OK(dbfull()->ContinueBackgroundWork());
 
   WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
-  waitForCompactOptions.abort_on_pause = false;
+  waitForCompactOptions.abort_on_pause = true;
   ASSERT_OK(dbfull()->WaitForCompact(waitForCompactOptions));
 }
 
@@ -3458,23 +3458,34 @@ TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTest::WaitForCompactShutdownWhileWaiting",
-        "CompactionJob::Run():Start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run():Start",
+       "DBCompactionTest::WaitForCompactShutdownWhileWaiting:0"},
+      {"DBImpl::WaitForCompact:Start",
+       "DBCompactionTest::WaitForCompactShutdownWhileWaiting:1"},
+      {"DBImpl::~DBImpl:WaitJob", "CompactionJob::Run():End"},
+  });
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Now trigger L0 compaction by adding a file
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(Flush());
+  // Wait for compaction to start
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting:0");
 
-  // Shutdown before the compaction finishes
-  dbfull()->CancelAllBackgroundWork(false /* wait */);
+  // Wait for Compaction in another thread
+  auto waiting_for_compaction_thread = port::Thread([this]() {
+    Status s = dbfull()->WaitForCompact(WaitForCompactOptions());
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsShutdownInProgress());
+  });
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting:1");
+  // Shutdown after wait started, but before the compaction finishes
+  auto closing_thread = port::Thread([this]() { Close(); });
 
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting");
-
-  Status s = dbfull()->WaitForCompact(WaitForCompactOptions());
-  ASSERT_NOK(s);
-  ASSERT_TRUE(s.IsShutdownInProgress());
+  waiting_for_compaction_thread.join();
+  closing_thread.join();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }

@@ -3963,6 +3963,7 @@ void DBImpl::GetSnapshotContext(
 Status DBImpl::WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:Start");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
