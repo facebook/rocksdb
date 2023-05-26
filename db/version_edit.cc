@@ -93,7 +93,8 @@ void VersionEdit::Clear() {
   full_history_ts_low_.clear();
 }
 
-bool VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst,
+                           std::optional<size_t> ts_sz) const {
   if (has_db_id_) {
     PutVarint32(dst, kDbId);
     PutLengthPrefixedSlice(dst, db_id_);
@@ -133,6 +134,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   bool min_log_num_written = false;
+
+  assert(new_files_.empty() || ts_sz.has_value());
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
     if (!f.smallest.Valid() || !f.largest.Valid() ||
@@ -142,8 +145,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kNewFile4);
     PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
     PutVarint64(dst, f.fd.GetFileSize());
-    PutLengthPrefixedSlice(dst, f.smallest.Encode());
-    PutLengthPrefixedSlice(dst, f.largest.Encode());
+    EncodeFileBoundaries(dst, f, ts_sz.value());
     PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
     // Customized fields' format:
     // +-----------------------------+

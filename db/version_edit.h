@@ -9,6 +9,7 @@
 
 #pragma once
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -489,6 +490,8 @@ class VersionEdit {
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
+  NewFiles& GetMutableNewFiles() { return new_files_; };
+
   // Retrieve all the compact cursors
   using CompactCursors = std::vector<std::pair<int, InternalKey>>;
   const CompactCursors& GetCompactCursors() const { return compact_cursors_; }
@@ -639,7 +642,17 @@ class VersionEdit {
   }
 
   // return true on success.
-  bool EncodeTo(std::string* dst) const;
+  // `ts_sz` is the size in bytes for the user-defined timestamp contained in
+  // a user key. This argument is optional because it's only required for
+  // encoding a `VersionEdit` with new SST files to add. It's used to handle the
+  // file boundaries: `smallest`, `largest` when
+  // `FileMetaData.user_defined_timestamps_persisted` is false. When reading
+  // the Manifest file, a mirroring change needed to handle
+  // file boundaries are not added to the `VersionEdit.DecodeFrom` function
+  // because timestamp size is not available at `VersionEdit` decoding time,
+  // it's instead added to `VersionEditHandler::OnNonCfOperation`.
+  bool EncodeTo(std::string* dst,
+                std::optional<size_t> ts_sz = std::nullopt) const;
   Status DecodeFrom(const Slice& src);
 
   std::string DebugString(bool hex_key = false) const;
@@ -659,6 +672,22 @@ class VersionEdit {
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   const char* DecodeNewFile4From(Slice* input);
+
+  void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
+                            size_t ts_sz) const {
+    if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
+      PutLengthPrefixedSlice(dst, meta.smallest.Encode());
+      PutLengthPrefixedSlice(dst, meta.largest.Encode());
+      return;
+    }
+    std::string smallest_buf;
+    std::string largest_buf;
+    StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
+    StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
+    PutLengthPrefixedSlice(dst, smallest_buf);
+    PutLengthPrefixedSlice(dst, largest_buf);
+    return;
+  };
 
   int max_level_ = 0;
   std::string db_id_;
