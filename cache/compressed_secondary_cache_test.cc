@@ -1008,7 +1008,7 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
   }
 
   size_t GetPercent(size_t val, unsigned int percent) {
-    return (val * percent / 100);
+    return (static_cast<double>(val) * percent / 100);
   }
 
  private:
