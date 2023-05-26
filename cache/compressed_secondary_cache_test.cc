@@ -992,6 +992,7 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
             cache_);
   }
 
+ protected:
   CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
 
   Cache* GetCache() {
@@ -1006,6 +1007,10 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
         ->TEST_GetSecondaryCache();
   }
 
+  size_t GetPercent(size_t val, double percent) {
+    return static_cast<double>(val) * percent;
+  }
+
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;
@@ -1015,15 +1020,15 @@ TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
-  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), GetPercent(30 << 20, 0.01));
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
-  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), (37 << 20) * 0.01);
-  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), (3 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), GetPercent(37 << 20, 0.01));
+  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), GetPercent(3 << 20, 0.01));
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
-  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), GetPercent(30 << 20, 0.01));
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
@@ -1032,20 +1037,20 @@ TEST_F(CompressedSecCacheTestWithTiered,
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
-  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), GetPercent(30 << 20, 0.01));
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 
   int i;
   for (i = 0; i < 10; ++i) {
     ASSERT_OK(cache_res_mgr()->UpdateCacheReservation((1 + i) << 20));
   }
-  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), (37 << 20) * 0.01);
-  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), (3 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (37 << 20), GetPercent(37 << 20, 0.01));
+  EXPECT_NEAR(sec_cache->TEST_GetUsage(), (3 << 20), GetPercent(3 << 20, 0.01));
 
   for (i = 10; i > 0; --i) {
     ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(((i - 1) << 20)));
   }
-  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), (30 << 20) * 0.01);
+  EXPECT_NEAR(GetCache()->GetUsage(), (30 << 20), GetPercent(30 << 20, 0.01));
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
