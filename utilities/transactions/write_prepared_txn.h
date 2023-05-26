@@ -86,6 +86,10 @@ class WritePreparedTxn : public PessimisticTransaction {
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
 
+  using Transaction::GetImpl;
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value) override;
+
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;

@@ -585,7 +585,6 @@ class NonBatchedOpsStressTest : public StressTest {
     bool do_consistency_check = thread->rand.OneIn(4);
 
     ReadOptions readoptionscopy = read_opts;
-    readoptionscopy.io_activity = Env::IOActivity::kMultiGet;
 
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
@@ -780,9 +779,17 @@ class NonBatchedOpsStressTest : public StressTest {
 
         if (use_txn) {
           assert(txn);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         } else {
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         }
         if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());

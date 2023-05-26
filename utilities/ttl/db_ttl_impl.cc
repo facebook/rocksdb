@@ -596,6 +596,12 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
 Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
+  if (opts.io_activity != Env::IOActivity::kUnknown &&
+      opts.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
   ReadOptions complete_read_options(opts);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;

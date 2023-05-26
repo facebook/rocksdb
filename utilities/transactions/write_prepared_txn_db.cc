@@ -250,14 +250,26 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kGet;
   }
 
+  return GetImpl(complete_read_options, column_family, key, value);
+}
+
+Status WritePreparedTxnDB::GetImpl(const ReadOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot = AssignMinMaxSeqs(
-      complete_read_options.snapshot, &min_uncommitted, &snap_seq);
+  const SnapshotBackup backed_by_snapshot =
+      AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
   bool* dont_care = nullptr;
@@ -266,7 +278,7 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   get_impl_options.value = value;
   get_impl_options.value_found = dont_care;
   get_impl_options.callback = &callback;
-  auto res = db_impl_->GetImpl(complete_read_options, key, get_impl_options);
+  auto res = db_impl_->GetImpl(options, key, get_impl_options);
   if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
                                                   backed_by_snapshot))) {
     return res;
@@ -318,18 +330,31 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   assert(values);
+  size_t num_keys = keys.size();
+  std::vector<Status> stat_list(num_keys);
+
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      stat_list[i] = s;
+    }
+    return stat_list;
+  }
+
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
-  size_t num_keys = keys.size();
   values->resize(num_keys);
 
-  std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = this->Get(complete_read_options, column_family[i], keys[i],
-                             &(*values)[i]);
+    stat_list[i] = this->GetImpl(complete_read_options, column_family[i],
+                                 keys[i], &(*values)[i]);
   }
   return stat_list;
 }
@@ -354,6 +379,12 @@ static void CleanupWritePreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;
@@ -393,6 +424,13 @@ Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kDBIterator) {
+    return Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+  }
+
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;

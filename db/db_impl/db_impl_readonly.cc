@@ -40,6 +40,12 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* pinnable_val,
                            std::string* timestamp) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
   ReadOptions complete_read_options(read_options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kGet;
@@ -119,6 +125,12 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
   ReadOptions complete_read_options(read_options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;

@@ -211,6 +211,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   friend class WriteUnpreparedTxnDB;
 
   const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
+  using Transaction::GetImpl;
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value) override;
+
   Status WriteRollbackKeys(const LockTracker& tracked_keys,
                            WriteBatchWithIndex* rollback_batch,
                            ReadCallback* callback, const ReadOptions& roptions);
@@ -336,4 +340,3 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -388,6 +388,13 @@ static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;

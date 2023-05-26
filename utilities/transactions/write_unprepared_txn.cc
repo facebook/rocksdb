@@ -948,6 +948,19 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
                                   const size_t num_keys, const Slice* keys,
                                   PinnableSlice* values, Status* statuses,
                                   const bool sorted_input) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kMultiGet;
@@ -972,17 +985,30 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
 Status WriteUnpreparedTxn::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kGet;
   }
+
+  return GetImpl(complete_read_options, column_family, key, value);
+}
+
+Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot = wupt_db_->AssignMinMaxSeqs(
-      complete_read_options.snapshot, &min_uncommitted, &snap_seq);
+  const SnapshotBackup backed_by_snapshot =
+      wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
                                           unprep_seqs_, backed_by_snapshot);
-  auto res = write_batch_.GetFromBatchAndDB(
-      db_, complete_read_options, column_family, key, value, &callback);
+  auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
+                                            value, &callback);
   if (LIKELY(callback.valid() &&
              wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;

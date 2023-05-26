@@ -1391,20 +1391,34 @@ std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
+  std::vector<Status> statuses;
+  std::size_t num_keys = keys.size();
+  statuses.reserve(num_keys);
+
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return statuses;
+  }
+
   ReadOptions complete_read_options(read_options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kMultiGet;
   }
   bool snapshot_created = SetSnapshotIfNeeded(&complete_read_options);
 
-  std::vector<Status> statuses;
-  statuses.reserve(keys.size());
   values->clear();
   values->reserve(keys.size());
   PinnableSlice value;
   for (size_t i = 0; i < keys.size(); i++) {
     statuses.push_back(
-        Get(complete_read_options, DefaultColumnFamily(), keys[i], &value));
+        GetImpl(complete_read_options, DefaultColumnFamily(), keys[i], &value));
     values->push_back(value.ToString());
     value.Reset();
   }
@@ -1616,21 +1630,35 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
-  return Get(read_options, column_family, key, value,
-             static_cast<uint64_t*>(nullptr) /*expiration*/);
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions complete_read_options(read_options);
+  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
+    complete_read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return GetImpl(complete_read_options, column_family, key, value);
 }
 
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value, uint64_t* expiration) {
-  StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
-  RecordTick(statistics_, BLOB_DB_NUM_GET);
-
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
   ReadOptions complete_read_options(read_options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kGet;
   }
 
+  StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
+  RecordTick(statistics_, BLOB_DB_NUM_GET);
   return GetImpl(complete_read_options, column_family, key, value, expiration);
 }
 
@@ -2046,6 +2074,12 @@ void BlobDBImpl::CopyBlobFiles(
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
   ReadOptions complete_read_options(read_options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kDBIterator;

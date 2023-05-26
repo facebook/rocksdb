@@ -46,6 +46,12 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value,
                             std::string* timestamp) {
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kGet;
@@ -111,12 +117,19 @@ std::vector<Status> CompactedDBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
   assert(user_comparator_);
+  size_t num_keys = keys.size();
+  if (options.io_activity != Env::IOActivity::kUnknown &&
+      options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    return std::vector<Status>(num_keys, s);
+  }
+
   ReadOptions complete_read_options(options);
   if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
     complete_read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-
-  size_t num_keys = keys.size();
 
   if (complete_read_options.timestamp) {
     Status s = FailIfTsMismatchCf(DefaultColumnFamily(),

@@ -260,6 +260,13 @@ class TransactionBaseImpl : public Transaction {
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, std::string* value) override;
+
+  virtual Status GetImpl(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value) override;
+
   // Add a key to the list of tracked keys.
   //
   // seqno is the earliest seqno this key was involved with this transaction.
@@ -379,4 +386,3 @@ class TransactionBaseImpl : public Transaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
