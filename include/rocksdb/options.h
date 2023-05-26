@@ -2080,4 +2080,13 @@ struct LiveFilesStorageInfoOptions {
   uint64_t wal_size_for_flush = 0;
 };
 
+struct WaitForCompactOptions {
+  // A boolean to abort waiting in case of a pause (PauseBackgroundWork()
+  // called) If true, Status::Aborted will be returned immediately. If false,
+  // ContinueBackgroundWork() must be called to resume the background jobs.
+  // Otherwise, jobs that were queued, but not scheduled yet may never finish
+  // and WaitForCompact() may wait indefinitely.
+  bool abort_on_pause = false;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

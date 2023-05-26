@@ -808,8 +808,8 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
-
   compact_->status = status;
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():EndStatusSet", &status);
   return status;
 }
 
