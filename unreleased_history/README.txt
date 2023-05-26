@@ -1,0 +1,63 @@
+Adding release notes
+--------------------
+
+When adding release notes for the next release, add a file to one of these
+directories:
+
+unreleased_history/new_features
+unreleased_history/behavior_changes
+unreleased_history/public_api_changes
+unreleased_history/bug_fixes
+
+with a unique name that makes sense for your or your change, preferably using
+the .md extension for syntax highlighting.
+
+For example:
+
+$ echo "Add a DB::HelloWorld() function." > unreleased_history/new_features/hello_world.md
+
+For HISTORY.md, "* " will automatically be inserted later if not included
+at the start of the first line in the file. Extra newlines or missing trailing
+newlines will also be corrected.
+
+The only times release notes should be added directly to HISTORY are if
+* A release is being amended or corrected after it is already "cut" but not
+tagged, which should be rare.
+* A single commit contains a noteworthy change and a patch release version bump
+
+
+Ordering of entries
+-------------------
+
+Within each group, entries will be included using ls sort order, so important
+entries could start their file name with a small three digit number like
+012really_important.md. 000 is reserved for the group header.
+
+The ordering of groups is hard-coded in build_tools/release_history.sh
+
+
+Updating HISTORY.md with release notes
+--------------------------------------
+
+The script build_tools/release_history.sh does this. Run the script before
+updating version.h to the next develpment release, so that the script will pick
+up the version being released. You might want to start with
+
+$ DRY_RUN=1 build_tools/release_history.sh | less
+
+to check for problems and preview the output. Then run
+
+$ build_tools/release_history.sh
+
+which is git rm some files and modify HISTORY.md. You still need to commit the
+changes, or revert with the command reported in the output.
+
+
+Why not update HISTORY.md directly?
+-----------------------------------
+
+First, it was common to hit unnecessary merge conflicts when adding entries to
+HISTORY.md, which slowed development. Second, when a PR was opened before a
+release cut and landed after the release cut, it was easy to add the HISTORY
+entry to the wrong version's history. This new setup completely fixes both of
+those issues, with perhaps slighly more initial work to create each entry.
