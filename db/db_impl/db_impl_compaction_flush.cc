@@ -3066,6 +3066,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
   }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallFlush:End", nullptr);
 }
 
 void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
@@ -3962,8 +3963,14 @@ void DBImpl::GetSnapshotContext(
 
 Status DBImpl::WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
+  if (wait_for_compact_options.flush) {
+    Status s = DBImpl::Flush(FlushOptions());
+    if (!s.ok()) {
+      return s;
+    }
+  }
   InstrumentedMutexLock l(&mutex_);
-  TEST_SYNC_POINT("DBImpl::WaitForCompact:Start");
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
