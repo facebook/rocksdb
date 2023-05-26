@@ -207,6 +207,12 @@ extern void PadInternalKeyWithMinTimestamp(std::string* result,
 extern void StripTimestampFromInternalKey(std::string* result, const Slice& key,
                                           size_t ts_sz);
 
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result while replace the original
+// timestamp with min timestamp.
+extern void ReplaceInternalKeyWithMinTimestamp(std::string* result,
+                                               const Slice& key, size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //

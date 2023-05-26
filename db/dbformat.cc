@@ -120,6 +120,16 @@ void StripTimestampFromInternalKey(std::string* result, const Slice& key,
                  kNumInternalBytes);
 }
 
+void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                        size_t ts_sz) {
+  const size_t key_sz = key.size();
+  assert(key_sz >= ts_sz + kNumInternalBytes);
+  result->reserve(key_sz);
+  result->append(key.data(), key_sz - kNumInternalBytes - ts_sz);
+  result->append(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data() + key_sz - kNumInternalBytes, kNumInternalBytes);
+}
+
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {

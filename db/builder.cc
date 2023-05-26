@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -205,21 +206,37 @@ Status BuildTable(
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
+    const size_t ts_sz = ucmp->timestamp_size();
+    const bool strip_timestamp =
+        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
+
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      // Generate a rolling 64-bit hash of the key and values
-      // Note :
-      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key, value);
+      std::string key_after_flush_buf;
+      Slice key_after_flush = key;
+      // If user defined timestamps will be stripped from user key after flush,
+      // the in memory version of the key act logically the same as one with a
+      // minimum timestamp. We update the timestamp here so file boundary and
+      // output validator, block builder all see the effect of the stripping.
+      if (strip_timestamp) {
+        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
+        key_after_flush = key_after_flush_buf;
+      }
+
+      //  Generate a rolling 64-bit hash of the key and values
+      //  Note :
+      //  Here "key" integrates 'sequence_number'+'kType'+'user key'.
+      s = output_validator.Add(key_after_flush, value);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key, value);
+      builder->Add(key_after_flush, value);
 
-      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      s = meta->UpdateBoundaries(key_after_flush, value, ikey.sequence,
+                                 ikey.type);
       if (!s.ok()) {
         break;
       }
@@ -244,6 +261,7 @@ Status BuildTable(
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
         auto kv = tombstone.Serialize();
+        // TODO(yuzhangyu): handle range deletion for UDT in memtables only.
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
@@ -306,12 +324,17 @@ Status BuildTable(
                                        total_tombstone_payload_bytes;
         uint64_t total_payload_bytes_written =
             (tp.raw_key_size + tp.raw_value_size);
+        // TODO(yuzhangyu): update this to include number of range delete
+        // entries.
+        uint64_t stripped_ts_bytes =
+            strip_timestamp ? ts_sz * tp.num_entries : 0;
         // Prevent underflow, which may still happen at this point
         // since we only support inserts, deletes, and deleteRanges.
         if (total_payload_bytes_written <= total_payload_bytes) {
           *memtable_payload_bytes = total_payload_bytes;
           *memtable_garbage_bytes =
-              total_payload_bytes - total_payload_bytes_written;
+              total_payload_bytes -
+              (total_payload_bytes_written + stripped_ts_bytes);
         } else {
           *memtable_payload_bytes = 0;
           *memtable_garbage_bytes = 0;
@@ -354,6 +377,8 @@ Status BuildTable(
       s = *io_status;
     }
 
+    // TODO(yuzhangyu): handle the key copy in the blob when ts should be
+    // stripped.
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();
