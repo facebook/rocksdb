@@ -7,9 +7,10 @@ if [ ! -d unreleased_history ]; then
   exit 1
 fi
 
+GIT_PATHS="unreleased_history/ HISTORY.md"
 if [ ! "$DRY_RUN" ]; then
   # Check for uncommitted changes
-  UNCOMMITTED="$(git diff -- unreleased_history/ HISTORY.md)"
+  UNCOMMITTED="$(git diff -- $GIT_PATHS)"
   if [ "$UNCOMMITTED" ]; then
     echo 'Uncommitted changes to files to be modified. Please commit first to'
     echo 'ensure a clean revert path. You can always `git commit -a --amend`'
@@ -87,5 +88,5 @@ if [ "$DRY_RUN" ]; then
   rm HISTORY.new
 else
   mv HISTORY.new HISTORY.md
-  echo 'Done. Revert command: git checkout HEAD -- unreleased_history/ HISTORY.md'
+  echo "Done. Revert command: git checkout HEAD -- $GIT_PATHS"
 fi

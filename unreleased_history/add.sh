@@ -15,7 +15,7 @@ else
   while [ ! "$DIRNUM" ]; do read -r DIRNUM; done
   DIR="$(echo "$DIRS" | head -n "$DIRNUM" | tail -1)"
   echo "Choose a file name for new release note (e.g. improved_whatever.md):"
-  while [ ! "$FNAME" ]; do read -r FNAME; done
+  while [ ! "$FNAME" ]; do read -re FNAME; done
   # Replace spaces with underscores
   TARGET="$(echo "$DIR/$FNAME" | tr ' ' '_')"
 fi
