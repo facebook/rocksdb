@@ -250,8 +250,8 @@ TEST_F(WriteBatchTest, SingleDeletion) {
 TEST_F(WriteBatchTest, OwnershipTransfer) {
   Random rnd(301);
   WriteBatch put_batch;
-  put_batch.Put(rnd.RandomString(16) /* key */,
-                rnd.RandomString(1024) /* value */);
+  ASSERT_OK(put_batch.Put(rnd.RandomString(16) /* key */,
+                          rnd.RandomString(1024) /* value */));
 
   // (1) Verify `Release()` transfers string data ownership
   const char* expected_data = put_batch.Data().data();
