@@ -428,10 +428,7 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
   message("Using an old CMAKE (${CMAKE_VERSION}) - JNI headers generated in separate step")
   add_jar(
       rocksdbjni_classes
-      SOURCES
-      ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      SOURCES ${JAVA_MAIN_CLASSES}
   )
 
 else ()
@@ -439,14 +436,18 @@ else ()
   message("Preparing Jar for JDK ${Java_VERSION_STRING}")
   add_jar(
       rocksdbjni_classes
-      SOURCES
-      ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      SOURCES ${JAVA_MAIN_CLASSES}
       GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
 
 endif()
+
+get_target_property(ROCKSDBJNI_CLASSES_JAR_FILE rocksdbjni_classes JAR_FILE)
+add_jar(
+    rocksdbjni_test_classes
+    SOURCES ${JAVA_TEST_CLASSES}
+    INCLUDE_JARS ${ROCKSDBJNI_CLASSES_JAR_FILE} ${JAVA_TESTCLASSPATH}
+)
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
   file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
