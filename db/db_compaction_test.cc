@@ -164,6 +164,30 @@ class DBCompactionWaitForCompactTest
   }
   bool abort_on_pause_;
   bool flush_;
+  Options options_;
+
+  void SetUp() override {
+    // This test sets up a scenario that one more L0 file will trigger a
+    // compaction
+    const int kNumKeysPerFile = 4;
+    const int kNumFiles = 2;
+
+    options_ = CurrentOptions();
+    options_.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+    DestroyAndReopen(options_);
+
+    Random rnd(301);
+    for (int i = 0; i < kNumFiles; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(
+            Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("2", FilesPerLevel());
+  }
 };
 
 // Param = true : target level is non-empty
@@ -3311,30 +3335,9 @@ INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
-  // This test creates a scenario to trigger compaction by number of L0 files
-  // Before the compaction finishes, it closes the DB
-  // Upon reopen, wait for the compaction to finish and checks for the number of
-  // compaction finished
-
-  const int kNumKeysPerFile = 4;
-  const int kNumFiles = 2;
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumFiles + 1;
-
-  DestroyAndReopen(options);
-
-  // create the scenario where one more L0 file will trigger compaction
-  Random rnd(301);
-  for (int i = 0; i < kNumFiles; ++i) {
-    for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
-  ASSERT_EQ("2", FilesPerLevel());
+  // Triggers a compaction. Before the compaction finishes, test
+  // closes the DB Upon reopen, wait for the compaction to finish and checks for
+  // the number of compaction finished
 
   int compaction_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -3358,6 +3361,7 @@ TEST_P(DBCompactionWaitForCompactTest,
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // create compaction debt by adding one more L0 file then closing
+  Random rnd(123);
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_EQ(0, compaction_finished);
   Close();
@@ -3365,7 +3369,7 @@ TEST_P(DBCompactionWaitForCompactTest,
   ASSERT_EQ(0, compaction_finished);
 
   // Reopen the db and we expect the compaction to be triggered.
-  Reopen(options);
+  Reopen(options_);
 
   // Wait for compaction to finish
   WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
@@ -3379,31 +3383,13 @@ TEST_P(DBCompactionWaitForCompactTest,
 }
 
 TEST_P(DBCompactionWaitForCompactTest, WaitForCompactAbortOnPause) {
-  // This test creates a scenario to trigger compaction by number of L0 files
-  // Before the compaction finishes, it pauses the compaction
-  // Calling WaitForCompact with option abort_on_pause=true should return
-  // Status::Aborted Or ContinueBackgroundWork() must be called
-
-  const int kNumKeysPerFile = 4;
-  const int kNumFiles = 2;
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumFiles + 1;
-
-  DestroyAndReopen(options);
-
-  // create the scenario where one more L0 file will trigger compaction
-  Random rnd(301);
-  for (int i = 0; i < kNumFiles; ++i) {
-    for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+  // Triggers a compaction. Before the compaction finishes, test
+  // pauses the compaction. Calling WaitForCompact() with option
+  // abort_on_pause=true should return Status::Aborted Or
+  // ContinueBackgroundWork() must be called
 
   // Now trigger L0 compaction by adding a file
+  Random rnd(123);
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(Flush());
 
@@ -3429,29 +3415,9 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactAbortOnPause) {
 }
 
 TEST_P(DBCompactionWaitForCompactTest, WaitForCompactShutdownWhileWaiting) {
-  // This test creates a scenario to trigger compaction by number of L0 files
-  // Before the compaction finishes, db shuts down (by calling
-  // CancelAllBackgroundWork()) Calling WaitForCompact should return
-  // Status::IsShutdownInProgress()
-
-  const int kNumKeysPerFile = 4;
-  const int kNumFiles = 2;
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumFiles + 1;
-
-  DestroyAndReopen(options);
-
-  // create the scenario where one more L0 file will trigger compaction
-  Random rnd(301);
-  for (int i = 0; i < kNumFiles; ++i) {
-    for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+  // Triggers a compaction. Before the compaction finishes, db
+  // shuts down (by calling CancelAllBackgroundWork()). Calling WaitForCompact()
+  // should return Status::IsShutdownInProgress()
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CompactionJob::Run():Start",
@@ -3464,6 +3430,7 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactShutdownWhileWaiting) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Now trigger L0 compaction by adding a file
+  Random rnd(123);
   GenerateNewRandomFile(&rnd, /* nowait */ true);
   ASSERT_OK(Flush());
   // Wait for compaction to start
@@ -3488,33 +3455,12 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactShutdownWhileWaiting) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBCompactionTest, WaitForCompactWithOptionToFlush) {
-  // This test creates a scenario to trigger compaction by number of L0 files
+TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
   // After creating enough L0 files that one more file will trigger the
   // compaction, write some data in memtable. Calls WaitForCompact with option
   // to flush. This will flush the memtable to a new L0 file which will trigger
   // compaction. Lastly check for expected number of files, closing + reopening
   // DB won't trigger any flush or compaction
-
-  const int kNumKeysPerFile = 4;
-  const int kNumFiles = 2;
-
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumFiles + 1;
-
-  DestroyAndReopen(options);
-
-  // create the scenario where one more L0 file will trigger compaction
-  Random rnd(301);
-  for (int i = 0; i < kNumFiles; ++i) {
-    for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
-    }
-    ASSERT_OK(Flush());
-  }
-  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
-  ASSERT_EQ("2", FilesPerLevel());
 
   int compaction_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -3538,7 +3484,7 @@ TEST_F(DBCompactionTest, WaitForCompactWithOptionToFlush) {
 
   // write to memtable (overlapping key with first L0 file), but no flush is
   // needed at this point.
-  ASSERT_OK(Put(Key(0), rnd.RandomString(100 /* len */)));
+  ASSERT_OK(Put(Key(0), "some random string"));
   ASSERT_EQ(0, unscheduled_flushes);
   ASSERT_EQ(0, compaction_finished);
   ASSERT_EQ("2", FilesPerLevel());
@@ -3556,7 +3502,7 @@ TEST_F(DBCompactionTest, WaitForCompactWithOptionToFlush) {
   flush_finished = 0;
   // close and reopen db. We expect no flush is needed.
   Close();
-  Reopen(options);
+  Reopen(options_);
 
   ASSERT_EQ("1,2", FilesPerLevel());
   ASSERT_EQ(0, compaction_finished);
