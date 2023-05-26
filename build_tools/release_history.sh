@@ -35,39 +35,39 @@ function process_file () {
   awk '/./ { if (notfirstline || $1 == "*") print;
              else print "* " $0;
              notfirstline=1; }' < $1 >> HISTORY.new
-  # Part of the reason for putting the header in a file in the dir is because
-  # git won't track empty directories, but we want the directories to stick
-  # around even when there are no unreleased entries for the group.
-  if echo "$1" | grep -q 000_HEADER.md; then
-    cat $1
-  else
-    echo git rm $1
-    if [ ! "$DRY_RUN" ]; then
-      git rm $1
-    fi
+  echo git rm $1
+  if [ ! "$DRY_RUN" ]; then
+    git rm $1
   fi
 }
 
+PROCESSED_DIRECTORIES=""
+
 function process_dir () {
+  PROCESSED_DIRECTORIES="$PROCESSED_DIRECTORIES $1"
   # ls will sort the files, including the permanent header file
-  FILES="$(ls $1/*)"
-  COUNT="$(echo "$FILES" | wc -l)"
-  if [ "$COUNT" -gt 1 ]; then
+  FILES="$(ls unreleased_history/$1/)"
+  if [ "$FILES" ]; then
+    echo "### $2" >> HISTORY.new
     for FILE in $FILES; do
-      process_file $FILE
+      process_file "unreleased_history/$1/$FILE"
     done
     echo >> HISTORY.new
-    echo "Saved $COUNT from $1"
+    echo "Saved entries from $1"
   else
     echo "Nothing new in $1"
   fi
 }
 
-ORDERED_DIRECTORIES="new_features public_api_changes behavior_changes bug_fixes"
+# Process dirs and files
+process_dir new_features "New Features"
+process_dir public_api_changes "Public API Changes"
+process_dir behavior_changes "Behavior Changes"
+process_dir bug_fixes "Bug Fixes"
 
 # Check for unexpected files or dirs at top level. process_dir/process_file
 # will deal with contents of these directories
-EXPECTED_REGEX="README.txt|$(echo $ORDERED_DIRECTORIES | tr ' ' '|')"
+EXPECTED_REGEX="[^/]*[.]sh|README[.]txt|$(echo $PROCESSED_DIRECTORIES | tr ' ' '|')"
 UNEXPECTED="$(find unreleased_history/ -mindepth 1 -maxdepth 1 -regextype egrep -not -regex "[^/]*/($EXPECTED_REGEX)")"
 if [ "$UNEXPECTED" ]; then
   echo "Unexpected files I don't know how to process:"
@@ -75,11 +75,6 @@ if [ "$UNEXPECTED" ]; then
   rm HISTORY.new
   exit 3
 fi
-
-# Process dirs and files
-for DIR in $ORDERED_DIRECTORIES; do
-  process_dir unreleased_history/$DIR
-done
 
 # Add rest of existing HISTORY file to new version (collapsing newlines)
 awk '/./ { if (note) pr=1 }

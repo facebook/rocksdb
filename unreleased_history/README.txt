@@ -12,12 +12,19 @@ unreleased_history/bug_fixes
 with a unique name that makes sense for your or your change, preferably using
 the .md extension for syntax highlighting.
 
-For example:
+There is a script to help, as in
 
-$ echo "Add a DB::HelloWorld() function." > unreleased_history/new_features/hello_world.md
+$ unreleased_history/add.sh unreleased_history/bug_fixes/crash_in_feature.md
 
-For HISTORY.md, "* " will automatically be inserted later if not included
-at the start of the first line in the file. Extra newlines or missing trailing
+or simply
+
+$ unreleased_history/add.sh
+
+will take you through some prompts.
+
+The file should usually contain one line of markdown, and "* " is not
+required, as it will automatically be inserted later if not included at the
+start of the first line in the file. Extra newlines or missing trailing
 newlines will also be corrected.
 
 The only times release notes should be added directly to HISTORY are if
