@@ -38,23 +38,23 @@ Ordering of entries
 
 Within each group, entries will be included using ls sort order, so important
 entries could start their file name with a small three digit number like
-012really_important.md. 000 is reserved for the group header.
+100pretty_important.md.
 
-The ordering of groups is hard-coded in build_tools/release_history.sh
+The ordering of groups is hard-coded in unreleased_history/release.sh
 
 
 Updating HISTORY.md with release notes
 --------------------------------------
 
-The script build_tools/release_history.sh does this. Run the script before
+The script unreleased_history/release.sh does this. Run the script before
 updating version.h to the next develpment release, so that the script will pick
 up the version being released. You might want to start with
 
-$ DRY_RUN=1 build_tools/release_history.sh | less
+$ DRY_RUN=1 unreleased_history/release.sh | less
 
 to check for problems and preview the output. Then run
 
-$ build_tools/release_history.sh
+$ unreleased_history/release.sh
 
 which is git rm some files and modify HISTORY.md. You still need to commit the
 changes, or revert with the command reported in the output.
