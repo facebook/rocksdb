@@ -233,35 +233,29 @@ Status TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
 }
 
 Status HandleWriteBatchTimestampSizeDifference(
+    const WriteBatch* batch,
     const std::unordered_map<uint32_t, size_t>& running_ts_sz,
     const std::unordered_map<uint32_t, size_t>& record_ts_sz,
-    TimestampSizeConsistencyMode check_mode, std::unique_ptr<WriteBatch>& batch,
-    bool* batch_updated) {
-  if (batch_updated != nullptr) {
-    *batch_updated = false;
-  }
+    TimestampSizeConsistencyMode check_mode,
+    std::unique_ptr<WriteBatch>* new_batch) {
   // Quick path to bypass checking the WriteBatch.
   if (AllRunningColumnFamiliesConsistent(running_ts_sz, record_ts_sz)) {
     return Status::OK();
   }
   bool need_recovery = false;
   Status status = CheckWriteBatchTimestampSizeConsistency(
-      batch.get(), running_ts_sz, record_ts_sz, check_mode, &need_recovery);
+      batch, running_ts_sz, record_ts_sz, check_mode, &need_recovery);
   if (!status.ok()) {
     return status;
-  } else if (need_recovery) {
-    SequenceNumber sequence = WriteBatchInternal::Sequence(batch.get());
+  } else if (need_recovery && new_batch != nullptr) {
+    SequenceNumber sequence = WriteBatchInternal::Sequence(batch);
     TimestampRecoveryHandler recovery_handler(running_ts_sz, record_ts_sz);
     status = batch->Iterate(&recovery_handler);
     if (!status.ok()) {
       return status;
     } else {
-      if (batch_updated != nullptr) {
-        *batch_updated =
-            recovery_handler.NewBatchIsDifferentFromOriginalBatch();
-      }
-      batch = recovery_handler.TransferNewBatch();
-      WriteBatchInternal::SetSequence(batch.get(), sequence);
+      *new_batch = recovery_handler.TransferNewBatch();
+      WriteBatchInternal::SetSequence(new_batch->get(), sequence);
     }
   }
   return Status::OK();

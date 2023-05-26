@@ -214,7 +214,7 @@ Status DBImplSecondary::RecoverLogFiles(
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
-    std::unique_ptr<WriteBatch> batch(new WriteBatch());
+    WriteBatch batch;
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
@@ -224,22 +224,21 @@ Status DBImplSecondary::RecoverLogFiles(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      status = WriteBatchInternal::SetContents(batch.get(), record);
+      status = WriteBatchInternal::SetContents(&batch, record);
       if (!status.ok()) {
         break;
       }
       const std::unordered_map<uint32_t, size_t>& record_ts_sz =
           reader->GetRecordedTimestampSize();
       status = HandleWriteBatchTimestampSizeDifference(
-          running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kVerifyConsistency, batch,
-          nullptr /* batch_updated */);
+          &batch, running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kVerifyConsistency);
       if (!status.ok()) {
         break;
       }
-      SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(batch.get());
+      SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
       std::vector<uint32_t> column_family_ids;
-      status = CollectColumnFamilyIdsFromWriteBatch(*batch, &column_family_ids);
+      status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
         for (const auto id : column_family_ids) {
           ColumnFamilyData* cfd =
@@ -284,7 +283,7 @@ Status DBImplSecondary::RecoverLogFiles(
         }
         bool has_valid_writes = false;
         status = WriteBatchInternal::InsertInto(
-            batch.get(), column_family_memtables_.get(),
+            &batch, column_family_memtables_.get(),
             nullptr /* flush_scheduler */, nullptr /* trim_history_scheduler*/,
             true, log_number, this, false /* concurrent_memtable_writes */,
             next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);

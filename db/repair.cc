@@ -398,7 +398,7 @@ class Repairer {
         vset_.GetRunningColumnFamiliesTimestampSize();
     std::string scratch;
     Slice record;
-    std::unique_ptr<WriteBatch> batch(new WriteBatch());
+    WriteBatch batch;
 
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
@@ -407,22 +407,20 @@ class Repairer {
                             Status::Corruption("log record too small"));
         continue;
       }
-      Status record_status =
-          WriteBatchInternal::SetContents(batch.get(), record);
+      Status record_status = WriteBatchInternal::SetContents(&batch, record);
       if (record_status.ok()) {
         const std::unordered_map<uint32_t, size_t>& record_ts_sz =
             reader.GetRecordedTimestampSize();
         record_status = HandleWriteBatchTimestampSizeDifference(
-            running_ts_sz, record_ts_sz,
-            TimestampSizeConsistencyMode::kVerifyConsistency, batch,
-            nullptr /* batch_updated */);
+            &batch, running_ts_sz, record_ts_sz,
+            TimestampSizeConsistencyMode::kVerifyConsistency);
         if (record_status.ok()) {
-          record_status = WriteBatchInternal::InsertInto(batch.get(), cf_mems,
-                                                         nullptr, nullptr);
+          record_status =
+              WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
         }
       }
       if (record_status.ok()) {
-        counter += WriteBatchInternal::Count(batch.get());
+        counter += WriteBatchInternal::Count(&batch);
       } else {
         ROCKS_LOG_WARN(db_options_.info_log, "Log #%" PRIu64 ": ignoring %s",
                        log, record_status.ToString().c_str());

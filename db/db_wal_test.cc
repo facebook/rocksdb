@@ -307,14 +307,14 @@ class DBWALTestWithTimestamp : public DBBasicTestWithTimestampBase {
   DBWALTestWithTimestamp()
       : DBBasicTestWithTimestampBase("db_wal_test_with_timestamp") {}
 
-  void CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
-                                   const Options& options) {
+  Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
+                                     const Options& options) {
     CreateColumnFamilies(cfs, options);
-    ReopenColumnFamiliesWithTs(cfs, options);
+    return ReopenColumnFamiliesWithTs(cfs, options);
   }
 
-  void ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
-                                  Options ts_options) {
+  Status ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
+                                    Options ts_options) {
     Options default_options = CurrentOptions();
     default_options.create_if_missing = false;
     ts_options.create_if_missing = false;
@@ -324,7 +324,7 @@ class DBWALTestWithTimestamp : public DBBasicTestWithTimestampBase {
     cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
     cf_options.insert(cf_options.begin(), default_options);
     Close();
-    ASSERT_OK(TryReopenWithColumnFamilies(cfs_plus_default, cf_options));
+    return TryReopenWithColumnFamilies(cfs_plus_default, cf_options);
   }
 
   Status Put(uint32_t cf, const Slice& key, const Slice& ts,
@@ -354,23 +354,42 @@ TEST_F(DBWALTestWithTimestamp, Recover) {
   Slice ts_slice = ts;
   read_opts.timestamp = &ts_slice;
   do {
-    CreateAndReopenWithCFWithTs({"pikachu"}, ts_options);
+    ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
     ASSERT_OK(Put(1, "foo", ts, "v1"));
     ASSERT_OK(Put(1, "baz", ts, "v5"));
 
-    ReopenColumnFamiliesWithTs({"pikachu"}, ts_options);
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
     CheckGet(read_opts, 1, "foo", "v1");
     CheckGet(read_opts, 1, "baz", "v5");
     ASSERT_OK(Put(1, "bar", ts, "v2"));
     ASSERT_OK(Put(1, "foo", ts, "v3"));
 
-    ReopenColumnFamiliesWithTs({"pikachu"}, ts_options);
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
     CheckGet(read_opts, 1, "foo", "v3");
     ASSERT_OK(Put(1, "foo", ts, "v4"));
     CheckGet(read_opts, 1, "foo", "v4");
     CheckGet(read_opts, 1, "bar", "v2");
     CheckGet(read_opts, 1, "baz", "v5");
   } while (ChangeWalOptions());
+}
+
+TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts = Timestamp(1, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = &test_cmp;
+
+  ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+  ASSERT_OK(Put(1, "foo", ts, "v1"));
+  ASSERT_OK(Put(1, "baz", ts, "v5"));
+
+  TestComparator diff_test_cmp(kTimestampSize + 1);
+  ts_options.comparator = &diff_test_cmp;
+  ASSERT_TRUE(
+      ReopenColumnFamiliesWithTs({"pikachu"}, ts_options).IsInvalidArgument());
 }
 
 TEST_F(DBWALTest, RecoverWithTableHandle) {
