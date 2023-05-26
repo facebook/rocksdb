@@ -198,8 +198,8 @@ enum class TimestampSizeConsistencyMode {
 // any running column family has an inconsistent user-defined timestamp size
 // that cannot be reconciled with a best-effort recovery. Check
 // `TimestampRecoveryHandler` for what a best-effort recovery is capable of. In
-// this mode, if output argument `new_batch` is set, a new WriteBatch is created
-// on the heap and transferred to `new_batch` if there is tolerable
+// this mode, output argument `new_batch` should be set, a new WriteBatch is
+// created on the heap and transferred to `new_batch` if there is tolerable
 // inconsistency.
 //
 // An invariant that WAL logging ensures is that all timestamp size info

@@ -247,7 +247,8 @@ Status HandleWriteBatchTimestampSizeDifference(
       batch, running_ts_sz, record_ts_sz, check_mode, &need_recovery);
   if (!status.ok()) {
     return status;
-  } else if (need_recovery && new_batch != nullptr) {
+  } else if (need_recovery) {
+    assert(new_batch);
     SequenceNumber sequence = WriteBatchInternal::Sequence(batch);
     TimestampRecoveryHandler recovery_handler(running_ts_sz, record_ts_sz);
     status = batch->Iterate(&recovery_handler);
