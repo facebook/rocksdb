@@ -9,8 +9,8 @@ unreleased_history/behavior_changes
 unreleased_history/public_api_changes
 unreleased_history/bug_fixes
 
-with a unique name that makes sense for your or your change, preferably using
-the .md extension for syntax highlighting.
+with a unique name that makes sense for your change, preferably using the .md
+extension for syntax highlighting.
 
 There is a script to help, as in
 
