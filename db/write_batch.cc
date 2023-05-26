@@ -293,6 +293,12 @@ size_t WriteBatch::GetProtectionBytesPerKey() const {
   return 0;
 }
 
+std::string WriteBatch::Release() {
+  std::string ret = std::move(rep_);
+  Clear();
+  return ret;
+}
+
 bool WriteBatch::HasPut() const {
   return (ComputeContentFlags() & ContentFlags::HAS_PUT) != 0;
 }
