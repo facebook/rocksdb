@@ -3066,7 +3066,6 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
   }
-  TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallFlush:End", nullptr);
 }
 
 void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,

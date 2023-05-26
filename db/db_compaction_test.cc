@@ -3466,29 +3466,19 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:AfterCompaction",
       [&](void*) { compaction_finished++; });
-  // To make sure there's a flush/compaction debt
-  int unscheduled_flushes = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule",
-      [&](void* arg) { unscheduled_flushes += *static_cast<int*>(arg); });
 
   int flush_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:End", [&](void*) { flush_finished++; });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTest::WaitForCompactWithOptionToFlush",
-        "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule"}});
+      "FlushJob::End", [&](void*) { flush_finished++; });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // write to memtable (overlapping key with first L0 file), but no flush is
   // needed at this point.
   ASSERT_OK(Put(Key(0), "some random string"));
-  ASSERT_EQ(0, unscheduled_flushes);
   ASSERT_EQ(0, compaction_finished);
+  ASSERT_EQ(0, flush_finished);
   ASSERT_EQ("2", FilesPerLevel());
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWithOptionToFlush");
 
   // Wait for compaction to finish with option to flush
   WaitForCompactOptions wait_for_impact_options;
