@@ -247,6 +247,22 @@ TEST_F(WriteBatchTest, SingleDeletion) {
   ASSERT_EQ(2u, batch.Count());
 }
 
+TEST_F(WriteBatchTest, OwnershipTransfer) {
+  Random rnd(301);
+  WriteBatch put_batch;
+  ASSERT_OK(put_batch.Put(rnd.RandomString(16) /* key */,
+                          rnd.RandomString(1024) /* value */));
+
+  // (1) Verify `Release()` transfers string data ownership
+  const char* expected_data = put_batch.Data().data();
+  std::string batch_str = put_batch.Release();
+  ASSERT_EQ(expected_data, batch_str.data());
+
+  // (2) Verify constructor transfers string data ownership
+  WriteBatch move_batch(std::move(batch_str));
+  ASSERT_EQ(expected_data, move_batch.Data().data());
+}
+
 namespace {
 struct TestHandler : public WriteBatch::Handler {
   std::string seen;

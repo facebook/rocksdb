@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Add a new option OptimisticTransactionDBOptions::shared_lock_buckets that enables sharing mutexes for validating transactions between DB instances, for better balancing memory efficiency and validation contention across DB instances. Different column families and DBs also now use different hash seeds in this validation, so that the same set of key names will not contend across DBs or column families.
+* Add `WriteBatch::Release()` that releases the batch's serialized data to the caller.
 
 ### Public API Changes
 * Add `WaitForCompact()` to wait for all flush and compactions jobs to finish. Jobs to wait include the unscheduled (queued, but not scheduled yet).
