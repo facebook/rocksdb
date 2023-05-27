@@ -8702,5 +8702,28 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+class CompactRangeOptionsTimestampJni : public JavaClass {
+ public:
+  static jobject fromCppTimestamp(JNIEnv* env, const uint64_t start,
+                                  const uint64_t range) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(start),
+                          static_cast<jlong>(range));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+                                "org/rocksdb/CompactRangeOptions$Timestamp");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(JJ)V");
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

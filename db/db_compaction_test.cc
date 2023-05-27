@@ -3285,6 +3285,209 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   TEST_SYNC_POINT(
       "DBCompactionTest::SuggestCompactRangeNoTwoLevel0Compactions:2");
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactWaitsOnCompactionToFinish) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, it closes the DB
+  // Upon reopen, wait for the compaction to finish and checks for the number of
+  // compaction finished
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+  ASSERT_EQ("2", FilesPerLevel());
+
+  int compaction_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():EndStatusSet", [&](void* arg) {
+        auto status = static_cast<Status*>(arg);
+        if (status->ok()) {
+          compaction_finished++;
+        }
+      });
+  // To make sure there's a flush/compaction debt
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule", [&](void* arg) {
+        auto unscheduled_flushes = *static_cast<int*>(arg);
+        ASSERT_GT(unscheduled_flushes, 0);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish",
+        "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // create compaction debt by adding one more L0 file then closing
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_EQ(0, compaction_finished);
+  Close();
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactWaitsOnCompactionToFinish");
+  ASSERT_EQ(0, compaction_finished);
+
+  // Reopen the db and we expect the compaction to be triggered.
+  Reopen(options);
+
+  // Wait for compaction to finish
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+  ASSERT_GT(compaction_finished, 0);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBCompactionTest, WaitForCompactAbortOnPauseAborted) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, it pauses the compaction
+  // Calling WaitForCompact with option abort_on_pause=true should return
+  // Status::Aborted
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+
+  // Now trigger L0 compaction by adding a file
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  // Pause the background jobs.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
+  waitForCompactOptions.abort_on_pause = true;
+  Status s = dbfull()->WaitForCompact(waitForCompactOptions);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsAborted());
+}
+
+TEST_F(DBCompactionTest, WaitForCompactContinueAfterPauseNotAborted) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, it pauses the compaction
+  // Calling WaitForCompact with option abort_on_pause=false will not wait
+  // indefinitely upon ContinueBackgroundWork()
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+
+  // Now trigger L0 compaction by adding a file
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  // Pause the background jobs.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  // Continue the background jobs.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+
+  WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
+  waitForCompactOptions.abort_on_pause = true;
+  ASSERT_OK(dbfull()->WaitForCompact(waitForCompactOptions));
+}
+
+TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
+  // This test creates a scenario to trigger compaction by number of L0 files
+  // Before the compaction finishes, db shuts down (by calling
+  // CancelAllBackgroundWork()) Calling WaitForCompact should return
+  // Status::IsShutdownInProgress()
+
+  const int kNumKeysPerFile = 4;
+  const int kNumFiles = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+  DestroyAndReopen(options);
+
+  // create the scenario where one more L0 file will trigger compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(100 /* len */)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(WaitForCompactOptions()));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run():Start",
+       "DBCompactionTest::WaitForCompactShutdownWhileWaiting:0"},
+      {"DBImpl::WaitForCompact:Start",
+       "DBCompactionTest::WaitForCompactShutdownWhileWaiting:1"},
+      {"DBImpl::~DBImpl:WaitJob", "CompactionJob::Run():End"},
+  });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Now trigger L0 compaction by adding a file
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+  // Wait for compaction to start
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting:0");
+
+  // Wait for Compaction in another thread
+  auto waiting_for_compaction_thread = port::Thread([this]() {
+    Status s = dbfull()->WaitForCompact(WaitForCompactOptions());
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsShutdownInProgress());
+  });
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting:1");
+  // Shutdown after wait started, but before the compaction finishes
+  auto closing_thread = port::Thread([this]() { Close(); });
+
+  waiting_for_compaction_thread.join();
+  closing_thread.join();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 static std::string ShortKey(int i) {
@@ -5822,7 +6025,7 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   }
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstPressureToken:2");
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -5897,7 +6100,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
         "CompactionJob::ReleaseSubcompactionResources:1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:0");
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:1");
@@ -5913,7 +6116,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
       total_low_pri_threads_ - 1,
       env_->ReleaseThreads(total_low_pri_threads_ - 1, Env::Priority::LOW));
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:4");
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -5985,11 +6188,11 @@ TEST_P(DBCompactionTestWithParam, RoundRobinWithoutAdditionalResources) {
         "BackgroundCallCompaction:0"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   TEST_SYNC_POINT("DBCompactionTest::RoundRobinWithoutAdditionalResources:0");
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

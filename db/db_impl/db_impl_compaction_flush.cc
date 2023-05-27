@@ -2612,6 +2612,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule",
+        &unscheduled_flushes_);
     bg_flush_scheduled_++;
     FlushThreadArg* fta = new FlushThreadArg;
     fta->db_ = this;
@@ -3957,13 +3960,15 @@ void DBImpl::GetSnapshotContext(
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
 
-Status DBImpl::WaitForCompact(bool abort_on_pause) {
+Status DBImpl::WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:Start");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
-    if (bg_work_paused_ && abort_on_pause) {
+    if (bg_work_paused_ && wait_for_compact_options.abort_on_pause) {
       return Status::Aborted();
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||

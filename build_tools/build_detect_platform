@@ -419,7 +419,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_JEMALLOC; then
         # Test whether jemalloc is available
-        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -ljemalloc \
+        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -ljemalloc \
           2>/dev/null; then
             # This will enable some preprocessor identifiers in the Makefile
             JEMALLOC=1
@@ -428,12 +428,19 @@ EOF
             WITH_JEMALLOC_FLAG=1
             # check for JEMALLOC installed with HomeBrew
             if [ "$PLATFORM" == "OS_MACOSX" ]; then
+                if [ "$TARGET_ARCHITECTURE" = "arm64" ]; then
+                    # on M1 Macs, homebrew installs here instead of /usr/local
+                    JEMALLOC_PREFIX="/opt/homebrew"
+                else
+                    JEMALLOC_PREFIX="/usr/local"
+                fi
                 if hash brew 2>/dev/null && brew ls --versions jemalloc > /dev/null; then
                     JEMALLOC_VER=$(brew ls --versions jemalloc | tail -n 1 | cut -f 2 -d ' ')
-                    JEMALLOC_INCLUDE="-I/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/include"
-                    JEMALLOC_LIB="/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
-                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $JEMALLOC_LIB"
-                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS $JEMALLOC_LIB"
+                    JEMALLOC_INCLUDE="-I${JEMALLOC_PREFIX}/Cellar/jemalloc/${JEMALLOC_VER}/include"
+                    JEMALLOC_LIB="${JEMALLOC_PREFIX}/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
+                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
+                    JAVA_LDFLAGS="$JAVA_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
+                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
                 fi
             fi
         fi

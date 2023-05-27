@@ -31,6 +31,8 @@ class ExpectedValue {
     return IsValuePartValid(value_base, VALUE_BASE_MASK);
   }
 
+  ExpectedValue() : expected_value_(DEL_MASK) {}
+
   explicit ExpectedValue(uint32_t expected_value)
       : expected_value_(expected_value) {}
 

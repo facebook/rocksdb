@@ -48,10 +48,14 @@ BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
     bool use_value_delta_encoding,
     BlockBasedTableOptions::DataBlockIndexType index_type,
-    double data_block_hash_table_util_ratio)
+    double data_block_hash_table_util_ratio, size_t ts_sz,
+    bool persist_user_defined_timestamps, bool is_user_key)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
+      ts_sz_(ts_sz),
+      persist_user_defined_timestamps_(persist_user_defined_timestamps),
+      is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false) {
@@ -96,6 +100,9 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
   // Note: this is an imprecise estimate as it accounts for the whole key size
   // instead of non-shared key size.
   estimate += key.size();
+  if (ts_sz_ > 0 && !persist_user_defined_timestamps_) {
+    estimate -= ts_sz_;
+  }
   // In value delta encoding we estimate the value delta size as half the full
   // value size since only the size field of block handle is encoded.
   estimate +=
@@ -187,6 +194,15 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
   assert(!use_value_delta_encoding_ || delta_value);
+  std::string key_buf;
+  std::string last_key_buf;
+  const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
+  // For delta key encoding, the first key in each restart interval doesn't have
+  // a last key to share bytes with.
+  const Slice last_key_persisted =
+      last_key.size() == 0
+          ? last_key
+          : MaybeStripTimestampFromKey(&last_key_buf, last_key);
   size_t shared = 0;  // number of bytes shared with prev key
   if (counter_ >= block_restart_interval_) {
     // Restart compression
@@ -195,10 +211,10 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     counter_ = 0;
   } else if (use_delta_encoding_) {
     // See how much sharing to do with previous string
-    shared = key.difference_offset(last_key);
+    shared = key_to_persist.difference_offset(last_key_persisted);
   }
 
-  const size_t non_shared = key.size() - shared;
+  const size_t non_shared = key_to_persist.size() - shared;
 
   if (use_value_delta_encoding_) {
     // Add "<shared><non_shared>" to buffer_
@@ -212,7 +228,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   // Add string delta to buffer_ followed by value
-  buffer_.append(key.data() + shared, non_shared);
+  buffer_.append(key_to_persist.data() + shared, non_shared);
   // Use value delta encoding only when the key has shared bytes. This would
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
@@ -222,6 +238,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     buffer_.append(value.data(), value.size());
   }
 
+  // TODO(yuzhangyu): make user defined timestamp work with block hash index.
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Add(ExtractUserKey(key),
                                        restarts_.size() - 1);
@@ -231,4 +248,17 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   estimate_ += buffer_.size() - buffer_size;
 }
 
+const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
+                                                     const Slice& key) {
+  Slice stripped_key = key;
+  if (ts_sz_ > 0 && !persist_user_defined_timestamps_) {
+    if (is_user_key_) {
+      stripped_key.remove_suffix(ts_sz_);
+    } else {
+      StripTimestampFromInternalKey(key_buf, key, ts_sz_);
+      stripped_key = *key_buf;
+    }
+  }
+  return stripped_key;
+}
 }  // namespace ROCKSDB_NAMESPACE

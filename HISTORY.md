@@ -1,5 +1,15 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Add a new option OptimisticTransactionDBOptions::shared_lock_buckets that enables sharing mutexes for validating transactions between DB instances, for better balancing memory efficiency and validation contention across DB instances. Different column families and DBs also now use different hash seeds in this validation, so that the same set of key names will not contend across DBs or column families.
+* Add `WriteBatch::Release()` that releases the batch's serialized data to the caller.
+
+### Public API Changes
+* Add `WaitForCompact()` to wait for all flush and compactions jobs to finish. Jobs to wait include the unscheduled (queued, but not scheduled yet).
+
+### Behavior changes
+* Statistics `rocksdb.sst.read.micros` scope is expanded to all SST reads except for file ingestion and column family import (some compaction reads were previously excluded).
+
 ## 8.3.0 (05/19/2023)
 ### New Features
 * Introduced a new option `block_protection_bytes_per_key`, which can be used to enable per key-value integrity protection for in-memory blocks in block cache (#11287).
