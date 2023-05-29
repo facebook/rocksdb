@@ -167,9 +167,15 @@ class CompactionOutputs {
     current_output_file_size_ = 0;
   }
 
-  // Add range-dels from the aggregator to the current output file
+  // Add range deletions from the range_del_agg_ to the current output file.
+  // Input parameters, `range_tombstone_lower_bound_` and current output's
+  // metadata determine the bounds on range deletions to add. Updates output
+  // file metadata boundary if extended by range tombstones.
+  //
   // @param comp_start_user_key and comp_end_user_key include timestamp if
-  // user-defined timestamp is enabled.
+  // user-defined timestamp is enabled. Their timestamp should be max timestamp.
+  // @param next_table_min_key internal key lower bound for the next compaction
+  // output.
   // @param full_history_ts_low used for range tombstone garbage collection.
   Status AddRangeDels(const Slice* comp_start_user_key,
                       const Slice* comp_end_user_key,
@@ -220,6 +226,13 @@ class CompactionOutputs {
       builder_.reset();
     }
   }
+
+  // Updates states related to file cutting for TTL.
+  // Returns a boolean value indicating whether the current
+  // compaction output file should be cut before `internal_key`.
+  //
+  // @param internal_key the current key to be added to output.
+  bool UpdateFilesToCutForTTLStates(const Slice& internal_key);
 
   // update tracked grandparents information like grandparent index, if it's
   // in the gap between 2 grandparent files, accumulated grandparent files size
@@ -307,6 +320,7 @@ class CompactionOutputs {
   std::unique_ptr<SstPartitioner> partitioner_;
 
   // A flag determines if this subcompaction has been split by the cursor
+  // for RoundRobin compaction
   bool is_split_ = false;
 
   // We also maintain the output split key for each subcompaction to avoid
@@ -338,6 +352,10 @@ class CompactionOutputs {
   // for the current output file, how many file boundaries has it crossed,
   // basically number of files overlapped * 2
   size_t grandparent_boundary_switched_num_ = 0;
+
+  // The smallest key of the current output file, this is set when current
+  // output file's smallest key is a range tombstone start key.
+  InternalKey range_tombstone_lower_bound_;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

@@ -24,7 +24,6 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -52,7 +51,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   VerifySstUniqueIds(props);
 }
-}  // namespace
+}  // anonymous namespace
 
 class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
@@ -240,7 +239,6 @@ TablePropertiesCollection
 DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
     std::vector<Range> ranges, std::size_t* num_properties,
     std::size_t* num_files) {
-
   // Since we deref zero element in the vector it can not be empty
   // otherwise we pass an address to some random memory
   EXPECT_GT(ranges.size(), 0U);
@@ -469,12 +467,12 @@ INSTANTIATE_TEST_CASE_P(
 
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:
-  void OnCompactionBegin(DB* , const CompactionJobInfo& ci) override {
+  void OnCompactionBegin(DB*, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.compaction_reason,
               CompactionReason::kFilesMarkedForCompaction);
   }
 
-  void OnCompactionCompleted(DB* , const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB*, const CompactionJobInfo& ci) override {
     ASSERT_EQ(ci.compaction_reason,
               CompactionReason::kFilesMarkedForCompaction);
   }
@@ -485,13 +483,13 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   int kWindowSize = 100;
   int kNumDelsTrigger = 90;
   std::shared_ptr<TablePropertiesCollectorFactory> compact_on_del =
-    NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.table_properties_collector_factories.emplace_back(compact_on_del);
 
-  if(GetParam() == "kCompactionStyleUniversal") {
+  if (GetParam() == "kCompactionStyleUniversal") {
     opts.compaction_style = kCompactionStyleUniversal;
   }
   Reopen(opts);
@@ -502,8 +500,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
 
-  DeletionTriggeredCompactionTestListener *listener =
-    new DeletionTriggeredCompactionTestListener();
+  DeletionTriggeredCompactionTestListener* listener =
+      new DeletionTriggeredCompactionTestListener();
   opts.listeners.emplace_back(listener);
   Reopen(opts);
 
@@ -524,10 +522,10 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   // effect
   kWindowSize = 50;
   kNumDelsTrigger = 40;
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetWindowSize(kWindowSize);
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetDeletionTrigger(kNumDelsTrigger);
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
@@ -543,10 +541,10 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   // Change the window size to disable delete triggered compaction
   kWindowSize = 0;
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetWindowSize(kWindowSize);
-  static_cast<CompactOnDeletionCollectorFactory*>
-    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>(compact_on_del.get())
+      ->SetDeletionTrigger(kNumDelsTrigger);
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
@@ -611,17 +609,12 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
-    DBTablePropertiesTest,
-    DBTablePropertiesTest,
-    ::testing::Values(
-      "kCompactionStyleLevel",
-      "kCompactionStyleUniversal"
-      ));
+INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
+                        ::testing::Values("kCompactionStyleLevel",
+                                          "kCompactionStyleUniversal"));
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

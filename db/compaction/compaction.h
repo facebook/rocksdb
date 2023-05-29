@@ -378,6 +378,9 @@ class Compaction {
   // This is used to filter out some input files' ancester's time range.
   uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
                                           const InternalKey* end) const;
+  // Return the minimum epoch number among
+  // input files' associated with this compaction
+  uint64_t MinInputFileEpochNumber() const;
 
   // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
   // compaction begin and compaction completion callbacks match.
@@ -543,13 +546,16 @@ struct PerKeyPlacementContext {
   const Slice value;
   const SequenceNumber seq_num;
 
-  bool output_to_penultimate_level;
+  bool& output_to_penultimate_level;
 
   PerKeyPlacementContext(int _level, Slice _key, Slice _value,
-                         SequenceNumber _seq_num)
-      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
-    output_to_penultimate_level = false;
-  }
+                         SequenceNumber _seq_num,
+                         bool& _output_to_penultimate_level)
+      : level(_level),
+        key(_key),
+        value(_value),
+        seq_num(_seq_num),
+        output_to_penultimate_level(_output_to_penultimate_level) {}
 };
 #endif /* !NDEBUG */
 

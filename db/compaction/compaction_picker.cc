@@ -20,7 +20,7 @@
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -31,27 +31,15 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs,
-                           SequenceNumber earliest_mem_seqno) {
-  // Do not pick ingested file when there is at least one memtable not flushed
-  // which of seqno is overlap with the sst.
+                           CompactionInputFiles* comp_inputs) {
   TEST_SYNC_POINT("FindIntraL0Compaction");
+
   size_t start = 0;
-  for (; start < level_files.size(); start++) {
-    if (level_files[start]->being_compacted) {
-      return false;
-    }
-    // If there is no data in memtable, the earliest sequence number would the
-    // largest sequence number in last memtable.
-    // Because all files are sorted in descending order by largest_seqno, so we
-    // only need to check the first one.
-    if (level_files[start]->fd.largest_seqno <= earliest_mem_seqno) {
-      break;
-    }
-  }
-  if (start >= level_files.size()) {
+
+  if (level_files.size() == 0 || level_files[start]->being_compacted) {
     return false;
   }
+
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
   size_t compact_bytes_per_del_file = std::numeric_limits<size_t>::max();
   // Compaction range will be [start, limit).
@@ -889,7 +877,6 @@ Compaction* CompactionPicker::CompactRange(
   return compaction;
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 // Test whether two files have overlapping key-ranges.
 bool HaveOverlappingKeyRanges(const Comparator* c, const SstFileMetaData& a,
@@ -995,6 +982,7 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
                                current_files[f].name +
                                " is currently being compacted.");
       }
+
       input_files->insert(TableFileNameToNumber(current_files[f].name));
     }
 
@@ -1127,7 +1115,6 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 
   return Status::OK();
 }
-#endif  // !ROCKSDB_LITE
 
 void CompactionPicker::RegisterCompaction(Compaction* c) {
   if (c == nullptr) {
@@ -1137,7 +1124,11 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
          c->output_level() == 0 ||
          !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
                                           c->GetPenultimateLevel()));
-  if (c->start_level() == 0 ||
+  // CompactionReason::kExternalSstIngestion's start level is just a placeholder
+  // number without actual meaning as file ingestion technically does not have
+  // an input level like other compactions
+  if ((c->start_level() == 0 &&
+       c->compaction_reason() != CompactionReason::kExternalSstIngestion) ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.insert(c);
   }

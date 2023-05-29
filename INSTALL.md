@@ -20,12 +20,15 @@ There are few options when compiling RocksDB:
 depend on gflags. You will need to have gflags installed to run `make all`. This will compile RocksDB in debug mode. Don't
 use binaries compiled by `make all` in production.
 
-* By default the binary we produce is optimized for the platform you're compiling on
-(`-march=native` or the equivalent). SSE4.2 will thus be enabled automatically if your
-CPU supports it. To print a warning if your CPU does not support SSE4.2, build with
-`USE_SSE=1 make static_lib` or, if using CMake, `cmake -DFORCE_SSE42=ON`. If you want
-to build a portable binary, add `PORTABLE=1` before your make commands, like this:
-`PORTABLE=1 make static_lib`.
+* By default the binary we produce is optimized for the CPU you're compiling on
+(`-march=native` or the equivalent). To build a binary compatible with the most
+general architecture supported by your CPU and compiler, set `PORTABLE=1` for
+the build, but performance will suffer as many operations benefit from newer
+and wider instructions. In addition to `PORTABLE=0` (default) and `PORTABLE=1`,
+it can be set to an architecture name recognized by your compiler. For example,
+on 64-bit x86, a reasonable compromise is `PORTABLE=haswell` which supports
+many or most of the available optimizations while still being compatible with
+most processors made since roughly 2013.
 
 ## Dependencies
 
@@ -48,6 +51,11 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
 
 * If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark >= 1.6.0 is needed.
+* You can do the following to install Google benchmark. These commands are copied from `./build_tools/ubuntu20_image/Dockerfile`:
+
+`$ git clone --depth 1 --branch v1.7.0 https://github.com/google/benchmark.git ~/benchmark`
+
+`$ cd ~/benchmark && mkdir build && cd build && cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_GTEST_TESTS=0 && ninja && ninja install`
 
 ## Supported platforms
 
@@ -178,7 +186,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
         gmake rocksdbjava
 
 * **iOS**:
-  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
+  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define an important pre-processing macros: `IOS_CROSS_COMPILE`.
 
 * **Windows** (Visual Studio 2017 to up):
   * Read and follow the instructions at CMakeLists.txt

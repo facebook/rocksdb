@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+
 #include "port/port.h"
 #include "util/autovector.h"
 
@@ -37,11 +38,11 @@ namespace ROCKSDB_NAMESPACE {
 // std::priority_queue: the comparison operator is expected to provide the
 // less-than relation, but top() will return the maximum.
 
-template<typename T, typename Compare = std::less<T>>
+template <typename T, typename Compare = std::less<T>>
 class BinaryHeap {
  public:
-  BinaryHeap() { }
-  explicit BinaryHeap(Compare cmp) : cmp_(std::move(cmp)) { }
+  BinaryHeap() {}
+  explicit BinaryHeap(Compare cmp) : cmp_(std::move(cmp)) {}
 
   void push(const T& value) {
     data_.push_back(value);
@@ -86,7 +87,7 @@ class BinaryHeap {
     }
   }
 
-  void swap(BinaryHeap &other) {
+  void swap(BinaryHeap& other) {
     std::swap(cmp_, other.cmp_);
     data_.swap(other.data_);
     std::swap(root_cmp_cache_, other.root_cmp_cache_);

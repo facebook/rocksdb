@@ -198,7 +198,6 @@ class TestFilePartitionerFactory : public SstPartitionerFactory {
   const char* Name() const override { return "TestFilePartitionerFactory"; }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL0) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -323,7 +322,27 @@ TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL1) {
               static_cast<int>(compaction_job_info.input_files.size()));
   }
 }
-#endif  // !ROCKSDB_LITE
+
+TEST_F(TimestampCompatibleCompactionTest, EmptyCompactionOutput) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts_str = Timestamp(1);
+  WriteOptions wopts;
+  ASSERT_OK(
+      db_->DeleteRange(wopts, db_->DefaultColumnFamily(), "k1", "k3", ts_str));
+  ASSERT_OK(Flush());
+
+  ts_str = Timestamp(3);
+  Slice ts = ts_str;
+  CompactRangeOptions cro;
+  // range tombstone will be dropped during compaction
+  cro.full_history_ts_low = &ts;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

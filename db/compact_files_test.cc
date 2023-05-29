@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include <mutex>
 #include <string>
@@ -121,7 +120,9 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
 TEST_F(CompactFilesTest, MultipleLevel) {
   Options options;
   options.create_if_missing = true;
-  options.level_compaction_dynamic_level_bytes = true;
+  // Otherwise background compaction can happen to
+  // drain unnecessary level
+  options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 6;
   // Add listener
   FlushedFileCollector* collector = new FlushedFileCollector();
@@ -182,7 +183,6 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   for (int invalid_output_level = 0; invalid_output_level < 5;
        invalid_output_level++) {
     s = db->CompactFiles(CompactionOptions(), files, invalid_output_level);
-    std::cout << s.ToString() << std::endl;
     ASSERT_TRUE(s.IsInvalidArgument());
   }
 
@@ -348,16 +348,13 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
       return true;
     }
 
-    void SetDB(DB* db) {
-      db_ = db;
-    }
+    void SetDB(DB* db) { db_ = db; }
 
     const char* Name() const override { return "FilterWithGet"; }
 
    private:
     DB* db_;
   };
-
 
   std::shared_ptr<FilterWithGet> cf(new FilterWithGet());
 
@@ -385,7 +382,6 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
         db->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), {fname}, 0));
   }
 
-
   delete db;
 }
 
@@ -400,10 +396,9 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
   }
   // Check that passing `CompressionType::kDisableCompressionOption` to
   // `CompactFiles` causes it to use the column family compression options.
-  for (auto compaction_style :
-       {CompactionStyle::kCompactionStyleLevel,
-        CompactionStyle::kCompactionStyleUniversal,
-        CompactionStyle::kCompactionStyleNone}) {
+  for (auto compaction_style : {CompactionStyle::kCompactionStyleLevel,
+                                CompactionStyle::kCompactionStyleUniversal,
+                                CompactionStyle::kCompactionStyleNone}) {
     ASSERT_OK(DestroyDB(db_name_, Options()));
     Options options;
     options.compaction_style = compaction_style;
@@ -495,13 +490,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as DBImpl::CompactFiles is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

@@ -13,7 +13,10 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
+
+ASSERT_FEATURE_COMPAT_HEADER();
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -145,27 +148,29 @@ inline int BitsSetToOne(T v) {
     constexpr auto mm = 8 * sizeof(uint32_t) - 1;
     // The bit mask is to neutralize sign extension on small signed types
     constexpr uint32_t m = (uint32_t{1} << ((8 * sizeof(T)) & mm)) - 1;
-#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
+#if __POPCNT__
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v) & m));
 #else
     return static_cast<int>(detail::BitsSetToOneFallback(v) & m);
-#endif
+#endif  // __POPCNT__
   } else if (sizeof(T) == sizeof(uint32_t)) {
-#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
+#if __POPCNT__
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v)));
 #else
     return detail::BitsSetToOneFallback(static_cast<uint32_t>(v));
-#endif
+#endif  // __POPCNT__
   } else {
-#if defined(HAVE_SSE42) && defined(_M_X64)
+#if __POPCNT__
+#ifdef _M_X64
     return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)));
-#elif defined(HAVE_SSE42) && defined(_M_IX86)
+#else
     return static_cast<int>(
         __popcnt(static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32) +
                  __popcnt(static_cast<uint32_t>(v))));
+#endif  // _M_X64
 #else
     return detail::BitsSetToOneFallback(static_cast<uint64_t>(v));
-#endif
+#endif  // __POPCNT__
   }
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");

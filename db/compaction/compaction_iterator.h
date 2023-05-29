@@ -63,6 +63,10 @@ class SequenceIterWrapper : public InternalIterator {
   void SeekToLast() override { assert(false); }
 
   uint64_t num_itered() const { return num_itered_; }
+  bool IsDeleteRangeSentinelKey() const override {
+    assert(Valid());
+    return inner_iter_->IsDeleteRangeSentinelKey();
+  }
 
  private:
   InternalKeyComparator icmp_;
@@ -242,7 +246,12 @@ class CompactionIterator {
   const Status& status() const { return status_; }
   const ParsedInternalKey& ikey() const { return ikey_; }
   inline bool Valid() const { return validity_info_.IsValid(); }
-  const Slice& user_key() const { return current_user_key_; }
+  const Slice& user_key() const {
+    if (UNLIKELY(is_range_del_)) {
+      return ikey_.user_key;
+    }
+    return current_user_key_;
+  }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
   // If the current key should be placed on penultimate level, only valid if
@@ -251,6 +260,8 @@ class CompactionIterator {
     return output_to_penultimate_level_;
   }
   Status InputStatus() const { return input_.status(); }
+
+  bool IsDeleteRangeSentinelKey() const { return is_range_del_; }
 
  private:
   // Processes the input stream to find the next output
@@ -385,6 +396,7 @@ class CompactionIterator {
     kKeepSD = 8,
     kKeepDel = 9,
     kNewUserKey = 10,
+    kRangeDeletion = 11,
   };
 
   struct ValidityInfo {
@@ -432,6 +444,7 @@ class CompactionIterator {
   bool clear_and_output_next_key_ = false;
 
   MergeOutputIterator merge_out_iter_;
+  Status merge_until_status_;
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
@@ -492,6 +505,10 @@ class CompactionIterator {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return manual_compaction_canceled_.load(std::memory_order_relaxed);
   }
+
+  // Stores whether the current compaction iterator output
+  // is a range tombstone start key.
+  bool is_range_del_{false};
 };
 
 inline bool CompactionIterator::DefinitelyInSnapshot(SequenceNumber seq,

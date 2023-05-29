@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -47,6 +46,7 @@ class LogReaderContainer {
     delete reporter_;
     delete status_;
   }
+
  private:
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -247,7 +247,6 @@ class DBImplSecondary : public DBImpl {
   // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
-
   // Try to find log reader using log_number from log_readers_ map, initialize
   // if it doesn't exist
   Status MaybeInitLogReader(uint64_t log_number,
@@ -269,90 +268,9 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-#ifndef ROCKSDB_LITE
   Status FlushForGetLiveFiles() override {
     // No-op for read-only DB
     return Status::OK();
-  }
-#endif  // !ROCKSDB_LITE
-
-  // ColumnFamilyCollector is a write batch handler which does nothing
-  // except recording unique column family IDs
-  class ColumnFamilyCollector : public WriteBatch::Handler {
-    std::unordered_set<uint32_t> column_family_ids_;
-
-    Status AddColumnFamilyId(uint32_t column_family_id) {
-      if (column_family_ids_.find(column_family_id) ==
-          column_family_ids_.end()) {
-        column_family_ids_.insert(column_family_id);
-      }
-      return Status::OK();
-    }
-
-   public:
-    explicit ColumnFamilyCollector() {}
-
-    ~ColumnFamilyCollector() override {}
-
-    Status PutCF(uint32_t column_family_id, const Slice&,
-                 const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
-                         const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MergeCF(uint32_t column_family_id, const Slice&,
-                   const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
-                          const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MarkBeginPrepare(bool) override { return Status::OK(); }
-
-    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
-
-    Status MarkRollback(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommit(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
-      return Status::OK();
-    }
-
-    Status MarkNoop(bool) override { return Status::OK(); }
-
-    const std::unordered_set<uint32_t>& column_families() const {
-      return column_family_ids_;
-    }
-  };
-
-  Status CollectColumnFamilyIdsFromWriteBatch(
-      const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
-    assert(column_family_ids != nullptr);
-    column_family_ids->clear();
-    ColumnFamilyCollector handler;
-    Status s = batch.Iterate(&handler);
-    if (s.ok()) {
-      for (const auto& cf : handler.column_families()) {
-        column_family_ids->push_back(cf);
-      }
-    }
-    return s;
   }
 
   bool OwnTablesAndLogs() const override {
@@ -407,4 +325,3 @@ class DBImplSecondary : public DBImpl {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

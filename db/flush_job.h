@@ -67,8 +67,8 @@ class FlushJob {
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
-           LogBuffer* log_buffer, FSDirectory* db_directory,
-           FSDirectory* output_file_directory,
+           FlushReason flush_reason, LogBuffer* log_buffer,
+           FSDirectory* db_directory, FSDirectory* output_file_directory,
            CompressionType output_compression, Statistics* stats,
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
@@ -89,11 +89,9 @@ class FlushJob {
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
-#ifndef ROCKSDB_LITE
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
@@ -127,9 +125,7 @@ class FlushJob {
   bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriorityForWrite();
-#ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
-#endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
   const std::string db_id_;
@@ -150,6 +146,7 @@ class FlushJob {
   SequenceNumber earliest_write_conflict_snapshot_;
   SnapshotChecker* snapshot_checker_;
   JobContext* job_context_;
+  FlushReason flush_reason_;
   LogBuffer* log_buffer_;
   FSDirectory* db_directory_;
   FSDirectory* output_file_directory_;

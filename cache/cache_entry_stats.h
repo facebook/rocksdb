@@ -10,8 +10,8 @@
 #include <memory>
 #include <mutex>
 
-#include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
+#include "cache/typed_cache.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/status.h"
@@ -111,11 +111,14 @@ class CacheEntryStatsCollector {
   // Gets or creates a shared instance of CacheEntryStatsCollector in the
   // cache itself, and saves into `ptr`. This shared_ptr will hold the
   // entry in cache until all refs are destroyed.
-  static Status GetShared(Cache *cache, SystemClock *clock,
+  static Status GetShared(Cache *raw_cache, SystemClock *clock,
                           std::shared_ptr<CacheEntryStatsCollector> *ptr) {
-    const Slice &cache_key = GetCacheKey();
+    assert(raw_cache);
+    BasicTypedCacheInterface<CacheEntryStatsCollector, CacheEntryRole::kMisc>
+        cache{raw_cache};
 
-    Cache::Handle *h = cache->Lookup(cache_key);
+    const Slice &cache_key = GetCacheKey();
+    auto h = cache.Lookup(cache_key);
     if (h == nullptr) {
       // Not yet in cache, but Cache doesn't provide a built-in way to
       // avoid racing insert. So we double-check under a shared mutex,
@@ -123,15 +126,15 @@ class CacheEntryStatsCollector {
       STATIC_AVOID_DESTRUCTION(std::mutex, static_mutex);
       std::lock_guard<std::mutex> lock(static_mutex);
 
-      h = cache->Lookup(cache_key);
+      h = cache.Lookup(cache_key);
       if (h == nullptr) {
-        auto new_ptr = new CacheEntryStatsCollector(cache, clock);
+        auto new_ptr = new CacheEntryStatsCollector(cache.get(), clock);
         // TODO: non-zero charge causes some tests that count block cache
         // usage to go flaky. Fix the problem somehow so we can use an
         // accurate charge.
         size_t charge = 0;
-        Status s = cache->Insert(cache_key, new_ptr, charge, Deleter, &h,
-                                 Cache::Priority::HIGH);
+        Status s =
+            cache.Insert(cache_key, new_ptr, charge, &h, Cache::Priority::HIGH);
         if (!s.ok()) {
           assert(h == nullptr);
           delete new_ptr;
@@ -140,11 +143,11 @@ class CacheEntryStatsCollector {
       }
     }
     // If we reach here, shared entry is in cache with handle `h`.
-    assert(cache->GetDeleter(h) == Deleter);
+    assert(cache.get()->GetCacheItemHelper(h) == cache.GetBasicHelper());
 
     // Build an aliasing shared_ptr that keeps `ptr` in cache while there
     // are references.
-    *ptr = MakeSharedCacheHandleGuard<CacheEntryStatsCollector>(cache, h);
+    *ptr = cache.SharedGuard(h);
     return Status::OK();
   }
 
@@ -156,10 +159,6 @@ class CacheEntryStatsCollector {
         last_end_time_micros_(/*pessimistic*/ 10000000),
         cache_(cache),
         clock_(clock) {}
-
-  static void Deleter(const Slice &, void *value) {
-    delete static_cast<CacheEntryStatsCollector *>(value);
-  }
 
   static const Slice &GetCacheKey() {
     // For each template instantiation

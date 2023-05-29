@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
@@ -26,9 +25,9 @@
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 
+using std::map;
 using std::string;
 using std::vector;
-using std::map;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -70,7 +69,7 @@ TEST_F(LdbCmdTest, HexToString) {
     auto actual = ROCKSDB_NAMESPACE::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
-      EXPECT_EQ(expected[i], static_cast<int>((signed char) actual[i]));
+      EXPECT_EQ(expected[i], static_cast<int>((signed char)actual[i]));
     }
     auto reverse = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(actual);
     EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
@@ -1215,12 +1214,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

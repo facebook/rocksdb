@@ -36,7 +36,7 @@ bool CheckMemoryAllocated(size_t allocated, size_t expected) {
 
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
-  size_t req_sz;  // requested size
+  size_t req_sz;           // requested size
   size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 
@@ -253,6 +253,36 @@ TEST(MmapTest, AllocateLazyZeroed) {
   // Verify data
   for (i = 0; i < len; ++i) {
     ASSERT_EQ(arr[i], static_cast<char>(i & 255));
+  }
+}
+
+TEST_F(ArenaTest, UnmappedAllocation) {
+  // Verify that it's possible to get unmapped pages in large allocations,
+  // for memory efficiency and to ensure we don't accidentally waste time &
+  // space initializing the memory.
+  constexpr size_t kBlockSize = 2U << 20;
+  Arena arena(kBlockSize);
+
+  // The allocator might give us back recycled memory for a while, but
+  // shouldn't last forever.
+  for (int i = 0;; ++i) {
+    char* p = arena.Allocate(kBlockSize);
+
+    // Start counting page faults
+    PopMinorPageFaultCount();
+
+    // Overwrite the whole allocation
+    for (size_t j = 0; j < kBlockSize; ++j) {
+      p[j] = static_cast<char>(j & 255);
+    }
+
+    size_t faults = PopMinorPageFaultCount();
+    if (faults >= kBlockSize * 3 / 4 / port::kPageSize) {
+      // Most of the access generated page faults => GOOD
+      break;
+    }
+    // Should have succeeded after enough tries
+    ASSERT_LT(i, 1000);
   }
 }
 

@@ -354,7 +354,7 @@ TEST_F(RangeTombstoneFragmenterTest,
 
   FragmentedRangeTombstoneList fragment_list(
       std::move(range_del_iter), bytewise_icmp, true /* for_compaction */,
-      {20, 9} /* upper_bounds */);
+      {9, 20} /* snapshots */);
   FragmentedRangeTombstoneIterator iter(&fragment_list, bytewise_icmp,
                                         kMaxSequenceNumber /* upper_bound */);
   VerifyFragmentedRangeDels(&iter, {{"a", "c", 10},

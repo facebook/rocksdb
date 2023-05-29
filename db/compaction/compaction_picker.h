@@ -51,14 +51,15 @@ class CompactionPicker {
   virtual ~CompactionPicker();
 
   // Pick level and inputs for a new compaction.
+  //
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
-  virtual Compaction* PickCompaction(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer,
-      SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) = 0;
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     const MutableDBOptions& mutable_db_options,
+                                     VersionStorageInfo* vstorage,
+                                     LogBuffer* log_buffer) = 0;
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -91,11 +92,10 @@ class CompactionPicker {
 // files.  If it's not possible to conver an invalid input_files
 // into a valid one by adding more files, the function will return a
 // non-ok status with specific reason.
-#ifndef ROCKSDB_LITE
+//
   Status SanitizeCompactionInputFiles(std::unordered_set<uint64_t>* input_files,
                                       const ColumnFamilyMetaData& cf_meta,
                                       const int output_level) const;
-#endif  // ROCKSDB_LITE
 
   // Free up the files that participated in a compaction
   //
@@ -227,11 +227,9 @@ class CompactionPicker {
 
 // A helper function to SanitizeCompactionInputFiles() that
 // sanitizes "input_files" by adding necessary files.
-#ifndef ROCKSDB_LITE
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta, const int output_level) const;
-#endif  // ROCKSDB_LITE
 
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
@@ -244,7 +242,6 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
-#ifndef ROCKSDB_LITE
 // A dummy compaction that never triggers any automatic
 // compaction.
 class NullCompactionPicker : public CompactionPicker {
@@ -255,12 +252,11 @@ class NullCompactionPicker : public CompactionPicker {
   virtual ~NullCompactionPicker() {}
 
   // Always return "nullptr"
-  Compaction* PickCompaction(
-      const std::string& /*cf_name*/,
-      const MutableCFOptions& /*mutable_cf_options*/,
-      const MutableDBOptions& /*mutable_db_options*/,
-      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
-      SequenceNumber /* earliest_memtable_seqno */) override {
+  Compaction* PickCompaction(const std::string& /*cf_name*/,
+                             const MutableCFOptions& /*mutable_cf_options*/,
+                             const MutableDBOptions& /*mutable_db_options*/,
+                             VersionStorageInfo* /*vstorage*/,
+                             LogBuffer* /* log_buffer */) override {
     return nullptr;
   }
 
@@ -286,7 +282,6 @@ class NullCompactionPicker : public CompactionPicker {
     return false;
   }
 };
-#endif  // !ROCKSDB_LITE
 
 // Attempts to find an intra L0 compaction conforming to the given parameters.
 //
@@ -304,11 +299,11 @@ class NullCompactionPicker : public CompactionPicker {
 //                                        files. Cannot be nullptr.
 //
 // @return                                true iff compaction was found.
-bool FindIntraL0Compaction(
-    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
-    uint64_t max_compact_bytes_per_del_file, uint64_t max_compaction_bytes,
-    CompactionInputFiles* comp_inputs,
-    SequenceNumber earliest_mem_seqno = kMaxSequenceNumber);
+bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
+                           size_t min_files_to_compact,
+                           uint64_t max_compact_bytes_per_del_file,
+                           uint64_t max_compaction_bytes,
+                           CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
                                    const MutableCFOptions& mutable_cf_options,

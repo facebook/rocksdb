@@ -7,15 +7,15 @@
 // ROCKSDB_NAMESPACE::TableFilter.
 
 #include "rocksjni/table_filter_jnicallback.h"
+
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
-TableFilterJniCallback::TableFilterJniCallback(
-    JNIEnv* env, jobject jtable_filter)
+TableFilterJniCallback::TableFilterJniCallback(JNIEnv* env,
+                                               jobject jtable_filter)
     : JniCallback(env, jtable_filter) {
-  m_jfilter_methodid =
-      AbstractTableFilterJni::getFilterMethod(env);
-  if(m_jfilter_methodid == nullptr) {
+  m_jfilter_methodid = AbstractTableFilterJni::getFilterMethod(env);
+  if (m_jfilter_methodid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }

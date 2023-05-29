@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/arena_wrapped_db_iter.h"
+
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -46,6 +47,9 @@ void ArenaWrappedDBIter::Init(
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
   memtable_range_tombstone_iter_ = nullptr;
+  if (!env->GetFileSystem()->use_async_io()) {
+    read_options_.async_io = false;
+  }
 }
 
 Status ArenaWrappedDBIter::Refresh() {

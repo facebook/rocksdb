@@ -50,7 +50,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         // Internal key is constructed directly from this key,
         // and internal key size is required to be >= 8 bytes,
         // so use %08u as the format string.
-        sprintf(k, "%08u", key);
+        snprintf(k, sizeof(k), "%08u", key);
         std::string v;
         if (mixed_with_human_readable_string_value) {
           v = (block % 2) ? rnd.HumanReadableString(256)
@@ -116,8 +116,9 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                 bool prefetch_index_and_filter_in_cache = true,
                                 Status* status = nullptr) {
     const MutableCFOptions moptions(options_);
-    TableReaderOptions table_reader_options = TableReaderOptions(
-        ioptions, moptions.prefix_extractor, EnvOptions(), comparator);
+    TableReaderOptions table_reader_options =
+        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+                           comparator, 0 /* block_protection_bytes_per_key */);
 
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file);
@@ -253,7 +254,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
                              nullptr, nullptr, nullptr, nullptr,
                              true /* do_merge */, nullptr, nullptr, nullptr,
                              nullptr, nullptr, nullptr);
-    key_context.emplace_back(nullptr, keys[i], &values[i], nullptr,
+    key_context.emplace_back(nullptr, keys[i], &values[i], nullptr, nullptr,
                              &statuses.back());
     key_context.back().get_context = &get_context.back();
   }
@@ -499,6 +500,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
+  options.statistics = CreateDBStatistics();
   ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
@@ -528,8 +530,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
                               static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   Status s = table->VerifyChecksum(ReadOptions(),
                                    TableReaderCaller::kUserVerifyChecksum);
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
@@ -537,23 +543,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 // Param 2: whether to use direct reads
 // Param 3: Block Based Table Index type
 // Param 4: BBTO no_block_cache option
-#ifdef ROCKSDB_LITE
-// Skip direct I/O tests in lite mode since direct I/O is unsupported.
-INSTANTIATE_TEST_CASE_P(
-    MultiGet, BlockBasedTableReaderTest,
-    ::testing::Combine(
-        ::testing::ValuesIn(GetSupportedCompressions()),
-        ::testing::Values(false),
-        ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
-        ::testing::Values(false)));
-#else   // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
         ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
         ::testing::Values(false)));
-#endif  // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(

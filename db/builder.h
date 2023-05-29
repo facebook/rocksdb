@@ -13,6 +13,7 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
+#include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
@@ -52,8 +53,8 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 extern Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
-    const FileOptions& file_options, TableCache* table_cache,
-    InternalIterator* iter,
+    const FileOptions& file_options, const ReadOptions& read_options,
+    TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
@@ -70,7 +71,7 @@ extern Status BuildTable(
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,
     BlobFileCompletionCallback* blob_callback = nullptr,
-    uint64_t* num_input_entries = nullptr,
+    Version* version = nullptr, uint64_t* num_input_entries = nullptr,
     uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr);
 

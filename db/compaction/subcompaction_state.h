@@ -84,6 +84,11 @@ class SubcompactionState {
   // Assign range dels aggregator, for each range_del, it can only be assigned
   // to one output level, for per_key_placement, it's going to be the
   // penultimate level.
+  // TODO: This does not work for per_key_placement + user-defined timestamp +
+  //  DeleteRange() combo. If user-defined timestamp is enabled,
+  //  it is possible for a range tombstone to belong to bottommost level (
+  //  seqno < earliest snapshot) without being dropped (garbage collection
+  //  for user-defined timestamp).
   void AssignRangeDelAggregator(
       std::unique_ptr<CompactionRangeDelAggregator>&& range_del_agg) {
     if (compaction->SupportsPerKeyPlacement()) {
@@ -99,7 +104,6 @@ class SubcompactionState {
     penultimate_level_outputs_.RemoveLastEmptyOutput();
   }
 
-#ifndef ROCKSDB_LITE
   void BuildSubcompactionJobInfo(
       SubcompactionJobInfo& subcompaction_job_info) const {
     const Compaction* c = compaction;
@@ -113,7 +117,6 @@ class SubcompactionState {
     subcompaction_job_info.output_level = c->output_level();
     subcompaction_job_info.stats = compaction_job_stats;
   }
-#endif  // !ROCKSDB_LITE
 
   SubcompactionState() = delete;
   SubcompactionState(const SubcompactionState&) = delete;
@@ -196,8 +199,11 @@ class SubcompactionState {
                               const CompactionFileCloseFunc& close_file_func) {
     // Call FinishCompactionOutputFile() even if status is not ok: it needs to
     // close the output file.
+    // CloseOutput() may open new compaction output files.
+    is_current_penultimate_level_ = true;
     Status s = penultimate_level_outputs_.CloseOutput(
         curr_status, open_file_func, close_file_func);
+    is_current_penultimate_level_ = false;
     s = compaction_outputs_.CloseOutput(s, open_file_func, close_file_func);
     return s;
   }

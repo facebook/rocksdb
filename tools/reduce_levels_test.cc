@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
@@ -19,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class ReduceLevelTest : public testing::Test {
-public:
+ public:
   ReduceLevelTest() {
     dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
@@ -75,7 +74,7 @@ public:
     return atoi(property.c_str());
   }
 
-private:
+ private:
   std::string dbname_;
   DB* db_;
 };
@@ -211,12 +210,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

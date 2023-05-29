@@ -97,15 +97,22 @@ class PinnableWideColumns {
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
+  void SetPlainValue(PinnableSlice&& value);
+  void SetPlainValue(std::string&& value);
 
   Status SetWideColumnValue(const Slice& value);
   Status SetWideColumnValue(const Slice& value, Cleanable* cleanable);
+  Status SetWideColumnValue(PinnableSlice&& value);
+  Status SetWideColumnValue(std::string&& value);
 
   void Reset();
 
  private:
   void CopyValue(const Slice& value);
   void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
+  void MoveValue(PinnableSlice&& value);
+  void MoveValue(std::string&& value);
+
   void CreateIndexForPlainValue();
   Status CreateIndexForWideColumns();
 
@@ -127,6 +134,18 @@ inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
   value_.PinSlice(value, cleanable);
 }
 
+inline void PinnableWideColumns::MoveValue(PinnableSlice&& value) {
+  value_ = std::move(value);
+}
+
+inline void PinnableWideColumns::MoveValue(std::string&& value) {
+  std::string* const buf = value_.GetSelf();
+  assert(buf);
+
+  *buf = std::move(value);
+  value_.PinSelf();
+}
+
 inline void PinnableWideColumns::CreateIndexForPlainValue() {
   columns_ = WideColumns{{kDefaultWideColumnName, value_}};
 }
@@ -142,6 +161,16 @@ inline void PinnableWideColumns::SetPlainValue(const Slice& value,
   CreateIndexForPlainValue();
 }
 
+inline void PinnableWideColumns::SetPlainValue(PinnableSlice&& value) {
+  MoveValue(std::move(value));
+  CreateIndexForPlainValue();
+}
+
+inline void PinnableWideColumns::SetPlainValue(std::string&& value) {
+  MoveValue(std::move(value));
+  CreateIndexForPlainValue();
+}
+
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
   CopyValue(value);
   return CreateIndexForWideColumns();
@@ -150,6 +179,16 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
                                                       Cleanable* cleanable) {
   PinOrCopyValue(value, cleanable);
+  return CreateIndexForWideColumns();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(PinnableSlice&& value) {
+  MoveValue(std::move(value));
+  return CreateIndexForWideColumns();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(std::string&& value) {
+  MoveValue(std::move(value));
   return CreateIndexForWideColumns();
 }
 

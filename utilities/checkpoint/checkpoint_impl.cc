@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
@@ -373,16 +372,19 @@ Status CheckpointImpl::ExportColumnFamily(
       for (const auto& file_metadata : level_metadata.files) {
         LiveFileMetaData live_file_metadata;
         live_file_metadata.size = file_metadata.size;
-        live_file_metadata.name = std::move(file_metadata.name);
+        live_file_metadata.name = file_metadata.name;
         live_file_metadata.file_number = file_metadata.file_number;
         live_file_metadata.db_path = export_dir;
         live_file_metadata.smallest_seqno = file_metadata.smallest_seqno;
         live_file_metadata.largest_seqno = file_metadata.largest_seqno;
-        live_file_metadata.smallestkey = std::move(file_metadata.smallestkey);
-        live_file_metadata.largestkey = std::move(file_metadata.largestkey);
+        live_file_metadata.smallestkey = file_metadata.smallestkey;
+        live_file_metadata.largestkey = file_metadata.largestkey;
         live_file_metadata.oldest_blob_file_number =
             file_metadata.oldest_blob_file_number;
+        live_file_metadata.epoch_number = file_metadata.epoch_number;
         live_file_metadata.level = level_metadata.level;
+        live_file_metadata.smallest = file_metadata.smallest;
+        live_file_metadata.largest = file_metadata.largest;
         result_metadata->files.push_back(live_file_metadata);
       }
       *metadata = result_metadata;
@@ -466,4 +468,3 @@ Status CheckpointImpl::ExportFilesInMetaData(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

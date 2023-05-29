@@ -13,7 +13,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
@@ -30,16 +30,14 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache),
       lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
-#ifndef ROCKSDB_LITE
   auto bbto =
       immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
   if (bbto &&
       bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
               .charged == CacheEntryRoleOptions::Decision::kEnabled) {
-    blob_cache_ = std::make_shared<ChargedCache>(immutable_options->blob_cache,
-                                                 bbto->block_cache);
+    blob_cache_ = SharedCacheInterface{std::make_shared<ChargedCache>(
+        immutable_options->blob_cache, bbto->block_cache)};
   }
-#endif  // ROCKSDB_LITE
 }
 
 BlobSource::~BlobSource() = default;
@@ -82,9 +80,8 @@ Status BlobSource::PutBlobIntoCache(
   assert(cached_blob);
   assert(cached_blob->IsEmpty());
 
-  Cache::Handle* cache_handle = nullptr;
+  TypedHandle* cache_handle = nullptr;
   const Status s = InsertEntryIntoCache(cache_key, blob->get(),
-                                        (*blob)->ApproximateMemoryUsage(),
                                         &cache_handle, Cache::Priority::BOTTOM);
   if (s.ok()) {
     blob->release();
@@ -106,26 +103,10 @@ Status BlobSource::PutBlobIntoCache(
   return s;
 }
 
-Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
-  Cache::Handle* cache_handle = nullptr;
-
-  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb =
-        [allocator = blob_cache_->memory_allocator()](
-            const void* buf, size_t size, void** out_obj,
-            size_t* charge) -> Status {
-      return BlobContents::CreateCallback(AllocateBlock(size, allocator), buf,
-                                          size, out_obj, charge);
-    };
-
-    cache_handle = blob_cache_->Lookup(key, BlobContents::GetCacheItemHelper(),
-                                       create_cb, Cache::Priority::BOTTOM,
-                                       true /* wait_for_cache */, statistics_);
-  } else {
-    cache_handle = blob_cache_->Lookup(key, statistics_);
-  }
-
-  return cache_handle;
+BlobSource::TypedHandle* BlobSource::GetEntryFromCache(const Slice& key) const {
+  return blob_cache_.LookupFull(key, nullptr /* context */,
+                                Cache::Priority::BOTTOM, statistics_,
+                                lowest_used_cache_tier_);
 }
 
 void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
@@ -166,24 +147,11 @@ void BlobSource::PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
 }
 
 Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
-                                        size_t charge,
-                                        Cache::Handle** cache_handle,
+                                        TypedHandle** cache_handle,
                                         Cache::Priority priority) const {
-  Status s;
-
-  Cache::CacheItemHelper* const cache_item_helper =
-      BlobContents::GetCacheItemHelper();
-  assert(cache_item_helper);
-
-  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, cache_item_helper, charge, cache_handle,
-                            priority);
-  } else {
-    s = blob_cache_->Insert(key, value, charge, cache_item_helper->del_cb,
-                            cache_handle, priority);
-  }
-
-  return s;
+  return blob_cache_.InsertFull(key, value, value->ApproximateMemoryUsage(),
+                                cache_handle, priority,
+                                lowest_used_cache_tier_);
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
@@ -241,7 +209,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -252,9 +221,10 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
-    MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
-                                           ? blob_cache_->memory_allocator()
-                                           : nullptr;
+    MemoryAllocator* const allocator =
+        (blob_cache_ && read_options.fill_cache)
+            ? blob_cache_.get()->memory_allocator()
+            : nullptr;
 
     uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
@@ -403,8 +373,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s =
-        blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                                   &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         BlobReadRequest* const req = _blob_reqs[i].first;
@@ -418,9 +388,10 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
     assert(blob_file_reader.GetValue());
 
-    MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
-                                           ? blob_cache_->memory_allocator()
-                                           : nullptr;
+    MemoryAllocator* const allocator =
+        (blob_cache_ && read_options.fill_cache)
+            ? blob_cache_.get()->memory_allocator()
+            : nullptr;
 
     blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
                                               _blob_reqs, &_bytes_read);

@@ -53,11 +53,9 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-#ifndef ROCKSDB_LITE
     for (auto& listener : cfd_->ioptions()->listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-#endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     // Need to hold some shared pointers owned by the initial_cf_options
@@ -88,15 +86,10 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
 }
 
 Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
-#ifndef ROCKSDB_LITE
   // accessing mutable cf-options requires db mutex.
   InstrumentedMutexLock l(mutex_);
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
-#else
-  (void)desc;
-  return Status::NotSupported();
-#endif  // !ROCKSDB_LITE
 }
 
 const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
@@ -192,8 +185,7 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
       return Status::NotSupported(
           "More than one CF paths are only supported in "
           "universal and level compaction styles. ");
-    } else if (cf_options.cf_paths.empty() &&
-               db_options.db_paths.size() > 1) {
+    } else if (cf_options.cf_paths.empty() && db_options.db_paths.size() > 1) {
       return Status::NotSupported(
           "More than one DB paths are only supported in "
           "universal and level compaction styles. ");
@@ -205,7 +197,7 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
 namespace {
 const uint64_t kDefaultTtl = 0xfffffffffffffffe;
 const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
-}  // namespace
+}  // anonymous namespace
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
@@ -348,18 +340,17 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.hard_pending_compaction_bytes_limit;
   }
 
-#ifndef ROCKSDB_LITE
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
   // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
   for (size_t i = 0; i < result.cf_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(db_options.env, sfm,
                                       result.cf_paths[i].path)
         .PermitUncheckedError();
   }
-#endif
 
   if (result.cf_paths.empty()) {
     result.cf_paths = db_options.db_paths;
@@ -557,7 +548,6 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
       queued_for_compaction_(false),
@@ -565,7 +555,8 @@ ColumnFamilyData::ColumnFamilyData(
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
       db_paths_registered_(false),
-      mempurge_used_(false) {
+      mempurge_used_(false),
+      next_epoch_number_(1) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -602,7 +593,6 @@ ColumnFamilyData::ColumnFamilyData(
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
-#ifndef ROCKSDB_LITE
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -610,13 +600,12 @@ ColumnFamilyData::ColumnFamilyData(
       compaction_picker_.reset(
           new FIFOCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
-      compaction_picker_.reset(new NullCompactionPicker(
-          ioptions_, &internal_comparator_));
+      compaction_picker_.reset(
+          new NullCompactionPicker(ioptions_, &internal_comparator_));
       ROCKS_LOG_WARN(ioptions_.logger,
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
-#endif  // !ROCKSDB_LITE
     } else {
       ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "
@@ -878,9 +867,9 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
     return static_cast<int>(res);
   }
 }
-}  // namespace
+}  // anonymous namespace
 
-std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
+std::pair<WriteStallCondition, WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
@@ -919,7 +908,7 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
 }
 
 WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
-      const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options) {
   auto write_stall_condition = WriteStallCondition::kNormal;
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
@@ -953,7 +942,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_STOPS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_STOPS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stopping writes because we have %d level-0 files",
@@ -974,7 +964,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because we have %d immutable memtables "
@@ -992,11 +982,11 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-                                  1);
+      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_DELAYS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stalling writes because we have %d level-0 files "
@@ -1012,7 +1002,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
           (compaction_needed_bytes -
            mutable_cf_options.soft_pending_compaction_bytes_limit) >
-              3 * (mutable_cf_options.hard_pending_compaction_bytes_limit -
+              3 *
+                  (mutable_cf_options.hard_pending_compaction_bytes_limit -
                    mutable_cf_options.soft_pending_compaction_bytes_limit) /
                   4;
 
@@ -1021,7 +1012,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
-          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS, 1);
+          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because of estimated pending compaction "
@@ -1127,12 +1118,9 @@ bool ColumnFamilyData::NeedsCompaction() const {
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
-  SequenceNumber earliest_mem_seqno =
-      std::min(mem_->GetEarliestSequenceNumber(),
-               imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
-      log_buffer, earliest_mem_seqno);
+      log_buffer);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1153,6 +1141,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
   Arena arena;
+  // TODO: plumb Env::IOActivity
   ReadOptions read_opts;
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
@@ -1219,6 +1208,7 @@ Compaction* ColumnFamilyData::CompactRange(
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
+  TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
 }
 
@@ -1255,30 +1245,11 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(DBImpl* db) {
   // (if no Scrape happens).
   assert(ptr != SuperVersion::kSVInUse);
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
-  if (sv == SuperVersion::kSVObsolete ||
-      sv->version_number != super_version_number_.load()) {
+  if (sv == SuperVersion::kSVObsolete) {
     RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_ACQUIRES);
-    SuperVersion* sv_to_delete = nullptr;
-
-    if (sv && sv->Unref()) {
-      RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_CLEANUPS);
-      db->mutex()->Lock();
-      // NOTE: underlying resources held by superversion (sst files) might
-      // not be released until the next background job.
-      sv->Cleanup();
-      if (db->immutable_db_options().avoid_unnecessary_blocking_io) {
-        db->AddSuperVersionsToFreeQueue(sv);
-        db->SchedulePurge();
-      } else {
-        sv_to_delete = sv;
-      }
-    } else {
-      db->mutex()->Lock();
-    }
+    db->mutex()->Lock();
     sv = super_version_->Ref();
     db->mutex()->Unlock();
-
-    delete sv_to_delete;
   }
   assert(sv != nullptr);
   return sv;
@@ -1302,8 +1273,8 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   return false;
 }
 
-void ColumnFamilyData::InstallSuperVersion(
-    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex) {
+void ColumnFamilyData::InstallSuperVersion(SuperVersionContext* sv_context,
+                                           InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
   return InstallSuperVersion(sv_context, mutable_cf_options_);
 }
@@ -1438,10 +1409,40 @@ Status ColumnFamilyData::ValidateOptions(
         "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
         "or 8 bytes per key.");
   }
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.block_protection_bytes_per_key) == supported.end()) {
+    return Status::NotSupported(
+        "Block per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
+
+  if (!cf_options.compaction_options_fifo.file_temperature_age_thresholds
+           .empty()) {
+    if (cf_options.compaction_style != kCompactionStyleFIFO) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds only supports FIFO "
+          "compaction.");
+    } else if (cf_options.num_levels > 1) {
+      return Status::NotSupported(
+          "Option file_temperature_age_thresholds is only supported when "
+          "num_levels = 1.");
+    } else {
+      const auto& ages =
+          cf_options.compaction_options_fifo.file_temperature_age_thresholds;
+      assert(ages.size() >= 1);
+      // check that age is sorted
+      for (size_t i = 0; i < ages.size() - 1; ++i) {
+        if (ages[i].age >= ages[i + 1].age) {
+          return Status::NotSupported(
+              "Option file_temperature_age_thresholds requires elements to be "
+              "sorted in increasing order with respect to `age` field.");
+        }
+      }
+    }
+  }
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
     const DBOptions& db_opts,
     const std::unordered_map<std::string, std::string>& options_map) {
@@ -1460,7 +1461,6 @@ Status ColumnFamilyData::SetOptions(
   }
   return s;
 }
-#endif  // ROCKSDB_LITE
 
 // REQUIRES: DB mutex held
 Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
@@ -1480,8 +1480,8 @@ Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
     // than base_level.
     return Env::WLTH_MEDIUM;
   }
-  return static_cast<Env::WriteLifeTimeHint>(level - base_level +
-                            static_cast<int>(Env::WLTH_MEDIUM));
+  return static_cast<Env::WriteLifeTimeHint>(
+      level - base_level + static_cast<int>(Env::WLTH_MEDIUM));
 }
 
 Status ColumnFamilyData::AddDirectories(
@@ -1517,6 +1517,13 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+void ColumnFamilyData::RecoverEpochNumbers() {
+  assert(current_);
+  auto* vstorage = current_->storage_info();
+  assert(vstorage);
+  vstorage->RecoverEpochNumbers(this);
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
@@ -1577,8 +1584,8 @@ ColumnFamilyData* ColumnFamilySet::GetColumnFamily(uint32_t id) const {
   }
 }
 
-ColumnFamilyData* ColumnFamilySet::GetColumnFamily(const std::string& name)
-    const {
+ColumnFamilyData* ColumnFamilySet::GetColumnFamily(
+    const std::string& name) const {
   auto cfd_iter = column_families_.find(name);
   if (cfd_iter != column_families_.end()) {
     auto cfd = GetColumnFamily(cfd_iter->second);
