@@ -2160,7 +2160,6 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
   }
 
   // Insert 100 -> 200 using IngestExternalFile
@@ -2188,6 +2187,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
 
   options.num_levels = 3;
   DestroyAndReopen(options);
+  true_data.clear();
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
@@ -2215,6 +2215,8 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   ASSERT_EQ("0,1,1", FilesPerLevel());
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+  size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
 
   // Trigger compaction if size amplification exceeds 110%
   options.compaction_options_universal.max_size_amplification_percent = 110;
@@ -2223,7 +2225,8 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   Random rnd(301);
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(Key(j), rnd.RandomString(1000)));
+      true_data[Key(j)] = rnd.RandomString(1000);
+      ASSERT_OK(Put(Key(j), true_data[Key(j)]));
     }
     ASSERT_OK(Flush());
   }
@@ -2232,13 +2235,13 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   ASSERT_EQ(1, level_to_files[2].size());
   ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
 
+  // Turning off the option allows DB to compact ingested files.
   options.allow_ingest_behind = false;
   TryReopen(options);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   ASSERT_EQ(1, level_to_files[2].size());
   ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
-
-  size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 
