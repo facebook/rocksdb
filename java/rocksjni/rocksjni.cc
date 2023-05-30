@@ -713,10 +713,12 @@ void Java_org_rocksdb_RocksDB_putDirect(
  * Method:    putAddr
  * Signature: (JJJIJIJ)V
  */
-void Java_org_rocksdb_RocksDB_putAddr__JJJIJIJ(
-    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jwrite_options_handle,
-    jlong jkey_addr, jint jkey_len, jlong jval_addr, jint jval_len,
-    jlong jcf_handle) {
+void Java_org_rocksdb_RocksDB_putAddr__JJJIJIJ(JNIEnv* env, jobject /*jdb*/,
+                                               jlong jdb_handle,
+                                               jlong jwrite_options_handle,
+                                               jlong jkey_addr, jint jkey_len,
+                                               jlong jval_addr, jint jval_len,
+                                               jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
@@ -726,10 +728,8 @@ void Java_org_rocksdb_RocksDB_putAddr__JJJIJIJ(
   ROCKSDB_NAMESPACE::Slice key_slice;
   ROCKSDB_NAMESPACE::Slice value_slice;
 
-  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(env,
-                                                jkey_addr, jkey_len,
-                                                jval_addr, jval_len,
-                                                key_slice, value_slice);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
 
   ROCKSDB_NAMESPACE::Status s;
   if (cf_handle == nullptr) {
@@ -748,10 +748,10 @@ void Java_org_rocksdb_RocksDB_putAddr__JJJIJIJ(
  * Method:    putAddr
  * Signature: (JJIJIJ)V
  */
-void Java_org_rocksdb_RocksDB_putAddr__JJIJIJ(
-    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle,
-    jlong jkey_addr, jint jkey_len, jlong jval_addr, jint jval_len,
-    jlong jcf_handle) {
+void Java_org_rocksdb_RocksDB_putAddr__JJIJIJ(JNIEnv* env, jobject /*jdb*/,
+                                              jlong jdb_handle, jlong jkey_addr,
+                                              jint jkey_len, jlong jval_addr,
+                                              jint jval_len, jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
@@ -761,10 +761,8 @@ void Java_org_rocksdb_RocksDB_putAddr__JJIJIJ(
   ROCKSDB_NAMESPACE::Slice key_slice;
   ROCKSDB_NAMESPACE::Slice value_slice;
 
-  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(env,
-                                                jkey_addr, jkey_len,
-                                                jval_addr, jval_len,
-                                                key_slice, value_slice);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
 
   ROCKSDB_NAMESPACE::Status s;
   if (cf_handle == nullptr) {
@@ -777,7 +775,6 @@ void Java_org_rocksdb_RocksDB_putAddr__JJIJIJ(
   }
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Delete()
@@ -1172,13 +1169,12 @@ jint rocksdb_get_helper_addr(
     JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
     const ROCKSDB_NAMESPACE::ReadOptions& read_options,
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jlong jkey_addr, jint jkey_len,
-    jlong jval_addr, jint jval_len,
+    jlong jkey_addr, jint jkey_len, jlong jval_addr, jint jval_len,
     bool* has_exception) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
 
-  ROCKSDB_NAMESPACE::Slice key_slice((const char*) jkey_addr, jkey_len);
+  ROCKSDB_NAMESPACE::Slice key_slice((const char*)jkey_addr, jkey_len);
 
   ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
   ROCKSDB_NAMESPACE::Status s;
@@ -1210,7 +1206,7 @@ jint rocksdb_get_helper_addr(
   const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
   const jint length = std::min(jval_len, pinnable_value_len);
 
-  memcpy((char*) jval_addr, pinnable_value.data(), length);
+  memcpy((char*)jval_addr, pinnable_value.data(), length);
   pinnable_value.Reset();
 
   *has_exception = false;
@@ -1511,8 +1507,7 @@ void Java_org_rocksdb_RocksDB_deleteDirect(JNIEnv* env, jobject /*jdb*/,
  * Signature: (JJJIJ)V
  */
 void Java_org_rocksdb_RocksDB_deleteAddr(JNIEnv* env, jobject /*jdb*/,
-                                         jlong jdb_handle,
-                                         jlong jwrite_options,
+                                         jlong jdb_handle, jlong jwrite_options,
                                          jlong jkey_addr, jint jkey_len,
                                          jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
@@ -1522,8 +1517,7 @@ void Java_org_rocksdb_RocksDB_deleteAddr(JNIEnv* env, jobject /*jdb*/,
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
   ROCKSDB_NAMESPACE::Slice key_slice;
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env,
-                                               jkey_addr, jkey_len,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env, jkey_addr, jkey_len,
                                                key_slice);
 
   ROCKSDB_NAMESPACE::Status s;

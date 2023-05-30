@@ -245,9 +245,7 @@ public class GetBenchmarks {
   public void preallocatedMemoryAddr() throws RocksDBException {
     ByteBuf k = getNettyKeyBuf();
     ByteBuf v = nettyValueBuf;
-    int res = db.get(getColumnFamily(), readOptions,
-            k.memoryAddress(), k.readableBytes(),
-            v.memoryAddress(), v.writableBytes()
-        );
+    int res = db.get(getColumnFamily(), readOptions, k.memoryAddress(), k.readableBytes(),
+        v.memoryAddress(), v.writableBytes());
   }
 }

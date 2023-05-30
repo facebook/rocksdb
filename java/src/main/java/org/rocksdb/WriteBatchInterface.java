@@ -64,7 +64,8 @@ public interface WriteBatchInterface {
      * @param valueLen the length of the value
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void put(final long keyAddr, final int keyLen, final long valueAddr, final int valueLen) throws RocksDBException;
+    void put(final long keyAddr, final int keyLen, final long valueAddr, final int valueLen)
+        throws RocksDBException;
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column

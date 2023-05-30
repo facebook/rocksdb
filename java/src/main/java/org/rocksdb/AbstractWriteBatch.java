@@ -53,8 +53,8 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
-  public void put(final long keyAddr, final int keyLen,
-                  final long valueAddr, final int valueLen) throws RocksDBException {
+  public void put(final long keyAddr, final int keyLen, final long valueAddr, final int valueLen)
+      throws RocksDBException {
     putAddr(nativeHandle_, keyAddr, keyLen, valueAddr, valueLen, 0);
   }
 
@@ -169,10 +169,8 @@ public abstract class AbstractWriteBatch extends RocksObject
       final int keyLength, final ByteBuffer value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
 
-
   abstract void putAddr(final long handle, final long keyAddr, final int keyLength,
-        final long valueAddr, final int valueLength,
-        final long cfHandle) throws RocksDBException;
+      final long valueAddr, final int valueLength, final long cfHandle) throws RocksDBException;
 
   abstract void merge(final long handle, final byte[] key, final int keyLen,
       final byte[] value, final int valueLen) throws RocksDBException;

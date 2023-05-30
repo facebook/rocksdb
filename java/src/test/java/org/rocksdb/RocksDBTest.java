@@ -4,19 +4,16 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import org.junit.*;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
-
-import java.nio.ByteBuffer;
-import java.util.*;
-import org.rocksdb.util.DirectByteBufferAddress;
-
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
+
+import java.nio.ByteBuffer;
+import java.util.*;
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.DirectByteBufferAddress;
 
 public class RocksDBTest {
 
@@ -261,7 +258,7 @@ public class RocksDBTest {
       value.flip();
 
       db.put(opt, DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.remaining());
+          DirectByteBufferAddress.getAddress(value), value.remaining());
 
       key.clear();
       key.put("key2".getBytes());
@@ -270,20 +267,17 @@ public class RocksDBTest {
       value.put("12345678".getBytes());
       value.flip();
       db.put(opt, DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.remaining());
+          DirectByteBufferAddress.getAddress(value), value.remaining());
 
-      assertThat(db.get("key1".getBytes())).isEqualTo(
-              "value".getBytes());
-      assertThat(db.get("key2".getBytes())).isEqualTo(
-              "12345678".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
 
       key.clear();
       key.put("key1".getBytes());
       key.flip();
       value.clear();
-      int len = db.get(optr,
-              DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.capacity());
+      int len = db.get(optr, DirectByteBufferAddress.getAddress(key), key.remaining(),
+          DirectByteBufferAddress.getAddress(value), value.capacity());
       assertThat(len).isEqualTo("value".length());
       value.limit(len);
       assertThat(UTF_8.decode(value).toString()).isEqualTo("value");
@@ -292,9 +286,8 @@ public class RocksDBTest {
       key.put("key2".getBytes());
       key.flip();
       value.clear();
-      len = db.get(optr,
-              DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.capacity());
+      len = db.get(optr, DirectByteBufferAddress.getAddress(key), key.remaining(),
+          DirectByteBufferAddress.getAddress(value), value.capacity());
       assertThat(len).isEqualTo("12345678".length());
       value.limit(len);
       assertThat(UTF_8.decode(value).toString()).isEqualTo("12345678");
@@ -302,9 +295,8 @@ public class RocksDBTest {
       key.clear();
       key.put("non-existing".getBytes());
       key.flip();
-      len = db.get(optr,
-              DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.capacity());
+      len = db.get(optr, DirectByteBufferAddress.getAddress(key), key.remaining(),
+          DirectByteBufferAddress.getAddress(value), value.capacity());
       assertThat(len).isEqualTo(RocksDB.NOT_FOUND);
     }
   }

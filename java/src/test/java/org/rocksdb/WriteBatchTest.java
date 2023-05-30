@@ -118,8 +118,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void addrPutDelete()
-          throws UnsupportedEncodingException, RocksDBException {
+  public void addrPutDelete() throws UnsupportedEncodingException, RocksDBException {
     try (WriteBatch batch = new WriteBatch()) {
       ByteBuffer key = ByteBuffer.allocateDirect(16);
       ByteBuffer value = ByteBuffer.allocateDirect(16);
@@ -127,7 +126,7 @@ public class WriteBatchTest {
       value.put("bar".getBytes("US-ASCII")).flip();
 
       batch.put(DirectByteBufferAddress.getAddress(key), key.remaining(),
-              DirectByteBufferAddress.getAddress(value), value.remaining());
+          DirectByteBufferAddress.getAddress(value), value.remaining());
 
       key.clear();
       key.put("box".getBytes("US-ASCII")).flip();
@@ -140,9 +139,9 @@ public class WriteBatchTest {
       assertThat(WriteBatchTestInternalHelper.sequence(batch)).isNotNull().isEqualTo(100);
       assertThat(batch.count()).isEqualTo(3);
       assertThat(new String(getContents(batch), "US-ASCII"))
-              .isEqualTo("Put(baz, boo)@102"
-                      + "Delete(box)@101"
-                      + "Put(foo, bar)@100");
+          .isEqualTo("Put(baz, boo)@102"
+              + "Delete(box)@101"
+              + "Put(foo, bar)@100");
     }
   }
 

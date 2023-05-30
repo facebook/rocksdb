@@ -231,8 +231,7 @@ public class WriteBatch extends AbstractWriteBatch {
       final long cfHandle);
   @Override
   final native void putAddr(final long handle, final long keyAddr, final int keyLength,
-        final long valueAddr, final int valueLength,
-        final long cfHandle) throws RocksDBException;
+      final long valueAddr, final int valueLength, final long cfHandle) throws RocksDBException;
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);
   @Override final native void merge(final long handle, final byte[] key,

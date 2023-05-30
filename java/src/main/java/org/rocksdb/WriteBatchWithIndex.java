@@ -305,8 +305,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final long cfHandle);
   @Override
   final native void putAddr(final long handle, final long keyAddr, final int keyLength,
-      final long valueAddr, final int valueLength,
-      final long cfHandle) throws RocksDBException;
+      final long valueAddr, final int valueLength, final long cfHandle) throws RocksDBException;
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);
   @Override final native void merge(final long handle, final byte[] key,
@@ -324,8 +323,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   final native void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
   @Override
-    final native void deleteAddr(final long handle, final long keyAddr, final int keyLength,
-        final long cfHandle) throws RocksDBException;
+  final native void deleteAddr(final long handle, final long keyAddr, final int keyLength,
+      final long cfHandle) throws RocksDBException;
   // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,

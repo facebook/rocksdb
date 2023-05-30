@@ -6,24 +6,23 @@
  */
 package org.rocksdb.jmh;
 
+import static org.rocksdb.util.KVUtils.ba;
+import static org.rocksdb.util.KVUtils.writeToByteBuffer;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.PooledByteBufAllocator;
-import org.openjdk.jmh.annotations.*;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
-
-import static org.rocksdb.util.KVUtils.ba;
-import static org.rocksdb.util.KVUtils.writeToByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.openjdk.jmh.annotations.*;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -31,7 +30,6 @@ import static org.rocksdb.util.KVUtils.writeToByteBuffer;
 @Warmup(iterations = 1, time = 10)
 @Measurement(iterations = 3, time = 10)
 public class WriteBatchBenchmarks {
-
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
     RocksDB.loadLibrary();
@@ -70,7 +68,6 @@ public class WriteBatchBenchmarks {
     }
   }
 
-
   private static final ByteBuf keyBuffer = PooledByteBufAllocator.DEFAULT.directBuffer();
   private static final ByteBuf valueBuffer = PooledByteBufAllocator.DEFAULT.directBuffer();
 
@@ -87,8 +84,8 @@ public class WriteBatchBenchmarks {
         ByteBufUtil.writeAscii(valueBuffer, "value");
         valueBuffer.writeInt(i);
 
-        wb.put(keyBuffer.memoryAddress(), keyBuffer.readableBytes(),
-               valueBuffer.memoryAddress(), valueBuffer.readableBytes());
+        wb.put(keyBuffer.memoryAddress(), keyBuffer.readableBytes(), valueBuffer.memoryAddress(),
+            valueBuffer.readableBytes());
       }
     } finally {
       wb.close();

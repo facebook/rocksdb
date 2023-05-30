@@ -2381,12 +2381,10 @@ class JniUtil {
     op(key_slice, value_slice);
   }
 
-  static void kv_op_direct_addr(
-      JNIEnv* env,
-      jlong jkey_addr, jint jkey_len,
-      jlong jval_addr, jint jval_len,
-      ROCKSDB_NAMESPACE::Slice& key_slice,
-      ROCKSDB_NAMESPACE::Slice& value_slice) {
+  static void kv_op_direct_addr(JNIEnv* env, jlong jkey_addr, jint jkey_len,
+                                jlong jval_addr, jint jval_len,
+                                ROCKSDB_NAMESPACE::Slice& key_slice,
+                                ROCKSDB_NAMESPACE::Slice& value_slice) {
     char* key = reinterpret_cast<char*>(jkey_addr);
     if (key == nullptr) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env,
@@ -2430,10 +2428,8 @@ class JniUtil {
     return op(key_slice);
   }
 
-  static void k_op_direct_addr(
-      JNIEnv* env,
-      jlong jkey_addr, jint jkey_len,
-      ROCKSDB_NAMESPACE::Slice& key_slice) {
+  static void k_op_direct_addr(JNIEnv* env, jlong jkey_addr, jint jkey_len,
+                               ROCKSDB_NAMESPACE::Slice& key_slice) {
     char* key = reinterpret_cast<char*>(jkey_addr);
     if (key == nullptr) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env,

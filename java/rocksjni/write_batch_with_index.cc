@@ -162,11 +162,9 @@ void Java_org_rocksdb_WriteBatchWithIndex_putDirect(
  * Method:    putAddr
  * Signature: (JJIJIJ)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_putAddr(JNIEnv* env, jobject /*jobj*/,
-                                         jlong jwb_handle,
-                                         jlong jkey_addr, jint jkey_len,
-                                         jlong jval_addr, jint jval_len,
-                                         jlong jcf_handle) {
+void Java_org_rocksdb_WriteBatchWithIndex_putAddr(
+    JNIEnv* env, jobject /*jobj*/, jlong jwb_handle, jlong jkey_addr,
+    jint jkey_len, jlong jval_addr, jint jval_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
   auto* cf_handle =
@@ -176,8 +174,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_putAddr(JNIEnv* env, jobject /*jobj*/,
   ROCKSDB_NAMESPACE::Slice value_slice;
 
   ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
-      env, jkey_addr, jkey_len, jval_addr, jval_len,
-      key_slice, value_slice);
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
 
   if (cf_handle == nullptr) {
     wb->Put(key_slice, value_slice);
@@ -358,19 +355,17 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteDirect(
  * Method:    deleteAddr
  * Signature: (JJIJ)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_deleteAddr(JNIEnv* env,
-                                            jobject /*jobj*/,
-                                            jlong jwb_handle,
-                                            jlong jkey_addr, jint jkey_len,
-                                            jlong jcf_handle) {
+void Java_org_rocksdb_WriteBatchWithIndex_deleteAddr(
+    JNIEnv* env, jobject /*jobj*/, jlong jwb_handle, jlong jkey_addr,
+    jint jkey_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   ROCKSDB_NAMESPACE::Slice key_slice;
 
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env,
-                                               jkey_addr, jkey_len, key_slice);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env, jkey_addr, jkey_len,
+                                               key_slice);
 
   if (cf_handle == nullptr) {
     wb->Delete(key_slice);
@@ -378,7 +373,6 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteAddr(JNIEnv* env,
     wb->Delete(cf_handle, key_slice);
   }
 }
-
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
