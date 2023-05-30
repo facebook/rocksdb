@@ -505,7 +505,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   const uint64_t kFileSize = 100000;
-  NewVersionStorage(3, kCompactionStyleUniversal);
+  NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
   ioptions_.allow_ingest_behind = true;
   ioptions_.num_levels = 3;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);

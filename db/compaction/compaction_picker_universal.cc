@@ -283,7 +283,6 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForPeriodicCompaction().empty()) {
     return true;
   }
-  // TODO: do we want to mark last level in universal compaction
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }

@@ -2166,6 +2166,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   file_data.clear();
   for (int i = 0; i <= 20; i++) {
     file_data.emplace_back(Key(i), "ingest_behind");
+    true_data[Key(i)] = "ingest_behind";
   }
 
   bool allow_global_seqno = true;
@@ -2211,14 +2212,15 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // bottom level should not be compacted
+  // Last level should not be compacted
   ASSERT_EQ("0,1,1", FilesPerLevel());
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
 
-  // Trigger compaction if size amplification exceeds 110%
+  // Auto-compaction should not include the last level.
+  // Trigger compaction if size amplification exceeds 110%.
   options.compaction_options_universal.max_size_amplification_percent = 110;
   options.level0_file_num_compaction_trigger = 4;
   TryReopen(options);
