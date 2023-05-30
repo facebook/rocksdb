@@ -10,11 +10,13 @@
 #include <memory>
 #include <tuple>
 
+#include "cache/secondary_cache_adapter.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "rocksdb/convenience.h"
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -972,6 +974,97 @@ TEST_P(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
 
 TEST_P(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
   SplictValueAndMergeChunksTest();
+}
+
+class CompressedSecCacheTestWithTiered : public ::testing::Test {
+ public:
+  CompressedSecCacheTestWithTiered() {
+    LRUCacheOptions lru_opts;
+    TieredVolatileCacheOptions opts;
+    lru_opts.capacity = 70 << 20;
+    opts.cache_opts = &lru_opts;
+    opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+    opts.comp_cache_opts.capacity = 30 << 20;
+    cache_ = NewTieredVolatileCache(opts);
+    cache_res_mgr_ =
+        std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+            cache_);
+  }
+
+ protected:
+  CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
+
+  Cache* GetCache() {
+    return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
+               cache_.get())
+        ->TEST_GetCache();
+  }
+
+  SecondaryCache* GetSecondaryCache() {
+    return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
+               cache_.get())
+        ->TEST_GetSecondaryCache();
+  }
+
+  size_t GetPercent(size_t val, unsigned int percent) {
+    return static_cast<size_t>(val * percent / 100);
+  }
+
+ private:
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<CacheReservationManager> cache_res_mgr_;
+};
+
+bool CacheUsageWithinBounds(size_t val1, size_t val2, size_t error) {
+  return ((val1 < (val2 + error)) && (val1 > (val2 - error)));
+}
+
+TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+
+  // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
+  // double explicit casts
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+}
+
+TEST_F(CompressedSecCacheTestWithTiered,
+       CacheReservationManagerMultipleUpdate) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
+
+  int i;
+  for (i = 0; i < 10; ++i) {
+    ASSERT_OK(cache_res_mgr()->UpdateCacheReservation((1 + i) << 20));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+
+  for (i = 10; i > 0; --i) {
+    ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(((i - 1) << 20)));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
