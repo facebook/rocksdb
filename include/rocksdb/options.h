@@ -2088,7 +2088,7 @@ struct WaitForCompactOptions {
   // and WaitForCompact() may wait indefinitely.
   bool abort_on_pause = false;
 
-  // A boolean to flush before starting to wait.
+  // A boolean to flush all column families before starting to wait.
   bool flush = false;
 };
 

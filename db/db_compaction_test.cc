@@ -165,6 +165,7 @@ class DBCompactionWaitForCompactTest
   bool abort_on_pause_;
   bool flush_;
   Options options_;
+  WaitForCompactOptions wait_for_compact_options_;
 
   void SetUp() override {
     // This test sets up a scenario that one more L0 file will trigger a
@@ -174,6 +175,10 @@ class DBCompactionWaitForCompactTest
 
     options_ = CurrentOptions();
     options_.level0_file_num_compaction_trigger = kNumFiles + 1;
+
+    wait_for_compact_options_ = WaitForCompactOptions();
+    wait_for_compact_options_.abort_on_pause = abort_on_pause_;
+    wait_for_compact_options_.flush = flush_;
 
     DestroyAndReopen(options_);
 
@@ -3372,10 +3377,7 @@ TEST_P(DBCompactionWaitForCompactTest,
   Reopen(options_);
 
   // Wait for compaction to finish
-  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
-  wait_for_compact_options.abort_on_pause = abort_on_pause_;
-  wait_for_compact_options.flush = flush_;
-  ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options));
+  ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
   ASSERT_GT(compaction_finished, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3401,11 +3403,7 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactAbortOnPause) {
     ASSERT_OK(dbfull()->ContinueBackgroundWork());
   }
 
-  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
-  wait_for_compact_options.abort_on_pause = abort_on_pause_;
-  wait_for_compact_options.flush = flush_;
-
-  Status s = dbfull()->WaitForCompact(wait_for_compact_options);
+  Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
   if (abort_on_pause_) {
     ASSERT_NOK(s);
     ASSERT_TRUE(s.IsAborted());
@@ -3438,10 +3436,7 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactShutdownWhileWaiting) {
 
   // Wait for Compaction in another thread
   auto waiting_for_compaction_thread = port::Thread([this]() {
-    WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
-    wait_for_compact_options.abort_on_pause = abort_on_pause_;
-    wait_for_compact_options.flush = flush_;
-    Status s = dbfull()->WaitForCompact(wait_for_compact_options);
+    Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
     ASSERT_NOK(s);
     ASSERT_TRUE(s.IsShutdownInProgress());
   });
@@ -3480,23 +3475,35 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
   ASSERT_EQ(0, flush_finished);
   ASSERT_EQ("2", FilesPerLevel());
 
-  // Wait for compaction to finish with option to flush
-  WaitForCompactOptions wait_for_impact_options;
-  wait_for_impact_options.flush = true;
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(wait_for_impact_options));
-  ASSERT_EQ("1,2", FilesPerLevel());
-  ASSERT_EQ(1, compaction_finished);
-  ASSERT_EQ(1, flush_finished);
+  ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+  if (flush_) {
+    ASSERT_EQ("1,2", FilesPerLevel());
+    ASSERT_EQ(1, compaction_finished);
+    ASSERT_EQ(1, flush_finished);
+  } else {
+    ASSERT_EQ(0, compaction_finished);
+    ASSERT_EQ(0, flush_finished);
+    ASSERT_EQ("2", FilesPerLevel());
+  }
 
   compaction_finished = 0;
   flush_finished = 0;
-  // close and reopen db. We expect no flush is needed.
   Close();
   Reopen(options_);
 
-  ASSERT_EQ("1,2", FilesPerLevel());
-  ASSERT_EQ(0, compaction_finished);
   ASSERT_EQ(0, flush_finished);
+  if (flush_) {
+    // if flushed already prior to close and reopen, expect there's no
+    // additional compaction needed
+    ASSERT_EQ(0, compaction_finished);
+  } else {
+    // if not flushed prior to close and reopen, expect L0 file creation from
+    // WAL when reopening which will trigger the compaction.
+    ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+    ASSERT_EQ(1, compaction_finished);
+  }
+
+  ASSERT_EQ("1,2", FilesPerLevel());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
