@@ -40,7 +40,8 @@ Within each group, entries will be included using ls sort order, so important
 entries could start their file name with a small three digit number like
 100pretty_important.md.
 
-The ordering of groups is hard-coded in unreleased_history/release.sh
+The ordering of groups such as new_features vs. public_api_changes is
+hard-coded in unreleased_history/release.sh
 
 
 Updating HISTORY.md with release notes
@@ -56,7 +57,7 @@ to check for problems and preview the output. Then run
 
 $ unreleased_history/release.sh
 
-which is git rm some files and modify HISTORY.md. You still need to commit the
+which will git rm some files and modify HISTORY.md. You still need to commit the
 changes, or revert with the command reported in the output.
 
 
