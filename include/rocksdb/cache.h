@@ -199,6 +199,8 @@ struct ShardedCacheOptions {
         strict_capacity_limit(_strict_capacity_limit),
         memory_allocator(std::move(_memory_allocator)),
         metadata_charge_policy(_metadata_charge_policy) {}
+  // Make ShardedCacheOptions polymorphic
+  virtual ~ShardedCacheOptions() = default;
 };
 
 // LRUCache - A cache using LRU eviction to stay at or below a set capacity.
@@ -440,4 +442,24 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
+enum PrimaryCacheType {
+  kCacheTypeLRU,  // LRU cache type
+  kCacheTypeHCC,  // Hyper Clock Cache type
+  kCacheTypeMax,
+};
+
+// A 2-tier cache with a primary block cache, and a compressed secondary
+// cache. The returned cache instance will internally allocate a primary
+// uncompressed cache of the specified type, and a compressed secondary
+// cache. Any cache memory reservations, such as WriteBufferManager
+// allocations costed to the block cache, will be distributed
+// proportionally across both the primary and secondary.
+struct TieredVolatileCacheOptions {
+  ShardedCacheOptions* cache_opts;
+  PrimaryCacheType cache_type;
+  CompressedSecondaryCacheOptions comp_cache_opts;
+};
+
+extern std::shared_ptr<Cache> NewTieredVolatileCache(
+    TieredVolatileCacheOptions& cache_opts);
 }  // namespace ROCKSDB_NAMESPACE

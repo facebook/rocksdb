@@ -3482,7 +3482,7 @@ TEST_F(DBCompactionTest, WaitForCompactShutdownWhileWaiting) {
   });
   TEST_SYNC_POINT("DBCompactionTest::WaitForCompactShutdownWhileWaiting:1");
   // Shutdown after wait started, but before the compaction finishes
-  auto closing_thread = port::Thread([this]() { Close(); });
+  auto closing_thread = port::Thread([this]() { ASSERT_OK(db_->Close()); });
 
   waiting_for_compaction_thread.join();
   closing_thread.join();

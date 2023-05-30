@@ -486,25 +486,24 @@ bool Compaction::IsTrivialMove() const {
 
   // assert inputs_.size() == 1
 
-  std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
-
-  for (const auto& file : inputs_.front().files) {
-    std::vector<FileMetaData*> file_grand_parents;
-    if (output_level_ + 1 >= number_levels_) {
-      continue;
-    }
-    input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
-                                          &file->largest, &file_grand_parents);
-    const auto compaction_size =
-        file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
-    if (compaction_size > max_compaction_bytes_) {
-      return false;
-    }
-
-    if (partitioner.get() != nullptr) {
-      if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
-                                         file->largest.user_key())) {
+  if (output_level_ + 1 < number_levels_) {
+    std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
+    for (const auto& file : inputs_.front().files) {
+      std::vector<FileMetaData*> file_grand_parents;
+      input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
+                                            &file->largest,
+                                            &file_grand_parents);
+      const auto compaction_size =
+          file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
+      if (compaction_size > max_compaction_bytes_) {
         return false;
+      }
+
+      if (partitioner.get() != nullptr) {
+        if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
+                                           file->largest.user_key())) {
+          return false;
+        }
       }
     }
   }
