@@ -9628,7 +9628,7 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
 TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
   // CompactRange() used to pre-compute target level to compact to
   // before running compactions. However, the files at target level
-  // could be compacted down by some other compaction. This means
+  // could be trivially moved down by some background compaction. This means
   // some keys in the manual compaction key range may not be compacted
   // during the manual compaction. This unit test tests this scenario.
   // A fix has been applied for this scenario to always compact
@@ -9655,6 +9655,7 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
 
+  // one file in L1: [Key(5), Key(6)]
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(5), rnd.RandomString(kBaseLevelBytes / 3)));
   ASSERT_OK(
@@ -9665,9 +9666,16 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
 
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(1), rnd.RandomString(kBaseLevelBytes / 2)));
-  // After L0 -> L1 manual compaction, an automatic compaction will compact
-  // both files from L1 to L2. Here the dependency makes manual compaction wait
-  // for auto-compaction to pick a compaction before proceeding.
+  // We now do manual compaction for key range [Key(1), Key(6)].
+  // First it compacts file [Key(1)] to L1.
+  // L1 will have two files [Key(1)], and [Key(5), Key(6)].
+  // After L0 -> L1 manual compaction, an automatic compaction will trivially
+  // move both files from L1 to L2. Here the dependency makes manual compaction
+  // wait for auto-compaction to pick a compaction before proceeding. Manual
+  // compaction should not stop at L1 and keep compacting L2. With kForce
+  // specified, expected output is that manual compaction compacts to L2 and L2
+  // will contain 2 files: one for Key(1000) and one for Key(1), Key(5) and
+  // Key(6).
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
         "DBImpl::RunManualCompaction()::1"}});
@@ -9680,9 +9688,6 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
 
-  // With kForce specified, expected output is that manual compaction compacts
-  // to L2 and L2 contains 2 files: one for Key(1000) and one for Key(1), Key(5)
-  // and Key(6).
   ASSERT_EQ(NumTableFilesAtLevel(2), 2);
 }
 
@@ -9708,6 +9713,8 @@ TEST_F(DBCompactionTest,
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  // L6 now has one file with size ~ 3/2 * kBaseLevelBytes.
+  // L5 is the new base level, with target size ~ 3/4 * kBaseLevelBytes.
 
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(3), rnd.RandomString(kBaseLevelBytes / 3)));
@@ -9717,6 +9724,8 @@ TEST_F(DBCompactionTest,
 
   MoveFilesToLevel(5);
   ASSERT_EQ(1, NumTableFilesAtLevel(5));
+  // L5 now has one file with size ~ 2/3 * kBaseLevelBytes, which is below its
+  // target size.
 
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(1), rnd.RandomString(kBaseLevelBytes / 3)));
@@ -9726,10 +9735,11 @@ TEST_F(DBCompactionTest,
       {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
         "DBImpl::RunManualCompaction()::1"}});
   SyncPoint::GetInstance()->EnableProcessing();
-  // After compacting file with Key(1)-Key(2) to L5,
-  // we let manual compaction waits for an auto-compaction to pick
+  // After compacting the file with [Key(1), Key(2)] to L5,
+  // L5 has size ~ 4/3 * kBaseLevelBytes > its target size.
+  // We let manual compaction wait for an auto-compaction to pick
   // a compaction before proceeding. The auto-compaction would
-  // compact both files in L5 down to L6. If manual compaction
+  // trivially move both files in L5 down to L6. If manual compaction
   // works correctly with kForce specified, it should rewrite the two files in
   // L6 into a single file.
   CompactRangeOptions cro;
