@@ -278,7 +278,7 @@ JAVAC_VERSION_GT_MIN := $(shell [ $(JAVAC_MAJOR_VERSION) -gt $(MIN_JAVAC_MAJOR_V
 # Set the default JAVA_ARGS to "" for DEBUG_LEVEL=0
 JAVA_ARGS ?=
 
-ifneq ($(JAVAC_VERSION_GT_MIN),true)
+ifeq ($(JAVAC_VERSION_GT_MIN),true)
 	JAVA_ARGS += --add-opens java.base/java.nio=ALL-UNNAMED
 endif
 
