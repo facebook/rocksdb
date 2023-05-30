@@ -10,7 +10,6 @@
 #include <memory>
 #include <tuple>
 
-#include "cache/compressed_secondary_cache.h"
 #include "cache/secondary_cache_adapter.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "rocksdb/convenience.h"

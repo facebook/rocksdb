@@ -20,7 +20,7 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts)
     : cache_(opts.LRUCacheOptions::MakeSharedCache()),
       cache_options_(opts),
-      cache_res_mgr_(new ConcurrentCacheReservationManager(
+      cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))) {}
 
