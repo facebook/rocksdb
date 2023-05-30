@@ -39,7 +39,7 @@ class AbstractComparatorJniBridge {
    */
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private static int compareInternal(final AbstractComparator comparator, final ByteBuffer a,
-                                     final int aLen, final ByteBuffer b, final int bLen) {
+      final int aLen, final ByteBuffer b, final int bLen) {
     if (aLen != -1) {
       a.mark();
       a.limit(aLen);
@@ -83,7 +83,7 @@ class AbstractComparatorJniBridge {
    */
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private static int findShortestSeparatorInternal(final AbstractComparator comparator,
-                                                   final ByteBuffer start, final int startLen, final ByteBuffer limit, final int limitLen) {
+      final ByteBuffer start, final int startLen, final ByteBuffer limit, final int limitLen) {
     if (startLen != -1) {
       start.limit(startLen);
     }
