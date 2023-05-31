@@ -1,0 +1,1 @@
+For Leveled Compaction users, `CompactRange()` will now always try to compact to the last non-empty level. (#11468)
