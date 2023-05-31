@@ -106,18 +106,17 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
 
   void CreateWriteBatch(
       const std::unordered_map<uint32_t, size_t>& ts_sz_for_batch,
-      std::unique_ptr<WriteBatch>& batch) {
+      WriteBatch* batch) {
     for (const auto& [cf_id, ts_sz] : ts_sz_for_batch) {
       std::string key;
       CreateKey(&key, ts_sz);
+      ASSERT_OK(WriteBatchInternal::Put(batch, cf_id, key, kValuePlaceHolder));
+      ASSERT_OK(WriteBatchInternal::Delete(batch, cf_id, key));
+      ASSERT_OK(WriteBatchInternal::SingleDelete(batch, cf_id, key));
+      ASSERT_OK(WriteBatchInternal::DeleteRange(batch, cf_id, key, key));
       ASSERT_OK(
-          WriteBatchInternal::Put(batch.get(), cf_id, key, kValuePlaceHolder));
-      ASSERT_OK(WriteBatchInternal::Delete(batch.get(), cf_id, key));
-      ASSERT_OK(WriteBatchInternal::SingleDelete(batch.get(), cf_id, key));
-      ASSERT_OK(WriteBatchInternal::DeleteRange(batch.get(), cf_id, key, key));
-      ASSERT_OK(WriteBatchInternal::Merge(batch.get(), cf_id, key,
-                                          kValuePlaceHolder));
-      ASSERT_OK(WriteBatchInternal::PutBlobIndex(batch.get(), cf_id, key,
+          WriteBatchInternal::Merge(batch, cf_id, key, kValuePlaceHolder));
+      ASSERT_OK(WriteBatchInternal::PutBlobIndex(batch, cf_id, key,
                                                  kValuePlaceHolder));
     }
   }
@@ -189,19 +188,18 @@ TEST_F(HandleTimestampSizeDifferenceTest, AllColumnFamiliesConsistent) {
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
                                                         {2, 0}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(running_ts_sz, batch);
-  const WriteBatch* orig_batch = batch.get();
+  WriteBatch batch;
+  CreateWriteBatch(running_ts_sz, &batch);
 
   // All `check_mode` pass with OK status and `batch` not checked or updated.
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kVerifyConsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kVerifyConsistency));
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+  ASSERT_TRUE(new_batch.get() == nullptr);
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest,
@@ -209,38 +207,36 @@ TEST_F(HandleTimestampSizeDifferenceTest,
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{2, 0}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
                                                        {3, sizeof(char)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(record_ts_sz, batch);
-  const WriteBatch* orig_batch = batch.get();
+  WriteBatch batch;
+  CreateWriteBatch(record_ts_sz, &batch);
 
   // All `check_mode` pass with OK status and `batch` not checked or updated.
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kVerifyConsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kVerifyConsistency));
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+  ASSERT_TRUE(new_batch.get() == nullptr);
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest, InvolvedColumnFamiliesConsistent) {
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
                                                         {2, sizeof(char)}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(record_ts_sz, batch);
-  const WriteBatch* orig_batch = batch.get();
+  WriteBatch batch;
+  CreateWriteBatch(record_ts_sz, &batch);
 
   // All `check_mode` pass with OK status and `batch` not updated.
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kVerifyConsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kVerifyConsistency));
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_EQ(orig_batch, batch.get());
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+  ASSERT_TRUE(new_batch.get() == nullptr);
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest,
@@ -248,23 +244,22 @@ TEST_F(HandleTimestampSizeDifferenceTest,
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, 0},
                                                         {2, sizeof(char)}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(record_ts_sz, batch);
-  const WriteBatch* orig_batch = batch.get();
-  WriteBatch orig_batch_copy(*batch);
+  WriteBatch batch;
+  CreateWriteBatch(record_ts_sz, &batch);
 
   // kVerifyConsistency doesn't tolerate inconsistency for running column
   // families.
   ASSERT_TRUE(HandleWriteBatchTimestampSizeDifference(
-                  running_ts_sz, record_ts_sz,
-                  TimestampSizeConsistencyMode::kVerifyConsistency, batch)
+                  &batch, running_ts_sz, record_ts_sz,
+                  TimestampSizeConsistencyMode::kVerifyConsistency)
                   .IsInvalidArgument());
 
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_NE(orig_batch, batch.get());
-  CheckContentsWithTimestampStripping(orig_batch_copy, *batch, sizeof(uint64_t),
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+  ASSERT_TRUE(new_batch.get() != nullptr);
+  CheckContentsWithTimestampStripping(batch, *new_batch, sizeof(uint64_t),
                                       std::nullopt /* dropped_cf */);
 }
 
@@ -274,22 +269,22 @@ TEST_F(HandleTimestampSizeDifferenceTest,
   // Make `record_ts_sz` not contain zero timestamp size entries to follow the
   // behavior of actual WAL log timestamp size record.
   std::unordered_map<uint32_t, size_t> record_ts_sz;
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch({{1, 0}}, batch);
-  const WriteBatch* orig_batch = batch.get();
-  WriteBatch orig_batch_copy(*batch);
+  WriteBatch batch;
+  CreateWriteBatch({{1, 0}}, &batch);
 
   // kVerifyConsistency doesn't tolerate inconsistency for running column
   // families.
   ASSERT_TRUE(HandleWriteBatchTimestampSizeDifference(
-                  running_ts_sz, record_ts_sz,
-                  TimestampSizeConsistencyMode::kVerifyConsistency, batch)
+                  &batch, running_ts_sz, record_ts_sz,
+                  TimestampSizeConsistencyMode::kVerifyConsistency)
                   .IsInvalidArgument());
+
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_NE(orig_batch, batch.get());
-  CheckContentsWithTimestampPadding(orig_batch_copy, *batch, sizeof(uint64_t));
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+  ASSERT_TRUE(new_batch.get() != nullptr);
+  CheckContentsWithTimestampPadding(batch, *new_batch, sizeof(uint64_t));
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest,
@@ -297,35 +292,35 @@ TEST_F(HandleTimestampSizeDifferenceTest,
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, 0}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
                                                        {2, sizeof(char)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(record_ts_sz, batch);
-  const WriteBatch* orig_batch = batch.get();
-  WriteBatch orig_batch_copy(*batch);
+  WriteBatch batch;
+  CreateWriteBatch(record_ts_sz, &batch);
+  std::unique_ptr<WriteBatch> new_batch(nullptr);
 
   // kReconcileInconsistency tolerate inconsistency for dropped column family
   // and all related entries copied over to the new WriteBatch.
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
-      running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, batch));
-  ASSERT_NE(orig_batch, batch.get());
-  CheckContentsWithTimestampStripping(orig_batch_copy, *batch, sizeof(uint64_t),
+      &batch, running_ts_sz, record_ts_sz,
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+
+  ASSERT_TRUE(new_batch.get() != nullptr);
+  CheckContentsWithTimestampStripping(batch, *new_batch, sizeof(uint64_t),
                                       std::optional<uint32_t>(2));
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest, UnrecoverableInconsistency) {
   std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(char)}};
   std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  CreateWriteBatch(record_ts_sz, batch);
+  WriteBatch batch;
+  CreateWriteBatch(record_ts_sz, &batch);
 
   ASSERT_TRUE(HandleWriteBatchTimestampSizeDifference(
-                  running_ts_sz, record_ts_sz,
-                  TimestampSizeConsistencyMode::kVerifyConsistency, batch)
+                  &batch, running_ts_sz, record_ts_sz,
+                  TimestampSizeConsistencyMode::kVerifyConsistency)
                   .IsInvalidArgument());
 
   ASSERT_TRUE(HandleWriteBatchTimestampSizeDifference(
-                  running_ts_sz, record_ts_sz,
-                  TimestampSizeConsistencyMode::kReconcileInconsistency, batch)
+                  &batch, running_ts_sz, record_ts_sz,
+                  TimestampSizeConsistencyMode::kReconcileInconsistency)
                   .IsInvalidArgument());
 }
 }  // namespace ROCKSDB_NAMESPACE

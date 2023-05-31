@@ -1328,7 +1328,13 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Lock();
   }
-  IOStatus io_s = log_writer->AddRecord(log_entry, rate_limiter_priority);
+  IOStatus io_s = log_writer->MaybeAddUserDefinedTimestampSizeRecord(
+      versions_->GetColumnFamiliesTimestampSizeForRecord(),
+      rate_limiter_priority);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  io_s = log_writer->AddRecord(log_entry, rate_limiter_priority);
 
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Unlock();

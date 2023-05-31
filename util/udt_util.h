@@ -143,6 +143,7 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
   std::unique_ptr<WriteBatch>&& TransferNewBatch() {
+    assert(new_batch_diff_from_orig_batch_);
     handler_valid_ = false;
     return std::move(new_batch_);
   }
@@ -164,6 +165,10 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   // Handler is valid upon creation and becomes invalid after its `new_batch_`
   // is transferred.
   bool handler_valid_;
+
+  // False upon creation, and become true if at least one user key from the
+  // original batch is updated when creating the new batch.
+  bool new_batch_diff_from_orig_batch_;
 };
 
 // Mode for checking and handling timestamp size inconsistency encountered in a
@@ -193,8 +198,9 @@ enum class TimestampSizeConsistencyMode {
 // any running column family has an inconsistent user-defined timestamp size
 // that cannot be reconciled with a best-effort recovery. Check
 // `TimestampRecoveryHandler` for what a best-effort recovery is capable of. In
-// this mode, a new WriteBatch is created on the heap and transferred to `batch`
-// if there is tolerable inconsistency.
+// this mode, output argument `new_batch` should be set, a new WriteBatch is
+// created on the heap and transferred to `new_batch` if there is tolerable
+// inconsistency.
 //
 // An invariant that WAL logging ensures is that all timestamp size info
 // is logged prior to a WriteBatch that needed this info. And zero timestamp
@@ -204,8 +210,9 @@ enum class TimestampSizeConsistencyMode {
 // `running_ts_sz` should contain the timestamp size for all running column
 // families including the ones with zero timestamp size.
 Status HandleWriteBatchTimestampSizeDifference(
+    const WriteBatch* batch,
     const std::unordered_map<uint32_t, size_t>& running_ts_sz,
     const std::unordered_map<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>& batch);
+    std::unique_ptr<WriteBatch>* new_batch = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
