@@ -2087,6 +2087,9 @@ struct WaitForCompactOptions {
   // Otherwise, jobs that were queued, but not scheduled yet may never finish
   // and WaitForCompact() may wait indefinitely.
   bool abort_on_pause = false;
+
+  // A boolean to flush all column families before starting to wait.
+  bool flush = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

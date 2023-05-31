@@ -1410,6 +1410,9 @@ class DBImpl : public DB {
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
+  Status FlushAllColumnFamilies(const FlushOptions& flush_options,
+                                FlushReason flush_reason);
+
   virtual Status FlushForGetLiveFiles();
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;

@@ -1808,6 +1808,37 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
       ->mutable_cf_options.level0_stop_writes_trigger;
 }
 
+Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
+                                      FlushReason flush_reason) {
+  mutex_.AssertHeld();
+  Status status;
+  if (immutable_db_options_.atomic_flush) {
+    mutex_.Unlock();
+    status = AtomicFlushMemTables(flush_options, flush_reason);
+    if (status.IsColumnFamilyDropped()) {
+      status = Status::OK();
+    }
+    mutex_.Lock();
+  } else {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, flush_options, flush_reason);
+      TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:1");
+      TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:2");
+      mutex_.Lock();
+      if (!status.ok() && !status.IsColumnFamilyDropped()) {
+        break;
+      } else if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
+    }
+  }
+  return status;
+}
+
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      ColumnFamilyHandle* column_family) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -3963,7 +3994,14 @@ void DBImpl::GetSnapshotContext(
 Status DBImpl::WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
-  TEST_SYNC_POINT("DBImpl::WaitForCompact:Start");
+  if (wait_for_compact_options.flush) {
+    Status s = DBImpl::FlushAllColumnFamilies(FlushOptions(),
+                                              FlushReason::kManualFlush);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
