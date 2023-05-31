@@ -2125,6 +2125,9 @@ struct WaitForCompactOptions {
 
   // A boolean to flush all column families before starting to wait.
   bool flush = false;
+
+  // A boolean to close db after waiting is done.
+  bool close_db = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

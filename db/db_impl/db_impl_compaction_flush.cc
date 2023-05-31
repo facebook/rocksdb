@@ -4109,6 +4109,11 @@ Status DBImpl::WaitForCompact(
          unscheduled_flushes_) &&
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
+    } else if (wait_for_compact_options.close_db) {
+      mutex_.Unlock();
+      Status s = Close();
+      mutex_.Lock();
+      return s;
     } else {
       return error_handler_.GetBGError();
     }

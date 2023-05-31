@@ -155,15 +155,17 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
 
 class DBCompactionWaitForCompactTest
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   DBCompactionWaitForCompactTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
+    close_db_ = std::get<2>(GetParam());
   }
   bool abort_on_pause_;
   bool flush_;
+  bool close_db_;
   Options options_;
   WaitForCompactOptions wait_for_compact_options_;
 
@@ -179,6 +181,7 @@ class DBCompactionWaitForCompactTest
     wait_for_compact_options_ = WaitForCompactOptions();
     wait_for_compact_options_.abort_on_pause = abort_on_pause_;
     wait_for_compact_options_.flush = flush_;
+    wait_for_compact_options_.close_db = close_db_;
 
     DestroyAndReopen(options_);
 
@@ -3333,10 +3336,14 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
                         DBCompactionWaitForCompactTest,
-                        ::testing::Values(std::make_tuple(false, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(true, true)));
+                        ::testing::Values(std::make_tuple(false, false, false),
+                                          std::make_tuple(false, true, false),
+                                          std::make_tuple(true, false, false),
+                                          std::make_tuple(true, true, false),
+                                          std::make_tuple(false, false, true),
+                                          std::make_tuple(false, true, true),
+                                          std::make_tuple(true, false, true),
+                                          std::make_tuple(true, true, true)));
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3476,19 +3483,19 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
   ASSERT_EQ("2", FilesPerLevel());
 
   ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
-  if (flush_) {
-    ASSERT_EQ("1,2", FilesPerLevel());
-    ASSERT_EQ(1, compaction_finished);
-    ASSERT_EQ(1, flush_finished);
-  } else {
-    ASSERT_EQ(0, compaction_finished);
-    ASSERT_EQ(0, flush_finished);
-    ASSERT_EQ("2", FilesPerLevel());
+  ASSERT_EQ(flush_, compaction_finished);
+  ASSERT_EQ(flush_, flush_finished);
+
+  if (!close_db_) {
+    std::string expected_files_per_level = flush_ ? "1,2" : "2";
+    ASSERT_EQ(expected_files_per_level, FilesPerLevel());
   }
 
   compaction_finished = 0;
   flush_finished = 0;
-  Close();
+  if (!close_db_) {
+    Close();
+  }
   Reopen(options_);
 
   ASSERT_EQ(0, flush_finished);
@@ -3503,7 +3510,9 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
     ASSERT_EQ(1, compaction_finished);
   }
 
-  ASSERT_EQ("1,2", FilesPerLevel());
+  if (!close_db_) {
+    ASSERT_EQ("1,2", FilesPerLevel());
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
