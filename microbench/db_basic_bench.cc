@@ -660,8 +660,8 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter", "mmap"});
 }
 
-BENCHMARK(DBGet)->Threads(1)->MinWarmUpTime(1)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->MinWarmUpTime(1)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
