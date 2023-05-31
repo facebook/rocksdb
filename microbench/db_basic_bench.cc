@@ -641,8 +641,8 @@ static void DBGet(benchmark::State& state) {
 static void DBGetArguments(benchmark::internal::Benchmark* b) {
   for (int comp_style : {kCompactionStyleLevel, kCompactionStyleUniversal,
                          kCompactionStyleFIFO}) {
-    for (int64_t max_data : {256l << 10, 1l << 20}) {
-      for (int64_t per_key_size : {32, 256}) {
+    for (int64_t max_data : {128l << 20, 512l << 20}) {
+      for (int64_t per_key_size : {256, 1024}) {
         for (bool enable_statistics : {false, true}) {
           for (bool negative_query : {false, true}) {
             for (bool enable_filter : {false, true}) {
@@ -660,8 +660,8 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter", "mmap"});
 }
 
-BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(1)->MinWarmUpTime(1)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->MinWarmUpTime(1)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
