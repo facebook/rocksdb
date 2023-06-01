@@ -1235,7 +1235,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             // or kIfHaveCompactionFilter with compaction filter set.
             s = RunManualCompaction(
                 cfd, final_output_level, final_output_level, options, begin,
-                end, exclusive, !trim_ts.empty() /* disallow_trivial_move */,
+                end, exclusive, true /* disallow_trivial_move */,
                 next_file_number /* max_file_num_to_ignore */, trim_ts);
           }
         }
