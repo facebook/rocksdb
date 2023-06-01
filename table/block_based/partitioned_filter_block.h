@@ -31,7 +31,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
       const bool use_value_delta_encoding,
       PartitionedIndexBuilder* const p_index_builder,
-      const uint32_t partition_size);
+      const uint32_t partition_size, size_t ts_sz,
+      const bool persist_user_defined_timestamps);
 
   virtual ~PartitionedFilterBlockBuilder();
 
@@ -172,6 +173,7 @@ class PartitionedFilterBlockReader
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;
   bool index_value_is_full() const;
+  bool user_defined_timestamps_persisted() const;
 
  protected:
   // For partition blocks pinned in cache. Can be a subset of blocks

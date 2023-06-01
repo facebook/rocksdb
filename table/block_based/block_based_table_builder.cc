@@ -70,7 +70,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
-    PartitionedIndexBuilder* const p_index_builder) {
+    PartitionedIndexBuilder* const p_index_builder, size_t ts_sz,
+    const bool persist_user_defined_timestamps) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
 
@@ -95,7 +96,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size);
+          use_delta_encoding_for_index_values, p_index_builder, partition_size,
+          ts_sz, persist_user_defined_timestamps);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -264,6 +266,20 @@ struct BlockBasedTableBuilder::Rep {
   const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
+  // Size in bytes for the user-defined timestamps.
+  size_t ts_sz;
+  // When `ts_sz` > 0 and this flag is false, the user-defined timestamp in the
+  // user key will be stripped when creating the block based table. This
+  // stripping happens for all user keys, including the keys in data block,
+  // index block for data block, index block for index block (if index type is
+  // `kTwoLevelIndexSearch`), index for filter blocks (if using partitioned
+  // filters), the `first_internal_key` in `IndexValue`, the `end_key` for range
+  // deletion entries.
+  // As long as the user keys are sorted when added via `Add` API, their logic
+  // ordering won't change after timestamps are stripped. However, for each user
+  // key to be logically equivalent before and after timestamp is stripped, the
+  // user key should contain the minimum timestamp.
+  bool persist_user_defined_timestamps;
   WritableFileWriter* file;
   std::atomic<uint64_t> offset;
   size_t alignment;
@@ -416,6 +432,9 @@ struct BlockBasedTableBuilder::Rep {
         moptions(tbo.moptions),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
+        ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
+        persist_user_defined_timestamps(
+            tbo.ioptions.persist_user_defined_timestamps),
         file(f),
         offset(0),
         alignment(table_options.block_align
@@ -429,8 +448,14 @@ struct BlockBasedTableBuilder::Rep {
                            ->CanKeysWithDifferentByteContentsBeEqual()
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
-                   table_options.data_block_hash_table_util_ratio),
-        range_del_block(1 /* block_restart_interval */),
+                   table_options.data_block_hash_table_util_ratio, ts_sz,
+                   persist_user_defined_timestamps),
+        range_del_block(
+            1 /* block_restart_interval */, true /* use_delta_encoding */,
+            false /* use_value_delta_encoding */,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps),
         internal_prefix_transform(tbo.moptions.prefix_extractor.get()),
         compression_type(tbo.compression_type),
         sample_for_compression(tbo.moptions.sample_for_compression),
@@ -496,13 +521,13 @@ struct BlockBasedTableBuilder::Rep {
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options);
+          table_options, ts_sz, persist_user_defined_timestamps);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options));
+          table_options, ts_sz, persist_user_defined_timestamps));
     }
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
@@ -533,7 +558,8 @@ struct BlockBasedTableBuilder::Rep {
 
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, filter_context,
-          use_delta_encoding_for_index_values, p_index_builder_));
+          use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
+          persist_user_defined_timestamps));
     }
 
     assert(tbo.int_tbl_prop_collector_factories);
@@ -548,11 +574,10 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
-    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
+    if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
-          new TimestampTablePropertiesCollector(ucmp));
+          new TimestampTablePropertiesCollector(
+              tbo.internal_comparator.user_comparator()));
     }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
@@ -910,7 +935,9 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     // behavior
     sanitized_table_options.format_version = 1;
   }
-
+  auto ucmp = tbo.internal_comparator.user_comparator();
+  assert(ucmp);
+  (void)ucmp;  // avoids unused variable error.
   rep_ = new Rep(sanitized_table_options, tbo, file);
 
   TEST_SYNC_POINT_CALLBACK(
@@ -994,9 +1021,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         r->pc_rep->curr_block_keys->PushBack(key);
       } else {
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
       }
     }
@@ -1017,6 +1043,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
+    // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
     r->range_del_block.Add(key, value);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
@@ -1028,6 +1055,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
+  if (!r->persist_user_defined_timestamps) {
+    r->props.raw_key_size -= r->ts_sz;
+  }
   r->props.raw_value_size += value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
@@ -1367,9 +1397,7 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     for (size_t i = 0; i < block_rep->keys->Size(); i++) {
       auto& key = (*block_rep->keys)[i];
       if (r->filter_builder != nullptr) {
-        size_t ts_sz =
-            r->internal_comparator.user_comparator()->timestamp_size();
-        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
       }
       r->index_builder->OnKeyAdded(key);
     }
@@ -1811,7 +1839,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     Block reader{BlockContents{data_block}};
     DataBlockIter* iter = reader.NewDataIterator(
-        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber);
+        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,
+        nullptr /* iter */, nullptr /* stats */,
+        false /*  block_contents_pinned */, r->persist_user_defined_timestamps);
 
     iter->SeekToFirst();
     assert(iter->Valid());
@@ -1857,9 +1887,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
         r->index_builder->OnKeyAdded(key);
       }
