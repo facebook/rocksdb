@@ -226,7 +226,8 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // Second to last level
+  MoveFilesToLevel(5);
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 

@@ -7966,26 +7966,14 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   auto start_idx = key_idx;
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
-  auto end_idx = key_idx - 1;
   ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
-  // Next two CompactRange() calls are used to test exercise error paths within
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,2,2", FilesPerLevel(0));
+
+  // The next CompactRange() call is used to test exercise error paths within
   // RefitLevel() before triggering a valid RefitLevel() call
-
-  // Trigger a refit to L1 first
-  {
-    std::string begin_string = Key(start_idx);
-    std::string end_string = Key(end_idx);
-    Slice begin(begin_string);
-    Slice end(end_string);
-
-    CompactRangeOptions cro;
-    cro.change_level = true;
-    cro.target_level = 1;
-    ASSERT_OK(dbfull()->CompactRange(cro, &begin, &end));
-  }
-  ASSERT_EQ("0,3,2", FilesPerLevel(0));
-
+  //
   // Try a refit from L2->L1 - this should fail and exercise error paths in
   // RefitLevel()
   {
@@ -8000,7 +7988,7 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
     cro.target_level = 1;
     ASSERT_NOK(dbfull()->CompactRange(cro, &begin, &end));
   }
-  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+  ASSERT_EQ("0,2,2", FilesPerLevel(0));
 
   // Try a valid Refit request to ensure, the path is still working
   {
@@ -9635,6 +9623,134 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
   }
   ASSERT_GE(init_num_nonempty, after_delete_range_nonempty);
   ASSERT_GT(after_delete_range_nonempty, final_num_nonempty);
+}
+
+TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
+  // CompactRange() used to pre-compute target level to compact to
+  // before running compactions. However, the files at target level
+  // could be trivially moved down by some background compaction. This means
+  // some keys in the manual compaction key range may not be compacted
+  // during the manual compaction. This unit test tests this scenario.
+  // A fix has been applied for this scenario to always compact
+  // to the bottommost level.
+  const int kBaseLevelBytes = 8 << 20;  // 8MB
+  const int kMultiplier = 2;
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  options.level_compaction_dynamic_level_bytes = false;
+  options.compaction_style = kCompactionStyleLevel;
+  options.max_bytes_for_level_base = kBaseLevelBytes;
+  options.max_bytes_for_level_multiplier = kMultiplier;
+  options.compression = kNoCompression;
+  options.target_file_size_base = 2 * kBaseLevelBytes;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+  // Populate L2 so that manual compaction will compact to at least L2.
+  // Otherwise, there is still a possibility of race condition where
+  // the manual compaction thread believes that max non-empty level is L1
+  // while there is some auto compaction that moves some files from L1 to L2.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1000), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // one file in L1: [Key(5), Key(6)]
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(5), rnd.RandomString(kBaseLevelBytes / 3)));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(6), rnd.RandomString(kBaseLevelBytes / 3)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(1), rnd.RandomString(kBaseLevelBytes / 2)));
+  // We now do manual compaction for key range [Key(1), Key(6)].
+  // First it compacts file [Key(1)] to L1.
+  // L1 will have two files [Key(1)], and [Key(5), Key(6)].
+  // After L0 -> L1 manual compaction, an automatic compaction will trivially
+  // move both files from L1 to L2. Here the dependency makes manual compaction
+  // wait for auto-compaction to pick a compaction before proceeding. Manual
+  // compaction should not stop at L1 and keep compacting L2. With kForce
+  // specified, expected output is that manual compaction compacts to L2 and L2
+  // will contain 2 files: one for Key(1000) and one for Key(1), Key(5) and
+  // Key(6).
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+        "DBImpl::RunManualCompaction()::1"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::string begin_str = Key(1);
+  std::string end_str = Key(6);
+  Slice begin_slice = begin_str;
+  Slice end_slice = end_str;
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
+
+  ASSERT_EQ(NumTableFilesAtLevel(2), 2);
+}
+
+TEST_F(DBCompactionTest,
+       ManualCompactionCompactAllKeysInRangeDynamicLevelBytes) {
+  // Similar to the test above (ManualCompactionCompactAllKeysInRange), but with
+  // level_compaction_dynamic_level_bytes = true.
+  const int kBaseLevelBytes = 8 << 20;  // 8MB
+  const int kMultiplier = 2;
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.compaction_style = kCompactionStyleLevel;
+  options.max_bytes_for_level_base = kBaseLevelBytes;
+  options.max_bytes_for_level_multiplier = kMultiplier;
+  options.compression = kNoCompression;
+  options.target_file_size_base = 2 * kBaseLevelBytes;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5),
+                     rnd.RandomString(3 * kBaseLevelBytes / 2)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  // L6 now has one file with size ~ 3/2 * kBaseLevelBytes.
+  // L5 is the new base level, with target size ~ 3/4 * kBaseLevelBytes.
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(3), rnd.RandomString(kBaseLevelBytes / 3)));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(4), rnd.RandomString(kBaseLevelBytes / 3)));
+  ASSERT_OK(Flush());
+
+  MoveFilesToLevel(5);
+  ASSERT_EQ(1, NumTableFilesAtLevel(5));
+  // L5 now has one file with size ~ 2/3 * kBaseLevelBytes, which is below its
+  // target size.
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(1), rnd.RandomString(kBaseLevelBytes / 3)));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), Key(2), rnd.RandomString(kBaseLevelBytes / 3)));
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+        "DBImpl::RunManualCompaction()::1"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  // After compacting the file with [Key(1), Key(2)] to L5,
+  // L5 has size ~ 4/3 * kBaseLevelBytes > its target size.
+  // We let manual compaction wait for an auto-compaction to pick
+  // a compaction before proceeding. The auto-compaction would
+  // trivially move both files in L5 down to L6. If manual compaction
+  // works correctly with kForce specified, it should rewrite the two files in
+  // L6 into a single file.
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  std::string begin_str = Key(1);
+  std::string end_str = Key(4);
+  Slice begin_slice = begin_str;
+  Slice end_slice = end_str;
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
