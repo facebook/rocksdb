@@ -150,7 +150,6 @@ Status PartitionIndexReader::CacheDependencies(
   if (!biter.Valid()) {
     // Empty index.
     return biter.status();
-    return biter.status();
   }
   handle = biter.value().handle;
   uint64_t prefetch_off = handle.offset();

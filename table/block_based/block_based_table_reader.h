@@ -642,10 +642,10 @@ struct BlockBasedTable::Rep {
   // the running user comparator has a non-zero timestamp size, a min timestamp
   // of this size will be padded to each user key while parsing blocks whenever
   // it applies.  This includes the keys in data block, index block for data
-  // block, index block for index block (if index type is `kTwoLevelIndexSearch`
-  // ), index for filter blocks (if using partitioned filters), the
-  // `first_internal_key` in `IndexValue`, the `end_key` for range deletion
-  // entries.
+  // block, top-level index for index partitions (if index type is
+  // `kTwoLevelIndexSearch`), top-level index for filter partitions (if using
+  // partitioned filters), the `first_internal_key` in `IndexValue`, the
+  // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>

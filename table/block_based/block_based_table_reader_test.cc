@@ -202,6 +202,15 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
   }
 };
 
+// Param 1: compression type
+// Param 2: whether to use direct reads
+// Param 3: Block Based Table Index type
+// Param 4: BBTO no_block_cache option
+// Param 5: test mode for the user-defined timestamp feature
+// Param 6: number of parallel compression threads
+// Param 7: CompressionOptions.max_dict_bytes and
+//          CompressionOptions.max_dict_buffer_bytes to enable/disable
+//          compression dictionary.
 class BlockBasedTableReaderTest
     : public BlockBasedTableReaderBaseTest,
       public testing::WithParamInterface<std::tuple<
@@ -365,7 +374,7 @@ TEST_P(BlockBasedTableReaderTest, NewIterator) {
           100 /* num_block */,
           true /* mixed_with_human_readable_string_value */, ts_sz);
 
-  std::string table_name = "BlockBasedTableReaderTest_ScanForward" +
+  std::string table_name = "BlockBasedTableReaderTest_NewIterator" +
                            CompressionTypeToString(compression_type_);
 
   ImmutableOptions ioptions(options);
@@ -382,9 +391,10 @@ TEST_P(BlockBasedTableReaderTest, NewIterator) {
   ASSERT_OK(
       table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
 
-  InternalIterator* iter = table->NewIterator(
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized);
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Test forward scan.
   ASSERT_TRUE(!iter->Valid());
@@ -412,7 +422,6 @@ TEST_P(BlockBasedTableReaderTest, NewIterator) {
   }
   ASSERT_TRUE(!iter->Valid());
   ASSERT_OK(iter->status());
-  delete iter;
 }
 
 class ChargeTableReaderTest
