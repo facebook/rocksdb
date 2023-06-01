@@ -209,7 +209,7 @@ class Compaction {
 
   // Returns true if the user key range [begin_key, end_key) does not exist
   // in any level beyond `output_level()`.
-  // For now, used by range tombstone only, so we assume begin_key < end_key.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
   // begin_key and end_key should include timestamp if enabled.
   bool KeyRangeNotExistsBeyondOutputLevel(
       const Slice& begin_key, const Slice& end_key,

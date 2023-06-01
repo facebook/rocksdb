@@ -580,7 +580,7 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
           input_vstorage_->LevelFiles(lvl);
       for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
         auto* f = files[level_ptrs->at(lvl)];
-        // Advanced until the first file with begin_key <= f->largest.user_key()
+        // Advance until the first file with begin_key <= f->largest.user_key()
         if (user_cmp->CompareWithoutTimestamp(begin_key,
                                               f->largest.user_key()) > 0) {
           continue;
@@ -592,8 +592,10 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
           // not overlapping with this level
           break;
         } else {
-          // We have end_key > f->smallest_user_key() and begin_key <=
-          // f->largest.user_key().
+          // We have:
+          // - begin_key < end_key,
+          // - begin_key <= f->largest.user_key(), and
+          // - end_key > f->smallest.user_key()
           return false /* overlap */;
         }
       }
