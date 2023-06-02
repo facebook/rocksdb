@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
 
@@ -259,9 +258,9 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       try {
         in_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(in_key);
       } catch (...) {
-        std::cerr << "ERROR: Invalid key input '"
-          << in_key
-          << "' Use 0x{hex representation of internal rocksdb key}" << std::endl;
+        std::cerr << "ERROR: Invalid key input '" << in_key
+                  << "' Use 0x{hex representation of internal rocksdb key}"
+                  << std::endl;
         return -1;
       }
       Slice sl_key = ROCKSDB_NAMESPACE::Slice(in_key);
@@ -331,14 +330,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
   }
 
-  if(has_compression_level_from && has_compression_level_to) {
-    if(!has_specified_compression_types || compression_types.size() != 1) {
+  if (has_compression_level_from && has_compression_level_to) {
+    if (!has_specified_compression_types || compression_types.size() != 1) {
       fprintf(stderr, "Specify one compression type.\n\n");
       exit(1);
     }
-  } else if(has_compression_level_from || has_compression_level_to) {
-    fprintf(stderr, "Specify both --compression_level_from and "
-                     "--compression_level_to.\n\n");
+  } else if (has_compression_level_from || has_compression_level_to) {
+    fprintf(stderr,
+            "Specify both --compression_level_from and "
+            "--compression_level_to.\n\n");
     exit(1);
   }
 
@@ -476,8 +476,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
           has_from || use_from_as_prefix, from_key, has_to, to_key,
           use_from_as_prefix);
       if (!st.ok()) {
-        fprintf(stderr, "%s: %s\n", filename.c_str(),
-            st.ToString().c_str());
+        fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
       }
       total_read += dumper.GetReadNumber();
       if (read_num > 0 && total_read > read_num) {
@@ -581,4 +580,3 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

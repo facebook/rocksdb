@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
 
@@ -19,26 +19,28 @@ struct BlockContents;
 // Encapsulates  some of the helper logic for read and writing from the cache
 class PersistentCacheHelper {
  public:
-  // insert block into raw page cache
-  static void InsertRawPage(const PersistentCacheOptions& cache_options,
-                            const BlockHandle& handle, const char* data,
-                            const size_t size);
+  // Insert block into cache of serialized blocks. Size includes block trailer
+  // (if applicable).
+  static void InsertSerialized(const PersistentCacheOptions& cache_options,
+                               const BlockHandle& handle, const char* data,
+                               const size_t size);
 
-  // insert block into uncompressed cache
-  static void InsertUncompressedPage(
-      const PersistentCacheOptions& cache_options, const BlockHandle& handle,
-      const BlockContents& contents);
+  // Insert block into cache of uncompressed blocks. No block trailer.
+  static void InsertUncompressed(const PersistentCacheOptions& cache_options,
+                                 const BlockHandle& handle,
+                                 const BlockContents& contents);
 
-  // lookup block from raw page cacge
-  static Status LookupRawPage(const PersistentCacheOptions& cache_options,
-                              const BlockHandle& handle,
-                              std::unique_ptr<char[]>* raw_data,
-                              const size_t raw_data_size);
+  // Lookup block from cache of serialized blocks. Size includes block trailer
+  // (if applicable).
+  static Status LookupSerialized(const PersistentCacheOptions& cache_options,
+                                 const BlockHandle& handle,
+                                 std::unique_ptr<char[]>* out_data,
+                                 const size_t expected_data_size);
 
-  // lookup block from uncompressed cache
-  static Status LookupUncompressedPage(
-      const PersistentCacheOptions& cache_options, const BlockHandle& handle,
-      BlockContents* contents);
+  // Lookup block from uncompressed cache. No block trailer.
+  static Status LookupUncompressed(const PersistentCacheOptions& cache_options,
+                                   const BlockHandle& handle,
+                                   BlockContents* contents);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

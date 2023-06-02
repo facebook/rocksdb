@@ -29,5 +29,5 @@ struct LessOfComparator {
 };
 
 using KVMap = std::map<std::string, std::string, LessOfComparator>;
-}
+}  // namespace stl_wrappers
 }  // namespace ROCKSDB_NAMESPACE

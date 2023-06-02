@@ -9,8 +9,10 @@
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
+
 #include <errno.h>
 #include <fcntl.h>
+
 #include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
@@ -601,8 +603,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
-                                          size_t num_reqs,
+IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
   if (use_direct_io()) {
@@ -899,8 +900,10 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   struct io_uring_sqe* sqe;
   sqe = io_uring_get_sqe(iu);
 
-  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1, posix_handle->offset);
+  io_uring_prep_readv(sqe, fd_, /*sqe->addr=*/&posix_handle->iov,
+                      /*sqe->len=*/1, /*sqe->offset=*/posix_handle->offset);
 
+  // Sets sqe->user_data to posix_handle.
   io_uring_sqe_set_data(sqe, posix_handle);
 
   // Step 4: io_uring_submit

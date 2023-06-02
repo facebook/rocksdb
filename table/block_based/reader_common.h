@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -22,15 +22,11 @@ inline MemoryAllocator* GetMemoryAllocator(
              : nullptr;
 }
 
-inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
-    const BlockBasedTableOptions& table_options) {
-  return table_options.block_cache_compressed.get()
-             ? table_options.block_cache_compressed->memory_allocator()
-             : nullptr;
-}
-
 // Assumes block has a trailer as in format.h. file_name and offset provided
 // for generating a diagnostic message in returned status.
+//
+// Returns Status::OK() on checksum match, or Status::Corruption() on checksum
+// mismatch.
 extern Status VerifyBlockChecksum(ChecksumType type, const char* data,
                                   size_t block_size,
                                   const std::string& file_name,

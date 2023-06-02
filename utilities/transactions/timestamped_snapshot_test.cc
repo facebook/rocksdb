@@ -3,14 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifdef ROCKSDB_LITE
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Transactions are not supported in LITE mode\n");
-  return 0;
-}
-#else  // ROCKSDB_LITE
 #include <cassert>
 
 #include "util/cast_util.h"
@@ -113,6 +105,45 @@ TEST_P(TransactionTest, WithoutCommitTs) {
   ASSERT_OK(txn->Put("a", "v"));
   s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
+}
+
+TEST_P(TransactionTest, ReuseExistingTxn) {
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  assert(txn);
+  ASSERT_OK(txn->SetName("txn0"));
+  ASSERT_OK(txn->Put("a", "v1"));
+  ASSERT_OK(txn->Prepare());
+
+  auto notifier = std::make_shared<TsCheckingTxnNotifier>();
+  std::shared_ptr<const Snapshot> snapshot1;
+  Status s =
+      txn->CommitAndTryCreateSnapshot(notifier, /*commit_ts=*/100, &snapshot1);
+  ASSERT_OK(s);
+  ASSERT_EQ(100, snapshot1->GetTimestamp());
+
+  Transaction* txn1 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), txn);
+  assert(txn1 == txn);
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn->Put("a", "v2"));
+  ASSERT_OK(txn->Prepare());
+  std::shared_ptr<const Snapshot> snapshot2;
+  s = txn->CommitAndTryCreateSnapshot(notifier, /*commit_ts=*/110, &snapshot2);
+  ASSERT_OK(s);
+  ASSERT_EQ(110, snapshot2->GetTimestamp());
+  delete txn;
+
+  {
+    std::string value;
+    ReadOptions read_opts;
+    read_opts.snapshot = snapshot1.get();
+    ASSERT_OK(db->Get(read_opts, "a", &value));
+    ASSERT_EQ("v1", value);
+
+    read_opts.snapshot = snapshot2.get();
+    ASSERT_OK(db->Get(read_opts, "a", &value));
+    ASSERT_EQ("v2", value);
+  }
 }
 
 TEST_P(TransactionTest, CreateSnapshotWhenCommit) {
@@ -420,7 +451,7 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#endif  // !ROCKSDB_LITE

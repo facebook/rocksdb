@@ -35,8 +35,7 @@ const std::string kRangeDelBlockName = "rocksdb.range_del";
 MetaIndexBuilder::MetaIndexBuilder()
     : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
 
-void MetaIndexBuilder::Add(const std::string& key,
-                           const BlockHandle& handle) {
+void MetaIndexBuilder::Add(const std::string& key, const BlockHandle& handle) {
   std::string handle_encoding;
   handle.EncodeTo(&handle_encoding);
   meta_block_handles_.insert({key, handle_encoding});
@@ -116,6 +115,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kFastCompressionEstimatedDataSize,
         props.fast_compression_estimated_data_size);
   }
+  Add(TablePropertiesNames::kTailStartOffset, props.tail_start_offset);
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -173,8 +173,8 @@ void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
-    "Encountered error when calling TablePropertiesCollector::" +
-    method + "() with collector name: " + name;
+      "Encountered error when calling TablePropertiesCollector::" + method +
+      "() with collector name: " + name;
   ROCKS_LOG_ERROR(info_log, "%s", msg.c_str());
 }
 
@@ -196,10 +196,11 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t block_raw_bytes, const uint64_t block_compressed_bytes_fast,
+    const uint64_t block_uncomp_bytes,
+    const uint64_t block_compressed_bytes_fast,
     const uint64_t block_compressed_bytes_slow) {
   for (auto& collector : collectors) {
-    collector->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+    collector->BlockAdd(block_uncomp_bytes, block_compressed_bytes_fast,
                         block_compressed_bytes_slow);
   }
 }
@@ -307,6 +308,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->slow_compression_estimated_data_size},
       {TablePropertiesNames::kFastCompressionEstimatedDataSize,
        &new_table_properties->fast_compression_estimated_data_size},
+      {TablePropertiesNames::kTailStartOffset,
+       &new_table_properties->tail_start_offset},
   };
 
   std::string last_key;
@@ -345,8 +348,9 @@ Status ReadTablePropertiesHelper(
       if (!GetVarint64(&raw_val, &val)) {
         // skip malformed value
         auto error_msg =
-          "Detect malformed value in properties meta-block:"
-          "\tkey: " + key + "\tval: " + raw_val.ToString();
+            "Detect malformed value in properties meta-block:"
+            "\tkey: " +
+            key + "\tval: " + raw_val.ToString();
         ROCKS_LOG_ERROR(ioptions.logger, "%s", error_msg.c_str());
         continue;
       }
@@ -411,20 +415,22 @@ Status ReadTablePropertiesHelper(
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
                            const ImmutableOptions& ioptions,
+                           const ReadOptions& read_options,
                            std::unique_ptr<TableProperties>* properties,
                            MemoryAllocator* memory_allocator,
                            FilePrefetchBuffer* prefetch_buffer) {
   BlockHandle block_handle;
   Footer footer;
-  Status s = FindMetaBlockInFile(file, file_size, table_magic_number, ioptions,
-                                 kPropertiesBlockName, &block_handle,
-                                 memory_allocator, prefetch_buffer, &footer);
+  Status s =
+      FindMetaBlockInFile(file, file_size, table_magic_number, ioptions,
+                          read_options, kPropertiesBlockName, &block_handle,
+                          memory_allocator, prefetch_buffer, &footer);
   if (!s.ok()) {
     return s;
   }
 
   if (!block_handle.IsNull()) {
-    s = ReadTablePropertiesHelper(ReadOptions(), block_handle, file,
+    s = ReadTablePropertiesHelper(read_options, block_handle, file,
                                   prefetch_buffer, footer, ioptions, properties,
                                   memory_allocator);
   } else {
@@ -472,14 +478,20 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 uint64_t file_size, uint64_t table_magic_number,
                                 const ImmutableOptions& ioptions,
+                                const ReadOptions& read_options,
                                 BlockContents* metaindex_contents,
                                 MemoryAllocator* memory_allocator,
                                 FilePrefetchBuffer* prefetch_buffer,
                                 Footer* footer_out) {
   Footer footer;
   IOOptions opts;
-  auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
-                              table_magic_number);
+  Status s;
+  s = file->PrepareIOOptions(read_options, opts);
+  if (!s.ok()) {
+    return s;
+  }
+  s = ReadFooterFromFile(opts, file, *ioptions.fs, prefetch_buffer, file_size,
+                         &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -488,7 +500,7 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
   }
 
   auto metaindex_handle = footer.metaindex_handle();
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+  return BlockFetcher(file, prefetch_buffer, footer, read_options,
                       metaindex_handle, metaindex_contents, ioptions,
                       false /* do decompression */, false /*maybe_compressed*/,
                       BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
@@ -496,18 +508,16 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
       .ReadBlockContents();
 }
 
-Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
-                           uint64_t table_magic_number,
-                           const ImmutableOptions& ioptions,
-                           const std::string& meta_block_name,
-                           BlockHandle* block_handle,
-                           MemoryAllocator* memory_allocator,
-                           FilePrefetchBuffer* prefetch_buffer,
-                           Footer* footer_out) {
+Status FindMetaBlockInFile(
+    RandomAccessFileReader* file, uint64_t file_size,
+    uint64_t table_magic_number, const ImmutableOptions& ioptions,
+    const ReadOptions& read_options, const std::string& meta_block_name,
+    BlockHandle* block_handle, MemoryAllocator* memory_allocator,
+    FilePrefetchBuffer* prefetch_buffer, Footer* footer_out) {
   BlockContents metaindex_contents;
   auto s = ReadMetaIndexBlockInFile(
-      file, file_size, table_magic_number, ioptions, &metaindex_contents,
-      memory_allocator, prefetch_buffer, footer_out);
+      file, file_size, table_magic_number, ioptions, read_options,
+      &metaindex_contents, memory_allocator, prefetch_buffer, footer_out);
   if (!s.ok()) {
     return s;
   }
@@ -525,6 +535,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
                      const ImmutableOptions& ioptions,
+                     const ReadOptions& read_options,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents,
                      MemoryAllocator* memory_allocator) {
@@ -534,15 +545,16 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
 
   BlockHandle block_handle;
   Footer footer;
-  Status status = FindMetaBlockInFile(
-      file, file_size, table_magic_number, ioptions, meta_block_name,
-      &block_handle, memory_allocator, prefetch_buffer, &footer);
+  Status status =
+      FindMetaBlockInFile(file, file_size, table_magic_number, ioptions,
+                          read_options, meta_block_name, &block_handle,
+                          memory_allocator, prefetch_buffer, &footer);
   if (!status.ok()) {
     return status;
   }
 
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
-                      block_handle, contents, ioptions, false /* decompress */,
+  return BlockFetcher(file, prefetch_buffer, footer, read_options, block_handle,
+                      contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
                       UncompressionDict::GetEmptyDict(),
                       PersistentCacheOptions::kEmpty, memory_allocator)

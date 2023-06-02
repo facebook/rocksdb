@@ -125,9 +125,8 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   @Override protected final native byte[] data0(long handle);
-  private native static long createNewSlice0(final byte[] data,
-      final int length);
-  private native static long createNewSlice1(final byte[] data);
+  private static native long createNewSlice0(final byte[] data, final int length);
+  private static native long createNewSlice1(final byte[] data);
   private native void clear0(long handle, boolean internalBuffer,
       long internalBufferOffset);
   private native void removePrefix0(long handle, int length);

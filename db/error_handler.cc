@@ -228,14 +228,13 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
 };
 
 void ErrorHandler::CancelErrorRecovery() {
-#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
 
   // We'll release the lock before calling sfm, so make sure no new
   // recovery gets scheduled at that point
   auto_recovery_ = false;
-  SstFileManagerImpl* sfm = reinterpret_cast<SstFileManagerImpl*>(
-      db_options_.sst_file_manager.get());
+  SstFileManagerImpl* sfm =
+      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm) {
     // This may or may not cancel a pending recovery
     db_mutex_->Unlock();
@@ -249,7 +248,6 @@ void ErrorHandler::CancelErrorRecovery() {
   // If auto recovery is also runing to resume from the retryable error,
   // we should wait and end the auto recovery.
   EndAutoRecovery();
-#endif
 }
 
 STATIC_AVOID_DESTRUCTION(const Status, kOkStatus){Status::OK()};
@@ -292,8 +290,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   bool found = false;
 
   {
-    auto entry = ErrorSeverityMap.find(std::make_tuple(reason, bg_err.code(),
-          bg_err.subcode(), paranoid));
+    auto entry = ErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), bg_err.subcode(), paranoid));
     if (entry != ErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
@@ -301,8 +299,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   }
 
   if (!found) {
-    auto entry = DefaultErrorSeverityMap.find(std::make_tuple(reason,
-          bg_err.code(), paranoid));
+    auto entry = DefaultErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), paranoid));
     if (entry != DefaultErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
@@ -499,7 +497,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
 
 Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
                                           bool* auto_recovery) {
-#ifndef ROCKSDB_LITE
   if (bg_error.severity() >= Status::Severity::kFatalError) {
     return bg_error;
   }
@@ -528,14 +525,9 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
   }
 
   return bg_error;
-#else
-  (void)auto_recovery;
-  return Status(bg_error, Status::Severity::kFatalError);
-#endif
 }
 
 void ErrorHandler::RecoverFromNoSpace() {
-#ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
 
@@ -543,11 +535,9 @@ void ErrorHandler::RecoverFromNoSpace() {
   if (sfm) {
     sfm->StartErrorRecovery(this, bg_error_);
   }
-#endif
 }
 
 Status ErrorHandler::ClearBGError() {
-#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
 
   // Signal that recovery succeeded
@@ -566,13 +556,9 @@ Status ErrorHandler::ClearBGError() {
                                            bg_error_, db_mutex_);
   }
   return recovery_error_;
-#else
-  return bg_error_;
-#endif
 }
 
 Status ErrorHandler::RecoverFromBGError(bool is_manual) {
-#ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
   bool no_bg_work_original_flag = soft_error_no_bg_work_;
   if (is_manual) {
@@ -625,15 +611,10 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     recovery_in_prog_ = false;
   }
   return s;
-#else
-  (void)is_manual;
-  return bg_error_;
-#endif
 }
 
 const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     const IOStatus& io_error) {
-#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
   if (bg_error_.ok()) {
     return bg_error_;
@@ -667,16 +648,11 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   } else {
     return bg_error_;
   }
-#else
-  (void)io_error;
-  return bg_error_;
-#endif
 }
 
 // Automatic recover from Retryable BG IO error. Must be called after db
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
-#ifndef ROCKSDB_LITE
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
@@ -784,9 +760,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
                       ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
   }
   return;
-#else
-  return;
-#endif
 }
 
 void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {

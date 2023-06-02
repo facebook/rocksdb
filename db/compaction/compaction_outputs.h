@@ -45,12 +45,7 @@ class CompactionOutputs {
   CompactionOutputs() = delete;
 
   explicit CompactionOutputs(const Compaction* compaction,
-                             const bool is_penultimate_level)
-      : compaction_(compaction), is_penultimate_level_(is_penultimate_level) {
-    partitioner_ = compaction->output_level() == 0
-                       ? nullptr
-                       : compaction->CreateSstPartitioner();
-  }
+                             const bool is_penultimate_level);
 
   // Add generated output to the list
   void AddOutput(FileMetaData&& meta, const InternalKeyComparator& icmp,
@@ -172,18 +167,23 @@ class CompactionOutputs {
     current_output_file_size_ = 0;
   }
 
-  // Add range-dels from the aggregator to the current output file
-  Status AddRangeDels(const Slice* comp_start, const Slice* comp_end,
+  // Add range deletions from the range_del_agg_ to the current output file.
+  // Input parameters, `range_tombstone_lower_bound_` and current output's
+  // metadata determine the bounds on range deletions to add. Updates output
+  // file metadata boundary if extended by range tombstones.
+  //
+  // @param comp_start_user_key and comp_end_user_key include timestamp if
+  // user-defined timestamp is enabled. Their timestamp should be max timestamp.
+  // @param next_table_min_key internal key lower bound for the next compaction
+  // output.
+  // @param full_history_ts_low used for range tombstone garbage collection.
+  Status AddRangeDels(const Slice* comp_start_user_key,
+                      const Slice* comp_end_user_key,
                       CompactionIterationStats& range_del_out_stats,
                       bool bottommost_level, const InternalKeyComparator& icmp,
                       SequenceNumber earliest_snapshot,
-                      const Slice& next_table_min_key);
-
-  // Is the current file is already pending for close
-  bool IsPendingClose() const { return pending_close_; }
-
-  // Current file should close before adding a new key
-  void SetPendingClose() { pending_close_ = true; }
+                      const Slice& next_table_min_key,
+                      const std::string& full_history_ts_low);
 
   // if the outputs have range delete, range delete is also data
   bool HasRangeDel() const {
@@ -193,6 +193,32 @@ class CompactionOutputs {
  private:
   friend class SubcompactionState;
 
+  void FillFilesToCutForTtl();
+
+  void SetOutputSlitKey(const std::optional<Slice> start,
+                        const std::optional<Slice> end) {
+    const InternalKeyComparator* icmp =
+        &compaction_->column_family_data()->internal_comparator();
+
+    const InternalKey* output_split_key = compaction_->GetOutputSplitKey();
+    // Invalid output_split_key indicates that we do not need to split
+    if (output_split_key != nullptr) {
+      // We may only split the output when the cursor is in the range. Split
+      if ((!end.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
+          (!start.has_value() || icmp->user_comparator()->Compare(
+                                     ExtractUserKey(output_split_key->Encode()),
+                                     start.value()) > 0)) {
+        local_output_split_key_ = output_split_key;
+      }
+    }
+  }
+
+  // Returns true iff we should stop building the current output
+  // before processing the current key in compaction iterator.
+  bool ShouldStopBefore(const CompactionIterator& c_iter);
+
   void Cleanup() {
     if (builder_ != nullptr) {
       // May happen if we get a shutdown call in the middle of compaction
@@ -201,11 +227,25 @@ class CompactionOutputs {
     }
   }
 
-  uint64_t GetCurrentOutputFileSize() const {
-    return current_output_file_size_;
-  }
+  // Updates states related to file cutting for TTL.
+  // Returns a boolean value indicating whether the current
+  // compaction output file should be cut before `internal_key`.
+  //
+  // @param internal_key the current key to be added to output.
+  bool UpdateFilesToCutForTTLStates(const Slice& internal_key);
 
-  // Add curent key from compaction_iterator to the output file. If needed
+  // update tracked grandparents information like grandparent index, if it's
+  // in the gap between 2 grandparent files, accumulated grandparent files size
+  // etc.
+  // It returns how many boundaries it crosses by including current key.
+  size_t UpdateGrandparentBoundaryInfo(const Slice& internal_key);
+
+  // helper function to get the overlapped grandparent files size, it's only
+  // used for calculating the first key's overlap.
+  uint64_t GetCurrentKeyGrandparentOverlappedBytes(
+      const Slice& internal_key) const;
+
+  // Add current key from compaction_iterator to the output file. If needed
   // close and open new compaction output with the functions provided.
   Status AddToOutput(const CompactionIterator& c_iter,
                      const CompactionFileOpenFunc& open_file_func,
@@ -255,10 +295,6 @@ class CompactionOutputs {
 
   const Compaction* compaction_;
 
-  // The current file is pending close, which needs to run `close_file_func()`
-  // first to add a new key.
-  bool pending_close_ = false;
-
   // current output builder and writer
   std::unique_ptr<TableBuilder> builder_;
   std::unique_ptr<WritableFileWriter> file_writer_;
@@ -282,6 +318,44 @@ class CompactionOutputs {
   // partitioner information
   std::string last_key_for_partitioner_;
   std::unique_ptr<SstPartitioner> partitioner_;
+
+  // A flag determines if this subcompaction has been split by the cursor
+  // for RoundRobin compaction
+  bool is_split_ = false;
+
+  // We also maintain the output split key for each subcompaction to avoid
+  // repetitive comparison in ShouldStopBefore()
+  const InternalKey* local_output_split_key_ = nullptr;
+
+  // Some identified files with old oldest ancester time and the range should be
+  // isolated out so that the output file(s) in that range can be merged down
+  // for TTL and clear the timestamps for the range.
+  std::vector<FileMetaData*> files_to_cut_for_ttl_;
+  int cur_files_to_cut_for_ttl_ = -1;
+  int next_files_to_cut_for_ttl_ = 0;
+
+  // An index that used to speed up ShouldStopBefore().
+  size_t grandparent_index_ = 0;
+
+  // if the output key is being grandparent files gap, so:
+  //  key > grandparents[grandparent_index_ - 1].largest &&
+  //  key < grandparents[grandparent_index_].smallest
+  bool being_grandparent_gap_ = true;
+
+  // The number of bytes overlapping between the current output and
+  // grandparent files used in ShouldStopBefore().
+  uint64_t grandparent_overlapped_bytes_ = 0;
+
+  // A flag determines whether the key has been seen in ShouldStopBefore()
+  bool seen_key_ = false;
+
+  // for the current output file, how many file boundaries has it crossed,
+  // basically number of files overlapped * 2
+  size_t grandparent_boundary_switched_num_ = 0;
+
+  // The smallest key of the current output file, this is set when current
+  // output file's smallest key is a range tombstone start key.
+  InternalKey range_tombstone_lower_bound_;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

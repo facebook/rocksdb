@@ -15,7 +15,7 @@
 #include "file/read_write_util.h"
 #include "rocksdb/file_system.h"
 #include "util/aligned_buffer.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {

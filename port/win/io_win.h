@@ -27,9 +27,9 @@ std::string GetWindowsErrSz(DWORD err);
 inline IOStatus IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL))
              ? IOStatus::NoSpace(context, GetWindowsErrSz(err))
-             : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
-                   ? IOStatus::PathNotFound(context, GetWindowsErrSz(err))
-                   : IOStatus::IOError(context, GetWindowsErrSz(err));
+         : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
+             ? IOStatus::PathNotFound(context, GetWindowsErrSz(err))
+             : IOStatus::IOError(context, GetWindowsErrSz(err));
 }
 
 inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
@@ -39,10 +39,9 @@ inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
 inline IOStatus IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? IOStatus::NoSpace(context, errnoStr(err_number).c_str())
-             : (err_number == ENOENT)
-                   ? IOStatus::PathNotFound(context,
-                                            errnoStr(err_number).c_str())
-                   : IOStatus::IOError(context, errnoStr(err_number).c_str());
+         : (err_number == ENOENT)
+             ? IOStatus::PathNotFound(context, errnoStr(err_number).c_str())
+             : IOStatus::IOError(context, errnoStr(err_number).c_str());
 }
 
 class WinFileData;

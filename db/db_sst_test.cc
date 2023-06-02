@@ -24,7 +24,6 @@ class DBSSTTest : public DBTestBase {
   DBSSTTest() : DBTestBase("db_sst_test", /*env_do_fsync=*/true) {}
 };
 
-#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -53,7 +52,6 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
 };
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBSSTTest, DontDeletePendingOutputs) {
   Options options;
@@ -151,7 +149,6 @@ TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
   ASSERT_EQ("choo", Get("pika"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
@@ -746,7 +743,7 @@ TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
 
   // Compaction will move the 4 files in L0 to trash and create 1 L1 file
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   uint64_t delete_start_time = env_->NowMicros();
@@ -813,11 +810,12 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   // We created 4 sst files in L0
   ASSERT_EQ("4", FilesPerLevel(0));
 
-  // Compaction will move the 4 files in L0 to trash and create 1 L1 file
+  // Compaction will move the 4 files in L0 to trash and create 1 L1 file.
+  // Use kForceOptimized to not rewrite the new L1 file.
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
@@ -1226,7 +1224,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Because we set a callback in CancelledCompaction, we actually
   // let the compaction run
@@ -1283,7 +1281,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
                   .IsCompactionTooLarge());
 
   // Wait for manual compaction to get scheduled and finish
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
@@ -1299,7 +1297,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
           .IsCompactionTooLarge());
 
   // Wait for manual compaction to get scheduled and finish
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 COMPACTION_CANCELLED),
@@ -1316,7 +1314,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
                                    l0_files, 0));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   ASSERT_GT(completed_compactions, 0);
@@ -1856,7 +1854,6 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

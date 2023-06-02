@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <type_traits>
 
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -60,6 +61,19 @@ class SemiStructuredUniqueIdGen {
   // Assuming no fork(), `lower` is guaranteed unique from one call
   // to the next (thread safe).
   void GenerateNext(uint64_t* upper, uint64_t* lower);
+
+  // For generating smaller values. Will cycle through all the possibilities
+  // before repeating.
+  template <typename T>
+  T GenerateNext() {
+    static_assert(sizeof(T) <= sizeof(uint64_t));
+    static_assert(std::is_integral_v<T>);
+    uint64_t ignore, val;
+    GenerateNext(&ignore, &val);
+    return static_cast<T>(val);
+  }
+
+  uint64_t GetBaseUpper() const { return base_upper_; }
 
  private:
   uint64_t base_upper_;

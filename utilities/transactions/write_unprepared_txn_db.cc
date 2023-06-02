@@ -3,9 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn_db.h"
+
 #include "db/arena_wrapped_db_iter.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
@@ -388,6 +388,11 @@ static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
+  if (options.io_activity != Env::IOActivity::kUnknown) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Cannot call NewIterator with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`"));
+  }
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
@@ -469,4 +474,3 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

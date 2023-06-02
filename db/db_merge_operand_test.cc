@@ -8,9 +8,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "rocksdb/merge_operator.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
@@ -39,7 +37,7 @@ class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
  private:
   size_t limit_ = 0;
 };
-}  // namespace
+}  // anonymous namespace
 
 class DBMergeOperandTest : public DBTestBase {
  public:
@@ -436,6 +434,48 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
 
   for (int i = 0; i < kNumOperands; ++i) {
     ASSERT_EQ(expected_merge_operands[i], merge_operands[i]);
+  }
+}
+
+TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
+  // In this test, "k1" has a MERGE in a mutable memtable on top of a base
+  // DELETE in an immutable memtable.
+  Options opts = CurrentOptions();
+  opts.max_write_buffer_number = 10;
+  opts.min_write_buffer_number_to_merge = 10;
+  opts.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+  Reopen(opts);
+
+  ASSERT_OK(Put("k1", "val"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("k0", "val"));
+  ASSERT_OK(Delete("k1"));
+  ASSERT_OK(Put("k2", "val"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Merge("k1", "val"));
+
+  {
+    std::vector<PinnableSlice> values(2);
+
+    GetMergeOperandsOptions merge_operands_info;
+    merge_operands_info.expected_max_number_of_operands =
+        static_cast<int>(values.size());
+
+    std::string key = "k1", from_db;
+    int number_of_operands = 0;
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, values.data(), &merge_operands_info,
+                                    &number_of_operands));
+    ASSERT_EQ(1, number_of_operands);
+    from_db = values[0].ToString();
+    ASSERT_EQ("val", from_db);
+  }
+
+  {
+    std::string val;
+    ASSERT_OK(db_->Get(ReadOptions(), "k1", &val));
+    ASSERT_EQ("val", val);
   }
 }
 

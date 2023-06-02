@@ -12,7 +12,7 @@
 #include "db/db_test_util.h"
 #include "rocksdb/options.h"
 #include "test_util/testharness.h"
-#include "utilities/agg_merge/agg_merge.h"
+#include "utilities/agg_merge/agg_merge_impl.h"
 #include "utilities/agg_merge/test_agg_merge.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -129,6 +129,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

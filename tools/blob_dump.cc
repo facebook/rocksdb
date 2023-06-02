@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include <getopt.h>
+
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -101,10 +101,3 @@ int main(int argc, char** argv) {
   }
   return 0;
 }
-#else
-#include <stdio.h>
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "Not supported in lite mode.\n");
-  return -1;
-}
-#endif  // ROCKSDB_LITE

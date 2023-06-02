@@ -21,6 +21,6 @@ bool Compress(const char* input, size_t length, std::string* output);
 
 char* Decompress(const char* input_data, size_t input_length,
                  size_t* uncompressed_size);
-}
-}
+}  // namespace xpress
+}  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

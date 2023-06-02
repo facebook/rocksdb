@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -143,7 +144,6 @@ bool EndsWith(const std::string& string, const std::string& pattern);
 // Returns true if "string" starts with "pattern"
 bool StartsWith(const std::string& string, const std::string& pattern);
 
-#ifndef ROCKSDB_LITE
 bool ParseBoolean(const std::string& type, const std::string& value);
 
 uint8_t ParseUint8(const std::string& value);
@@ -151,7 +151,6 @@ uint8_t ParseUint8(const std::string& value);
 uint32_t ParseUint32(const std::string& value);
 
 int32_t ParseInt32(const std::string& value);
-#endif
 
 uint64_t ParseUint64(const std::string& value);
 

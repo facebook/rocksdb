@@ -56,6 +56,7 @@ io_tracer_parser
 .DS_Store
 .vs
 .vscode
+.clangd
 
 java/out
 java/target
@@ -94,3 +95,5 @@ fuzz/crash-*
 
 cmake-build-*
 third-party/folly/
+.cache
+*.sublime-*
