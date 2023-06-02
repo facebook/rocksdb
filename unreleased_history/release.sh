@@ -1,4 +1,5 @@
 #! /usr/bin/env bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 set -e
 
@@ -66,6 +67,7 @@ process_dir new_features "New Features"
 process_dir public_api_changes "Public API Changes"
 process_dir behavior_changes "Behavior Changes"
 process_dir bug_fixes "Bug Fixes"
+process_dir performance_improvements "Performance Improvements"
 
 # Check for unexpected files or dirs at top level. process_dir/process_file
 # will deal with contents of these directories

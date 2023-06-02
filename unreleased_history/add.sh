@@ -1,4 +1,5 @@
 #! /usr/bin/env bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 set -e
 set -o pipefail
