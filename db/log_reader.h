@@ -20,6 +20,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/hash_containers.h"
 #include "util/udt_util.h"
 #include "util/xxhash.h"
 
@@ -79,7 +80,7 @@ class Reader {
 
   // Return the recorded user-defined timestamp size that have been read so
   // far. This only applies to WAL logs.
-  const std::unordered_map<uint32_t, size_t>& GetRecordedTimestampSize() const {
+  const UnorderedMap<uint32_t, size_t>& GetRecordedTimestampSize() const {
     return recorded_cf_to_ts_sz_;
   }
 
@@ -165,7 +166,7 @@ class Reader {
 
   // The recorded user-defined timestamp sizes that have been read so far. This
   // is only for WAL logs.
-  std::unordered_map<uint32_t, size_t> recorded_cf_to_ts_sz_;
+  UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
   // Extend record types with the following special values
   enum {
