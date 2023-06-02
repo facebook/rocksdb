@@ -1738,7 +1738,7 @@ void InternalStats::DumpCFMapStats(
   assert(vstorage);
 
   int num_levels_to_check =
-      (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel)
           ? vstorage->num_levels() - 1
           : 1;
 

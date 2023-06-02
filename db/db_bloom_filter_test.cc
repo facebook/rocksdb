@@ -2614,7 +2614,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   compact_options.target_level = 7;
   ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
 
-  ASSERT_EQ(trivial_move, 1);
+  ASSERT_GE(trivial_move, 1);
   ASSERT_EQ(non_trivial_move, 0);
 
   prev_cache_filter_hits = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
