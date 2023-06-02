@@ -938,6 +938,13 @@ class WritableFile {
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
   virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
+
+  // The caller is expected to call Close() exactly once before destroying the
+  // WritableFile, and no other functions are supported after calling Close().
+  // Any errors associated with finishing writes to the file should be
+  // returned in the Status, but the file is considered closed regardless
+  // of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0;  // sync data
@@ -1115,6 +1122,12 @@ class RandomRWFile {
 
   virtual Status Fsync() { return Sync(); }
 
+  // The caller is expected to call Close() exactly once before destroying the
+  // RandomRWFile, and no other functions are supported after calling Close().
+  // Any errors associated with finishing writes to the file should be
+  // returned in the Status, but the file is considered closed regardless
+  // of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual Status Close() = 0;
 
   // If you're adding methods here, remember to add them to
@@ -1150,7 +1163,12 @@ class Directory {
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
-  // Close directory.
+  // The caller is expected to call Close() exactly once before destroying the
+  // Directory, and no other functions are supported after calling Close().
+  // Any errors associated with finishing writes (in case of future features)
+  // should be returned in the Status, but the directory is considered closed
+  // regardless of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
@@ -1188,9 +1206,11 @@ class Logger {
 
   virtual ~Logger();
 
-  // Close the log file. Must be called before destructor. If the return
-  // status is NotSupported(), it means the implementation does cleanup in
-  // the destructor
+  // Because Logger is typically a shared object, Close() may or may not be
+  // called before the object is destroyed, but is recommended to reveal any
+  // final errors in finishing outstanding writes. No other functions are
+  // supported after calling Close(), and the Logger is considered closed
+  // regardless of return status.
   virtual Status Close();
 
   // Write a header to the log file with the specified format

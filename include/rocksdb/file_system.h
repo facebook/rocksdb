@@ -1028,6 +1028,13 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
+
+  // The caller is expected to call Close() exactly once before destroying the
+  // FSWritableFile, and no other functions are supported after calling
+  // Close(). Any errors associated with finishing writes to the file should be
+  // returned in the Status, but the file is considered closed regardless
+  // of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual IOStatus Close(const IOOptions& /*options*/,
                          IODebugContext* /*dbg*/) = 0;
 
@@ -1220,6 +1227,12 @@ class FSRandomRWFile {
     return Sync(options, dbg);
   }
 
+  // The caller is expected to call Close() exactly once before destroying the
+  // FSRandomRWFile, and no other functions are supported after calling
+  // Close(). Any errors associated with finishing writes to the file should be
+  // returned in the Status, but the file is considered closed regardless
+  // of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
 
   // EXPERIMENTAL
@@ -1276,7 +1289,12 @@ class FSDirectory {
     return Fsync(options, dbg);
   }
 
-  // Close directory
+  // The caller is expected to call Close() exactly once before destroying the
+  // FSDirectory, and no other functions are supported after calling Close().
+  // Any errors associated with finishing writes (in case of future features)
+  // should be returned in the Status, but the directory is considered closed
+  // regardless of return status.
+  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual IOStatus Close(const IOOptions& /*options*/,
                          IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported("Close");
