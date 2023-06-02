@@ -71,6 +71,7 @@ struct TablePropertiesNames {
   static const std::string kFastCompressionEstimatedDataSize;
   static const std::string kSequenceNumberTimeMapping;
   static const std::string kTailStartOffset;
+  static const std::string kUserDefinedTimestampsPersisted;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -243,6 +244,11 @@ struct TableProperties {
   // Offset where the "tail" part of SST file starts
   // "Tail" refers to all blocks after data blocks till the end of the SST file
   uint64_t tail_start_offset = 0;
+
+  // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+  // when the file is created. Default to be true, only when this flag is false,
+  // it's explicitly written to meta properties block.
+  uint64_t user_defined_timestamps_persisted = 1;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
