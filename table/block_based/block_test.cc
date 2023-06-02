@@ -76,9 +76,13 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   }
 }
 
+// Test Param 1): key use delta encoding.
+// Test Param 2): user-defined timestamp test mode.
+// Test Param 3): data block index type.
 class BlockTest : public testing::Test,
                   public testing::WithParamInterface<
-                      std::tuple<bool, test::UserDefinedTimestampTestMode>> {
+                      std::tuple<bool, test::UserDefinedTimestampTestMode,
+                                 BlockBasedTableOptions::DataBlockIndexType>> {
  public:
   bool keyUseDeltaEncoding() const { return std::get<0>(GetParam()); }
   bool isUDTEnabled() const {
@@ -86,6 +90,10 @@ class BlockTest : public testing::Test,
   }
   bool shouldPersistUDT() const {
     return test::ShouldPersistUDT(std::get<1>(GetParam()));
+  }
+
+  BlockBasedTableOptions::DataBlockIndexType dataBlockIndexType() const {
+    return std::get<2>(GetParam());
   }
 };
 
@@ -100,9 +108,11 @@ TEST_P(BlockTest, SimpleTest) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
+  BlockBasedTableOptions::DataBlockIndexType index_type =
+      isUDTEnabled() ? BlockBasedTableOptions::kDataBlockBinarySearch
+                     : dataBlockIndexType();
   BlockBuilder builder(16, keyUseDeltaEncoding(),
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinarySearch,
+                       false /* use_value_delta_encoding */, index_type,
                        0.75 /* data_block_hash_table_util_ratio */, ts_sz,
                        shouldPersistUDT(), false /* is_user_key */);
   int num_records = 100000;
@@ -159,16 +169,16 @@ TEST_P(BlockTest, SimpleTest) {
 }
 
 // return the block contents
-BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
-                               const std::vector<std::string> &keys,
-                               const std::vector<std::string> &values,
-                               bool key_use_delta_encoding, size_t ts_sz,
-                               bool should_persist_udt,
-                               const int /*prefix_group_size*/ = 1) {
+BlockContents GetBlockContents(
+    std::unique_ptr<BlockBuilder> *builder,
+    const std::vector<std::string> &keys,
+    const std::vector<std::string> &values, bool key_use_delta_encoding,
+    size_t ts_sz, bool should_persist_udt, const int /*prefix_group_size*/ = 1,
+    BlockBasedTableOptions::DataBlockIndexType dblock_index_type =
+        BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch) {
   builder->reset(
       new BlockBuilder(1 /* restart interval */, key_use_delta_encoding,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinarySearch,
+                       false /* use_value_delta_encoding */, dblock_index_type,
                        0.75 /* data_block_hash_table_util_ratio */, ts_sz,
                        should_persist_udt, false /* is_user_key */));
 
@@ -238,8 +248,13 @@ TEST_P(BlockTest, SimpleIndexHash) {
                     1 /* keys_share_prefix */, ts_sz);
 
   std::unique_ptr<BlockBuilder> builder;
+
   auto contents = GetBlockContents(
-      &builder, keys, values, keyUseDeltaEncoding(), ts_sz, shouldPersistUDT());
+      &builder, keys, values, keyUseDeltaEncoding(), ts_sz, shouldPersistUDT(),
+      1 /* prefix_group_size */,
+      isUDTEnabled()
+          ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
+          : dataBlockIndexType());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
                      shouldPersistUDT());
@@ -260,9 +275,13 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
                     kPrefixGroup /* keys_share_prefix */, ts_sz);
 
   std::unique_ptr<BlockBuilder> builder;
-  auto contents =
-      GetBlockContents(&builder, keys, values, keyUseDeltaEncoding(),
-                       isUDTEnabled(), shouldPersistUDT(), kPrefixGroup);
+
+  auto contents = GetBlockContents(
+      &builder, keys, values, keyUseDeltaEncoding(), isUDTEnabled(),
+      shouldPersistUDT(), kPrefixGroup,
+      isUDTEnabled()
+          ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
+          : dataBlockIndexType());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
                      shouldPersistUDT());
@@ -270,10 +289,18 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
 
 // Param 0: key use delta encoding
 // Param 1: user-defined timestamp test mode
+// Param 2: data block index type. User-defined timestamp feature is not
+// compatible with `kDataBlockBinaryAndHash` data block index type because the
+// user comparator doesn't provide a `CanKeysWithDifferentByteContentsBeEqual`
+// override. This combination is disabled.
 INSTANTIATE_TEST_CASE_P(
     P, BlockTest,
-    ::testing::Combine(::testing::Bool(),
-                       ::testing::ValuesIn(test::GetUDTTestModes())));
+    ::testing::Combine(
+        ::testing::Bool(), ::testing::ValuesIn(test::GetUDTTestModes()),
+        ::testing::Values(
+            BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+            BlockBasedTableOptions::DataBlockIndexType::
+                kDataBlockBinaryAndHash)));
 
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
