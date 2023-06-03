@@ -25,6 +25,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src,
@@ -1186,6 +1187,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     std::string scratch;
     Slice record;
 
+    const std::unordered_map<uint32_t, size_t>& running_ts_sz =
+        versions_->GetRunningColumnFamiliesTimestampSize();
+
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                              /*arg=*/nullptr);
     uint64_t record_checksum;
@@ -1205,6 +1209,17 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       WriteBatch batch;
 
       status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        return status;
+      }
+
+      const std::unordered_map<uint32_t, size_t>& record_ts_sz =
+          reader.GetRecordedTimestampSize();
+      // TODO(yuzhangyu): update mode to kReconcileInconsistency when user
+      // comparator can be changed.
+      status = HandleWriteBatchTimestampSizeDifference(
+          &batch, running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kVerifyConsistency);
       if (!status.ok()) {
         return status;
       }

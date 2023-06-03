@@ -1467,6 +1467,17 @@ class VersionSet {
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+
+  const std::unordered_map<uint32_t, size_t>&
+  GetRunningColumnFamiliesTimestampSize() const {
+    return column_family_set_->GetRunningColumnFamiliesTimestampSize();
+  }
+
+  const std::unordered_map<uint32_t, size_t>&
+  GetColumnFamiliesTimestampSizeForRecord() const {
+    return column_family_set_->GetColumnFamiliesTimestampSizeForRecord();
+  }
+
   RefedColumnFamilySet GetRefedColumnFamilySet() {
     return RefedColumnFamilySet(GetColumnFamilySet());
   }

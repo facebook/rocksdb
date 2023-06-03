@@ -876,7 +876,7 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
     return 1;  // Return target is smaller
   }
   Slice block_key(key_ptr, non_shared);
-  raw_key_.SetKey(block_key, false /* copy */);
+  UpdateRawKeyAndMaybePadMinTimestamp(block_key);
   return CompareCurrentKey(target);
 }
 

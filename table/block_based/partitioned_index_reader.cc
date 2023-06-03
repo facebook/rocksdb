@@ -75,7 +75,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
@@ -94,7 +95,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
 
     it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
@@ -140,7 +142,8 @@ Status PartitionIndexReader::CacheDependencies(
   index_block.GetValue()->NewIndexIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
-      index_has_first_key(), index_key_includes_seq(), index_value_is_full());
+      index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
