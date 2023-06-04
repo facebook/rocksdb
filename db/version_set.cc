@@ -3047,7 +3047,9 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileIndexer();
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
-  if (!immutable_options.allow_ingest_behind) {
+  if (immutable_options.compaction_style == kCompactionStyleLevel &&
+      !immutable_options.allow_ingest_behind &&
+      immutable_options.preserve_internal_time_seconds == 0) {
     GenerateBottommostFiles();
   }
   GenerateFileLocationIndex();
@@ -3562,7 +3564,9 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction();
-  if (!immutable_options.allow_ingest_behind) {
+  if (immutable_options.compaction_style == kCompactionStyleLevel &&
+      !immutable_options.allow_ingest_behind &&
+      immutable_options.preserve_internal_time_seconds == 0) {
     ComputeBottommostFilesMarkedForCompaction();
   }
   if (mutable_cf_options.ttl > 0) {
