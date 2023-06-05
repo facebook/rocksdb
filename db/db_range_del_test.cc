@@ -3416,8 +3416,9 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   // [4, 5) should be dropped since it does not overlap with any file in lower
   // levels. The range tombstone [8, 9) should not be dropped.
   Options opts = CurrentOptions();
-  opts.disable_auto_compactions = true;
+  opts.level_compaction_dynamic_level_bytes = false;
   opts.num_levels = 7;
+  opts.level0_file_num_compaction_trigger = 3;
   DestroyAndReopen(opts);
 
   Random rnd(301);
@@ -3447,12 +3448,11 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   TableProperties output_tp;
   ParseTablePropertiesString(property, &output_tp);
   ASSERT_EQ(output_tp.num_range_deletions, 2);
-  // Compact two L0s into L1
-  std::string begin_str = Key(4);
-  std::string end_str = Key(6);
-  Slice begin_slice = begin_str;
-  Slice end_slice = end_str;
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_slice, &end_slice));
+  // Add one more L0 file to trigger L0->L1 compaction
+  ASSERT_OK(Put(Key(1), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(9), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
   ParseTablePropertiesString(property, &output_tp);
@@ -3460,18 +3460,18 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
 
   // Now create a snapshot protected range tombstone [4, 5), it should not
   // be dropped.
+  ASSERT_OK(Put(Key(4), rnd.RandomString(100)));
   const Snapshot* snapshot = db_->GetSnapshot();
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
                              Key(5)));
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
-  end_str = Key(5);
-  end_slice = end_str;
-  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // All compacted to L6
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
   db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
   ParseTablePropertiesString(property, &output_tp);
-  ASSERT_EQ(output_tp.num_range_deletions, 2);
+  ASSERT_EQ(output_tp.num_range_deletions, 1);
   db_->ReleaseSnapshot(snapshot);
 }
 
