@@ -677,6 +677,16 @@ DEFINE_uint64(txn_write_policy, 0,
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
               "changed accross crashes.");
 
+DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
+DEFINE_bool(validate_serial, false,
+            "Validation Policy - whether to validate in serial vs. parallel "
+            "for OptimisticTransactionDB");
+DEFINE_bool(share_occ_lock_buckets, false,
+            "Share a pool of locks across DB instances for buckets");
+DEFINE_uint32(
+    occ_lock_bucket_count, 500,
+    "Bucket Count for shared Optimistic Concurrency Control (OCC) locks");
+
 DEFINE_bool(unordered_write, false,
             "Turn on the unordered_write feature. This options is currently "
             "tested only in combination with use_txn=true and "

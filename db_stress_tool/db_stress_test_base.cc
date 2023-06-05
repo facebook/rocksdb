@@ -556,6 +556,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     delete db_;
     db_ = nullptr;
     txn_db_ = nullptr;
+    optimistic_txn_db_ = nullptr;
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -2477,6 +2478,7 @@ void StressTest::PrintEnv() const {
 void StressTest::Open(SharedState* shared) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
+  assert(optimistic_txn_db_ == nullptr);
   if (!InitializeOptionsFromFile(options_)) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
@@ -2702,6 +2704,33 @@ void StressTest::Open(SharedState* shared) {
           }
         }
         break;
+      }
+    } else if (FLAGS_use_optimistic_txn) {
+      OptimisticTransactionDBOptions optimistic_txn_db_options;
+      if (FLAGS_validate_serial) {
+        optimistic_txn_db_options.validate_policy =
+            OccValidationPolicy::kValidateSerial;
+      }
+      if (FLAGS_share_occ_lock_buckets) {
+        optimistic_txn_db_options.shared_lock_buckets =
+            MakeSharedOccLockBuckets(FLAGS_occ_lock_bucket_count);
+      } else {
+        optimistic_txn_db_options.occ_lock_buckets =
+            FLAGS_occ_lock_bucket_count;
+        optimistic_txn_db_options.shared_lock_buckets = nullptr;
+      }
+      s = OptimisticTransactionDB::Open(options_, optimistic_txn_db_options,
+                                        FLAGS_db, cf_descriptors,
+                                        &column_families_, &optimistic_txn_db_);
+      if (!s.ok()) {
+        fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
+                s.ToString().c_str());
+        fflush(stderr);
+      }
+      assert(s.ok());
+      {
+        db_ = optimistic_txn_db_;
+        db_aptr_.store(optimistic_txn_db_, std::memory_order_release);
       }
     } else {
       TransactionDBOptions txn_db_options;
