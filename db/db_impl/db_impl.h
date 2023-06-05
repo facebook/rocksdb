@@ -531,16 +531,8 @@ class DBImpl : public DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const ExportImportFilesMetaData* metadatas, size_t n,
       ColumnFamilyHandle** handle) override;
-
-  using DB::CreateColumnFamilyWithImports;
-  virtual Status CreateColumnFamilyWithImports(
-      const ColumnFamilyOptions& /*options*/,
-      const std::string& /*column_family_name*/,
-      const ImportColumnFamilyOptions& /*import_options*/,
-      const std::vector<ExportImportFilesMetaData>& /*metadatas*/,
-      ColumnFamilyHandle** /*handle*/) override;
 
   using DB::ClipColumnFamily;
   virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,

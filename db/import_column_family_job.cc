@@ -26,6 +26,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+// All file information of an imported CF, mainly used to
+// calculate whether there is overlap between CFs
+struct ColumnFamilyIngestFileInfo {
+  // Smallest internal key in cf
+  InternalKey smallest_internal_key;
+  // Largest internal key in cf
+  InternalKey largest_internal_key;
+};
+}
+
 Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                                       SuperVersion* sv) {
   Status status;
@@ -35,8 +46,9 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     ColumnFamilyIngestFileInfo cf_file_info;
     InternalKey smallest, largest;
     int num_files = 0;
+    std::vector<IngestedFileInfo> files_to_import_per_cf;
     for (size_t i = 0; i < metadata_per_cf.size(); i++) {
-      auto file_metadata = metadata_per_cf[i];
+      auto file_metadata = *metadata_per_cf[i];
       const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
       IngestedFileInfo file_to_import;
       status = GetIngestedFileInfo(file_path, next_file_number++, sv,
@@ -56,8 +68,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         return status;
       }
 
-      files_to_import_.push_back(file_to_import);
-      metadata_.push_back(file_metadata);
+      files_to_import_per_cf.push_back(file_to_import);
       num_files++;
 
       // Calculate the smallest and largest keys of all files in this CF
@@ -80,9 +91,9 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       status = Status::InvalidArgument("The list of files is empty");
       return status;
     }
+    files_to_import_.push_back(files_to_import_per_cf);
     cf_file_info.smallest_internal_key = smallest;
     cf_file_info.largest_internal_key = largest;
-    cf_file_info.num_files = num_files;
     cf_ingest_infos.push_back(cf_file_info);
   }
 
@@ -105,46 +116,56 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
-  for (auto& f : files_to_import_) {
-    const auto path_outside_db = f.external_file_path;
-    const auto path_inside_db = TableFileName(
-        cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
 
-    if (hardlink_files) {
-      status =
-          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
-      if (status.IsNotSupported()) {
-        // Original file is on a different FS, use copy instead of hard linking
-        hardlink_files = false;
-        ROCKS_LOG_INFO(db_options_.info_log,
-                       "Try to link file %s but it's not supported : %s",
-                       f.internal_file_path.c_str(), status.ToString().c_str());
+  for (auto& files_to_import_per_cf : files_to_import_) {
+    for (auto& f : files_to_import_per_cf) {
+      const auto path_outside_db = f.external_file_path;
+      const auto path_inside_db = TableFileName(
+          cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
+
+      if (hardlink_files) {
+        status = fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(),
+                               nullptr);
+        if (status.IsNotSupported()) {
+          // Original file is on a different FS, use copy instead of hard
+          // linking
+          hardlink_files = false;
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "Try to link file %s but it's not supported : %s",
+                         f.internal_file_path.c_str(),
+                         status.ToString().c_str());
+        }
       }
-    }
-    if (!hardlink_files) {
-      status =
-          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+      if (!hardlink_files) {
+        status =
+            CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                     db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+      }
+      if (!status.ok()) {
+        break;
+      }
+      f.copy_file = !hardlink_files;
+      f.internal_file_path = path_inside_db;
     }
     if (!status.ok()) {
       break;
     }
-    f.copy_file = !hardlink_files;
-    f.internal_file_path = path_inside_db;
   }
 
   if (!status.ok()) {
     // We failed, remove all files that we copied into the db
-    for (const auto& f : files_to_import_) {
-      if (f.internal_file_path.empty()) {
-        break;
-      }
-      const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        if (f.internal_file_path.empty()) {
+          break;
+        }
+        const auto s =
+            fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "AddFile() clean up for file %s failed : %s",
+                         f.internal_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   }
@@ -177,30 +198,35 @@ Status ImportColumnFamilyJob::Run() {
       nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
       EpochNumberRequirement::kMightMissing);
   Status s;
+
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
-    const auto& f = files_to_import_[i];
-    const auto& file_metadata = metadata_[i];
+    for (size_t j = 0; s.ok() && j < files_to_import_[i].size(); ++j) {
+      const auto& f = files_to_import_[i][j];
+      const auto& file_metadata = *metadatas_[i][j];
 
-    uint64_t tail_size = 0;
-    bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
-                                  (f.table_properties.num_entries ==
-                                   f.table_properties.num_range_deletions);
-    if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
-      uint64_t file_size = f.fd.GetFileSize();
-      assert(f.table_properties.tail_start_offset <= file_size);
-      tail_size = file_size - f.table_properties.tail_start_offset;
+      uint64_t tail_size = 0;
+      bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
+                                    (f.table_properties.num_entries ==
+                                     f.table_properties.num_range_deletions);
+      if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
+        uint64_t file_size = f.fd.GetFileSize();
+        assert(f.table_properties.tail_start_offset <= file_size);
+        tail_size = file_size - f.table_properties.tail_start_offset;
+      }
+
+      VersionEdit dummy_version_edit;
+      dummy_version_edit.AddFile(
+          file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+          f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
+          file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
+          file_metadata.temperature, kInvalidBlobFileNumber,
+          oldest_ancester_time, current_time, file_metadata.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
+          tail_size);
+      s = dummy_version_builder.Apply(&dummy_version_edit);
     }
-
-    VersionEdit dummy_version_edit;
-    dummy_version_edit.AddFile(
-        file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-        f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
-        file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
-        file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, f.unique_id, 0, tail_size);
-    s = dummy_version_builder.Apply(&dummy_version_edit);
   }
+
   if (s.ok()) {
     s = dummy_version_builder.SaveTo(&dummy_vstorage);
   }
@@ -241,26 +267,30 @@ Status ImportColumnFamilyJob::Run() {
 void ImportColumnFamilyJob::Cleanup(const Status& status) {
   if (!status.ok()) {
     // We failed to add files to the database remove all the files we copied.
-    for (const auto& f : files_to_import_) {
-      const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        const auto s =
+            fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "AddFile() clean up for file %s failed : %s",
+                         f.internal_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   } else if (status.ok() && import_options_.move_files) {
     // The files were moved and added successfully, remove original file links
-    for (IngestedFileInfo& f : files_to_import_) {
-      const auto s =
-          fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(
-            db_options_.info_log,
-            "%s was added to DB successfully but failed to remove original "
-            "file link : %s",
-            f.external_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        const auto s =
+            fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(
+              db_options_.info_log,
+              "%s was added to DB successfully but failed to remove original "
+              "file link : %s",
+              f.external_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   }
