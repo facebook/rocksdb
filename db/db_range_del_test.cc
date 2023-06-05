@@ -3460,6 +3460,7 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
 
   // Now create a snapshot protected range tombstone [4, 5), it should not
   // be dropped.
+  ASSERT_OK(Put(Key(4), rnd.RandomString(100)));
   const Snapshot* snapshot = db_->GetSnapshot();
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
                              Key(5)));
