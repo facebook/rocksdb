@@ -26,17 +26,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-// All file information of an imported CF, mainly used to
-// calculate whether there is overlap between CFs
-struct ColumnFamilyIngestFileInfo {
-  // Smallest internal key in cf
-  InternalKey smallest_internal_key;
-  // Largest internal key in cf
-  InternalKey largest_internal_key;
-};
-}
-
 Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                                       SuperVersion* sv) {
   Status status;

@@ -25,6 +25,15 @@ class SystemClock;
 // Imports a set of sst files as is into a new column family. Logic is similar
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
+  // All file information of an imported CF, mainly used to
+  // calculate whether there is overlap between CFs
+  struct ColumnFamilyIngestFileInfo {
+    // Smallest internal key in cf
+    InternalKey smallest_internal_key;
+    // Largest internal key in cf
+    InternalKey largest_internal_key;
+  };
+
  public:
   ImportColumnFamilyJob(
       VersionSet* versions, ColumnFamilyData* cfd,
