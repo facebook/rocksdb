@@ -695,7 +695,7 @@ struct AdvancedColumnFamilyOptions {
   // down the LSM.
   //
   // Default: false
-  bool level_compaction_dynamic_level_bytes = false;
+  bool level_compaction_dynamic_level_bytes = true;
 
   // Allows RocksDB to generate files that are not exactly the target_file_size
   // only for the non-bottommost files. Which can reduce the write-amplification
