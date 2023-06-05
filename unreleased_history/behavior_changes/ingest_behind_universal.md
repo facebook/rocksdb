@@ -1,0 +1,1 @@
+When a DB is openend with `allow_ingest_behind=true` (currently only Universal compaction is supported), files in the last level, i.e. the ingested files,  will not be included in any compaction. (#11489)
