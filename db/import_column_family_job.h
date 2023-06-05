@@ -22,17 +22,6 @@ namespace ROCKSDB_NAMESPACE {
 struct EnvOptions;
 class SystemClock;
 
-// All file information of an imported CF, mainly used to
-// calculate whether there is overlap between CFs
-struct ColumnFamilyIngestFileInfo {
-  // Smallest internal key in cf
-  InternalKey smallest_internal_key;
-  // Largest internal key in cf
-  InternalKey largest_internal_key;
-  // Num of ingest files
-  int num_files;
-};
-
 // Imports a set of sst files as is into a new column family. Logic is similar
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
@@ -41,7 +30,7 @@ class ImportColumnFamilyJob {
       VersionSet* versions, ColumnFamilyData* cfd,
       const ImmutableDBOptions& db_options, const EnvOptions& env_options,
       const ImportColumnFamilyOptions& import_options,
-      const std::vector<std::vector<LiveFileMetaData>>& metadatas,
+      const std::vector<std::vector<LiveFileMetaData*>>& metadatas,
       const std::shared_ptr<IOTracer>& io_tracer)
       : clock_(db_options.clock),
         versions_(versions),
@@ -65,7 +54,7 @@ class ImportColumnFamilyJob {
 
   VersionEdit* edit() { return &edit_; }
 
-  const autovector<IngestedFileInfo>& files_to_import() const {
+  const std::vector<std::vector<IngestedFileInfo>>& files_to_import() const {
     return files_to_import_;
   }
 
@@ -83,11 +72,10 @@ class ImportColumnFamilyJob {
   const ImmutableDBOptions& db_options_;
   const FileSystemPtr fs_;
   const EnvOptions& env_options_;
-  autovector<IngestedFileInfo> files_to_import_;
+  std::vector<std::vector<IngestedFileInfo>> files_to_import_;
   VersionEdit edit_;
   const ImportColumnFamilyOptions& import_options_;
-  const std::vector<std::vector<LiveFileMetaData>> metadatas_;
-  std::vector<LiveFileMetaData> metadata_;
+  const std::vector<std::vector<LiveFileMetaData*>> metadatas_;
   const std::shared_ptr<IOTracer> io_tracer_;
 };
 

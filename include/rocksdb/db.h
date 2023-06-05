@@ -1772,13 +1772,23 @@ class DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
-      ColumnFamilyHandle** handle) = 0;
+      const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
+    return CreateColumnFamilyWithImport(options, column_family_name,
+                                        import_options, &metadata, 1, handle);
+  }
 
-  virtual Status CreateColumnFamilyWithImports(
+  // EXPERIMENTAL
+  // Overload of the CreateColumnFamilyWithImport() that allows the caller to
+  // pass in a
+  // array of ExportImportFilesMetaData and size to support creating
+  // ColumnFamily by
+  // importing multiple ColumnFamies.
+  // It should be noticed that if the keys of the imported column families
+  // overlap with each other, an error will be returned.
+  virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const std::vector<ExportImportFilesMetaData>& metadatas,
+      const ExportImportFilesMetaData* metadatas, size_t n,
       ColumnFamilyHandle** handle) = 0;
 
   // EXPERIMENTAL
@@ -1794,7 +1804,7 @@ class DB {
   // more heavyweight than the latter.
   // This feature is mainly used to ensure that there is no overlapping Key when
   // calling
-  // CreateColumnFamilyWithImports() to import multiple CFs.
+  // CreateColumnFamilyWithImport() to import multiple CFs.
   // Note that: concurrent updates cannot be performed during Clip.
 
   virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,

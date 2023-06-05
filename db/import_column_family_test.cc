@@ -762,9 +762,6 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyTest) {
   ASSERT_OK(
       db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
 
-  ASSERT_OK(
-      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
-
   // Overwrite the value in the same set of keys.
   for (int i = 0; i < 100; ++i) {
     ASSERT_OK(Put(1, Key(i), Key(i) + "_overwrite"));
@@ -794,8 +791,6 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyTest) {
     ASSERT_OK(db_copy->Put(wo, copy_cfh, Key(i), Key(i) + "_overwrite"));
   }
   ASSERT_OK(db_copy->Flush(FlushOptions()));
-
-  ASSERT_OK(db_copy->Flush(FlushOptions()));
   for (int i = 100; i < 200; ++i) {
     ASSERT_OK(db_copy->Put(wo, copy_cfh, Key(i), Key(i) + "_overwrite2"));
   }
@@ -815,8 +810,9 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyTest) {
 
   std::vector<ExportImportFilesMetaData> metadatas = {*metadata_ptr_,
                                                       *metadata_ptr2_};
-  ASSERT_OK(db_->CreateColumnFamilyWithImports(options, "toto", import_options,
-                                               metadatas, &import_cfh_));
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
+                                              metadatas.data(),
+                                              metadatas.size(), &import_cfh_));
 
   std::string value1, value2;
   for (int i = 0; i < 100; ++i) {
@@ -877,8 +873,9 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyWithOverlap) {
   std::vector<ExportImportFilesMetaData> metadatas = {*metadata_ptr_,
                                                       *metadata_ptr2_};
 
-  ASSERT_EQ(db_->CreateColumnFamilyWithImports(options, "toto", import_options,
-                                               metadatas, &import_cfh_),
+  ASSERT_EQ(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
+                                              metadatas.data(),
+                                              metadatas.size(), &import_cfh_),
             Status::InvalidArgument("CFs have overlapping ranges"));
 
   ASSERT_OK(db_copy->DropColumnFamily(copy_cfh));

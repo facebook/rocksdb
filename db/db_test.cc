@@ -3097,17 +3097,7 @@ class ModelDB : public DB {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
-      ColumnFamilyHandle** /*handle*/) override {
-    return Status::NotSupported("Not implemented.");
-  }
-
-  using DB::CreateColumnFamilyWithImports;
-  virtual Status CreateColumnFamilyWithImports(
-      const ColumnFamilyOptions& /*options*/,
-      const std::string& /*column_family_name*/,
-      const ImportColumnFamilyOptions& /*import_options*/,
-      const std::vector<ExportImportFilesMetaData>& /*metadatas*/,
+      const ExportImportFilesMetaData* /*metadatas*/, size_t /*n*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not implemented.");
   }
