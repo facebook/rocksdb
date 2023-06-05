@@ -16,6 +16,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -102,9 +103,8 @@ class UserDefinedTimestampSizeRecord {
 // but not equal, return Status::InvalidArgument.
 class TimestampRecoveryHandler : public WriteBatch::Handler {
  public:
-  TimestampRecoveryHandler(
-      const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-      const std::unordered_map<uint32_t, size_t>& record_ts_sz);
+  TimestampRecoveryHandler(const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+                           const UnorderedMap<uint32_t, size_t>& record_ts_sz);
 
   ~TimestampRecoveryHandler() override {}
 
@@ -155,11 +155,11 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
 
   // Mapping from column family id to user-defined timestamp size for all
   // running column families including the ones with zero timestamp size.
-  const std::unordered_map<uint32_t, size_t>& running_ts_sz_;
+  const UnorderedMap<uint32_t, size_t>& running_ts_sz_;
 
   // Mapping from column family id to user-defined timestamp size as recorded
   // in the WAL. This only contains non-zero user-defined timestamp size.
-  const std::unordered_map<uint32_t, size_t>& record_ts_sz_;
+  const UnorderedMap<uint32_t, size_t>& record_ts_sz_;
 
   std::unique_ptr<WriteBatch> new_batch_;
   // Handler is valid upon creation and becomes invalid after its `new_batch_`
@@ -211,8 +211,8 @@ enum class TimestampSizeConsistencyMode {
 // families including the ones with zero timestamp size.
 Status HandleWriteBatchTimestampSizeDifference(
     const WriteBatch* batch,
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
     std::unique_ptr<WriteBatch>* new_batch = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
