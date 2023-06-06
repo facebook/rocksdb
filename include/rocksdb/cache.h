@@ -376,7 +376,6 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // * Requires an extra tuning parameter: see estimated_entry_charge below.
 // Similarly, substantially changing the capacity with SetCapacity could
 // harm efficiency.
-// * SecondaryCache is not yet supported.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
 // * Can be worse for small caches, because if almost all of a cache shard is
