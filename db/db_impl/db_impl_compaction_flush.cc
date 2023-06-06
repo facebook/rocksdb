@@ -4106,12 +4106,16 @@ Status DBImpl::WaitForCompact(
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || unscheduled_compactions_ ||
-         unscheduled_flushes_) &&
+         unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
     } else if (wait_for_compact_options.close_db) {
+      Status s = DBImpl::PrepareShutdown();
+      if (!s.ok()) {
+        return s;
+      }
       mutex_.Unlock();
-      Status s = Close();
+      s = Close();
       mutex_.Lock();
       return s;
     } else {

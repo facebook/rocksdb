@@ -1213,6 +1213,7 @@ TEST_F(DBBasicTest, DBClose) {
   wait_for_compact_options.close_db = true;
   s = db->WaitForCompact(wait_for_compact_options);
   ASSERT_EQ(env->GetCloseCount(), 3);
+  // see TestLogger::CloseHelper()
   ASSERT_EQ(s, Status::IOError());
 
   delete db;

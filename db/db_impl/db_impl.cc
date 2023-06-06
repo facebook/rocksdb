@@ -494,40 +494,14 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
-
-  for (uint8_t task_type = 0;
-       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
-    Status s = periodic_task_scheduler_.Unregister(
-        static_cast<PeriodicTaskType>(task_type));
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Failed to unregister periodic task %d, status: %s",
-                     task_type, s.ToString().c_str());
-    }
-  }
-
+  CancelPeriodicTaskSchedulers();
   InstrumentedMutexLock l(&mutex_);
-  if (!shutting_down_.load(std::memory_order_acquire) &&
-      has_unpersisted_data_.load(std::memory_order_relaxed) &&
-      !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      Status s = AtomicFlushMemTables(FlushOptions(), FlushReason::kShutDown);
-      s.PermitUncheckedError();  //**TODO: What to do on error?
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          InstrumentedMutexUnlock u(&mutex_);
-          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-          s.PermitUncheckedError();  //**TODO: What to do on error?
-        }
-      }
-    }
+  Status s = PrepareShutdown();
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Failed to prepare shutdown, status: %s",
+                   s.ToString().c_str());
   }
-
-  shutting_down_.store(true, std::memory_order_release);
-  bg_cv_.SignalAll();
   if (!wait) {
     return;
   }
@@ -544,6 +518,37 @@ Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
     return Status::Aborted("Cannot close DB with unreleased snapshot.");
   }
 
+  return Status::OK();
+}
+
+void DBImpl::CancelPeriodicTaskSchedulers() {
+  for (uint8_t task_type = 0;
+       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    Status s = periodic_task_scheduler_.Unregister(
+        static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
+  }
+}
+
+Status DBImpl::PrepareShutdown() {
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return Status::ShutdownInProgress();
+  }
+  if (has_unpersisted_data_.load(std::memory_order_relaxed) &&
+      !mutable_db_options_.avoid_flush_during_shutdown) {
+    Status s =
+        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  shutting_down_.store(true, std::memory_order_release);
+  bg_cv_.SignalAll();
   return Status::OK();
 }
 

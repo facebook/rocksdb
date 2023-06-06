@@ -3336,14 +3336,8 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
                         DBCompactionWaitForCompactTest,
-                        ::testing::Values(std::make_tuple(false, false, false),
-                                          std::make_tuple(false, true, false),
-                                          std::make_tuple(true, false, false),
-                                          std::make_tuple(true, true, false),
-                                          std::make_tuple(false, false, true),
-                                          std::make_tuple(false, true, true),
-                                          std::make_tuple(true, false, true),
-                                          std::make_tuple(true, true, true)));
+                        ::testing::Combine(testing::Bool(), testing::Bool(),
+                                           testing::Bool()));
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {

@@ -850,11 +850,17 @@ class DBImpl : public DB {
     return immutable_db_options_;
   }
 
+  // Prepare shutdown by flushing all CFs (in case of unpersisted_data) and
+  // setting the shutting_down_ = true
+  Status PrepareShutdown();
+
   // Cancel all background jobs, including flush, compaction, background
   // purging, stats dumping threads, etc. If `wait` = true, wait for the
   // running jobs to abort or finish before returning. Otherwise, only
   // sends the signals.
   void CancelAllBackgroundWork(bool wait);
+
+  void CancelPeriodicTaskSchedulers();
 
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
