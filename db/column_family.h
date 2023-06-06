@@ -705,12 +705,12 @@ class ColumnFamilySet {
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options);
 
-  const std::unordered_map<uint32_t, size_t>&
-  GetRunningColumnFamiliesTimestampSize() const {
+  const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
+      const {
     return running_ts_sz_;
   }
 
-  const std::unordered_map<uint32_t, size_t>&
+  const UnorderedMap<uint32_t, size_t>&
   GetColumnFamiliesTimestampSizeForRecord() const {
     return ts_sz_for_record_;
   }
@@ -744,10 +744,10 @@ class ColumnFamilySet {
   // the same requirements as `column_families_` and `column_family_data_`.
   // Mapping from column family id to user-defined timestamp size for all
   // running column families.
-  std::unordered_map<uint32_t, size_t> running_ts_sz_;
+  UnorderedMap<uint32_t, size_t> running_ts_sz_;
   // Mapping from column family id to user-defined timestamp size for
   // column families with non-zero user-defined timestamp size.
-  std::unordered_map<uint32_t, size_t> ts_sz_for_record_;
+  UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
   uint32_t max_column_family_;
   const FileOptions file_options_;

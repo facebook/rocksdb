@@ -688,7 +688,7 @@ class IterKey {
   const char* key_;
   size_t key_size_;
   size_t buf_size_;
-  char space_[32];  // Avoid allocation for short keys
+  char space_[39];  // Avoid allocation for short keys
   bool is_user_key_;
 
   Slice SetKeyImpl(const Slice& key, bool copy) {

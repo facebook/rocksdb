@@ -44,8 +44,8 @@ RecoveryType GetRecoveryType(const size_t running_ts_sz,
 }
 
 bool AllRunningColumnFamiliesConsistent(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz) {
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz) {
   for (const auto& [cf_id, ts_sz] : running_ts_sz) {
     auto record_it = record_ts_sz.find(cf_id);
     RecoveryType recovery_type =
@@ -61,8 +61,8 @@ bool AllRunningColumnFamiliesConsistent(
 
 Status CheckWriteBatchTimestampSizeConsistency(
     const WriteBatch* batch,
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode, bool* ts_need_recovery) {
   std::vector<uint32_t> column_family_ids;
   Status status =
@@ -103,8 +103,8 @@ Status CheckWriteBatchTimestampSizeConsistency(
 }  // namespace
 
 TimestampRecoveryHandler::TimestampRecoveryHandler(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz)
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz)
     : running_ts_sz_(running_ts_sz),
       record_ts_sz_(record_ts_sz),
       new_batch_(new WriteBatch()),
@@ -234,8 +234,8 @@ Status TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
 
 Status HandleWriteBatchTimestampSizeDifference(
     const WriteBatch* batch,
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
     std::unique_ptr<WriteBatch>* new_batch) {
   // Quick path to bypass checking the WriteBatch.
