@@ -496,16 +496,14 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
                  "Shutdown: canceling all background work");
   CancelPeriodicTaskSchedulers();
   InstrumentedMutexLock l(&mutex_);
-  Status s = PrepareShutdown();
+  Status s = PrepareShutdown(wait);
   if (!s.ok()) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "Failed to prepare shutdown, status: %s",
-                   s.ToString().c_str());
+    if (!s.IsShutdownInProgress()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to prepare shutdown, status: %s",
+                     s.ToString().c_str());
+    }
   }
-  if (!wait) {
-    return;
-  }
-  WaitForBackgroundWork();
 }
 
 Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
@@ -534,22 +532,22 @@ void DBImpl::CancelPeriodicTaskSchedulers() {
   }
 }
 
-Status DBImpl::PrepareShutdown() {
+Status DBImpl::PrepareShutdown(bool wait) {
   mutex_.AssertHeld();
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
+  Status s = Status::OK();
   if (has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    Status s =
-        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
-    if (!s.ok()) {
-      return s;
-    }
+    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
   }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
-  return Status::OK();
+  if (wait) {
+    WaitForBackgroundWork();
+  }
+  return s;
 }
 
 Status DBImpl::CloseHelper() {

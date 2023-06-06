@@ -4110,7 +4110,7 @@ Status DBImpl::WaitForCompact(
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
     } else if (wait_for_compact_options.close_db) {
-      Status s = DBImpl::PrepareShutdown();
+      Status s = DBImpl::PrepareShutdown(true /* wait */);
       if (!s.ok()) {
         return s;
       }

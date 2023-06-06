@@ -851,8 +851,9 @@ class DBImpl : public DB {
   }
 
   // Prepare shutdown by flushing all CFs (in case of unpersisted_data) and
-  // setting the shutting_down_ = true
-  Status PrepareShutdown();
+  // setting the shutting_down_ = true. If `wait` == true, wait for background
+  // jobs to finish.
+  Status PrepareShutdown(bool wait);
 
   // Cancel all background jobs, including flush, compaction, background
   // purging, stats dumping threads, etc. If `wait` = true, wait for the
