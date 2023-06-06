@@ -542,8 +542,8 @@ Status DBImpl::PrepareShutdown(bool wait) {
       !mutable_db_options_.avoid_flush_during_shutdown) {
     s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
   }
-  shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
+  shutting_down_.store(true, std::memory_order_release);
   if (wait) {
     WaitForBackgroundWork();
   }

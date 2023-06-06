@@ -3524,7 +3524,7 @@ TEST_P(DBCompactionWaitForCompactTest,
 
   int compaction_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:AfterCompaction",
+      "DBImpl::BackgroundCompaction:Finish",
       [&](void*) { compaction_finished++; });
 
   int flush_finished = 0;
@@ -3547,21 +3547,37 @@ TEST_P(DBCompactionWaitForCompactTest,
 
   int expected_flush_count = flush_ || close_db_;
   ASSERT_EQ(expected_flush_count, flush_finished);
-  ASSERT_EQ(expected_flush_count, compaction_finished);
 
   if (!close_db_) {
+    // During PrepareShutdown(), a flush can be initiated due to unpersisted
+    // data (data that's still in the memtable when WAL is off). This results in
+    // an additional L0 file which can trigger a compaction. However, the
+    // compaction may not complete if the background thread's execution is slow
+    // enough for the front thread to set the 'shutting_down_' flag to true
+    // before the compaction job even starts.
+    ASSERT_EQ(expected_flush_count, compaction_finished);
     Close();
   }
-  compaction_finished = 0;
-  flush_finished = 0;
 
   // Because we had has_unpersisted_data_ = true, flush must have been triggered
-  // upon closing regardless of WaitForCompact. Reopen should have no
-  // flush/compaction debt
+  // upon closing regardless of WaitForCompact. Reopen should have no flush
+  // debt.
+  flush_finished = 0;
   Reopen(options_);
   ASSERT_EQ(0, flush_finished);
-  ASSERT_EQ(0, compaction_finished);
-  ASSERT_EQ("1,2", FilesPerLevel());
+
+  // However, if db was closed directly by calling Close(), instead
+  // of WaitForCompact with close_db option or we are in the scenario commented
+  // above, it's possible that the last compaction triggered by flushing
+  // unpersisted data was cancelled. Call WaitForCompact() here again to finish
+  // the compaction
+  if (compaction_finished == 0) {
+    ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+  }
+  ASSERT_EQ(1, compaction_finished);
+  if (!close_db_) {
+    ASSERT_EQ("1,2", FilesPerLevel());
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
