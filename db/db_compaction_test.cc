@@ -9753,6 +9753,59 @@ TEST_F(DBCompactionTest,
   ASSERT_EQ(0, NumTableFilesAtLevel(5));
 }
 
+TEST_F(DBCompactionTest, NumberOfSubcompactions) {
+  // Tests that expected number of subcompactions are created.
+  class SubCompactionEventListener : public EventListener {
+   public:
+    void OnSubcompactionCompleted(const SubcompactionJobInfo&) override {
+      sub_compaction_finished_++;
+    }
+    void OnCompactionCompleted(DB*, const CompactionJobInfo&) override {
+      compaction_finished_++;
+    }
+    std::atomic<int> sub_compaction_finished_{0};
+    std::atomic<int> compaction_finished_{0};
+  };
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.compression = kNoCompression;
+  const int kFileSize = 100 << 10;  // 100KB
+  options.target_file_size_base = kFileSize;
+  const int kLevel0CompactTrigger = 2;
+  options.level0_file_num_compaction_trigger = kLevel0CompactTrigger;
+  Destroy(options);
+  Random rnd(301);
+
+  // Exposing internal implementation detail here where the
+  // number of subcompactions depends on the size of data
+  // being compacted. In particular, to enable x subcompactions,
+  // we need to compact at least x * target file size amount
+  // of data.
+  //
+  // Will write two files below to avoid trivial move.
+  // Size written in total: 500 * 1000 * 2 ~ 10MB ~ 100 * target file size.
+  const int kValueSize = 500;
+  const int kNumKeyPerFile = 1000;
+  for (int i = 1; i <= 8; ++i) {
+    options.max_subcompactions = i;
+    SubCompactionEventListener* listener = new SubCompactionEventListener();
+    options.listeners.clear();
+    options.listeners.emplace_back(listener);
+    TryReopen(options);
+
+    for (int file = 0; file < kLevel0CompactTrigger; ++file) {
+      for (int key = file; key < 2 * kNumKeyPerFile; key += 2) {
+        ASSERT_OK(Put(Key(key), rnd.RandomString(kValueSize)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(listener->compaction_finished_, 1);
+    EXPECT_EQ(listener->sub_compaction_finished_, i);
+    Destroy(options);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
