@@ -234,6 +234,8 @@ class FilePrefetchBuffer {
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
+  size_t GetPrefetchOffset() const { return bufs_[curr_].offset_; }
+
   // Called in case of implicit auto prefetching.
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool decrease_readaheadsize) {

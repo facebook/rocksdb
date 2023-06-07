@@ -394,7 +394,7 @@ class Repairer {
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
     // Read all the records and add to a memtable
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz =
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz =
         vset_.GetRunningColumnFamiliesTimestampSize();
     std::string scratch;
     Slice record;
@@ -409,7 +409,7 @@ class Repairer {
       }
       Status record_status = WriteBatchInternal::SetContents(&batch, record);
       if (record_status.ok()) {
-        const std::unordered_map<uint32_t, size_t>& record_ts_sz =
+        const UnorderedMap<uint32_t, size_t>& record_ts_sz =
             reader.GetRecordedTimestampSize();
         record_status = HandleWriteBatchTimestampSizeDifference(
             &batch, running_ts_sz, record_ts_sz,

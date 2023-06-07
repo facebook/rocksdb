@@ -562,6 +562,49 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   return false;
 }
 
+bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
+    const Slice& begin_key, const Slice& end_key,
+    std::vector<size_t>* level_ptrs) const {
+  assert(input_version_ != nullptr);
+  assert(level_ptrs != nullptr);
+  assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
+  assert(cfd_->user_comparator()->CompareWithoutTimestamp(begin_key, end_key) <
+         0);
+  if (bottommost_level_) {
+    return true /* does not overlap */;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    const Comparator* user_cmp = cfd_->user_comparator();
+    for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
+      const std::vector<FileMetaData*>& files =
+          input_vstorage_->LevelFiles(lvl);
+      for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
+        auto* f = files[level_ptrs->at(lvl)];
+        // Advance until the first file with begin_key <= f->largest.user_key()
+        if (user_cmp->CompareWithoutTimestamp(begin_key,
+                                              f->largest.user_key()) > 0) {
+          continue;
+        }
+        // We know that the previous file prev_f, if exists, has
+        // prev_f->largest.user_key() < begin_key.
+        if (user_cmp->CompareWithoutTimestamp(end_key,
+                                              f->smallest.user_key()) <= 0) {
+          // not overlapping with this level
+          break;
+        } else {
+          // We have:
+          // - begin_key < end_key,
+          // - begin_key <= f->largest.user_key(), and
+          // - end_key > f->smallest.user_key()
+          return false /* overlap */;
+        }
+      }
+    }
+    return true /* does not overlap */;
+  }
+  return false /* overlaps */;
+};
+
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {

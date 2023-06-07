@@ -598,10 +598,12 @@ Status CompactionOutputs::AddRangeDels(
     // in any snapshot. trim_ts_ is passed to the constructor for
     // range_del_agg_, and range_del_agg_ internally drops tombstones above
     // trim_ts_.
-    if (bottommost_level && tombstone.seq_ <= earliest_snapshot &&
+    bool consider_drop =
+        tombstone.seq_ <= earliest_snapshot &&
         (ts_sz == 0 ||
          (!full_history_ts_low.empty() &&
-          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0))) {
+          ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0));
+    if (consider_drop && bottommost_level) {
       // TODO(andrewkr): tombstones that span multiple output files are
       // counted for each compaction output file, so lots of double
       // counting.
@@ -634,6 +636,20 @@ Status CompactionOutputs::AddRangeDels(
     if (upper_bound != nullptr &&
         icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {
       break;
+    }
+    if (lower_bound &&
+        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
+      tombstone_start.DecodeFrom(*lower_bound);
+    }
+    if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
+      tombstone_end.DecodeFrom(*upper_bound);
+    }
+    if (consider_drop && compaction_->KeyRangeNotExistsBeyondOutputLevel(
+                             tombstone_start.user_key(),
+                             tombstone_end.user_key(), &level_ptrs_)) {
+      range_del_out_stats.num_range_del_drop_obsolete++;
+      range_del_out_stats.num_record_drop_obsolete++;
+      continue;
     }
     // Here we show that *only* range tombstones that overlap with
     // [lower_bound, upper_bound] are added to the current file, and
@@ -688,13 +704,6 @@ Status CompactionOutputs::AddRangeDels(
 
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    if (lower_bound &&
-        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
-      tombstone_start.DecodeFrom(*lower_bound);
-    }
-    if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
-      tombstone_end.DecodeFrom(*upper_bound);
-    }
     assert(icmp.Compare(tombstone_start, tombstone_end) <= 0);
     meta.UpdateBoundariesForRange(tombstone_start, tombstone_end,
                                   tombstone.seq_, icmp);
@@ -779,6 +788,8 @@ CompactionOutputs::CompactionOutputs(const Compaction* compaction,
   if (compaction->output_level() != 0) {
     FillFilesToCutForTtl();
   }
+
+  level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
