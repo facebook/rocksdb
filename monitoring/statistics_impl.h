@@ -131,12 +131,6 @@ inline void RecordTick(Statistics* statistics, uint32_t ticker_type,
                        uint64_t count = 1) {
   if (statistics) {
     statistics->recordTick(ticker_type, count);
-    if (ticker_type == ERROR_HANDLER_BG_ERROR_COUNT ||
-        ticker_type == ERROR_HANDLER_BG_IO_ERROR_COUNT ||
-        ticker_type == ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT) {
-      // Keep misspelled ticker version in sync
-      statistics->recordTick(ticker_type + 1, count);
-    }
   }
 }
 
