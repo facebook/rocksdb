@@ -369,6 +369,7 @@ cf_consistency_params = {
     "ingest_external_file_one_in": 0,
 }
 
+# For pessimistic transaction db
 txn_params = {
     "use_txn": 1,
     "use_optimistic_txn": 0,
@@ -387,12 +388,15 @@ txn_params = {
     "use_put_entity_one_in": 0,
 }
 
+# For optimistic transaction db
 optimistic_txn_params = {
     "use_txn": 1,
     "use_optimistic_txn": 1,
-    "validate_serial": random.randint(0, 1),
+    "occ_validation_policy": random.randint(0, 1),
     "share_occ_lock_buckets": random.randint(0, 1),
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in": 0,
 }
 
 best_efforts_recovery_params = {

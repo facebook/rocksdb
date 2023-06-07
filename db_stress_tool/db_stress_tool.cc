@@ -274,6 +274,10 @@ int db_stress_tool(int argc, char** argv) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
 
+  if (!FLAGS_use_txn && FLAGS_use_optimistic_txn) {
+    FLAGS_use_txn = true;
+  }
+
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
     if (!FLAGS_use_txn) {
       fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
@@ -291,8 +295,8 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
-      FLAGS_txn_write_policy != 0) {
+  if (FLAGS_use_txn && !FLAGS_use_optimistic_txn &&
+      FLAGS_sync_fault_injection && FLAGS_txn_write_policy != 0) {
     fprintf(stderr,
             "For TransactionDB, correctness testing with unsync data loss is "
             "currently compatible with only write committed policy\n");

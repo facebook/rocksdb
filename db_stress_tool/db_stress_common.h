@@ -253,14 +253,18 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 
-// Options for TransactionDB
+// Options for transaction dbs.
+// Use TransactionDB (a.k.a. Pessimistic Transaction DB)
+// OR OptimisticTransactionDB
 DECLARE_bool(use_txn);
+
+// Options for TransactionDB (a.k.a. Pessimistic Transaction DB)
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);
 
 // Options for OptimisticTransactionDB
 DECLARE_bool(use_optimistic_txn);
-DECLARE_bool(validate_serial);
+DECLARE_uint64(occ_validation_policy);
 DECLARE_bool(share_occ_lock_buckets);
 DECLARE_uint32(occ_lock_bucket_count);
 

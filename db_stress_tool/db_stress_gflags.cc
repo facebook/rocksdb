@@ -669,18 +669,19 @@ DEFINE_uint64(sst_file_manager_bytes_per_truncate, 0,
               "many bytes. By default whole files will be deleted.");
 
 DEFINE_bool(use_txn, false,
-            "Use TransactionDB. Currently the default write policy is "
-            "TxnDBWritePolicy::WRITE_PREPARED");
+            "Use TransactionDB or OptimisticTransactionDB. When "
+            "use_optimistic_txn == false (by default), "
+            "it's (Pessimistic) TransactionDB");
 
 DEFINE_uint64(txn_write_policy, 0,
               "The transaction write policy. Default is "
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
-              "changed accross crashes.");
+              "changed across crashes.");
 
 DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
-DEFINE_bool(validate_serial, false,
-            "Validation Policy - whether to validate in serial vs. parallel "
-            "for OptimisticTransactionDB");
+DEFINE_uint64(occ_validation_policy, 1,
+              "Optimistic Concurrency Control Validation Policy for "
+              "OptimisticTransactionDB");
 DEFINE_bool(share_occ_lock_buckets, false,
             "Share a pool of locks across DB instances for buckets");
 DEFINE_uint32(
