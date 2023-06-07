@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 8.3.1 (06/07/2023)
+### Performance Improvements
+* Fixed higher read QPS during DB::Open() reading files created prior to #11406, especially when reading many small file (size < 52 MB) during DB::Open() and partitioned filter or index is used.
+
 ## 8.3.0 (05/19/2023)
 ### New Features
 * Introduced a new option `block_protection_bytes_per_key`, which can be used to enable per key-value integrity protection for in-memory blocks in block cache (#11287).
