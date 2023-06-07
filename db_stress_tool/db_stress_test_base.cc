@@ -2868,10 +2868,12 @@ void StressTest::Reopen(ThreadState* thread) {
     }
     assert(s.ok());
   }
-  assert(txn_db_ == nullptr || db_ == txn_db_);
+  assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
+         (db_ == txn_db_ || db_ == optimistic_txn_db_));
   delete db_;
   db_ = nullptr;
   txn_db_ = nullptr;
+  optimistic_txn_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
