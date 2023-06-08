@@ -68,6 +68,7 @@ struct MemTablePostProcessInfo {
   uint64_t data_size = 0;
   uint64_t num_entries = 0;
   uint64_t num_deletes = 0;
+  uint64_t num_range_deletes = 0;
 };
 
 using MultiGetRange = MultiGetContext::Range;
@@ -331,6 +332,16 @@ class MemTable {
     if (update_counters.num_deletes != 0) {
       num_deletes_.fetch_add(update_counters.num_deletes,
                              std::memory_order_relaxed);
+    }
+    if (update_counters.num_range_deletes > 0) {
+      uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) +
+                     update_counters.num_range_deletes;
+      num_range_deletes_.store(val, std::memory_order_relaxed);
+      if (memtable_max_range_deletions_ > 0 &&
+          memtable_max_range_deletions_reached_ == false &&
+          val >= (uint64_t)memtable_max_range_deletions_) {
+        memtable_max_range_deletions_reached_ = true;
+      }
     }
     UpdateFlushState();
   }
