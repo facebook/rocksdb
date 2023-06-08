@@ -3547,6 +3547,7 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   BlockBasedTableOptions table_options;
   CacheEntryRoleOptions::Decision charge_file_metadata = GetParam();
   table_options.cache_usage_options.options_overrides.insert(
