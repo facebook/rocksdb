@@ -70,6 +70,11 @@ class CompactionPickerTestBase : public testing::Test {
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     ioptions_.cf_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
+    // When the default value of this option is true, universal compaction
+    // tests can encounter assertion failure since SanitizeOption() is
+    // not run to set this option to false. So we do the sanitization
+    // here. Tests that test this option set this option to true explicitly.
+    ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
   ~CompactionPickerTestBase() override {}
