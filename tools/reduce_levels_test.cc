@@ -81,6 +81,7 @@ class ReduceLevelTest : public testing::Test {
 
 Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels) {
   ROCKSDB_NAMESPACE::Options opt;
+  opt.level_compaction_dynamic_level_bytes = false;
   opt.num_levels = num_levels;
   opt.create_if_missing = create_if_missing;
   ROCKSDB_NAMESPACE::Status st =
