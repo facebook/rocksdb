@@ -765,15 +765,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
         type == kTypeDeletionWithTimestamp) {
       num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
                          std::memory_order_relaxed);
-    } else if (type == kTypeRangeDeletion) {
-      uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) + 1;
-      num_range_deletes_.store(val, std::memory_order_relaxed);
-      // Arrange for a flush if too many delete ranges have been issued.
-      if (memtable_max_range_deletions_ > 0 &&
-          memtable_max_range_deletions_reached_ == false &&
-          val > (uint64_t)memtable_max_range_deletions_) {
-        memtable_max_range_deletions_reached_ = true;
-      }
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
@@ -858,6 +849,16 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
               new_local_cache_ref, new_cache.get()),
           std::memory_order_relaxed);
     }
+
+    uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) + 1;
+    num_range_deletes_.store(val, std::memory_order_relaxed);
+    // Arrange for a flush if too many delete ranges have been issued.
+    if (memtable_max_range_deletions_ > 0 &&
+        memtable_max_range_deletions_reached_ == false &&
+        val > (uint64_t)memtable_max_range_deletions_) {
+      memtable_max_range_deletions_reached_ = true;
+    }
+
     if (allow_concurrent) {
       range_del_mutex_.unlock();
     }
