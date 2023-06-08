@@ -275,7 +275,11 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   if (!FLAGS_use_txn && FLAGS_use_optimistic_txn) {
-    FLAGS_use_txn = true;
+    fprintf(
+        stderr,
+        "You cannot set use_optimistic_txn true while use_txn is false. Please "
+        "set use_txn true if you want to use OptimisticTransactionDB\n");
+    exit(1);
   }
 
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
