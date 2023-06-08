@@ -332,7 +332,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
   // RocksDB will try to flush the current memtable after the number of range
-  // deletions in the memtable hits this limit. For workloads with many range
+  // deletions is >= this limit. For workloads with many range
   // deletions, limiting the number of range deletions in memtable can help
   // prevent performance degradation and/or OOM caused by too many range
   // tombstones in a single memtable.
