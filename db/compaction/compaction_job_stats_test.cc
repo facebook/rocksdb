@@ -616,6 +616,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   // via AddExpectedStats().
   auto* stats_checker = new CompactionJobStatsChecker();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   // just enough setting to hold off auto-compaction.
@@ -815,6 +816,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   // what we expect.
   auto* stats_checker = new CompactionJobDeletionStatsChecker();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = kTestScale + 1;
