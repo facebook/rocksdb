@@ -569,6 +569,8 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  options.level_compaction_dynamic_level_bytes =
+      options_override.level_compaction_dynamic_level_bytes;
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
