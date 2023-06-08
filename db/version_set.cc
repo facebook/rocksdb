@@ -4703,7 +4703,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
           assert(base_level_ == 1);
           base_level_size = base_bytes_max;
         } else {
-          base_level_size = cur_level_size;
+          base_level_size = std::max(static_cast<uint64_t>(1), cur_level_size);
         }
       }
 
