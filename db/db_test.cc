@@ -5272,6 +5272,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   const uint64_t k1MB = 1 << 20;
   const uint64_t k4KB = 1 << 12;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
