@@ -887,6 +887,9 @@ Status FlushJob::WriteLevel0Table() {
       total_num_range_deletes += m->num_range_deletes();
     }
 
+    // TODO(cbi): when memtable is flushed due to number of range deletions
+    //  hitting limit memtable_max_range_deletions, flush_reason_ is still
+    //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"
                          << "num_memtables" << mems_.size() << "num_entries"
