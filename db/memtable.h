@@ -349,6 +349,13 @@ class MemTable {
     return num_deletes_.load(std::memory_order_relaxed);
   }
 
+  // Get total number of range deletions in the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  uint64_t num_range_deletes() const {
+    return num_range_deletes_.load(std::memory_order_relaxed);
+  }
+
   uint64_t get_data_size() const {
     return data_size_.load(std::memory_order_relaxed);
   }
