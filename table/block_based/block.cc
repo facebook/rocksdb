@@ -1062,10 +1062,8 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
 
         uint16_t map_offset;
         data_block_hash_index_.Initialize(
-            contents.data.data(),
-            static_cast<uint16_t>(contents.data.size() -
-                                  sizeof(uint32_t)), /*chop off
-                                                 NUM_RESTARTS*/
+            data_, static_cast<uint16_t>(size_ - sizeof(uint32_t)), /*chop off
+                                                                NUM_RESTARTS*/
             &map_offset);
 
         restart_offset_ = map_offset - num_restarts_ * sizeof(uint32_t);
