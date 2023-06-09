@@ -3912,7 +3912,8 @@ jbyte Java_org_rocksdb_Options_prepopulateBlobCache(JNIEnv*, jobject,
 void Java_org_rocksdb_Options_setMemtableMaxRangeDeletions(
     JNIEnv*, jobject, jlong jhandle, jint jmemtable_max_range_deletions) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opts->memtable_max_range_deletions = jmemtable_max_range_deletions;
+  opts->memtable_max_range_deletions =
+      static_cast<int32_t>(jmemtable_max_range_deletions);
 }
 
 /*
