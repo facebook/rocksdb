@@ -600,11 +600,11 @@ struct AdvancedColumnFamilyOptions {
   // 1. target size is in the range of
   //   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
   //    max_bytes_for_level_base]
-  // 2. target size of the last level (level num_levels-1) equals to extra size
-  //    of the level.
-  // At the same time max_bytes_for_level_multiplier and
-  // max_bytes_for_level_multiplier_additional are still satisfied.
-  // (When L0 is too large, we make some adjustment. See below.)
+  // 2. target size of the last level (level num_levels-1) equals to the max
+  //    size of a level in the LSM (typically the last level).
+  // At the same time max_bytes_for_level_multiplier is still satisfied.
+  // Note that max_bytes_for_level_multiplier_additional is ignored with this
+  // flag on.
   //
   // With this option on, from an empty DB, we make last level the base level,
   // which means merging L0 data into the last level, until it exceeds
@@ -642,59 +642,31 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
-  //
-  //
-  // If the compaction from L0 is lagged behind, a special mode will be turned
-  // on to prioritize write amplification against max_bytes_for_level_multiplier
-  // or max_bytes_for_level_base. The L0 compaction is lagged behind by looking
-  // at number of L0 files and total L0 size. If number of L0 files is at least
-  // the double of level0_file_num_compaction_trigger, or the total size is
-  // at least max_bytes_for_level_base, this mode is on. The target of L1 grows
-  // to the actual data size in L0, and then determine the target for each level
-  // so that each level will have the same level multiplier.
-  //
-  // For example, when L0 size is 100MB, the size of last level is 1600MB,
-  // max_bytes_for_level_base = 80MB, and max_bytes_for_level_multiplier = 10.
-  // Since L0 size is larger than max_bytes_for_level_base, this is a L0
-  // compaction backlogged mode. So that the L1 size is determined to be 100MB.
-  // Based on max_bytes_for_level_multiplier = 10, at least 3 non-0 levels will
-  // be needed. The level multiplier will be calculated to be 4 and the three
-  // levels' target to be [100MB, 400MB, 1600MB].
-  //
-  // In this mode, The number of levels will be no more than the normal mode,
-  // and the level multiplier will be lower. The write amplification will
-  // likely to be reduced.
-  //
-  //
-  // max_bytes_for_level_multiplier_additional is ignored with this flag on.
-  //
-  // To make the migration easier, when turning this feature on, files in the
-  // LSM will be trivially moved down to fill the LSM starting from the
-  // bottommost level during DB open. For example, if the LSM looks like:
-  // L0: f0, f1
-  // L1: f2, f3
-  // L2: f4
-  // L3:
-  // L4: f5
-  // and the DB is opened with num_levels = 7 with this feature turned on,
-  // new LSM after DB open looks like the following:
-  // L0: f0, f1, (and possibly data flushed from WAL)
-  // L4: f2, f3
-  // L5: f4
-  // L6: f5
-  //
   // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
   // then the last level is reserved, and we will start filling LSM from the
-  // second last level (L5 in the above example).
+  // second last level.
   //
+  // More adaptive compaction to write traffic:
+  // Compaction priority will take into account estimated bytes to be compacted
+  // down to a level and favors compacting lower levels when there is a write
+  // traffic spike. Refers to
+  // https://github.com/facebook/rocksdb/wiki/Leveled-Compactio#option-level_compaction_dynamic_level_bytes-and-levels-target-size
+  // for more detailed description. See more implementation detail in:
+  // VersionStorageInfo::ComputeCompactionScore().
+  //
+  // MIGRATION from level_compaction_dynamic_level_bytes=false to
+  // level_compaction_dynamic_level_bytes=true: refers to
+  // https://github.com/facebook/rocksdb/wiki/Leveled-Compaction#migrating-from-level_compaction_dynamic_level_bytesfalse-to-level_compaction_dynamic_level_bytestrue
+  //
+  // Automatic draining of unneeded levels:
   // Note that there may be excessive levels (where target level size is 0 when
-  // computed based on this feature) in the LSM after a user migrates to turn
-  // this feature on. This is especially likely when a user migrates from
-  // leveled compaction with a smaller multiplier or from universal compaction.
-  // RocksDB will gradually drain these unnecessary levels by compacting files
-  // down the LSM.
+  // computed based on this feature) in the LSM. This can happen after a user
+  // migrates to turn this feature on or deletes a lot of data. This is
+  // especially likely when a user migrates from leveled compaction with a
+  // smaller multiplier or from universal compaction. RocksDB will gradually
+  // drain these unnecessary levels by compacting files down the LSM.
   //
-  // Default: false
+  // Default: true
   bool level_compaction_dynamic_level_bytes = true;
 
   // Allows RocksDB to generate files that are not exactly the target_file_size
@@ -714,6 +686,8 @@ struct AdvancedColumnFamilyOptions {
   // Different max-size multipliers for different levels.
   // These are multiplied by max_bytes_for_level_multiplier to arrive
   // at the max-size of each level.
+  // This option only applies to leveled compaction with
+  // `level_compaction_dynamic_level_bytes = false`.
   //
   // Default: 1
   //
