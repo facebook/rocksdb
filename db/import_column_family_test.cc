@@ -808,11 +808,10 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyTest) {
   ImportColumnFamilyOptions import_options;
   import_options.move_files = false;
 
-  std::vector<ExportImportFilesMetaData> metadatas = {*metadata_ptr_,
-                                                      *metadata_ptr2_};
+  std::vector<const ExportImportFilesMetaData*> metadatas = {metadata_ptr_,
+                                                             metadata_ptr2_};
   ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
-                                              metadatas.data(),
-                                              metadatas.size(), &import_cfh_));
+                                              metadatas, &import_cfh_));
 
   std::string value1, value2;
   for (int i = 0; i < 100; ++i) {
@@ -870,12 +869,11 @@ TEST_F(ImportColumnFamilyTest, ImportMultiColumnFamilyWithOverlap) {
   ImportColumnFamilyOptions import_options;
   import_options.move_files = false;
 
-  std::vector<ExportImportFilesMetaData> metadatas = {*metadata_ptr_,
-                                                      *metadata_ptr2_};
+  std::vector<const ExportImportFilesMetaData*> metadatas = {metadata_ptr_,
+                                                             metadata_ptr2_};
 
   ASSERT_EQ(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
-                                              metadatas.data(),
-                                              metadatas.size(), &import_cfh_),
+                                              metadatas, &import_cfh_),
             Status::InvalidArgument("CFs have overlapping ranges"));
 
   ASSERT_OK(db_copy->DropColumnFamily(copy_cfh));

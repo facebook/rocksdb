@@ -5575,7 +5575,7 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const ExportImportFilesMetaData* metadatas, size_t n,
+    const std::vector<const ExportImportFilesMetaData*> metadatas,
     ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);
@@ -5584,16 +5584,15 @@ Status DBImpl::CreateColumnFamilyWithImport(
   std::string cf_comparator_name = options.comparator->Name();
 
   size_t total_file_num = 0;
-  std::vector<std::vector<LiveFileMetaData*>> metadata_files(n);
-
-  for (size_t i = 0; i < n; i++) {
-    if (cf_comparator_name != metadatas[i].db_comparator_name) {
+  std::vector<std::vector<LiveFileMetaData*>> metadata_files(metadatas.size());
+  for (size_t i = 0; i < metadatas.size(); i++) {
+    if (cf_comparator_name != metadatas[i]->db_comparator_name) {
       return Status::InvalidArgument("Comparator name mismatch");
     }
-    for (auto& file : metadatas[i].files) {
+    for (auto& file : metadatas[i]->files) {
       metadata_files[i].push_back((LiveFileMetaData*)&file);
     }
-    total_file_num += metadatas[i].files.size();
+    total_file_num += metadatas[i]->files.size();
   }
 
   // Create column family.

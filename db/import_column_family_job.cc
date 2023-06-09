@@ -89,15 +89,15 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   std::sort(cf_ingest_infos.begin(), cf_ingest_infos.end(),
             [this](const ColumnFamilyIngestFileInfo& info1,
                    const ColumnFamilyIngestFileInfo& info2) {
-              return cfd_->internal_comparator().Compare(
-                         info1.smallest_internal_key,
-                         info2.smallest_internal_key) < 0;
+              return cfd_->user_comparator()->Compare(
+                         info1.smallest_internal_key.user_key(),
+                         info2.smallest_internal_key.user_key()) < 0;
             });
 
   for (size_t i = 0; i + 1 < cf_ingest_infos.size(); i++) {
-    if (cfd_->internal_comparator().Compare(
-            cf_ingest_infos[i].largest_internal_key,
-            cf_ingest_infos[i + 1].smallest_internal_key) >= 0) {
+    if (cfd_->user_comparator()->Compare(
+            cf_ingest_infos[i].largest_internal_key.user_key(),
+            cf_ingest_infos[i + 1].smallest_internal_key.user_key()) >= 0) {
       status = Status::InvalidArgument("CFs have overlapping ranges");
       return status;
     }
