@@ -1790,8 +1790,8 @@ class DB {
 
   // EXPERIMENTAL
   // Overload of the CreateColumnFamilyWithImport() that allows the caller to
-  // pass in a array of ExportImportFilesMetaData and size to support creating
-  // ColumnFamily by importing multiple ColumnFamies.
+  // pass a list of ExportImportFilesMetaData pointers to support creating
+  // ColumnFamily by importing multiple ColumnFamilies.
   // It should be noticed that if the user keys of the imported column families
   // overlap with each other, an error will be returned.
   virtual Status CreateColumnFamilyWithImport(
