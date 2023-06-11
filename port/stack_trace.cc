@@ -78,8 +78,7 @@ const char* GetExecutableName() {
   if (-1 == ret) {
     return nullptr;
   } else {
-    snprintf(name, sizeof(name), "%s", realpath(bin[0], nullptr));
-    return name;
+    return bin[0];
   }
 #else
   char link[1024];
