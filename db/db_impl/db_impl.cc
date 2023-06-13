@@ -5575,7 +5575,7 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const std::vector<const ExportImportFilesMetaData*> metadatas,
+    const std::vector<const ExportImportFilesMetaData*>& metadatas,
     ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);

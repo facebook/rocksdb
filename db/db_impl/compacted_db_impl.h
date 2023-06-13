@@ -124,7 +124,7 @@ class CompactedDBImpl : public DBImpl {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const std::vector<const ExportImportFilesMetaData*> /*metadatas*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }

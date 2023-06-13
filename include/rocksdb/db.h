@@ -1783,7 +1783,7 @@ class DB {
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
       const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
-    const std::vector<const ExportImportFilesMetaData*> metadatas{&metadata};
+    const std::vector<const ExportImportFilesMetaData*>& metadatas{&metadata};
     return CreateColumnFamilyWithImport(options, column_family_name,
                                         import_options, metadatas, handle);
   }
@@ -1797,7 +1797,7 @@ class DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const std::vector<const ExportImportFilesMetaData*> metadatas,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) = 0;
 
   // EXPERIMENTAL
