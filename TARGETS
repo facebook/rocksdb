@@ -264,6 +264,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/string_util.cc",
         "util/thread_local.cc",
         "util/threadpool_imp.cc",
+        "util/udt_util.cc",
+        "util/write_batch_util.cc",
         "util/xxhash.cc",
         "utilities/agg_merge/agg_merge.cc",
         "utilities/backup/backup_engine.cc",
@@ -5504,6 +5506,12 @@ cpp_unittest_wrapper(name="transaction_test",
 
 cpp_unittest_wrapper(name="ttl_test",
             srcs=["utilities/ttl/ttl_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="udt_util_test",
+            srcs=["util/udt_util_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

@@ -2493,6 +2493,24 @@ TEST_P(TransactionTest, FlushTest2) {
   }
 }
 
+TEST_P(TransactionTest, WaitForCompactAbortOnPause) {
+  Status s = ReOpen();
+  ASSERT_OK(s);
+  assert(db != nullptr);
+
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+
+  // Pause the background jobs.
+  ASSERT_OK(db_impl->PauseBackgroundWork());
+
+  WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
+  waitForCompactOptions.abort_on_pause = true;
+  s = db->WaitForCompact(waitForCompactOptions);
+  ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsNotSupported());
+  ASSERT_TRUE(s.IsAborted());
+}
+
 TEST_P(TransactionTest, NoSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options;

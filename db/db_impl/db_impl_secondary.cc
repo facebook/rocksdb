@@ -14,6 +14,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/configurable.h"
 #include "util/cast_util.h"
+#include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -197,6 +198,9 @@ Status DBImplSecondary::RecoverLogFiles(
     }
     assert(reader != nullptr);
   }
+
+  const UnorderedMap<uint32_t, size_t>& running_ts_sz =
+      versions_->GetRunningColumnFamiliesTimestampSize();
   for (auto log_number : log_numbers) {
     auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
@@ -221,6 +225,14 @@ Status DBImplSecondary::RecoverLogFiles(
         continue;
       }
       status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        break;
+      }
+      const UnorderedMap<uint32_t, size_t>& record_ts_sz =
+          reader->GetRecordedTimestampSize();
+      status = HandleWriteBatchTimestampSizeDifference(
+          &batch, running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kVerifyConsistency);
       if (!status.ok()) {
         break;
       }

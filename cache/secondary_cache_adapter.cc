@@ -6,6 +6,7 @@
 #include "cache/secondary_cache_adapter.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -18,20 +19,98 @@ const Dummy kDummy{};
 Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
 }  // namespace
 
+// When CacheWithSecondaryAdapter is constructed with the distribute_cache_res
+// parameter set to true, it manages the entire memory budget across the
+// primary and secondary cache. The secondary cache is assumed to be in
+// memory, such as the CompressedSecondaryCache. When a placeholder entry
+// is inserted by a CacheReservationManager instance to reserve memory,
+// the CacheWithSecondaryAdapter ensures that the reservation is distributed
+// proportionally across the primary/secondary caches.
+//
+// The primary block cache is initially sized to the sum of the primary cache
+// budget + teh secondary cache budget, as follows -
+//   |---------    Primary Cache Configured Capacity  -----------|
+//   |---Secondary Cache Budget----|----Primary Cache Budget-----|
+//
+// A ConcurrentCacheReservationManager member in the CacheWithSecondaryAdapter,
+// pri_cache_res_,
+// is used to help with tracking the distribution of memory reservations.
+// Initially, it accounts for the entire secondary cache budget as a
+// reservation against the primary cache. This shrinks the usable capacity of
+// the primary cache to the budget that the user originally desired.
+//
+//   |--Reservation for Sec Cache--|-Pri Cache Usable Capacity---|
+//
+// When a reservation placeholder is inserted into the adapter, it is inserted
+// directly into the primary cache. This means the entire charge of the
+// placeholder is counted against the primary cache. To compensate and count
+// a portion of it against the secondary cache, the secondary cache Deflate()
+// method is called to shrink it. Since the Deflate() causes the secondary
+// actual usage to shrink, it is refelcted here by releasing an equal amount
+// from the pri_cache_res_ reservation. The Deflate() in the secondary cache
+// can be, but is not required to be, implemented using its own cache
+// reservation manager.
+//
+// For example, if the pri/sec ratio is 70/30, and the combined capacity is
+// 100MB, the intermediate and final  state after inserting a reservation
+// placeholder for 10MB would be as follows -
+//
+//   |-Reservation for Sec Cache-|-Pri Cache Usable Capacity-|---R---|
+// 1. After inserting the placeholder in primary
+//   |-------  30MB -------------|------- 60MB -------------|-10MB--|
+// 2. After deflating the secondary and adjusting the reservation for
+//    secondary against the primary
+//   |-------  27MB -------------|------- 63MB -------------|-10MB--|
+//
+// Likewise, when the user inserted placeholder is released, the secondary
+// cache Inflate() method is called to grow it, and the pri_cache_res_
+// reservation is increased by an equal amount.
+//
+// Another way of implementing this would have been to simply split the user
+// reservation into primary and seconary components. However, this would
+// require allocating a structure to track the associated secondary cache
+// reservation, which adds some complexity and overhead.
+//
 CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     std::shared_ptr<Cache> target,
-    std::shared_ptr<SecondaryCache> secondary_cache)
+    std::shared_ptr<SecondaryCache> secondary_cache, bool distribute_cache_res)
     : CacheWrapper(std::move(target)),
-      secondary_cache_(std::move(secondary_cache)) {
+      secondary_cache_(std::move(secondary_cache)),
+      distribute_cache_res_(distribute_cache_res) {
   target_->SetEvictionCallback([this](const Slice& key, Handle* handle) {
     return EvictionHandler(key, handle);
   });
+  if (distribute_cache_res_) {
+    size_t sec_capacity = 0;
+    pri_cache_res_ = std::make_shared<ConcurrentCacheReservationManager>(
+        std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+            target_));
+    Status s = secondary_cache_->GetCapacity(sec_capacity);
+    assert(s.ok());
+    // Initially, the primary cache is sized to uncompressed cache budget plsu
+    // compressed secondary cache budget. The secondary cache budget is then
+    // taken away from the primary cache through cache reservations. Later,
+    // when a placeholder entry is inserted by the caller, its inserted
+    // into the primary cache and the portion that should be assigned to the
+    // secondary cache is freed from the reservation.
+    s = pri_cache_res_->UpdateCacheReservation(sec_capacity);
+    assert(s.ok());
+    sec_cache_res_ratio_ = (double)sec_capacity / target_->GetCapacity();
+  }
 }
 
 CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
   // `*this` will be destroyed before `*target_`, so we have to prevent
   // use after free
   target_->SetEvictionCallback({});
+#ifndef NDEBUG
+  if (distribute_cache_res_) {
+    size_t sec_capacity = 0;
+    Status s = secondary_cache_->GetCapacity(sec_capacity);
+    assert(s.ok());
+    assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+  }
+#endif  // NDEBUG
 }
 
 bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
@@ -136,6 +215,22 @@ Cache::Handle* CacheWithSecondaryAdapter::Promote(
   return result;
 }
 
+Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
+                                         const CacheItemHelper* helper,
+                                         size_t charge, Handle** handle,
+                                         Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+  if (s.ok() && value == nullptr && distribute_cache_res_) {
+    size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
+    s = secondary_cache_->Deflate(sec_charge);
+    assert(s.ok());
+    s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
+    assert(s.ok());
+  }
+
+  return s;
+}
+
 Cache::Handle* CacheWithSecondaryAdapter::Lookup(const Slice& key,
                                                  const CacheItemHelper* helper,
                                                  CreateContext* create_context,
@@ -160,6 +255,22 @@ Cache::Handle* CacheWithSecondaryAdapter::Lookup(const Slice& key,
     }
   }
   return result;
+}
+
+bool CacheWithSecondaryAdapter::Release(Handle* handle,
+                                        bool erase_if_last_ref) {
+  if (erase_if_last_ref) {
+    ObjectPtr v = target_->Value(handle);
+    if (v == nullptr && distribute_cache_res_) {
+      size_t charge = target_->GetCharge(handle);
+      size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
+      Status s = secondary_cache_->Inflate(sec_charge);
+      assert(s.ok());
+      s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/true);
+      assert(s.ok());
+    }
+  }
+  return target_->Release(handle, erase_if_last_ref);
 }
 
 Cache::ObjectPtr CacheWithSecondaryAdapter::Value(Handle* handle) {
@@ -291,5 +402,32 @@ const char* CacheWithSecondaryAdapter::Name() const {
   // To the user, at least for now, configure the underlying cache with
   // a secondary cache. So we pretend to be that cache
   return target_->Name();
+}
+
+std::shared_ptr<Cache> NewTieredVolatileCache(
+    TieredVolatileCacheOptions& opts) {
+  if (!opts.cache_opts) {
+    return nullptr;
+  }
+
+  std::shared_ptr<Cache> cache;
+  if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
+    LRUCacheOptions cache_opts =
+        *(static_cast_with_check<LRUCacheOptions, ShardedCacheOptions>(
+            opts.cache_opts));
+    cache_opts.capacity += opts.comp_cache_opts.capacity;
+    cache = cache_opts.MakeSharedCache();
+  } else if (opts.cache_type == PrimaryCacheType::kCacheTypeHCC) {
+    HyperClockCacheOptions cache_opts =
+        *(static_cast_with_check<HyperClockCacheOptions, ShardedCacheOptions>(
+            opts.cache_opts));
+    cache = cache_opts.MakeSharedCache();
+  } else {
+    return nullptr;
+  }
+  std::shared_ptr<SecondaryCache> sec_cache;
+  sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
+
+  return std::make_shared<CacheWithSecondaryAdapter>(cache, sec_cache, true);
 }
 }  // namespace ROCKSDB_NAMESPACE

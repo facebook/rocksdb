@@ -209,7 +209,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // the penultimate level file temperature is not cold, all data are output to
   // the penultimate level.
@@ -374,7 +374,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -446,7 +446,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     ASSERT_OK(Flush());
   }
   // make sure the compaction is able to finish
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -911,7 +911,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // non last level is hot
   ASSERT_EQ("0,1", FilesPerLevel());
@@ -954,7 +954,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -1005,7 +1005,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   latest_cold_seq = seq_history[0];
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -1135,7 +1135,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -1265,7 +1265,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1327,7 +1327,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1360,7 +1360,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
       });
     }
     ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->WaitForCompact());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
   // all data is moved up to the penultimate level
@@ -1403,7 +1403,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1530,7 +1530,7 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1609,7 +1609,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // all data is pushed to the last level
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
@@ -1705,7 +1705,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
 
   manual_compaction_thread.join();
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   if (enable_preclude_last_level) {
     ASSERT_NE("0,0,0,0,0,1,1", FilesPerLevel());
@@ -1841,7 +1841,7 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   }
   ASSERT_OK(Flush());
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   stop_token.reset();
 
@@ -1940,7 +1940,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
     ASSERT_OK(Flush());
   }
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // L5: [0,19] [20,39] [40,299]
   // L6: [0,                299]
@@ -2106,7 +2106,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   Slice begin_key(begin_key_buf), end_key(end_key_buf);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(1, per_key_comp_num);
   verify_db();
@@ -2116,7 +2116,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   db_->ReleaseSnapshot(snap2);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(2, per_key_comp_num);
   verify_db();
@@ -2126,7 +2126,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   db_->ReleaseSnapshot(snap1);
   ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
                                      &end_key));
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
   ASSERT_EQ(3, per_key_comp_num);
   verify_db();

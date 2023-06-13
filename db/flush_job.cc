@@ -352,6 +352,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
+  TEST_SYNC_POINT("FlushJob::End");
   return s;
 }
 

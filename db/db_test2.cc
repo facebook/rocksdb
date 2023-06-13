@@ -2063,6 +2063,7 @@ class PinL0IndexAndFilterBlocksTest
     ASSERT_OK(Flush(1));
     // move this table to L1
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
+    ASSERT_EQ(1, NumTableFilesAtLevel(1, 1));
 
     // reset block cache
     table_options.block_cache = NewLRUCache(64 * 1024);
@@ -2220,7 +2221,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   // this should be read from L1
   value = Get(1, "a");
   if (!disallow_preload_) {
-    // In inifinite max files case, there's a cache miss in executing Get()
+    // In infinite max files case, there's a cache miss in executing Get()
     // because index and filter are not prefetched before.
     ASSERT_EQ(fm + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
@@ -2248,12 +2249,12 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
     ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
     ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
-    ASSERT_EQ(ih + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+    ASSERT_EQ(ih + 2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
   } else {
     ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
     ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
-    ASSERT_EQ(ih + 4, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+    ASSERT_EQ(ih + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
   }
 
   // Bloom and index hit will happen when a Get() happens.
@@ -2262,12 +2263,12 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
     ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
     ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
-    ASSERT_EQ(ih + 4, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+    ASSERT_EQ(ih + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
   } else {
     ASSERT_EQ(fm + 3, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
     ASSERT_EQ(fh + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
     ASSERT_EQ(im + 3, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
-    ASSERT_EQ(ih + 5, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+    ASSERT_EQ(ih + 4, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
   }
 }
 
@@ -5992,17 +5993,15 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("xa");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      // It's a bug that the counter BLOOM_FILTER_PREFIX_CHECKED is not
-      // correct in this case. So don't check counters in this case.
       if (expect_filter_check) {
-        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(0, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(0, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
     }
 
@@ -6020,7 +6019,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(0, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
     }
 
@@ -6034,14 +6033,14 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(0, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
     }
 
@@ -6059,21 +6058,21 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       iterator->Seek("xg");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       ASSERT_OK(iterator->status());
@@ -6085,14 +6084,14 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(5, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
 
       ASSERT_OK(iterator->status());
@@ -6106,7 +6105,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
       if (expect_filter_check) {
-        ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+        EXPECT_EQ(1, PopTicker(options, NON_LAST_LEVEL_SEEK_FILTER_MATCH));
       }
       ASSERT_OK(iterator->status());
     }
@@ -6180,13 +6179,19 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ro.total_order_seek = false;
     ro.auto_prefix_mode = true;
 
-    const auto stat = BLOOM_FILTER_PREFIX_CHECKED;
+    const auto hit_stat = options.num_levels == 1
+                              ? LAST_LEVEL_SEEK_FILTER_MATCH
+                              : NON_LAST_LEVEL_SEEK_FILTER_MATCH;
+    const auto miss_stat = options.num_levels == 1
+                               ? LAST_LEVEL_SEEK_FILTERED
+                               : NON_LAST_LEVEL_SEEK_FILTERED;
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
 
@@ -6198,7 +6203,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
 
@@ -6208,7 +6214,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
 
@@ -6217,7 +6224,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
 
@@ -6226,7 +6234,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
 
@@ -6237,25 +6246,29 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       ub = "b9";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
 
       ub = "z";
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "c";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "b9";
       iterator->SeekForPrev("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "zz";
       iterator->SeekToLast();
@@ -6287,26 +6300,30 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       ub = "b1";
       iterator->Seek("b9");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
 
       ub = "b1";
       iterator->Seek("z");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("y1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "b1";
       iterator->Seek("c");
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "b";
       iterator->Seek("c9");
       ASSERT_FALSE(iterator->Valid());
       // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
       // is "correctly" implemented.
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "a";
       iterator->Seek("b9");
@@ -6314,7 +6331,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       // is "correctly" implemented.
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "b";
       iterator->Seek("a");
@@ -6322,7 +6340,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
       // matches BytewiseComparator::IsSameLengthImmediateSuccessor. Upper
       // comparing before seek key prevents a real bug from surfacing.
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "b1";
       iterator->SeekForPrev("b9");
@@ -6330,7 +6349,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
       // is "correctly" implemented.
       ASSERT_EQ("x1", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
 
       ub = "a";
       iterator->SeekToLast();
@@ -6372,7 +6392,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek(Slice(a_end_stuff, 2));
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
 
       // test, cannot be validly optimized with auto_prefix_mode
@@ -6382,7 +6403,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->Seek(Slice(a_end_stuff, 2));
       // !!! BUG !!! See "BUG" section of auto_prefix_mode.
       ASSERT_FALSE(iterator->Valid());
-      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
 
       // To prove that is the wrong result, now use total order seek
@@ -6393,7 +6415,8 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->Seek(Slice(a_end_stuff, 2));
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("b", iterator->key().ToString());
-      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, hit_stat));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, miss_stat));
       ASSERT_OK(iterator->status());
     }
   } while (ChangeOptions(kSkipPlainTable));

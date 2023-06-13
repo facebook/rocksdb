@@ -171,9 +171,9 @@ class TableCache {
       const FileMetaData& file_meta, TypedHandle**,
       uint8_t block_protection_bytes_per_key,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      const bool no_io = false, bool record_read_stats = true,
-      HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1, bool prefetch_index_and_filter_in_cache = true,
+      const bool no_io = false, HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true,
       size_t max_file_size_for_l0_meta_pin = 0,
       Temperature file_temperature = Temperature::kUnknown);
 
@@ -243,8 +243,8 @@ class TableCache {
       const ReadOptions& ro, const FileOptions& file_options,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, bool sequential_mode,
-      bool record_read_stats, uint8_t block_protection_bytes_per_key,
-      HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
+      uint8_t block_protection_bytes_per_key, HistogramImpl* file_read_hist,
+      std::unique_ptr<TableReader>* table_reader,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool skip_filters = false, int level = -1,
       bool prefetch_index_and_filter_in_cache = true,
@@ -275,7 +275,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;
-  Striped<port::Mutex, Slice> loader_mutex_;
+  Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
 };

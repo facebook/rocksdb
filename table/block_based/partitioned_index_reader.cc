@@ -75,7 +75,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
@@ -94,7 +95,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
 
     it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
@@ -140,7 +142,8 @@ Status PartitionIndexReader::CacheDependencies(
   index_block.GetValue()->NewIndexIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
-      index_has_first_key(), index_key_includes_seq(), index_value_is_full());
+      index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -162,7 +165,8 @@ Status PartitionIndexReader::CacheDependencies(
       handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled()) {
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
         0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);

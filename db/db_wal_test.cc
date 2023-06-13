@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -299,6 +300,96 @@ TEST_F(DBWALTest, Recover) {
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
   } while (ChangeWalOptions());
+}
+
+class DBWALTestWithTimestamp : public DBBasicTestWithTimestampBase {
+ public:
+  DBWALTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("db_wal_test_with_timestamp") {}
+
+  Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
+                                     const Options& options) {
+    CreateColumnFamilies(cfs, options);
+    return ReopenColumnFamiliesWithTs(cfs, options);
+  }
+
+  Status ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
+                                    Options ts_options) {
+    Options default_options = CurrentOptions();
+    default_options.create_if_missing = false;
+    ts_options.create_if_missing = false;
+
+    std::vector<Options> cf_options(cfs.size(), ts_options);
+    std::vector<std::string> cfs_plus_default = cfs;
+    cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
+    cf_options.insert(cf_options.begin(), default_options);
+    Close();
+    return TryReopenWithColumnFamilies(cfs_plus_default, cf_options);
+  }
+
+  Status Put(uint32_t cf, const Slice& key, const Slice& ts,
+             const Slice& value) {
+    WriteOptions write_opts;
+    return db_->Put(write_opts, handles_[cf], key, ts, value);
+  }
+
+  void CheckGet(const ReadOptions& read_opts, uint32_t cf, const Slice& key,
+                const std::string& expected_value) {
+    std::string actual_value;
+    ASSERT_OK(db_->Get(read_opts, handles_[cf], key, &actual_value));
+    ASSERT_EQ(expected_value, actual_value);
+  }
+};
+
+TEST_F(DBWALTestWithTimestamp, Recover) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts = Timestamp(1, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = &test_cmp;
+
+  ReadOptions read_opts;
+  Slice ts_slice = ts;
+  read_opts.timestamp = &ts_slice;
+  do {
+    ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+    ASSERT_OK(Put(1, "foo", ts, "v1"));
+    ASSERT_OK(Put(1, "baz", ts, "v5"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
+    CheckGet(read_opts, 1, "foo", "v1");
+    CheckGet(read_opts, 1, "baz", "v5");
+    ASSERT_OK(Put(1, "bar", ts, "v2"));
+    ASSERT_OK(Put(1, "foo", ts, "v3"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
+    CheckGet(read_opts, 1, "foo", "v3");
+    ASSERT_OK(Put(1, "foo", ts, "v4"));
+    CheckGet(read_opts, 1, "foo", "v4");
+    CheckGet(read_opts, 1, "bar", "v2");
+    CheckGet(read_opts, 1, "baz", "v5");
+  } while (ChangeWalOptions());
+}
+
+TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts = Timestamp(1, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = &test_cmp;
+
+  ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+  ASSERT_OK(Put(1, "foo", ts, "v1"));
+  ASSERT_OK(Put(1, "baz", ts, "v5"));
+
+  TestComparator diff_test_cmp(kTimestampSize + 1);
+  ts_options.comparator = &diff_test_cmp;
+  ASSERT_TRUE(
+      ReopenColumnFamiliesWithTs({"pikachu"}, ts_options).IsInvalidArgument());
 }
 
 TEST_F(DBWALTest, RecoverWithTableHandle) {

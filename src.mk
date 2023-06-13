@@ -251,6 +251,8 @@ LIB_SOURCES =                                                   \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
+  util/udt_util.cc                                              \
+  util/write_batch_util.cc                                      \
   util/xxhash.cc                                                \
   utilities/agg_merge/agg_merge.cc                              \
   utilities/backup/backup_engine.cc                             \
@@ -593,6 +595,7 @@ TEST_MAIN_SOURCES =                                                     \
   util/timer_test.cc                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
+  util/udt_util_test.cc                                                 \
   util/work_queue_test.cc                                               \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \

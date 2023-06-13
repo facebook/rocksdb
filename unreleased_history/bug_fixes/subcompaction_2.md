@@ -1,0 +1,1 @@
+Fix a bug where compactions that are qualified to be run as 2 subcompactions were only run as one subcompaction. 
