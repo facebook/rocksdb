@@ -1107,8 +1107,8 @@ class DB {
 
     //  "rocksdb.obsolete-sst-files-size" - returns total size (bytes) of all
     //      SST files that became obsolete but have not yet been deleted or
-    //      marked as trash. SST files can end up in this state when using
-    //      `DisableFileDeletions()`, for example.
+    //      scheduled for deletion. SST files can end up in this state when
+    //      using `DisableFileDeletions()`, for example.
     //
     //      N.B. Unlike the other "*SstFilesSize" properties, this property
     //      includes SST files that originated in any of the DB's CFs.
