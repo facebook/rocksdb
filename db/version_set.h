@@ -1466,6 +1466,9 @@ class VersionSet {
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
+  // REQUIRES: DB mutex held
+  uint64_t GetObsoleteSstFilesSize() const;
+
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
 
   const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
