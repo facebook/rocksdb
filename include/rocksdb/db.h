@@ -1097,13 +1097,22 @@ class DB {
     static const std::string kMinObsoleteSstNumberToKeep;
 
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
-    //      files.
+    //      files belonging to any of the CF's versions.
     //  WARNING: may slow down online queries if there are too many files.
     static const std::string kTotalSstFilesSize;
 
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
-    //      files belong to the latest LSM tree.
+    //      files belong to the CF's current version.
     static const std::string kLiveSstFilesSize;
+
+    //  "rocksdb.obsolete-sst-files-size" - returns total size (bytes) of all
+    //      SST files that became obsolete but have not yet been deleted or
+    //      scheduled for deletion. SST files can end up in this state when
+    //      using `DisableFileDeletions()`, for example.
+    //
+    //      N.B. Unlike the other "*SstFilesSize" properties, this property
+    //      includes SST files that originated in any of the DB's CFs.
+    static const std::string kObsoleteSstFilesSize;
 
     // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
     //      of SST files at all certain file temperature
@@ -1238,6 +1247,7 @@ class DB {
   //  "rocksdb.min-obsolete-sst-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.live-sst-files-size"
+  //  "rocksdb.obsolete-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
