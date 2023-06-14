@@ -1244,13 +1244,15 @@ std::string DescribeVersionEdit(const VersionEdit& e, ColumnFamilyData* cfd) {
 
 }  // namespace
 
-Status DBImpl::ApplyReplicationLogRecord(
-    ReplicationLogRecord record, std::string replication_sequence,
-    CFOptionsFactory cf_options_factory,
-    bool allow_new_manifest_writes,
-    ApplyReplicationLogRecordInfo* info) {
+Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
+                                         std::string replication_sequence,
+                                         CFOptionsFactory cf_options_factory,
+                                         bool allow_new_manifest_writes,
+                                         ApplyReplicationLogRecordInfo* info,
+                                         unsigned flags) {
   JobContext job_context(0, false);
   Status s;
+  bool evictObsoleteFiles = flags & AR_EVICT_OBSOLETE_FILES;
 
   {
     WriteThread::Writer w;
@@ -1445,6 +1447,15 @@ Status DBImpl::ApplyReplicationLogRecord(
           cfd->InstallSuperVersion(&sv_context, &mutex_);
         }
 
+        if (evictObsoleteFiles) {
+          versions_->GetObsoleteFiles(&job_context.sst_delete_files,
+                                      &job_context.blob_delete_files,
+                                      &job_context.manifest_delete_files,
+                                      std::numeric_limits<uint64_t>::max());
+          versions_->RemoveLiveFiles(job_context.sst_delete_files,
+                                     job_context.blob_delete_files);
+        }
+
         info->has_manifest_writes = true;
         info->current_manifest_update_seq = current_update_sequence;
         info->latest_applied_manifest_update_seq =
@@ -1469,6 +1480,19 @@ Status DBImpl::ApplyReplicationLogRecord(
     write_thread_.ExitUnbatched(&w);
   }
 
+  if (evictObsoleteFiles) {
+    for (auto& file : job_context.sst_delete_files) {
+      auto number = file.metadata->fd.GetNumber();
+      if (file.metadata->table_reader_handle) {
+        table_cache_->Release(file.metadata->table_reader_handle);
+      }
+      file.DeleteMetadata();
+
+      if (!file.only_delete_metadata) {
+        TableCache::Evict(table_cache_.get(), number);
+      }
+    }
+  }
   job_context.Clean();
 
   return s;

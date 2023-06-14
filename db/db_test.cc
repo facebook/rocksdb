@@ -3394,11 +3394,12 @@ class ModelDB : public DB {
 
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
-  Status ApplyReplicationLogRecord(
-      ReplicationLogRecord /*record*/, std::string /*replication_sequence*/,
-      CFOptionsFactory /* cf_options_factory */,
-      bool /* allow_new_manifest_writes */,
-      ApplyReplicationLogRecordInfo* /*info*/) override {
+  Status ApplyReplicationLogRecord(ReplicationLogRecord /*record*/,
+                                   std::string /*replication_sequence*/,
+                                   CFOptionsFactory /* cf_options_factory */,
+                                   bool /* allow_new_manifest_writes */,
+                                   ApplyReplicationLogRecordInfo* /*info*/,
+                                   unsigned /*flags*/) override {
     return Status::NotSupported("Not supported in Model DB");
   }
   Status GetPersistedReplicationSequence(std::string* /*out*/) override {

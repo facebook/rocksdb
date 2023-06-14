@@ -1323,12 +1323,16 @@ class DB {
   // the new manifest writes.
   //
   // REQUIRES: info needs to be provided, can't be nullptr.
+  enum ApplyReplicationLogRecordFlags : unsigned {
+    AR_EVICT_OBSOLETE_FILES = 1U << 0,
+  };
   using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
-  virtual Status ApplyReplicationLogRecord(
-      ReplicationLogRecord record, std::string replication_sequence,
-      CFOptionsFactory cf_options_factory,
-      bool allow_new_manifest_writes,
-      ApplyReplicationLogRecordInfo* info) = 0;
+  virtual Status ApplyReplicationLogRecord(ReplicationLogRecord record,
+                                           std::string replication_sequence,
+                                           CFOptionsFactory cf_options_factory,
+                                           bool allow_new_manifest_writes,
+                                           ApplyReplicationLogRecordInfo* info,
+                                           unsigned flags = 0) = 0;
   virtual Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const = 0;
   // Returns the latest replication log sequence number (returned by

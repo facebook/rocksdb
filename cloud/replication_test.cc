@@ -331,7 +331,8 @@ DB* ReplicationTest::openLeader(Options options) {
       s = db->ApplyReplicationLogRecord(
           log_records_[leaderSeq].first, log_records_[leaderSeq].second,
           [this](Slice) { return ColumnFamilyOptions(leaderOptions()); },
-          true /* allow_new_manifest_writes */, &info);
+          true /* allow_new_manifest_writes */, &info,
+          DB::AR_EVICT_OBSOLETE_FILES);
       assert(s.ok());
     }
     listener->setState(Listener::TAILING);
@@ -393,8 +394,7 @@ size_t ReplicationTest::catchUpFollower(
         [this](Slice) {
           return ColumnFamilyOptions(follower_db_->GetOptions());
         },
-        allow_new_manifest_writes,
-        &info);
+        allow_new_manifest_writes, &info, DB::AR_EVICT_OBSOLETE_FILES);
     assert(s.ok());
     ++ret;
   }
@@ -1028,6 +1028,38 @@ TEST_F(ReplicationTest, NoMemSwitchRecordIfEmpty) {
   ASSERT_OK(leader->Flush({}));
   // no mem switch record
   EXPECT_EQ(catchUpFollower(), 0);
+}
+
+TEST_F(ReplicationTest, EvictObsoleteFiles) {
+  auto leader = openLeader();
+  leader->EnableFileDeletions();
+  auto followerOptions = leaderOptions();
+  followerOptions.disable_delete_obsolete_files_on_open = true;
+  auto follower = openFollower(followerOptions);
+
+  ASSERT_OK(leader->Put(wo(), "key0", "val0"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+  EXPECT_EQ(catchUpFollower(), 3);
+  ASSERT_OK(leader->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  EXPECT_EQ(catchUpFollower(), 1);
+
+  ASSERT_OK(leader->Put(wo(), "key1", "val1"));
+  ASSERT_OK(leader->Put(wo(), "key3", "val3"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+  EXPECT_EQ(catchUpFollower(), 4);
+  ASSERT_OK(leader->Put(wo(), "key2", "val2"));
+  ASSERT_OK(leader->Flush(FlushOptions()));
+  EXPECT_EQ(catchUpFollower(), 3);
+
+  ASSERT_OK(leader->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  EXPECT_EQ(catchUpFollower(), 1);
+
+  EXPECT_EQ(
+      2,
+      static_cast_with_check<DBImpl>(leader)->TEST_table_cache()->GetUsage());
+  EXPECT_EQ(
+      2,
+      static_cast_with_check<DBImpl>(follower)->TEST_table_cache()->GetUsage());
 }
 
 TEST_F(ReplicationTest, Stress) {
