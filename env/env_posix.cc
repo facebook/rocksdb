@@ -214,7 +214,7 @@ class PosixEnv : public CompositeEnv {
   const char* NickName() const override { return kDefaultName(); }
 
   struct JoinThreadsOnExit {
-    JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
+    explicit JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
     ~JoinThreadsOnExit() {
       for (const auto tid : deflt.threads_to_join_) {
         pthread_join(tid, nullptr);
