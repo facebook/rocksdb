@@ -3811,7 +3811,13 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
       CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (!cfd->ioptions()->allow_ingest_behind) {
+        const ImmutableOptions* ioption = cfd->ioptions();
+        uint64_t preserve_time_duration =
+            std::max(ioption->preserve_internal_time_seconds,
+                     ioption->preclude_last_level_data_seconds);
+        if (!ioption->allow_ingest_behind &&
+            ioption->compaction_style == kCompactionStyleLevel &&
+            preserve_time_duration == 0) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
           if (!cfd->current()
                    ->storage_info()
@@ -3829,8 +3835,14 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       // mutex might be unlocked during the loop, making the result inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        const ImmutableOptions* ioption = cfd->ioptions();
+        uint64_t preserve_time_duration =
+            std::max(ioption->preserve_internal_time_seconds,
+                     ioption->preclude_last_level_data_seconds);
         if (CfdListContains(cf_scheduled, cfd) ||
-            cfd->ioptions()->allow_ingest_behind) {
+            ioption->allow_ingest_behind ||
+            ioption->compaction_style != kCompactionStyleLevel ||
+            preserve_time_duration > 0) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(
