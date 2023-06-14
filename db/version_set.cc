@@ -3390,6 +3390,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
+  int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3417,7 +3418,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         // For universal compaction, we use level0 score to indicate
         // compaction score for the whole DB. Adding other levels as if
         // they are L0 files.
-        for (int i = 1; i < num_levels(); i++) {
+        for (int i = 1; i <= max_output_level; i++) {
           // It's possible that a subset of the files in a level may be in a
           // compaction, due to delete triggered compaction or trivial move.
           // In that case, the below check may not catch a level being
@@ -3561,16 +3562,18 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
     }
   }
-  ComputeFilesMarkedForCompaction();
+  ComputeFilesMarkedForCompaction(max_output_level);
   if (!immutable_options.allow_ingest_behind) {
     ComputeBottommostFilesMarkedForCompaction();
   }
-  if (mutable_cf_options.ttl > 0) {
+  if (mutable_cf_options.ttl > 0 &&
+      compaction_style_ == kCompactionStyleLevel) {
     ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   }
   if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
-        immutable_options, mutable_cf_options.periodic_compaction_seconds);
+        immutable_options, mutable_cf_options.periodic_compaction_seconds,
+        max_output_level);
   }
 
   if (mutable_cf_options.enable_blob_garbage_collection &&
@@ -3584,14 +3587,14 @@ void VersionStorageInfo::ComputeCompactionScore(
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
-void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
+void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
   files_marked_for_compaction_.clear();
   int last_qualify_level = 0;
 
   // Do not include files from the last level with data
   // If table properties collector suggests a file on the last level,
   // we should not move it to a new level.
-  for (int level = num_levels() - 1; level >= 1; level--) {
+  for (int level = last_level; level >= 1; level--) {
     if (!files_[level].empty()) {
       last_qualify_level = level - 1;
       break;
@@ -3635,7 +3638,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableOptions& ioptions,
-    const uint64_t periodic_compaction_seconds) {
+    const uint64_t periodic_compaction_seconds, int last_level) {
   assert(periodic_compaction_seconds > 0);
 
   files_marked_for_periodic_compaction_.clear();
@@ -3656,7 +3659,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
-  for (int level = 0; level < num_levels(); level++) {
+  for (int level = 0; level <= last_level; level++) {
     for (auto f : files_[level]) {
       if (!f->being_compacted) {
         // Compute a file's modification time in the following order:

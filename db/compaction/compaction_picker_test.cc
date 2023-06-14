@@ -505,7 +505,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   const uint64_t kFileSize = 100000;
-  NewVersionStorage(1, kCompactionStyleUniversal);
+  NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
   ioptions_.allow_ingest_behind = true;
   ioptions_.num_levels = 3;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -532,6 +532,14 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
 
   // output level should be the one above the bottom-most
   ASSERT_EQ(1, compaction->output_level());
+
+  // input should not include the reserved level
+  const std::vector<CompactionInputFiles>* inputs = compaction->inputs();
+  for (const auto& compaction_input : *inputs) {
+    if (!compaction_input.empty()) {
+      ASSERT_LT(compaction_input.level, 2);
+    }
+  }
 }
 // Tests if the files can be trivially moved in multi level
 // universal compaction when allow_trivial_move option is set
