@@ -353,7 +353,10 @@ enum Tickers : uint32_t {
   // # of files marked as trash by sst file manager and will be deleted
   // later by background thread.
   FILES_MARKED_TRASH,
-  // # of files deleted immediately by sst file manger through delete scheduler.
+  // # of trash files deleted by the background thread from the trash queue.
+  FILES_DELETED_FROM_TRASH_QUEUE,
+  // # of files deleted immediately by sst file manager through delete
+  // scheduler.
   FILES_DELETED_IMMEDIATELY,
 
   // The counters for error handler, not that, bg_io_error is the subset of
