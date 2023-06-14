@@ -188,40 +188,6 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
 }
 
 namespace {
-void ResetTableProperties(TableProperties* tp) {
-  tp->data_size = 0;
-  tp->index_size = 0;
-  tp->filter_size = 0;
-  tp->raw_key_size = 0;
-  tp->raw_value_size = 0;
-  tp->num_data_blocks = 0;
-  tp->num_entries = 0;
-  tp->num_deletions = 0;
-  tp->num_merge_operands = 0;
-  tp->num_range_deletions = 0;
-}
-
-void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
-  double dummy_double;
-  std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
-  std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
-  ResetTableProperties(tp);
-  sscanf(tp_string.c_str(),
-         "# data blocks %" SCNu64 " # entries %" SCNu64 " # deletions %" SCNu64
-         " # merge operands %" SCNu64 " # range deletions %" SCNu64
-         " raw key size %" SCNu64
-         " raw average key size %lf "
-         " raw value size %" SCNu64
-         " raw average value size %lf "
-         " data block size %" SCNu64 " index block size (user-key? %" SCNu64
-         ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
-         &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
-         &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
-         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
-         &tp->index_size, &tp->filter_size);
-}
-
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
   ASSERT_EQ(a == 0U, b == 0U);
   if (a == 0) {
@@ -1749,14 +1715,35 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
     ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
+
   uint64_t sst_size;
-  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
-  ASSERT_TRUE(ok);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size));
   ASSERT_GT(sst_size, 0);
   listener->size_before_compaction = sst_size;
+
+  uint64_t obsolete_sst_size;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
+
+  // Hold files from being deleted so we can test property for size of obsolete
+  // SST files.
+  ASSERT_OK(db_->DisableFileDeletions());
+
   // Compact to clean all keys and trigger listener.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_TRUE(listener->callback_triggered);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, sst_size);
+
+  // Let the obsolete files be deleted.
+  ASSERT_OK(db_->EnableFileDeletions());
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
 }
 
 TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {

@@ -1187,7 +1187,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     std::string scratch;
     Slice record;
 
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz =
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz =
         versions_->GetRunningColumnFamiliesTimestampSize();
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
@@ -1213,7 +1213,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         return status;
       }
 
-      const std::unordered_map<uint32_t, size_t>& record_ts_sz =
+      const UnorderedMap<uint32_t, size_t>& record_ts_sz =
           reader.GetRecordedTimestampSize();
       // TODO(yuzhangyu): update mode to kReconcileInconsistency when user
       // comparator can be changed.

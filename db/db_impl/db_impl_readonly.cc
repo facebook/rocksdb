@@ -46,7 +46,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
         "`Env::IOActivity::kUnknown`");
   }
   assert(pinnable_val != nullptr);
-  // TODO: stopwatch DB_GET needed?, perf timer needed?
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(column_family);

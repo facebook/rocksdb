@@ -7003,6 +7003,16 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
   obsolete_manifests_.swap(*manifest_filenames);
 }
 
+uint64_t VersionSet::GetObsoleteSstFilesSize() const {
+  uint64_t ret = 0;
+  for (auto& f : obsolete_files_) {
+    if (f.metadata != nullptr) {
+      ret += f.metadata->fd.GetFileSize();
+    }
+  }
+  return ret;
+}
+
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
     const VersionEdit* edit) {

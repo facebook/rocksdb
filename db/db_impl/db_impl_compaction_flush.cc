@@ -1066,7 +1066,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                             std::numeric_limits<uint64_t>::max(), trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
-    int max_overlapped_level = kInvalidLevel;
     {
       SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
       Version* current_version = super_version->current;
@@ -1142,10 +1141,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                                                     begin, end);
         }
         if (overlap) {
-          if (first_overlapped_level == kInvalidLevel) {
-            first_overlapped_level = level;
-          }
-          max_overlapped_level = level;
+          first_overlapped_level = level;
+          break;
         }
       }
       CleanupSuperVersion(super_version);
@@ -1159,7 +1156,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             end, exclusive, true /* disallow_trivial_move */,
             std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
             trim_ts);
-        final_output_level = max_overlapped_level;
+        final_output_level = first_overlapped_level;
       } else {
         assert(cfd->ioptions()->compaction_style == kCompactionStyleLevel);
         uint64_t next_file_number = versions_->current_next_file_number();
@@ -1171,7 +1168,29 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         int level = first_overlapped_level;
         final_output_level = level;
         int output_level = 0, base_level = 0;
-        while (level < max_overlapped_level || level == 0) {
+        for (;;) {
+          // Always allow L0 -> L1 compaction
+          if (level > 0) {
+            if (cfd->ioptions()->level_compaction_dynamic_level_bytes) {
+              assert(final_output_level < cfd->ioptions()->num_levels);
+              if (final_output_level + 1 == cfd->ioptions()->num_levels) {
+                break;
+              }
+            } else {
+              // TODO(cbi): there is still a race condition here where
+              //  if a background compaction compacts some file beyond
+              //  current()->storage_info()->num_non_empty_levels() right after
+              //  the check here.This should happen very infrequently and should
+              //  not happen once a user populates the last level of the LSM.
+              InstrumentedMutexLock l(&mutex_);
+              // num_non_empty_levels may be lower after a compaction, so
+              // we check for >= here.
+              if (final_output_level + 1 >=
+                  cfd->current()->storage_info()->num_non_empty_levels()) {
+                break;
+              }
+            }
+          }
           output_level = level + 1;
           if (cfd->ioptions()->level_compaction_dynamic_level_bytes &&
               level == 0) {
@@ -1203,17 +1222,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         if (s.ok()) {
           assert(final_output_level > 0);
           // bottommost level intra-level compaction
-          // TODO(cbi): this preserves earlier behavior where if
-          //  max_overlapped_level = 0 and bottommost_level_compaction is
-          //  kIfHaveCompactionFilter, we only do a L0 -> LBase compaction
-          //  and do not do intra-LBase compaction even when user configures
-          //  compaction filter. We may want to still do a LBase -> LBase
-          //  compaction in case there is some file in LBase that did not go
-          //  through L0 -> LBase compaction, and hence did not go through
-          //  compaction filter.
           if ((options.bottommost_level_compaction ==
                    BottommostLevelCompaction::kIfHaveCompactionFilter &&
-               max_overlapped_level != 0 &&
                (cfd->ioptions()->compaction_filter != nullptr ||
                 cfd->ioptions()->compaction_filter_factory != nullptr)) ||
               options.bottommost_level_compaction ==
@@ -1221,10 +1231,11 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
               options.bottommost_level_compaction ==
                   BottommostLevelCompaction::kForce) {
             // Use `next_file_number` as `max_file_num_to_ignore` to avoid
-            // rewriting newly compacted files when it is kForceOptimized.
+            // rewriting newly compacted files when it is kForceOptimized
+            // or kIfHaveCompactionFilter with compaction filter set.
             s = RunManualCompaction(
                 cfd, final_output_level, final_output_level, options, begin,
-                end, exclusive, !trim_ts.empty() /* disallow_trivial_move */,
+                end, exclusive, true /* disallow_trivial_move */,
                 next_file_number /* max_file_num_to_ignore */, trim_ts);
           }
         }
@@ -1806,6 +1817,37 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
   return cfh->cfd()
       ->GetSuperVersion()
       ->mutable_cf_options.level0_stop_writes_trigger;
+}
+
+Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
+                                      FlushReason flush_reason) {
+  mutex_.AssertHeld();
+  Status status;
+  if (immutable_db_options_.atomic_flush) {
+    mutex_.Unlock();
+    status = AtomicFlushMemTables(flush_options, flush_reason);
+    if (status.IsColumnFamilyDropped()) {
+      status = Status::OK();
+    }
+    mutex_.Lock();
+  } else {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, flush_options, flush_reason);
+      TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:1");
+      TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:2");
+      mutex_.Lock();
+      if (!status.ok() && !status.IsColumnFamilyDropped()) {
+        break;
+      } else if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
+    }
+  }
+  return status;
 }
 
 Status DBImpl::Flush(const FlushOptions& flush_options,
@@ -3963,7 +4005,14 @@ void DBImpl::GetSnapshotContext(
 Status DBImpl::WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
-  TEST_SYNC_POINT("DBImpl::WaitForCompact:Start");
+  if (wait_for_compact_options.flush) {
+    Status s = DBImpl::FlushAllColumnFamilies(FlushOptions(),
+                                              FlushReason::kManualFlush);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();

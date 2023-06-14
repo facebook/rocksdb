@@ -104,9 +104,8 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
     }
   }
 
-  void CreateWriteBatch(
-      const std::unordered_map<uint32_t, size_t>& ts_sz_for_batch,
-      WriteBatch* batch) {
+  void CreateWriteBatch(const UnorderedMap<uint32_t, size_t>& ts_sz_for_batch,
+                        WriteBatch* batch) {
     for (const auto& [cf_id, ts_sz] : ts_sz_for_batch) {
       std::string key;
       CreateKey(&key, ts_sz);
@@ -185,9 +184,9 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
 };
 
 TEST_F(HandleTimestampSizeDifferenceTest, AllColumnFamiliesConsistent) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
-                                                        {2, 0}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
+                                                  {2, 0}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
   WriteBatch batch;
   CreateWriteBatch(running_ts_sz, &batch);
 
@@ -204,9 +203,9 @@ TEST_F(HandleTimestampSizeDifferenceTest, AllColumnFamiliesConsistent) {
 
 TEST_F(HandleTimestampSizeDifferenceTest,
        AllInconsistentColumnFamiliesDropped) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{2, 0}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
-                                                       {3, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{2, 0}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
+                                                 {3, sizeof(char)}};
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
 
@@ -222,9 +221,9 @@ TEST_F(HandleTimestampSizeDifferenceTest,
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest, InvolvedColumnFamiliesConsistent) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
-                                                        {2, sizeof(char)}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)},
+                                                  {2, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
 
@@ -241,9 +240,8 @@ TEST_F(HandleTimestampSizeDifferenceTest, InvolvedColumnFamiliesConsistent) {
 
 TEST_F(HandleTimestampSizeDifferenceTest,
        InconsistentColumnFamilyNeedsTimestampStripping) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, 0},
-                                                        {2, sizeof(char)}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, 0}, {2, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
 
@@ -265,10 +263,10 @@ TEST_F(HandleTimestampSizeDifferenceTest,
 
 TEST_F(HandleTimestampSizeDifferenceTest,
        InconsistentColumnFamilyNeedsTimestampPadding) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, sizeof(uint64_t)}};
   // Make `record_ts_sz` not contain zero timestamp size entries to follow the
   // behavior of actual WAL log timestamp size record.
-  std::unordered_map<uint32_t, size_t> record_ts_sz;
+  UnorderedMap<uint32_t, size_t> record_ts_sz;
   WriteBatch batch;
   CreateWriteBatch({{1, 0}}, &batch);
 
@@ -289,9 +287,9 @@ TEST_F(HandleTimestampSizeDifferenceTest,
 
 TEST_F(HandleTimestampSizeDifferenceTest,
        InconsistencyReconcileCopyOverDroppedColumnFamily) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, 0}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
-                                                       {2, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, 0}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)},
+                                                 {2, sizeof(char)}};
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
   std::unique_ptr<WriteBatch> new_batch(nullptr);
@@ -308,8 +306,8 @@ TEST_F(HandleTimestampSizeDifferenceTest,
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest, UnrecoverableInconsistency) {
-  std::unordered_map<uint32_t, size_t> running_ts_sz = {{1, sizeof(char)}};
-  std::unordered_map<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> running_ts_sz = {{1, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> record_ts_sz = {{1, sizeof(uint64_t)}};
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
 

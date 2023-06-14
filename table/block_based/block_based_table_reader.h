@@ -111,7 +111,8 @@ class BlockBasedTable : public TableReader {
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
-      UniqueId64x2 expected_unique_id = {});
+      UniqueId64x2 expected_unique_id = {},
+      const bool user_defined_timestamps_persisted = true);
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
@@ -549,7 +550,8 @@ struct BlockBasedTable::Rep {
   Rep(const ImmutableOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
-      uint64_t _file_size, int _level, const bool _immortal_table)
+      uint64_t _file_size, int _level, const bool _immortal_table,
+      const bool _user_defined_timestamps_persisted = true)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -562,7 +564,8 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table) {}
+        immortal_table(_immortal_table),
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -635,6 +638,15 @@ struct BlockBasedTable::Rep {
   bool index_value_is_full = true;
 
   const bool immortal_table;
+  // Whether the user key contains user-defined timestamps. If this is false and
+  // the running user comparator has a non-zero timestamp size, a min timestamp
+  // of this size will be padded to each user key while parsing blocks whenever
+  // it applies.  This includes the keys in data block, index block for data
+  // block, top-level index for index partitions (if index type is
+  // `kTwoLevelIndexSearch`), top-level index for filter partitions (if using
+  // partitioned filters), the `first_internal_key` in `IndexValue`, the
+  // `end_key` for range deletion entries.
+  const bool user_defined_timestamps_persisted;
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;

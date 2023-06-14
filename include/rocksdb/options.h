@@ -1817,15 +1817,18 @@ struct CompactionOptions {
 // For level based compaction, we can configure if we want to skip/force
 // bottommost level compaction.
 enum class BottommostLevelCompaction {
-  // Skip bottommost level compaction
+  // Skip bottommost level compaction.
   kSkip,
-  // Only compact bottommost level if there is a compaction filter
-  // This is the default option
+  // Only compact bottommost level if there is a compaction filter.
+  // This is the default option.
+  // Similar to kForceOptimized, when compacting bottommost level, avoid
+  // double-compacting files
+  // created in the same manual compaction.
   kIfHaveCompactionFilter,
-  // Always compact bottommost level
+  // Always compact bottommost level.
   kForce,
   // Always compact bottommost level but in bottommost level avoid
-  // double-compacting files created in the same compaction
+  // double-compacting files created in the same compaction.
   kForceOptimized,
 };
 
@@ -2087,6 +2090,9 @@ struct WaitForCompactOptions {
   // Otherwise, jobs that were queued, but not scheduled yet may never finish
   // and WaitForCompact() may wait indefinitely.
   bool abort_on_pause = false;
+
+  // A boolean to flush all column families before starting to wait.
+  bool flush = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

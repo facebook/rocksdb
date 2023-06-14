@@ -1,4 +1,5 @@
 #! /usr/bin/env bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 
 set -e
 
@@ -29,7 +30,8 @@ echo >> HISTORY.new
 awk '/#define ROCKSDB_MAJOR/ { major = $3 }
      /#define ROCKSDB_MINOR/ { minor = $3 }
      /#define ROCKSDB_PATCH/ { patch = $3 }
-     END { print "## " major "." minor "." patch " (" strftime("%F") ")" }' < include/rocksdb/version.h >> HISTORY.new
+     END { printf "## " major "." minor "." patch }' < include/rocksdb/version.h >> HISTORY.new
+echo " (`date +%x`)" >> HISTORY.new
 
 function process_file () {
   # use awk to correct extra or missing newlines, missing '* ' on first line
@@ -65,11 +67,17 @@ process_dir new_features "New Features"
 process_dir public_api_changes "Public API Changes"
 process_dir behavior_changes "Behavior Changes"
 process_dir bug_fixes "Bug Fixes"
+process_dir performance_improvements "Performance Improvements"
 
 # Check for unexpected files or dirs at top level. process_dir/process_file
 # will deal with contents of these directories
 EXPECTED_REGEX="[^/]*[.]sh|README[.]txt|$(echo $PROCESSED_DIRECTORIES | tr ' ' '|')"
-UNEXPECTED="$(find unreleased_history/ -mindepth 1 -maxdepth 1 -regextype egrep -not -regex "[^/]*/($EXPECTED_REGEX)")"
+platform=`uname`
+if [ $platform = 'Darwin' ]; then
+  UNEXPECTED="$(find -E unreleased_history -mindepth 1 -maxdepth 1 -not -regex "[^/]*/($EXPECTED_REGEX)")"
+else
+  UNEXPECTED="$(find unreleased_history/ -mindepth 1 -maxdepth 1 -regextype egrep -not -regex "[^/]*/($EXPECTED_REGEX)")"
+fi
 if [ "$UNEXPECTED" ]; then
   echo "Unexpected files I don't know how to process:"
   echo "$UNEXPECTED"

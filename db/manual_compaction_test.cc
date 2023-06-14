@@ -286,9 +286,9 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     filter->Reset();
     ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, nullptr));
     ASSERT_EQ(4, filter->NumKeys());
-    // 1 is first compacted to L1 and then further compacted into [2, 4, 8],
-    // so finally the logged level for 1 is L1.
-    ASSERT_EQ(1, filter->KeyLevel("1"));
+    // 1 is first compacted from L0 to L1, and then L1 intra level compaction
+    // compacts [2, 4, 8] only.
+    ASSERT_EQ(0, filter->KeyLevel("1"));
     ASSERT_EQ(1, filter->KeyLevel("2"));
     ASSERT_EQ(1, filter->KeyLevel("4"));
     ASSERT_EQ(1, filter->KeyLevel("8"));
