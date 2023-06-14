@@ -714,6 +714,7 @@ def gen_cmd(params, unknown_params):
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
+                "skip_tmpdir_check"
             }
             and v is not None
         ]
@@ -987,6 +988,7 @@ def main():
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
+    parser.add_argument("--skip_tmpdir_check", action="store_true")
 
     all_params = dict(
         list(default_params.items())
@@ -1012,13 +1014,13 @@ def main():
     args, unknown_args = parser.parse_known_args()
 
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is not None:
+    if test_tmpdir is not None and not args.skip_tmpdir_check:
         isdir = False
         try:
             isdir = os.path.isdir(test_tmpdir)
             if not isdir:
                 print(
-                    "%s env var is set to a non-existent directory: %s"
+                    "ERROR: %s env var is set to a non-existent directory: %s. Update it to correct directory path."
                     % (_TEST_DIR_ENV_VAR, test_tmpdir)
                 )
                 sys.exit(1)
