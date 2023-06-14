@@ -875,6 +875,9 @@ class WritableFile {
   WritableFile(const WritableFile&) = delete;
   void operator=(const WritableFile&) = delete;
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // WritableFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~WritableFile();
 
   // Append data to the end of the file
@@ -1091,6 +1094,8 @@ class RandomRWFile {
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
 
+  // Many derived classes of Directory will need to call Close() in their
+  // destructor, when not called already, to ensure resources are released.
   virtual ~RandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -1160,14 +1165,14 @@ class MemoryMappedFileBuffer {
 // filesystem operations that can be executed on directories.
 class Directory {
  public:
+  // Many derived classes of Directory will need to call Close() in their
+  // destructor, when not called already, to ensure resources are released.
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
-  // The caller is expected to call Close() exactly once before destroying the
-  // Directory, and no other functions are supported after calling Close().
-  // Any errors associated with finishing writes (in case of future features)
-  // should be returned in the Status, but the directory is considered closed
-  // regardless of return status.
+  // Calling Close() before destroying a Directory is recommended to surface
+  // any errors associated with finishing writes (in case of future features).
+  // The directory is considered closed regardless of return status.
   // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual Status Close() { return Status::NotSupported("Close"); }
 
