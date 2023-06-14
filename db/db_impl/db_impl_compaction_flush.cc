@@ -1386,6 +1386,14 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
+  if (cfd->ioptions()->allow_ingest_behind &&
+      output_level >= cfd->ioptions()->num_levels - 1) {
+    return Status::InvalidArgument(
+        "Exceed the maximum output level defined by "
+        "the current compaction algorithm with ingest_behind --- " +
+        std::to_string(cfd->ioptions()->num_levels - 1));
+  }
+
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
       &input_set, cf_meta, output_level);
   TEST_SYNC_POINT("DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles");
