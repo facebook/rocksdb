@@ -3551,6 +3551,23 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
   }
 }
+
+struct StaticDestructionTester {
+  bool activated = false;
+  ~StaticDestructionTester() {
+    if (activated && !kMustFreeHeapAllocations) {
+      // Make sure we can still call some things on default Env.
+      std::string hostname;
+      Env::Default()->GetHostNameString(&hostname);
+    }
+  }
+} static_destruction_tester;
+
+TEST(EnvTestMisc, StaticDestruction) {
+  // Check for any crashes during static destruction.
+  static_destruction_tester.activated = true;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
