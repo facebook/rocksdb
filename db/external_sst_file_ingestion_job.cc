@@ -708,9 +708,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
-  }
-  if (!status.ok()) {
-    return status;
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   // Get the external file properties
