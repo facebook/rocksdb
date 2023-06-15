@@ -646,25 +646,30 @@ struct AdvancedColumnFamilyOptions {
   // then the last level is reserved, and we will start filling LSM from the
   // second last level.
   //
-  // More adaptive compaction to write traffic:
+  // With this option on, compaction is more adaptive to write traffic:
   // Compaction priority will take into account estimated bytes to be compacted
   // down to a level and favors compacting lower levels when there is a write
-  // traffic spike. Refers to
+  // traffic spike (and hence more compaction debt). Refer to
   // https://github.com/facebook/rocksdb/wiki/Leveled-Compactio#option-level_compaction_dynamic_level_bytes-and-levels-target-size
   // for more detailed description. See more implementation detail in:
   // VersionStorageInfo::ComputeCompactionScore().
   //
-  // MIGRATION from level_compaction_dynamic_level_bytes=false to
-  // level_compaction_dynamic_level_bytes=true: refers to
-  // https://github.com/facebook/rocksdb/wiki/Leveled-Compaction#migrating-from-level_compaction_dynamic_level_bytesfalse-to-level_compaction_dynamic_level_bytestrue
-  //
-  // Automatic draining of unneeded levels:
+  // With this option on, unneeded levels will be drained automatically:
   // Note that there may be excessive levels (where target level size is 0 when
   // computed based on this feature) in the LSM. This can happen after a user
   // migrates to turn this feature on or deletes a lot of data. This is
   // especially likely when a user migrates from leveled compaction with a
   // smaller multiplier or from universal compaction. RocksDB will gradually
-  // drain these unnecessary levels by compacting files down the LSM.
+  // drain these unnecessary levels by compacting files down the LSM. Smaller
+  // number of levels should help to reduce read amplification.
+  //
+  // Migration to turn on this option:
+  // - Before RocksDB v8.2, users are expected to do a full manual compaction
+  //   and then restart DB to turn on this option.
+  // - Since RocksDB v8.2, users can just restart DB with this option on, as
+  //   long as num_levels is no smaller than number of non-empty levels in the
+  //   LSM. Migration will be done automatically by RocksDB. See more in
+  //   https://github.com/facebook/rocksdb/wiki/Leveled-Compaction#migrating-from-level_compaction_dynamic_level_bytesfalse-to-level_compaction_dynamic_level_bytestrue
   //
   // Default: true
   bool level_compaction_dynamic_level_bytes = true;
