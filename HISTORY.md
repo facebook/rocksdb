@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 8.3.2 (06/14/2023)
+### Bug Fixes
+* Reduced cases of illegally using Env::Default() during static destruction by never destroying the internal PosixEnv itself (except for builds checking for memory leaks). (#11538)
+
 ## 8.3.1 (06/07/2023)
 ### Performance Improvements
 * Fixed higher read QPS during DB::Open() reading files created prior to #11406, especially when reading many small file (size < 52 MB) during DB::Open() and partitioned filter or index is used.
