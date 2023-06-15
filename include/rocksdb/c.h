@@ -1615,7 +1615,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_row_cache(
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_add_compact_on_deletion_collector_factory(
-    rocksdb_options_t*, size_t window_size, size_t num_dels_trigger);
+    rocksdb_options_t*, size_t window_size, size_t num_dels_trigger,
+    double deletion_ratio);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
     rocksdb_options_t* opt, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
