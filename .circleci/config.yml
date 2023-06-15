@@ -209,7 +209,7 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 12.5.1
+      xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     environment:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
@@ -222,7 +222,7 @@ jobs:
 
   build-macos-cmake:
     macos:
-      xcode: 12.5.1
+      xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     parameters:
       run_even_tests:
@@ -607,7 +607,7 @@ jobs:
 
   build-macos-java:
     macos:
-      xcode: 12.5.1
+      xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -632,7 +632,7 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 12.5.1
+      xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -657,7 +657,7 @@ jobs:
 
   build-macos-java-static-universal:
     macos:
-      xcode: 12.5.1
+      xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
