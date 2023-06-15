@@ -9,8 +9,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// DUMMY COMMENT TO TRIGGER CI -- WILL BE REMOVED
-
 const Slice kDefaultWideColumnName;
 
 const WideColumns kNoWideColumns;
