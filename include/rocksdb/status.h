@@ -113,6 +113,7 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
+    kMergeOperatorFailed = 15,
     kMaxSubCode
   };
 

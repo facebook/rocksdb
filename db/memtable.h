@@ -529,7 +529,7 @@ class MemTable {
 
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
-                                    size_t protection_bytes_per_key,
+                                    uint32_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
  private:
@@ -596,7 +596,7 @@ class MemTable {
   const SliceTransform* insert_with_hint_prefix_extractor_;
 
   // Insert hints for each prefix.
-  UnorderedMapH<Slice, void*, SliceHasher> insert_hints_;
+  UnorderedMapH<Slice, void*, SliceHasher32> insert_hints_;
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;

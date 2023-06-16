@@ -53,6 +53,7 @@ struct Options;
 struct ReadOptions;
 struct TableProperties;
 struct WriteOptions;
+struct WaitForCompactOptions;
 class Env;
 class EventListener;
 class FileSystem;
@@ -301,6 +302,18 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       std::string trim_ts);
 
+  // Manually, synchronously attempt to resume DB writes after a write failure
+  // to the underlying filesystem. See
+  // https://github.com/facebook/rocksdb/wiki/Background-Error-Handling
+  //
+  // Returns OK if writes are successfully resumed, or there was no
+  // outstanding error to recover from. Returns underlying write error if
+  // it is not recoverable.
+  //
+  // WART: Does not mix well with auto-resume. Will return Busy if an
+  // auto-resume is in progress, without waiting for it to complete.
+  // See DBOptions::max_bgerror_resume_count and
+  // EventListener::OnErrorRecoveryBegin
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -769,6 +782,68 @@ class DB {
     }
   }
 
+  // Batched MultiGet-like API that returns wide-column entities from a single
+  // column family. For any given "key[i]" in "keys" (where 0 <= "i" <
+  // "num_keys"), if the column family specified by "column_family" contains an
+  // entry, it is returned it as a wide-column entity in "results[i]". If the
+  // entry is a wide-column entity, it is returned as-is; if it is a plain
+  // key-value, it is returned as an entity with a single anonymous column (see
+  // kDefaultWideColumnName) which contains the value.
+  //
+  // "statuses[i]" is set to OK if "keys[i]" is successfully retrieved. It is
+  // set to NotFound and an empty wide-column entity is returned in "results[i]"
+  // if there is no entry for "keys[i]". Finally, "statuses[i]" is set to some
+  // other non-OK status on error.
+  //
+  // If "keys" are sorted according to the column family's comparator, the
+  // "sorted_input" flag can be set for a small performance improvement.
+  //
+  // Note that it is the caller's responsibility to ensure that "keys",
+  // "results", and "statuses" point to "num_keys" number of contiguous objects
+  // (Slices, PinnableWideColumns, and Statuses respectively).
+  virtual void MultiGetEntity(const ReadOptions& /* options */,
+                              ColumnFamilyHandle* /* column_family */,
+                              size_t num_keys, const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // Batched MultiGet-like API that returns wide-column entities potentially
+  // from multiple column families. For any given "key[i]" in "keys" (where 0 <=
+  // "i" < "num_keys"), if the column family specified by "column_families[i]"
+  // contains an entry, it is returned it as a wide-column entity in
+  // "results[i]". If the entry is a wide-column entity, it is returned as-is;
+  // if it is a plain key-value, it is returned as an entity with a single
+  // anonymous column (see kDefaultWideColumnName) which contains the value.
+  //
+  // "statuses[i]" is set to OK if "keys[i]" is successfully retrieved. It is
+  // set to NotFound and an empty wide-column entity is returned in "results[i]"
+  // if there is no entry for "keys[i]". Finally, "statuses[i]" is set to some
+  // other non-OK status on error.
+  //
+  // If "keys" are sorted by column family id and within each column family,
+  // according to the column family's comparator, the "sorted_input" flag can be
+  // set for a small performance improvement.
+  //
+  // Note that it is the caller's responsibility to ensure that
+  // "column_families", "keys", "results", and "statuses" point to "num_keys"
+  // number of contiguous objects (ColumnFamilyHandle pointers, Slices,
+  // PinnableWideColumns, and Statuses respectively).
+  virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
+                              ColumnFamilyHandle** /* column_families */,
+                              const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
   // is found in memory, a bool for 'value_found' must be passed. 'value_found'
@@ -878,6 +953,18 @@ class DB {
     //  "rocksdb.cf-file-histogram" - print out how many file reads to every
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
+
+    // "rocksdb.cf-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on CF-scope write stalls for a given CF
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kCFWriteStallStats;
+
+    // "rocksdb.db-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on DB-scope write stalls
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kDBWriteStallStats;
 
     //  "rocksdb.dbstats" - As a string property, returns a multi-line string
     //      with general database stats, both cumulative (over the db's
@@ -1010,13 +1097,22 @@ class DB {
     static const std::string kMinObsoleteSstNumberToKeep;
 
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
-    //      files.
+    //      files belonging to any of the CF's versions.
     //  WARNING: may slow down online queries if there are too many files.
     static const std::string kTotalSstFilesSize;
 
     //  "rocksdb.live-sst-files-size" - returns total size (bytes) of all SST
-    //      files belong to the latest LSM tree.
+    //      files belong to the CF's current version.
     static const std::string kLiveSstFilesSize;
+
+    //  "rocksdb.obsolete-sst-files-size" - returns total size (bytes) of all
+    //      SST files that became obsolete but have not yet been deleted or
+    //      scheduled for deletion. SST files can end up in this state when
+    //      using `DisableFileDeletions()`, for example.
+    //
+    //      N.B. Unlike the other "*SstFilesSize" properties, this property
+    //      includes SST files that originated in any of the DB's CFs.
+    static const std::string kObsoleteSstFilesSize;
 
     // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
     //      of SST files at all certain file temperature
@@ -1151,6 +1247,7 @@ class DB {
   //  "rocksdb.min-obsolete-sst-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.live-sst-files-size"
+  //  "rocksdb.obsolete-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
@@ -1360,6 +1457,17 @@ class DB {
   // manual compactions, and must not be called more times than
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
+
+  // Wait for all flush and compactions jobs to finish. Jobs to wait include the
+  // unscheduled (queued, but not scheduled yet). If the db is shutting down,
+  // Status::ShutdownInProgress will be returned.
+  //
+  // NOTE: This may also never return if there's sufficient ongoing writes that
+  // keeps flush and compaction going without stopping. The user would have to
+  // cease all the writes to DB to make this eventually return in a stable
+  // state.
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
@@ -1655,11 +1763,12 @@ class DB {
       const std::vector<IngestExternalFileArg>& args) = 0;
 
   // CreateColumnFamilyWithImport() will create a new column family with
-  // column_family_name and import external SST files specified in metadata into
-  // this column family.
+  // column_family_name and import external SST files specified in `metadata`
+  // into this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB using Checkpoint::ExportColumnFamily.
+  //     an existing DB using Checkpoint::ExportColumnFamily. `metadata` should
+  //     be the output from Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a
@@ -1673,8 +1782,39 @@ class DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
+    const std::vector<const ExportImportFilesMetaData*>& metadatas{&metadata};
+    return CreateColumnFamilyWithImport(options, column_family_name,
+                                        import_options, metadatas, handle);
+  }
+
+  // EXPERIMENTAL
+  // Overload of the CreateColumnFamilyWithImport() that allows the caller to
+  // pass a list of ExportImportFilesMetaData pointers to support creating
+  // ColumnFamily by importing multiple ColumnFamilies.
+  // It should be noticed that if the user keys of the imported column families
+  // overlap with each other, an error will be returned.
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) = 0;
+
+  // EXPERIMENTAL
+  // ClipColumnFamily() will clip the entries in the CF according to the range
+  // [begin_key, end_key). Returns OK on success, and a non-OK status on error.
+  // Any entries outside this range will be completely deleted (including
+  // tombstones).
+  // The main difference between ClipColumnFamily(begin, end) and
+  // DeleteRange(begin, end)
+  // is that the former physically deletes all keys outside the range, but is
+  // more heavyweight than the latter.
+  // This feature is mainly used to ensure that there is no overlapping Key when
+  // calling CreateColumnFamilyWithImport() to import multiple CFs.
+  // Note that: concurrent updates cannot be performed during Clip.
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) = 0;
 
   // Verify the checksums of files in db. Currently the whole-file checksum of
   // table files are checked.
@@ -1796,6 +1936,24 @@ class DB {
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
+};
+
+struct WriteStallStatsMapKeys {
+  static const std::string& TotalStops();
+  static const std::string& TotalDelays();
+
+  static const std::string& CFL0FileCountLimitDelaysWithOngoingCompaction();
+  static const std::string& CFL0FileCountLimitStopsWithOngoingCompaction();
+
+  // REQUIRES:
+  // `cause` isn't any of these: `WriteStallCause::kNone`,
+  // `WriteStallCause::kCFScopeWriteStallCauseEnumMax`,
+  // `WriteStallCause::kDBScopeWriteStallCauseEnumMax`
+  //
+  // REQUIRES:
+  // `condition` isn't any of these: `WriteStallCondition::kNormal`
+  static std::string CauseConditionCount(WriteStallCause cause,
+                                         WriteStallCondition condition);
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.

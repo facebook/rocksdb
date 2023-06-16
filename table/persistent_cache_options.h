@@ -7,7 +7,7 @@
 #include <string>
 
 #include "cache/cache_key.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/persistent_cache.h"
 
 namespace ROCKSDB_NAMESPACE {

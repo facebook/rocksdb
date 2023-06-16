@@ -155,8 +155,10 @@ Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::TEST_AtomicFlushMemTables(
-    const autovector<ColumnFamilyData*>& cfds, const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    const FlushOptions& flush_opts) {
+  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
+                              provided_candidate_cfds);
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {
@@ -176,9 +178,12 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
-Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
-  // Wait until the compaction completes
-  return WaitForCompact(wait_unscheduled);
+Status DBImpl::TEST_WaitForCompact() {
+  return WaitForCompact(WaitForCompactOptions());
+}
+Status DBImpl::TEST_WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
+  return WaitForCompact(wait_for_compact_options);
 }
 
 Status DBImpl::TEST_WaitForPurge() {

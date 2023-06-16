@@ -400,6 +400,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
+      {offsetof(struct ColumnFamilyOptions, compaction_options_fifo),
+       sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
       {offsetof(struct ColumnFamilyOptions,
@@ -497,8 +499,13 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "compression_opts=5:6:7:8:9:10:true:11:false;"
-      "bottommost_compression_opts=4:5:6:7:8:9:true:10:true;"
+      "compression_opts={max_dict_buffer_bytes=5;use_zstd_dict_trainer=true;"
+      "enabled=false;parallel_threads=6;zstd_max_train_bytes=7;strategy=8;max_"
+      "dict_bytes=9;level=10;window_bits=11;max_compressed_bytes_per_kb=987;};"
+      "bottommost_compression_opts={max_dict_buffer_bytes=4;use_zstd_dict_"
+      "trainer=true;enabled=true;parallel_threads=5;zstd_max_train_bytes=6;"
+      "strategy=7;max_dict_bytes=8;level=9;window_bits=10;max_compressed_bytes_"
+      "per_kb=876;};"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -544,9 +551,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "preclude_last_level_data_seconds=86400;"
       "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};"
+      "compaction=true;age_for_warm=0;file_temperature_age_thresholds={{"
+      "temperature=kCold;age=12345}};};"
       "blob_cache=1M;"
-      "memtable_protection_bytes_per_key=2;",
+      "memtable_protection_bytes_per_key=2;"
+      "persist_user_defined_timestamps=true;"
+      "block_protection_bytes_per_key=1;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
@@ -554,6 +564,22 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),
                           kColumnFamilyOptionsExcluded));
+
+  // Custom verification since compaction_options_fifo was in
+  // kColumnFamilyOptionsExcluded
+  ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
+  ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
+  ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds
+                .size(),
+            1);
+  ASSERT_EQ(
+      new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
+          .temperature,
+      Temperature::kCold);
+  ASSERT_EQ(
+      new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
+          .age,
+      12345);
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
@@ -571,6 +597,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct MutableCFOptions,
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
+      {offsetof(struct MutableCFOptions, compaction_options_fifo),
+       sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct MutableCFOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
       {offsetof(struct MutableCFOptions, max_file_size),

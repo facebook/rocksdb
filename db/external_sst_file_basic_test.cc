@@ -102,7 +102,8 @@ class ExternalSSTFileBasicTest
       // all point operators, even though sst_file_writer.DeleteRange
       // must be called before other sst_file_writer methods. This is
       // because point writes take precedence over range deletions
-      // in the same ingested sst.
+      // in the same ingested sst. This precedence is part of
+      // `SstFileWriter::DeleteRange()`'s API contract.
       std::string start_key = Key(range_deletions[i].first);
       std::string end_key = Key(range_deletions[i].second);
       s = sst_file_writer.DeleteRange(start_key, end_key);
@@ -1418,6 +1419,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+  VerifyDBFromMap(true_data);
 }
 
 TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
@@ -1460,6 +1462,89 @@ TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
   ASSERT_OK(s) << s.ToString();
   ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileBasicTest, UnorderedRangeDeletions) {
+  int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = kNumLevels;
+  Reopen(options);
+
+  std::map<std::string, std::string> true_data;
+  int file_id = 1;
+
+  // prevent range deletions from being dropped due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // Range del [0, 50) in memtable
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(50)));
+
+  // Out of order range del overlaps memtable, so flush is required before file
+  // is ingested into L0
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {60, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      {{65, 70}, {45, 50}}, file_id++, true /* write_global_seqno */,
+      true /* verify_checksums_before_ingest */, &true_data));
+  ASSERT_EQ(2, true_data.size());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Compact to L6
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Ingest a file containing out of order range dels that cover nothing
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {151, 175}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      {{160, 200}, {120, 180}}, file_id++, true /* write_global_seqno */,
+      true /* verify_checksums_before_ingest */, &true_data));
+  ASSERT_EQ(4, true_data.size());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(2, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  // Ingest a file containing out of order range dels that cover keys in L6
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {}, {}, {{190, 200}, {170, 180}, {55, 65}}, file_id++,
+      true /* write_global_seqno */, true /* verify_checksums_before_ingest */,
+      &true_data));
+  ASSERT_EQ(2, true_data.size());
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(2, NumTableFilesAtLevel(kNumLevels - 1));
+  VerifyDBFromMap(true_data);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // "file.sst"
+  // Verify attempt to delete 300 => 200 fails.
+  // Then, verify attempt to delete 300 => 300 succeeds but writes nothing.
+  // Afterwards, verify attempt to delete 300 => 400 works normally.
+  std::string file = sst_files_dir_ + "file.sst";
+  ASSERT_OK(sst_file_writer.Open(file));
+  ASSERT_TRUE(
+      sst_file_writer.DeleteRange(Key(300), Key(200)).IsInvalidArgument());
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(300)));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(400)));
+  ExternalSstFileInfo file_info;
+  Status s = sst_file_writer.Finish(&file_info);
+  ASSERT_OK(s) << s.ToString();
+  ASSERT_EQ(file_info.file_path, file);
+  ASSERT_EQ(file_info.num_entries, 0);
+  ASSERT_EQ(file_info.smallest_key, "");
+  ASSERT_EQ(file_info.largest_key, "");
+  ASSERT_EQ(file_info.num_range_del_entries, 1);
+  ASSERT_EQ(file_info.smallest_range_del_key, Key(300));
+  ASSERT_EQ(file_info.largest_range_del_key, Key(400));
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {

@@ -436,6 +436,14 @@ class Env : public Customizable {
     IO_TOTAL = 4
   };
 
+  // EXPERIMENTAL
+  enum class IOActivity : uint8_t {
+    kFlush = 0,
+    kCompaction = 1,
+    kDBOpen = 2,
+    kUnknown,  // Keep last for easy array of non-unknowns
+  };
+
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
   // priority thread pool.

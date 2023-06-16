@@ -606,7 +606,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     log_write_mutex_.Unlock();
     if (status.ok() && synced_wals.IsWalAddition()) {
       InstrumentedMutexLock l(&mutex_);
-      status = ApplyWALToManifest(&synced_wals);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      status = ApplyWALToManifest(read_options, &synced_wals);
     }
 
     // Requesting sync with two_write_queues_ is expected to be very rare. We
@@ -767,7 +769,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
     if (w.status.ok() && synced_wals.IsWalAddition()) {
       InstrumentedMutexLock l(&mutex_);
-      w.status = ApplyWALToManifest(&synced_wals);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      w.status = ApplyWALToManifest(read_options, &synced_wals);
     }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
@@ -1211,6 +1215,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   // exceeded at this point so no new write (including current one) will go
   // through until memory usage is decreased.
   if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldStall())) {
+    default_cf_internal_stats_->AddDBStats(
+        InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts, 1,
+        true /* concurrent */);
     if (write_options.no_slowdown) {
       status = Status::Incomplete("Write stall");
     } else {
@@ -1321,7 +1328,13 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Lock();
   }
-  IOStatus io_s = log_writer->AddRecord(log_entry, rate_limiter_priority);
+  IOStatus io_s = log_writer->MaybeAddUserDefinedTimestampSizeRecord(
+      versions_->GetColumnFamiliesTimestampSizeForRecord(),
+      rate_limiter_priority);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  io_s = log_writer->AddRecord(log_entry, rate_limiter_priority);
 
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Unlock();
@@ -1543,14 +1556,40 @@ Status DBImpl::WriteRecoverableState() {
 }
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
-    autovector<ColumnFamilyData*>* cfds) {
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    autovector<ColumnFamilyData*>* selected_cfds,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
+  mutex_.AssertHeld();
+  assert(selected_cfds);
+
+  autovector<ColumnFamilyData*> candidate_cfds;
+
+  // Generate candidate cfds if not provided
+  if (provided_candidate_cfds.empty()) {
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized()) {
+        cfd->Ref();
+        candidate_cfds.push_back(cfd);
+      }
+    }
+  } else {
+    candidate_cfds = provided_candidate_cfds;
+  }
+
+  for (ColumnFamilyData* cfd : candidate_cfds) {
     if (cfd->IsDropped()) {
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
         !cached_recoverable_state_empty_.load()) {
-      cfds->push_back(cfd);
+      selected_cfds->push_back(cfd);
+    }
+  }
+
+  // Unref the newly generated candidate cfds (when not provided) in
+  // `candidate_cfds`
+  if (provided_candidate_cfds.empty()) {
+    for (auto candidate_cfd : candidate_cfds) {
+      candidate_cfd->UnrefAndTryDelete();
     }
   }
 }
@@ -1776,7 +1815,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
   bool delayed = false;
   {
     StopWatch sw(immutable_db_options_.clock, stats_, WRITE_STALL,
-                 &time_delayed);
+                 Histograms::HISTOGRAM_ENUM_MAX, &time_delayed);
     // To avoid parallel timed delays (bad throttling), only support them
     // on the primary write queue.
     uint64_t delay;
@@ -2057,6 +2096,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
@@ -2208,8 +2249,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
       VersionEdit wal_deletion;
       wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
-      s = versions_->LogAndApplyToDefaultColumnFamily(&wal_deletion, &mutex_,
-                                                      directories_.GetDbDir());
+      s = versions_->LogAndApplyToDefaultColumnFamily(
+          read_options, &wal_deletion, &mutex_, directories_.GetDbDir());
       if (!s.ok() && versions_->io_status().IsIOError()) {
         s = error_handler_.SetBGError(versions_->io_status(),
                                       BackgroundErrorReason::kManifestWrite);

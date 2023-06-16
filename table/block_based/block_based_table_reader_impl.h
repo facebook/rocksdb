@@ -68,7 +68,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     // uncompression dict is typically at the end of the file and would
     // most likely break the sequentiality of the access pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        ro.async_io ? nullptr : prefetch_buffer, no_io, ro.verify_checksums,
+        ro.async_io ? nullptr : prefetch_buffer, ro, no_io, ro.verify_checksums,
         get_context, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);
@@ -77,15 +77,15 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const UncompressionDict& dict = uncompression_dict.GetValue()
                                         ? *uncompression_dict.GetValue()
                                         : UncompressionDict::GetEmptyDict();
-    s = RetrieveBlock(
-        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
-        get_context, lookup_context, for_compaction,
-        /* use_cache */ true, /* wait_for_cache */ true, async_read);
+    s = RetrieveBlock(prefetch_buffer, ro, handle, dict,
+                      &block.As<IterBlocklike>(), get_context, lookup_context,
+                      for_compaction,
+                      /* use_cache */ true, async_read);
   } else {
     s = RetrieveBlock(
         prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
         &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
-        /* use_cache */ true, /* wait_for_cache */ true, async_read);
+        /* use_cache */ true, async_read);
   }
 
   if (s.IsTryAgain() && async_read) {

@@ -113,12 +113,12 @@ public class PutMultiplePartsTest {
       final List<byte[]> keys = generateItemsAsList("key", ":", numParts);
       final byte[][] values = generateItems("value", "", numParts);
 
-      StringBuilder singleKey = new StringBuilder();
+      final StringBuilder singleKey = new StringBuilder();
       for (int i = 0; i < numParts; i++) {
         singleKey.append(new String(keys.get(i), StandardCharsets.UTF_8));
       }
       final byte[] result = db.get(singleKey.toString().getBytes());
-      StringBuilder singleValue = new StringBuilder();
+      final StringBuilder singleValue = new StringBuilder();
       for (int i = 0; i < numParts; i++) {
         singleValue.append(new String(values[i], StandardCharsets.UTF_8));
       }
@@ -136,12 +136,12 @@ public class PutMultiplePartsTest {
       final List<byte[]> keys = generateItemsAsList("key", ":", numParts);
       final byte[][] values = generateItems("value", "", numParts);
 
-      StringBuilder singleKey = new StringBuilder();
+      final StringBuilder singleKey = new StringBuilder();
       for (int i = 0; i < numParts; i++) {
         singleKey.append(new String(keys.get(i), StandardCharsets.UTF_8));
       }
       final byte[] result = db.get(columnFamilyHandles.get(0), singleKey.toString().getBytes());
-      StringBuilder singleValue = new StringBuilder();
+      final StringBuilder singleValue = new StringBuilder();
       for (int i = 0; i < numParts; i++) {
         singleValue.append(new String(values[i], StandardCharsets.UTF_8));
       }

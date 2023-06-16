@@ -38,6 +38,8 @@ Status UpdateManifestForFilesState(
     const DBOptions& db_opts, const std::string& db_name,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     const UpdateManifestForFilesStateOptions& opts) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   OfflineManifestWriter w(db_opts, db_name);
   Status s = w.Recover(column_families);
 
@@ -100,7 +102,7 @@ Status UpdateManifestForFilesState(
                   lf->oldest_blob_file_number, lf->oldest_ancester_time,
                   lf->file_creation_time, lf->epoch_number, lf->file_checksum,
                   lf->file_checksum_func_name, lf->unique_id,
-                  lf->compensated_range_deletion_size);
+                  lf->compensated_range_deletion_size, lf->tail_size);
             }
           }
         } else {
@@ -114,7 +116,7 @@ Status UpdateManifestForFilesState(
       std::unique_ptr<FSDirectory> db_dir;
       s = fs->NewDirectory(db_name, IOOptions(), &db_dir, nullptr);
       if (s.ok()) {
-        s = w.LogAndApply(cfd, &edit, db_dir.get());
+        s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
       }
       if (s.ok()) {
         ++cfs_updated;

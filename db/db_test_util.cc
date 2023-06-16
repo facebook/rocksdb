@@ -1074,6 +1074,24 @@ size_t DBTestBase::TotalLiveFiles(int cf) {
   return num_files;
 }
 
+size_t DBTestBase::TotalLiveFilesAtPath(int cf, const std::string& path) {
+  ColumnFamilyMetaData cf_meta;
+  if (cf == 0) {
+    db_->GetColumnFamilyMetaData(&cf_meta);
+  } else {
+    db_->GetColumnFamilyMetaData(handles_[cf], &cf_meta);
+  }
+  size_t num_files = 0;
+  for (auto& level : cf_meta.levels) {
+    for (auto& f : level.files) {
+      if (f.directory == path) {
+        num_files++;
+      }
+    }
+  }
+  return num_files;
+}
+
 size_t DBTestBase::CountLiveFiles() {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);

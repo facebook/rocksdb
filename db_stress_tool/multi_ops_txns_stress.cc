@@ -387,6 +387,18 @@ std::vector<Status> MultiOpsTxnsStressTest::TestMultiGet(
   return std::vector<Status>{Status::NotSupported()};
 }
 
+// Wide columns are currently not supported by transactions.
+void MultiOpsTxnsStressTest::TestGetEntity(
+    ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+    const std::vector<int>& /* rand_column_families */,
+    const std::vector<int64_t>& /* rand_keys */) {}
+
+// Wide columns are currently not supported by transactions.
+void MultiOpsTxnsStressTest::TestMultiGetEntity(
+    ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+    const std::vector<int>& /* rand_column_families */,
+    const std::vector<int64_t>& /* rand_keys */) {}
+
 Status MultiOpsTxnsStressTest::TestPrefixScan(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& rand_column_families,
@@ -1208,7 +1220,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
 // which can be called before TransactionDB::Open() returns to caller.
 // Therefore, at that time, db_ and txn_db_  may still be nullptr.
 // Caller has to make sure that the race condition does not happen.
-void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
+void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
+                                            int job_id) {
   DB* const db = db_aptr_.load(std::memory_order_acquire);
   if (db == nullptr) {
     return;
@@ -1237,6 +1250,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   ReadOptions ropts;
   ropts.snapshot = snapshot;
   ropts.total_order_seek = true;
+  ropts.io_activity = read_options.io_activity;
 
   std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
   for (it->Seek(start_key); it->Valid(); it->Next()) {

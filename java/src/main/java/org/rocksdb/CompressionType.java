@@ -35,9 +35,9 @@ public enum CompressionType {
    *
    * @return CompressionType instance.
    */
-  public static CompressionType getCompressionType(String libraryName) {
+  public static CompressionType getCompressionType(final String libraryName) {
     if (libraryName != null) {
-      for (CompressionType compressionType : CompressionType.values()) {
+      for (final CompressionType compressionType : CompressionType.values()) {
         if (compressionType.getLibraryName() != null &&
             compressionType.getLibraryName().equals(libraryName)) {
           return compressionType;
@@ -58,7 +58,7 @@ public enum CompressionType {
    * @throws IllegalArgumentException If CompressionType cannot be found for the
    *   provided byteIdentifier
    */
-  public static CompressionType getCompressionType(byte byteIdentifier) {
+  public static CompressionType getCompressionType(final byte byteIdentifier) {
     for (final CompressionType compressionType : CompressionType.values()) {
       if (compressionType.getValue() == byteIdentifier) {
         return compressionType;

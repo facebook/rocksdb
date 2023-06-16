@@ -194,12 +194,6 @@ enum class BackgroundErrorReason {
   kManifestWriteNoWAL,
 };
 
-enum class WriteStallCondition {
-  kNormal,
-  kDelayed,
-  kStopped,
-};
-
 struct WriteStallInfo {
   // the name of the column family
   std::string cf_name;

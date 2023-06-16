@@ -16,7 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -30,12 +30,63 @@ class DummyReadCallback : public ReadCallback {
   void SetSnapshot(SequenceNumber seq) { max_visible_seq_ = seq; }
 };
 
+class DBIteratorBaseTest : public DBTestBase {
+ public:
+  DBIteratorBaseTest()
+      : DBTestBase("db_iterator_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
+  // Set up the DB
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 1; i <= 3; i++) {
+    ASSERT_OK(Put(std::to_string(i), std::to_string(i)));
+  }
+
+  // Setup iterator and PerfContext
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::string key_str = std::to_string(2);
+  Slice key(key_str);
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
+  // Initial PerfContext counters
+  ASSERT_EQ(0, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(0, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Seek-related API calls PerfContext counter
+  iter->Seek(key);
+  iter->SeekToFirst();
+  iter->SeekToLast();
+  iter->SeekForPrev(key);
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(0, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Next() calls PerfContext counter
+  iter->Next();
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(1, get_perf_context()->iter_next_count);
+  ASSERT_EQ(0, get_perf_context()->iter_prev_count);
+
+  // Test Prev() calls PerfContext counter
+  iter->Prev();
+  ASSERT_EQ(4, get_perf_context()->iter_seek_count);
+  ASSERT_EQ(1, get_perf_context()->iter_next_count);
+  ASSERT_EQ(1, get_perf_context()->iter_prev_count);
+
+  delete iter;
+}
+
 // Test param:
 //   bool: whether to pass read_callback to NewIterator().
-class DBIteratorTest : public DBTestBase,
+class DBIteratorTest : public DBIteratorBaseTest,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() : DBTestBase("db_iterator_test", /*env_do_fsync=*/true) {}
+  DBIteratorTest() {}
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {

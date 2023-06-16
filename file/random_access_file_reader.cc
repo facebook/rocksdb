@@ -19,10 +19,15 @@
 #include "table/format.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
+    kReadHistograms{{
+        FILE_READ_FLUSH_MICROS,
+        FILE_READ_COMPACTION_MICROS,
+        FILE_READ_DB_OPEN_MICROS,
+    }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
@@ -94,6 +99,9 @@ IOStatus RandomAccessFileReader::Read(
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -288,6 +296,9 @@ IOStatus RandomAccessFileReader::MultiRead(
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -425,7 +436,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 }
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
-                                                  IOOptions& opts) {
+                                                  IOOptions& opts) const {
   if (clock_ != nullptr) {
     return PrepareIOFromReadOptions(ro, clock_, opts);
   } else {
@@ -476,13 +487,17 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
     assert(read_async_info->buf_.CurrentSize() == 0);
 
-    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
-                 true /*overwrite*/, true /*delay_enabled*/);
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
-    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
-                 true /*overwrite*/, true /*delay_enabled*/);
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                          io_handle, del_fn, nullptr /*dbg*/);
   }

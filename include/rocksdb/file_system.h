@@ -116,6 +116,8 @@ struct IOOptions {
   // directories and list only files in GetChildren API.
   bool do_not_recurse;
 
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
   IOOptions() : IOOptions(false) {}
 
   explicit IOOptions(bool force_dir_fsync_)
@@ -681,6 +683,10 @@ class FileSystem : public Customizable {
   virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
     return IOStatus::OK();
   }
+
+  // Indicates to upper layers whether the FileSystem supports/uses async IO
+  // or not
+  virtual bool use_async_io() { return true; }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -1521,6 +1527,8 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
+
+  virtual bool use_async_io() override { return target_->use_async_io(); }
 
  protected:
   std::shared_ptr<FileSystem> target_;

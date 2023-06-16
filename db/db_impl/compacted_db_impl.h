@@ -118,13 +118,21 @@ class CompactedDBImpl : public DBImpl {
       const IngestExternalFileOptions& /*ingestion_options*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
   using DB::CreateColumnFamilyWithImport;
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 

@@ -10,13 +10,13 @@ import java.util.List;
 import java.util.Objects;
 
 public class OptionString {
-  private final static char kvPairSeparator = ';';
-  private final static char kvSeparator = '=';
-  private final static char complexValueBegin = '{';
-  private final static char complexValueEnd = '}';
-  private final static char wrappedValueBegin = '{';
-  private final static char wrappedValueEnd = '}';
-  private final static char arrayValueSeparator = ':';
+  private static final char kvPairSeparator = ';';
+  private static final char kvSeparator = '=';
+  private static final char complexValueBegin = '{';
+  private static final char complexValueEnd = '}';
+  private static final char wrappedValueBegin = '{';
+  private static final char wrappedValueEnd = '}';
+  private static final char arrayValueSeparator = ':';
 
   static class Value {
     final List<String> list;
@@ -214,6 +214,11 @@ public class OptionString {
         return value;
       } else if (isValueChar()) {
         return Value.fromList(parseList());
+      } else if (is(kvPairSeparator)) {
+        // e.g. empty vector embedded in a struct option looks like
+        // struct_opt = {vector_opt=;...}
+        final List<String> entries = new ArrayList<>();
+        return Value.fromList(entries);
       }
 
       exception("No valid value character(s) for value in key=value");

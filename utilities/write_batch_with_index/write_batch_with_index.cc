@@ -617,7 +617,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     assert(result == WBWIIteratorImpl::kMergeInProgress ||
            result == WBWIIteratorImpl::kNotFound);
     key_context.emplace_back(column_family, keys[i], &values[i],
-                             /*timestamp*/ nullptr, &statuses[i]);
+                             /* columns */ nullptr, /* timestamp */ nullptr,
+                             &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
   }
 

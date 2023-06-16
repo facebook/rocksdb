@@ -256,7 +256,9 @@ class CompactionJob {
   Status FinishCompactionOutputFile(const Status& input_status,
                                     SubcompactionState* sub_compact,
                                     CompactionOutputs& outputs,
-                                    const Slice& next_table_min_key);
+                                    const Slice& next_table_min_key,
+                                    const Slice* comp_start_user_key,
+                                    const Slice* comp_end_user_key);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);

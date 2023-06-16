@@ -33,6 +33,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 #include <unordered_map>
@@ -41,7 +42,7 @@
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "monitoring/histogram.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -287,7 +288,7 @@ DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 DEFINE_int64(seed, 0,
              "Seed base for random number generators. "
              "When 0 it is derived from the current time.");
-static int64_t seed_base;
+static std::optional<int64_t> seed_base;
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
@@ -548,7 +549,7 @@ DEFINE_bool(universal_allow_trivial_move, false,
 DEFINE_bool(universal_incremental, false,
             "Enable incremental compactions in universal compaction.");
 
-DEFINE_int64(cache_size, 8 << 20,  // 8MB
+DEFINE_int64(cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of uncompressed data");
 
 DEFINE_int32(cache_numshardbits, -1,
@@ -569,7 +570,7 @@ DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
 
-DEFINE_int64(compressed_secondary_cache_size, 8 << 20,  // 8MB
+DEFINE_int64(compressed_secondary_cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of data");
 
 DEFINE_int32(compressed_secondary_cache_numshardbits, 6,
@@ -600,6 +601,12 @@ DEFINE_uint32(
     " in the block header."
     "compress_format_version == 2 -- decompressed size is included"
     " in the block header in varint32 format.");
+
+DEFINE_bool(use_tiered_volatile_cache, false,
+            "If use_compressed_secondary_cache is true and "
+            "use_tiered_volatile_cache is true, then allocate a tiered cache "
+            "that distributes cache reservations proportionally over both "
+            "the caches.");
 
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
@@ -1725,6 +1732,10 @@ DEFINE_uint32(
     "This options determines the size of such checksums. "
     "Supported values: 0, 1, 2, 4, 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "Enable block per key-value checksum protection. "
+              "Supported values: 0, 1, 2, 4, 8.");
+
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
 
@@ -2602,7 +2613,7 @@ struct ThreadState {
   SharedState* shared;
 
   explicit ThreadState(int index, int my_seed)
-      : tid(index), rand(seed_base + my_seed) {}
+      : tid(index), rand(*seed_base + my_seed) {}
 };
 
 class Duration {
@@ -2998,25 +3009,59 @@ class Benchmark {
     return allocator;
   }
 
+  static int32_t GetCacheHashSeed() {
+    // For a fixed Cache seed, need a non-negative int32
+    return static_cast<int32_t>(*seed_base) & 0x7fffffff;
+  }
+
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
+    CompressedSecondaryCacheOptions secondary_cache_opts;
+    bool use_tiered_cache = false;
     if (capacity <= 0) {
       return nullptr;
+    }
+    if (FLAGS_use_compressed_secondary_cache) {
+      secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
+      secondary_cache_opts.num_shard_bits =
+          FLAGS_compressed_secondary_cache_numshardbits;
+      secondary_cache_opts.high_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
+      secondary_cache_opts.low_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
+      secondary_cache_opts.compression_type =
+          FLAGS_compressed_secondary_cache_compression_type_e;
+      secondary_cache_opts.compress_format_version =
+          FLAGS_compressed_secondary_cache_compress_format_version;
+      if (FLAGS_use_tiered_volatile_cache) {
+        use_tiered_cache = true;
+      }
     }
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
     } else if (FLAGS_cache_type == "hyper_clock_cache") {
-      return HyperClockCacheOptions(static_cast<size_t>(capacity),
-                                    FLAGS_block_size /*estimated_entry_charge*/,
-                                    FLAGS_cache_numshardbits)
-          .MakeSharedCache();
+      HyperClockCacheOptions hcco{
+          static_cast<size_t>(capacity),
+          static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,
+          FLAGS_cache_numshardbits};
+      hcco.hash_seed = GetCacheHashSeed();
+      if (use_tiered_cache) {
+        TieredVolatileCacheOptions opts;
+        hcco.capacity += secondary_cache_opts.capacity;
+        opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+        opts.cache_opts = &hcco;
+        opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredVolatileCache(opts);
+      } else {
+        return hcco.MakeSharedCache();
+      }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
           GetCacheAllocator(), kDefaultToAdaptiveMutex,
           kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
-
+      opts.hash_seed = GetCacheHashSeed();
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -3028,26 +3073,21 @@ class Benchmark {
           exit(1);
         }
         opts.secondary_cache = secondary_cache;
-      }
-
-      if (FLAGS_use_compressed_secondary_cache) {
-        CompressedSecondaryCacheOptions secondary_cache_opts;
-        secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
-        secondary_cache_opts.num_shard_bits =
-            FLAGS_compressed_secondary_cache_numshardbits;
-        secondary_cache_opts.high_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
-        secondary_cache_opts.low_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
-        secondary_cache_opts.compression_type =
-            FLAGS_compressed_secondary_cache_compression_type_e;
-        secondary_cache_opts.compress_format_version =
-            FLAGS_compressed_secondary_cache_compress_format_version;
+      } else if (FLAGS_use_compressed_secondary_cache && !use_tiered_cache) {
         opts.secondary_cache =
             NewCompressedSecondaryCache(secondary_cache_opts);
       }
 
-      return NewLRUCache(opts);
+      if (use_tiered_cache) {
+        TieredVolatileCacheOptions tiered_opts;
+        opts.capacity += secondary_cache_opts.capacity;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredVolatileCache(tiered_opts);
+      } else {
+        return opts.MakeSharedCache();
+      }
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);
@@ -4565,6 +4605,8 @@ class Benchmark {
     }
     options.memtable_protection_bytes_per_key =
         FLAGS_memtable_protection_bytes_per_key;
+    options.block_protection_bytes_per_key =
+        FLAGS_block_protection_bytes_per_key;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -4590,7 +4632,7 @@ class Benchmark {
       if (FLAGS_cache_size > 0) {
         // This violates this function's rules on when to set options. But we
         // have to do it because the case of unconfigured block cache in OPTIONS
-        // file is indistinguishable (it is sanitized to 8MB by this point, not
+        // file is indistinguishable (it is sanitized to 32MB by this point, not
         // nullptr), and our regression tests assume this will be the shared
         // block cache, even with OPTIONS file provided.
         table_options->block_cache = cache_;
@@ -4885,7 +4927,7 @@ class Benchmark {
           values_[i] = i;
         }
         RandomShuffle(values_.begin(), values_.end(),
-                      static_cast<uint32_t>(seed_base));
+                      static_cast<uint32_t>(*seed_base));
       }
     }
 
@@ -4997,7 +5039,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<unsigned int>(seed_base)};
+        static_cast<unsigned int>(*seed_base)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
@@ -5007,7 +5049,7 @@ class Benchmark {
     // - random access is O(1)
     // - insertion/removal at beginning/end is also O(1).
     std::deque<int64_t> inserted_key_window;
-    Random64 reservoir_id_gen(seed_base);
+    Random64 reservoir_id_gen(*seed_base);
 
     // --- Variables used in disposable/persistent keys simulation:
     // The following variables are used when
@@ -5044,7 +5086,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    Random rnd_disposable_entry(static_cast<uint32_t>(seed_base));
+    Random rnd_disposable_entry(static_cast<uint32_t>(*seed_base));
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
@@ -6978,6 +7020,8 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
+    (void)num_seek_to_first;
+    (void)num_next;
     delete iter;
   }
 
@@ -8508,7 +8552,7 @@ int db_bench_tool(int argc, char** argv) {
     uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();
     seed_base = static_cast<int64_t>(now);
     fprintf(stdout, "Set seed to %" PRIu64 " because --seed was 0\n",
-            seed_base);
+            *seed_base);
   } else {
     seed_base = FLAGS_seed;
   }

@@ -3134,6 +3134,20 @@ TEST_F(EnvTest, SemiStructuredUniqueIdGenTest) {
   t.Run();
 }
 
+TEST_F(EnvTest, SemiStructuredUniqueIdGenTestSmaller) {
+  // For small generated types, will cycle through all the possible values.
+  SemiStructuredUniqueIdGen gen;
+  std::vector<bool> hit(256);
+  for (int i = 0; i < 256; ++i) {
+    auto val = gen.GenerateNext<uint8_t>();
+    ASSERT_FALSE(hit[val]);
+    hit[val] = true;
+  }
+  for (int i = 0; i < 256; ++i) {
+    ASSERT_TRUE(hit[i]);
+  }
+}
+
 TEST_F(EnvTest, FailureToCreateLockFile) {
   auto env = Env::Default();
   auto fs = env->GetFileSystem();
@@ -3537,6 +3551,23 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
   }
 }
+
+struct StaticDestructionTester {
+  bool activated = false;
+  ~StaticDestructionTester() {
+    if (activated && !kMustFreeHeapAllocations) {
+      // Make sure we can still call some things on default Env.
+      std::string hostname;
+      Env::Default()->GetHostNameString(&hostname);
+    }
+  }
+} static_destruction_tester;
+
+TEST(EnvTestMisc, StaticDestruction) {
+  // Check for any crashes during static destruction.
+  static_destruction_tester.activated = true;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

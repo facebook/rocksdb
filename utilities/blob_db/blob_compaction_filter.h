@@ -7,7 +7,7 @@
 #include <unordered_set>
 
 #include "db/blob/blob_index.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/compaction_filter.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"

@@ -18,12 +18,12 @@ public class SstFileReader extends RocksObject {
    * Returns an iterator that will iterate on all keys in the default
    * column family including both keys in the DB and uncommitted keys in this
    * transaction.
-   *
+   * <p>
    * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
    * from the DB but will NOT change which keys are read from this transaction
    * (the keys in this transaction do not yet belong to any snapshot and will be
    * fetched regardless).
-   *
+   * <p>
    * Caller is responsible for deleting the returned Iterator.
    *
    * @param readOptions Read options.
@@ -32,7 +32,7 @@ public class SstFileReader extends RocksObject {
    */
   public SstFileReaderIterator newIterator(final ReadOptions readOptions) {
     assert (isOwningHandle());
-    long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
+    final long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
     return new SstFileReaderIterator(this, iter);
   }
 
@@ -75,7 +75,7 @@ public class SstFileReader extends RocksObject {
   private native void open(final long handle, final String filePath)
       throws RocksDBException;
 
-  private native static long newSstFileReader(final long optionsHandle);
+  private static native long newSstFileReader(final long optionsHandle);
   private native void verifyChecksum(final long handle) throws RocksDBException;
   private native TableProperties getTableProperties(final long handle)
       throws RocksDBException;

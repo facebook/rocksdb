@@ -15,7 +15,7 @@
 #include "db/wide/wide_column_serialization.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/likely.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -113,7 +113,7 @@ Status MergeHelper::TimedFullMerge(
 
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
-    return Status::Corruption("Error: Could not perform merge.");
+    return Status::Corruption(Status::SubCode::kMergeOperatorFailed);
   }
 
   return Status::OK();
@@ -230,6 +230,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     if (IsShuttingDown()) {
       s = Status::ShutdownInProgress();
       return s;
+    }
+    // Skip range tombstones emitted by the compaction iterator.
+    if (iter->IsDeleteRangeSentinelKey()) {
+      continue;
     }
 
     ParsedInternalKey ikey;

@@ -24,7 +24,7 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -54,7 +54,7 @@
 #include "util/compression.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 

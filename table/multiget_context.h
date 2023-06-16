@@ -22,6 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class GetContext;
+class PinnableWideColumns;
 
 struct KeyContext {
   const Slice* key;
@@ -37,11 +38,13 @@ struct KeyContext {
   bool is_blob_index;
   void* cb_arg;
   PinnableSlice* value;
+  PinnableWideColumns* columns;
   std::string* timestamp;
   GetContext* get_context;
 
   KeyContext(ColumnFamilyHandle* col_family, const Slice& user_key,
-             PinnableSlice* val, std::string* ts, Status* stat)
+             PinnableSlice* val, PinnableWideColumns* cols, std::string* ts,
+             Status* stat)
       : key(&user_key),
         lkey(nullptr),
         column_family(col_family),
@@ -51,10 +54,9 @@ struct KeyContext {
         is_blob_index(false),
         cb_arg(nullptr),
         value(val),
+        columns(cols),
         timestamp(ts),
         get_context(nullptr) {}
-
-  KeyContext() = default;
 };
 
 // The MultiGetContext class is a container for the sorted list of keys that

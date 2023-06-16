@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_builder.h"
@@ -39,7 +40,8 @@ class IndexBuilder {
       const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
       const bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt);
+      const BlockBasedTableOptions& table_opt, size_t ts_sz,
+      const bool persist_user_defined_timestamps);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -49,8 +51,11 @@ class IndexBuilder {
     Slice index_block_contents;
     std::unordered_map<std::string, Slice> meta_blocks;
   };
-  explicit IndexBuilder(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
+  explicit IndexBuilder(const InternalKeyComparator* comparator, size_t ts_sz,
+                        bool persist_user_defined_timestamps)
+      : comparator_(comparator),
+        ts_sz_(ts_sz),
+        persist_user_defined_timestamps_(persist_user_defined_timestamps) {}
 
   virtual ~IndexBuilder() {}
 
@@ -105,6 +110,13 @@ class IndexBuilder {
 
  protected:
   const InternalKeyComparator* comparator_;
+  // Size of user-defined timestamp in bytes.
+  size_t ts_sz_;
+  // Whether user-defined timestamp in the user key should be persisted when
+  // creating index block. If this flag is false, user-defined timestamp will
+  // be stripped from user key for each index entry, and the
+  // `first_internal_key` in `IndexValue` if it's included.
+  bool persist_user_defined_timestamps_;
   // Set after ::Finish is called
   size_t index_size_ = 0;
 };
@@ -125,14 +137,21 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
-      bool include_first_key)
-      : IndexBuilder(comparator),
-        index_block_builder_(index_block_restart_interval,
-                             true /*use_delta_encoding*/,
-                             use_value_delta_encoding),
-        index_block_builder_without_seq_(index_block_restart_interval,
-                                         true /*use_delta_encoding*/,
-                                         use_value_delta_encoding),
+      bool include_first_key, size_t ts_sz,
+      const bool persist_user_defined_timestamps)
+      : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
+        index_block_builder_(
+            index_block_restart_interval, true /*use_delta_encoding*/,
+            use_value_delta_encoding,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps, false /* is_user_key */),
+        index_block_builder_without_seq_(
+            index_block_restart_interval, true /*use_delta_encoding*/,
+            use_value_delta_encoding,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps, true /* is_user_key */),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
@@ -172,7 +191,19 @@ class ShortenedIndexBuilder : public IndexBuilder {
     auto sep = Slice(*last_key_in_current_block);
 
     assert(!include_first_key_ || !current_block_first_internal_key_.empty());
-    IndexValue entry(block_handle, current_block_first_internal_key_);
+    // When UDT should not be persisted, the index block builders take care of
+    // stripping UDT from the key, for the first internal key contained in the
+    // IndexValue, we need to explicitly do the stripping here before passing
+    // it to the block builders.
+    std::string first_internal_key_buf;
+    Slice first_internal_key = current_block_first_internal_key_;
+    if (!current_block_first_internal_key_.empty() && ts_sz_ > 0 &&
+        !persist_user_defined_timestamps_) {
+      StripTimestampFromInternalKey(&first_internal_key_buf,
+                                    current_block_first_internal_key_, ts_sz_);
+      first_internal_key = first_internal_key_buf;
+    }
+    IndexValue entry(block_handle, first_internal_key);
     std::string encoded_entry;
     std::string delta_encoded_entry;
     entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
@@ -185,6 +216,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
     }
     last_encoded_handle_ = block_handle;
     const Slice delta_encoded_entry_slice(delta_encoded_entry);
+
+    // TODO(yuzhangyu): fix this when "FindShortInternalKeySuccessor"
+    //  optimization is available.
+    // Timestamp aware comparator currently doesn't provide override for
+    // "FindShortInternalKeySuccessor" optimization. So the actual
+    // last key in current block is used as the key for indexing the current
+    // block. As a result, when UDTs should not be persisted, it's safe to strip
+    // away the UDT from key in index block as data block does the same thing.
+    // What are the implications if a "FindShortInternalKeySuccessor"
+    // optimization is provided.
     index_block_builder_.Add(sep, encoded_entry, &delta_encoded_entry_slice);
     if (!seperator_is_key_plus_seq_) {
       index_block_builder_without_seq_.Add(ExtractUserKey(sep), encoded_entry,
@@ -270,11 +311,13 @@ class HashIndexBuilder : public IndexBuilder {
       const SliceTransform* hash_key_extractor,
       int index_block_restart_interval, int format_version,
       bool use_value_delta_encoding,
-      BlockBasedTableOptions::IndexShorteningMode shortening_mode)
-      : IndexBuilder(comparator),
+      BlockBasedTableOptions::IndexShorteningMode shortening_mode, size_t ts_sz,
+      const bool persist_user_defined_timestamps)
+      : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
-                               shortening_mode, /* include_first_key */ false),
+                               shortening_mode, /* include_first_key */ false,
+                               ts_sz, persist_user_defined_timestamps),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -379,11 +422,14 @@ class PartitionedIndexBuilder : public IndexBuilder {
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
       const bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt);
+      const BlockBasedTableOptions& table_opt, size_t ts_sz,
+      const bool persist_user_defined_timestamps);
 
   explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                                    const BlockBasedTableOptions& table_opt,
-                                   const bool use_value_delta_encoding);
+                                   const bool use_value_delta_encoding,
+                                   size_t ts_sz,
+                                   const bool persist_user_defined_timestamps);
 
   virtual ~PartitionedIndexBuilder();
 
