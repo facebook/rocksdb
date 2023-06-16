@@ -5575,14 +5575,24 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
+    const std::vector<const ExportImportFilesMetaData*>& metadatas,
+    ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   std::string cf_comparator_name = options.comparator->Name();
-  if (cf_comparator_name != metadata.db_comparator_name) {
-    return Status::InvalidArgument("Comparator name mismatch");
+
+  size_t total_file_num = 0;
+  std::vector<std::vector<LiveFileMetaData*>> metadata_files(metadatas.size());
+  for (size_t i = 0; i < metadatas.size(); i++) {
+    if (cf_comparator_name != metadatas[i]->db_comparator_name) {
+      return Status::InvalidArgument("Comparator name mismatch");
+    }
+    for (auto& file : metadatas[i]->files) {
+      metadata_files[i].push_back((LiveFileMetaData*)&file);
+    }
+    total_file_num += metadatas[i]->files.size();
   }
 
   // Create column family.
@@ -5596,7 +5606,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(versions_.get(), cfd, immutable_db_options_,
                                    file_options_, import_options,
-                                   metadata.files, io_tracer_);
+                                   metadata_files, io_tracer_);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
@@ -5619,7 +5629,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
       // reuse the file number that has already assigned to the internal file,
       // and this will overwrite the external file. To protect the external
       // file, we have to make sure the file number will never being reused.
-      next_file_number = versions_->FetchAddFileNumber(metadata.files.size());
+      next_file_number = versions_->FetchAddFileNumber(total_file_num);
       auto cf_options = cfd->GetLatestMutableCFOptions();
       status =
           versions_->LogAndApply(cfd, *cf_options, read_options, &dummy_edit,

@@ -3460,12 +3460,11 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          // If score in L0 is always too high, L0->L1 will always be
-          // prioritized over L1->L2 compaction and L1 will accumulate to
-          // too large. But if L0 score isn't high enough, L0 will accumulate
-          // and data is not moved to L1 fast enough. With potential L0->L0
-          // compaction, number of L0 files aren't always an indication of
-          // L0 oversizing, and we also need to consider total size of L0.
+          // If score in L0 is always too high, L0->LBase will always be
+          // prioritized over LBase->LBase+1 compaction and LBase will
+          // accumulate to too large. But if L0 score isn't high enough, L0 will
+          // accumulate and data is not moved to LBase fast enough. The score
+          // calculation below takes into account L0 size vs LBase size.
           if (immutable_options.level_compaction_dynamic_level_bytes) {
             if (total_size >= mutable_cf_options.max_bytes_for_level_base) {
               // When calculating estimated_compaction_needed_bytes, we assume
@@ -3477,10 +3476,13 @@ void VersionStorageInfo::ComputeCompactionScore(
               score = std::max(score, 1.01);
             }
             if (total_size > level_max_bytes_[base_level_]) {
-              // In this case, we compare L0 size with actual L1 size and make
-              // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
-              // than L1. Since in this case L1 score is lower than 10.0, L0->L1
-              // is prioritized over L1->L2.
+              // In this case, we compare L0 size with actual LBase size and
+              // make sure score is more than 1.0 (10.0 after scaled) if L0 is
+              // larger than LBase. Since LBase score = LBase size /
+              // (target size + total_downcompact_bytes) where
+              // total_downcompact_bytes = total_size > LBase size,
+              // LBase score is lower than 10.0. So L0->LBase is prioritized
+              // over LBase -> LBase+1.
               uint64_t base_level_size = 0;
               for (auto f : files_[base_level_]) {
                 base_level_size += f->compensated_file_size;
@@ -4703,7 +4705,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
           assert(base_level_ == 1);
           base_level_size = base_bytes_max;
         } else {
-          base_level_size = cur_level_size;
+          base_level_size = std::max(static_cast<uint64_t>(1), cur_level_size);
         }
       }
 

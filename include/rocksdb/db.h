@@ -1782,14 +1782,27 @@ class DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
+    const std::vector<const ExportImportFilesMetaData*>& metadatas{&metadata};
+    return CreateColumnFamilyWithImport(options, column_family_name,
+                                        import_options, metadatas, handle);
+  }
+
+  // EXPERIMENTAL
+  // Overload of the CreateColumnFamilyWithImport() that allows the caller to
+  // pass a list of ExportImportFilesMetaData pointers to support creating
+  // ColumnFamily by importing multiple ColumnFamilies.
+  // It should be noticed that if the user keys of the imported column families
+  // overlap with each other, an error will be returned.
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) = 0;
 
   // EXPERIMENTAL
   // ClipColumnFamily() will clip the entries in the CF according to the range
-  // [begin_key,
-  // end_key).
-  // Returns OK on success, and a non-OK status on error.
+  // [begin_key, end_key). Returns OK on success, and a non-OK status on error.
   // Any entries outside this range will be completely deleted (including
   // tombstones).
   // The main difference between ClipColumnFamily(begin, end) and
@@ -1797,8 +1810,7 @@ class DB {
   // is that the former physically deletes all keys outside the range, but is
   // more heavyweight than the latter.
   // This feature is mainly used to ensure that there is no overlapping Key when
-  // calling
-  // CreateColumnFamilyWithImports() to import multiple CFs.
+  // calling CreateColumnFamilyWithImport() to import multiple CFs.
   // Note that: concurrent updates cannot be performed during Clip.
   virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
                                   const Slice& begin_key,
