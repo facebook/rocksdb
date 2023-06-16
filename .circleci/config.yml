@@ -16,6 +16,7 @@ commands:
       - run:
           name: Install JDK 8 on macos
           command: |
+            sudo softwareupdate --install-rosetta --agree-to-license
             brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
 
   increase-max-open-files-on-macos:
