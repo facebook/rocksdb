@@ -1255,6 +1255,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1272,6 +1273,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1326,6 +1328,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1342,6 +1345,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1424,13 +1428,14 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1441,6 +1446,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1519,13 +1525,14 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1536,6 +1543,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
