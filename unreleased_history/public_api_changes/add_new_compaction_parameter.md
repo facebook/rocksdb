@@ -1,0 +1,1 @@
+Expose delete ratio parameter from the compaction API to the C API
