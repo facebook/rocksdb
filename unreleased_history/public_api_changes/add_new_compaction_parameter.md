@@ -1,1 +1,1 @@
-Expose delete ratio parameter from the compaction API to the C API
+Add parameter `deletion_ratio` to C API `rocksdb_options_add_compact_on_deletion_collector_factory`.
