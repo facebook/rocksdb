@@ -56,7 +56,7 @@ StressTest::StressTest()
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
-
+      optimistic_txn_db_(nullptr),
       db_aptr_(nullptr),
       clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
