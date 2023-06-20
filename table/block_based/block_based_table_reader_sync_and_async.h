@@ -88,7 +88,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     // We don't combine block reads here in direct IO mode, because when doing
     // direct IO read, the block requests will be realigned and merged when
     // necessary.
-    if (use_shared_buffer && !file->use_direct_io() &&
+    if ((use_shared_buffer || use_fs_scratch) && !file->use_direct_io() &&
         prev_end == handle.offset()) {
       req_offset_for_block.emplace_back(prev_len);
       prev_len += BlockSizeWithTrailer(handle);
@@ -193,8 +193,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     BlockContents serialized_block;
     if (s.ok()) {
       if (use_fs_scratch) {
-        assert(req_offset == 0);
-        assert(req.result.size() == BlockSizeWithTrailer(handle));
         serialized_block =
             BlockContents(Slice(req.result.data() + req_offset, handle.size()));
       } else if (!use_shared_buffer) {
@@ -537,17 +535,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         assert(uncompression_dict_status.ok());
 
         if (!rep_->file->use_direct_io()) {
-          int64_t supported_ops = 0;
-          rep_->ioptions.fs->SupportedOps(supported_ops);
-          uint32_t set_pos = 0;
-          while (supported_ops && set_pos < FSSupportedOps::kFSBuffer) {
-            // Find the rightmost set bit.
-            set_pos =
-                static_cast<uint32_t>(log2(supported_ops & -supported_ops));
-            // unset the rightmost bit.
-            supported_ops &= (supported_ops - 1);
-          }
-          if (set_pos == FSSupportedOps::kFSBuffer) {
+          if (CheckFSFeatureSupport(rep_->ioptions.fs.get(),
+                                    FSSupportedOps::kFSBuffer)) {
             use_fs_scratch = true;
           }
         }

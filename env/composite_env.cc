@@ -73,13 +73,11 @@ class CompositeRandomAccessFileWrapper : public RandomAccessFile {
       fs_reqs[i].len = reqs[i].len;
       fs_reqs[i].scratch = reqs[i].scratch;
       fs_reqs[i].status = IOStatus::OK();
-      fs_reqs[i].fs_scratch = std::move(reqs[i].fs_scratch);
     }
     status = target_->MultiRead(fs_reqs.data(), num_reqs, io_opts, &dbg);
     for (size_t i = 0; i < num_reqs; ++i) {
       reqs[i].result = fs_reqs[i].result;
       reqs[i].status = fs_reqs[i].status;
-      reqs[i].fs_scratch = std::move(fs_reqs[i].fs_scratch);
     }
     return status;
   }

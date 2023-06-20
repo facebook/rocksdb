@@ -661,7 +661,6 @@ class FileSystem : public Customizable {
                                const IOOptions& options, bool* is_dir,
                                IODebugContext* /*dgb*/) = 0;
 
-  // EXPERIMENTAL
   // Poll for completion of read IO requests. The Poll() method should call the
   // callback functions to indicate completion of read requests.
   // Underlying FS is required to support Poll API. Poll implementation should
@@ -669,23 +668,17 @@ class FileSystem : public Customizable {
   // after the callback has been called.
   // If Poll returns partial results for any reads, its caller reponsibility to
   // call Read or ReadAsync in order to get the remaining bytes.
-  //
-  // Default implementation is to return IOStatus::OK.
-
   virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
                         size_t /*min_completions*/) {
-    return IOStatus::OK();
+    return IOStatus::NotSupported("Poll");
   }
 
-  // EXPERIMENTAL
   // Abort the read IO requests submitted asynchronously. Underlying FS is
   // required to support AbortIO API. AbortIO implementation should ensure that
   // the all the read requests related to io_handles should be aborted and
   // it shouldn't call the callback for these io_handles.
-  //
-  // Default implementation is to return IOStatus::OK.
   virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
-    return IOStatus::OK();
+    return IOStatus::NotSupported("AbortIO");
   }
 
   // Indicates to upper layers which FileSystem operations mentioned in
@@ -694,11 +687,10 @@ class FileSystem : public Customizable {
   // Foreg:
   //  If async_io is supported by the underlying FileSystem, then supported_ops
   //  will have corresponding bit (i.e FSSupportedOps::kAsyncIO) set to 1.
-  virtual void SupportedOps(int64_t& supported_ops) {
-    supported_ops = 0;
-    // Underlying FS supports async_io
-    supported_ops |= (1 << FSSupportedOps::kAsyncIO);
-  }
+  //
+  // By default, no operation is supported and FS should override this API and
+  // set whatever operations they support.
+  virtual void SupportedOps(int64_t& /*supported_ops*/) {}
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -833,6 +825,11 @@ struct FSReadRequest {
   //  signal for FS to use RocksDB buffer.
   // If FSSupportedOps::kFSBuffer is enabled and scratch == nullptr,
   //   then FS have to provide its own buffer in fs_scratch.
+  //
+  // NOTE:
+  // - FSReadRequest::result should point to fs_scratch.
+  // - This is needed only if FSSupportedOps::kFSBuffer support is provided by
+  // underlying FS.
   std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
 };
 
@@ -928,7 +925,6 @@ class FSRandomAccessFile {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
 
-  // EXPERIMENTAL
   // This API reads the requested data in FSReadRequest asynchronously. This is
   // a asynchronous call, i.e it should return after submitting the request.
   //
@@ -950,15 +946,21 @@ class FSRandomAccessFile {
   // request and result and status fields are output parameter set by underlying
   // FileSystem. The data should always be read into scratch field.
   //
-  // Default implementation is to read the data synchronously.
+  // How to enable:
+  // In order to enable ReadAsync, FS needs to override SupportedOps() API and
+  // set FSSupportedOps::kAsyncIO in SupportedOps() as:
+  //  {
+  //    supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+  //  }
+  //
+  // Note: If FS supports ReadAsync API, it should also override Poll and
+  // AbortIO API.
   virtual IOStatus ReadAsync(
-      FSReadRequest& req, const IOOptions& opts,
-      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
-    req.status =
-        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
-    cb(req, cb_arg);
-    return IOStatus::OK();
+      FSReadRequest& /*req*/, const IOOptions& /*opts*/,
+      std::function<void(const FSReadRequest&, void*)> /*cb*/, void* /*cb_arg*/,
+      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/,
+      IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("ReadAsync");
   }
 
   // EXPERIMENTAL

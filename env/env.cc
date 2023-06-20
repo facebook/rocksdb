@@ -159,14 +159,12 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       req.len = fs_reqs[i].len;
       req.scratch = fs_reqs[i].scratch;
       req.status = Status::OK();
-      req.fs_scratch = std::move(fs_reqs[i].fs_scratch);
       reqs.emplace_back(std::move(req));
     }
     status = target_->MultiRead(reqs.data(), num_reqs);
     for (size_t i = 0; i < num_reqs; ++i) {
       fs_reqs[i].result = reqs[i].result;
       fs_reqs[i].status = status_to_io_status(std::move(reqs[i].status));
-      fs_reqs[i].fs_scratch = std::move(reqs[i].fs_scratch);
     }
     return status_to_io_status(std::move(status));
   }
