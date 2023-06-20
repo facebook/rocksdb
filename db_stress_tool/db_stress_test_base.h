@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+class OptimisticTransactionDB;
 struct TransactionDBOptions;
 
 class StressTest {
@@ -261,6 +262,7 @@ class StressTest {
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   TransactionDB* txn_db_;
+  OptimisticTransactionDB* optimistic_txn_db_;
 
   // Currently only used in MultiOpsTxnsStressTest
   std::atomic<DB*> db_aptr_;
