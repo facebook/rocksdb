@@ -64,7 +64,7 @@ class BlockAccessCipherStream {
 // including data loss, unreported corruption, deadlocks, and more.
 class BlockCipher : public Customizable {
  public:
-  virtual ~BlockCipher(){}
+  virtual ~BlockCipher() {}
 
   // Creates a new BlockCipher from the input config_options and value
   // The value describes the type of provider (and potentially optional
@@ -111,7 +111,7 @@ class BlockCipher : public Customizable {
 // including data loss, unreported corruption, deadlocks, and more.
 class EncryptionProvider : public Customizable {
  public:
-  virtual ~EncryptionProvider(){}
+  virtual ~EncryptionProvider() {}
 
   // Creates a new EncryptionProvider from the input config_options and value.
   // The value describes the type of provider (and potentially optional
