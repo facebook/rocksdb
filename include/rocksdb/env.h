@@ -942,12 +942,11 @@ class WritableFile {
   // with other writes to follow.
   virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
 
-  // The caller is expected to call Close() exactly once before destroying the
-  // WritableFile, and no other functions are supported after calling Close().
-  // Any errors associated with finishing writes to the file should be
-  // returned in the Status, but the file is considered closed regardless
-  // of return status.
-  // (NOTE: Supporting TryAgain status would be a future contract change.)
+  // The caller should call Close() before destroying the WritableFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0;  // sync data
@@ -1094,8 +1093,9 @@ class RandomRWFile {
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
 
-  // Many derived classes of Directory will need to call Close() in their
-  // destructor, when not called already, to ensure resources are released.
+  // For cases when Close() hasn't been called, many derived classes of
+  // RandomRWFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~RandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -1127,12 +1127,11 @@ class RandomRWFile {
 
   virtual Status Fsync() { return Sync(); }
 
-  // The caller is expected to call Close() exactly once before destroying the
-  // RandomRWFile, and no other functions are supported after calling Close().
-  // Any errors associated with finishing writes to the file should be
-  // returned in the Status, but the file is considered closed regardless
-  // of return status.
-  // (NOTE: Supporting TryAgain status would be a future contract change.)
+  // The caller should call Close() before destroying the RandomRWFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
 
   // If you're adding methods here, remember to add them to
@@ -1173,7 +1172,6 @@ class Directory {
   // Calling Close() before destroying a Directory is recommended to surface
   // any errors associated with finishing writes (in case of future features).
   // The directory is considered closed regardless of return status.
-  // (NOTE: Supporting TryAgain status would be a future contract change.)
   virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
