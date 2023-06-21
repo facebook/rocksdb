@@ -81,7 +81,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
     size_t limit_ = 0;
   };
 
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   // Use only the latest two merge operands.
   options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
@@ -134,7 +134,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
@@ -147,7 +147,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.max_successive_merges = 3;
@@ -163,7 +163,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
@@ -221,7 +221,7 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   // expect "k0" and "k2" to always be readable. "k1" is expected to be readable
   // only by APIs that do not require merging, such as `GetMergeOperands()`.
   const int kNumOperands = 3;
-  Options options;
+  Options options = CurrentOptions();
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
   Reopen(options);
@@ -361,7 +361,7 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
 TEST_F(DBMergeOperatorTest, DataBlockBinaryAndHash) {
   // Basic test to check that merge operator works with data block index type
   // DataBlockBinaryAndHash.
-  Options options;
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;

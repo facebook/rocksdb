@@ -3097,7 +3097,7 @@ class ModelDB : public DB {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not implemented.");
   }
@@ -3263,6 +3263,11 @@ class ModelDB : public DB {
   void EnableManualCompaction() override { return; }
 
   void DisableManualCompaction() override { return; }
+
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) override {
+    return Status::OK();
+  }
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
@@ -5267,6 +5272,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   const uint64_t k1MB = 1 << 20;
   const uint64_t k4KB = 1 << 12;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;

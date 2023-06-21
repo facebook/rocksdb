@@ -303,7 +303,7 @@ static void DBPut(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact();
+    Status s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -410,7 +410,7 @@ static void ManualCompaction(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -510,7 +510,7 @@ static void ManualFlush(benchmark::State& state) {
 
   if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact();
+    Status s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -571,36 +571,34 @@ static void DBGet(benchmark::State& state) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   auto rnd = Random(301 + state.thread_index());
-  KeyGenerator kg(&rnd, key_num);
 
   if (state.thread_index() == 0) {
+    KeyGenerator kg_seq(key_num /* max_key */);
     SetupDB(state, options, &db, "DBGet");
 
-    // load db
+    // Load all valid keys into DB. That way, iterations in `!negative_query`
+    // runs can always find the key even though it is generated from a random
+    // number.
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      Status s = db->Put(wo, kg.Next(),
+      Status s = db->Put(wo, kg_seq.Next(),
                          rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
-    FlushOptions fo;
-    Status s = db->Flush(fo);
+    // Compact whole DB into one level, so each iteration will consider the same
+    // number of files (one).
+    Status s = db->CompactRange(CompactRangeOptions(), nullptr /* begin */,
+                                nullptr /* end */);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
-    }
-
-    auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-      return;
     }
   }
 
+  KeyGenerator kg_rnd(&rnd, key_num /* max_key */);
   auto ro = ReadOptions();
   if (mmap) {
     ro.verify_checksums = false;
@@ -609,7 +607,7 @@ static void DBGet(benchmark::State& state) {
   if (negative_query) {
     for (auto _ : state) {
       std::string val;
-      Status s = db->Get(ro, kg.NextNonExist(), &val);
+      Status s = db->Get(ro, kg_rnd.NextNonExist(), &val);
       if (s.IsNotFound()) {
         not_found++;
       }
@@ -617,7 +615,7 @@ static void DBGet(benchmark::State& state) {
   } else {
     for (auto _ : state) {
       std::string val;
-      Status s = db->Get(ro, kg.Next(), &val);
+      Status s = db->Get(ro, kg_rnd.Next(), &val);
       if (s.IsNotFound()) {
         not_found++;
       }
@@ -636,7 +634,7 @@ static void DBGet(benchmark::State& state) {
       state.counters["get_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
-    TeardownDB(state, db, options, kg);
+    TeardownDB(state, db, options, kg_rnd);
   }
 }
 
@@ -662,9 +660,8 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter", "mmap"});
 }
 
-static constexpr uint64_t kDBGetNum = 1l << 20;
-BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
@@ -707,7 +704,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
       }
     }
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1115,7 +1112,7 @@ static void IteratorSeek(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1206,7 +1203,7 @@ static void IteratorNext(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1270,7 +1267,7 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
       }
     }
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    Status s = db_full->WaitForCompact();
+    Status s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1368,7 +1365,7 @@ static void IteratorPrev(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1460,7 +1457,7 @@ static void PrefixSeek(benchmark::State& state) {
     }
 
     auto db_full = static_cast_with_check<DBImpl>(db.get());
-    s = db_full->WaitForCompact();
+    s = db_full->WaitForCompact(WaitForCompactOptions());
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;

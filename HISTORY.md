@@ -1,5 +1,6 @@
 # Rocksdb Change Log
-## Unreleased
+> NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
+
 ## 8.3.0 (05/19/2023)
 ### New Features
 * Introduced a new option `block_protection_bytes_per_key`, which can be used to enable per key-value integrity protection for in-memory blocks in block cache (#11287).

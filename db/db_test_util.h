@@ -114,6 +114,12 @@ struct OptionsOverride {
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
+
+  // The default value for this option is changed from false to true.
+  // Keeping the default to false for unit tests as old unit tests assume
+  // this behavior. Tests for level_compaction_dynamic_level_bytes
+  // will set the option to true explicitly.
+  bool level_compaction_dynamic_level_bytes = false;
 };
 
 }  // namespace anon
@@ -1326,6 +1332,40 @@ class DBTestBase : public testing::Test {
   // Note: reverting this setting within the same test run is not yet
   // supported
   void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+  void ResetTableProperties(TableProperties* tp) {
+    tp->data_size = 0;
+    tp->index_size = 0;
+    tp->filter_size = 0;
+    tp->raw_key_size = 0;
+    tp->raw_value_size = 0;
+    tp->num_data_blocks = 0;
+    tp->num_entries = 0;
+    tp->num_deletions = 0;
+    tp->num_merge_operands = 0;
+    tp->num_range_deletions = 0;
+  }
+
+  void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
+    double dummy_double;
+    std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
+    std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
+    ResetTableProperties(tp);
+    sscanf(tp_string.c_str(),
+           "# data blocks %" SCNu64 " # entries %" SCNu64
+           " # deletions %" SCNu64 " # merge operands %" SCNu64
+           " # range deletions %" SCNu64 " raw key size %" SCNu64
+           " raw average key size %lf "
+           " raw value size %" SCNu64
+           " raw average value size %lf "
+           " data block size %" SCNu64 " index block size (user-key? %" SCNu64
+           ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
+           &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
+           &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
+           &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
+           &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
+           &tp->index_size, &tp->filter_size);
+  }
 
  private:  // Prone to error on direct use
   void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);

@@ -1328,7 +1328,6 @@ class VersionBuilder::Rep {
             read_options, file_options_,
             *(base_vstorage_->InternalComparator()), *file_meta, &handle,
             block_protection_bytes_per_key, prefix_extractor, false /*no_io */,
-            true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);

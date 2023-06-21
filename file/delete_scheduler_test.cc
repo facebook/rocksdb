@@ -185,6 +185,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
 
     ASSERT_EQ(CountTrashFiles(), 0);
     ASSERT_EQ(num_files, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(num_files,
+              stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
     ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
@@ -224,6 +226,8 @@ TEST_F(DeleteSchedulerTest, MultiDirectoryDeletionsScheduled) {
   }
 
   ASSERT_EQ(kNumFiles, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(kNumFiles,
+            stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
   ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -308,8 +312,11 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     ASSERT_EQ(CountNormalFiles(), 0);
     ASSERT_EQ(CountTrashFiles(), 0);
-    ASSERT_EQ(num_files * thread_cnt,
+    int total_num_files = num_files * thread_cnt;
+    ASSERT_EQ(total_num_files,
               stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(total_num_files,
+              stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
     ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -342,6 +349,7 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
 
   ASSERT_EQ(bg_delete_file, 0);
   ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
   ASSERT_EQ(num_files,
             stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
@@ -381,6 +389,7 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 0);
   ASSERT_EQ(10, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(10, stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
   ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -465,6 +474,8 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
     auto bg_errors = delete_scheduler_->GetBackgroundErrors();
     ASSERT_EQ(bg_errors.size(), 0);
     ASSERT_EQ(kTestFileNum, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(kTestFileNum,
+              stats_->getAndResetTickerCount(FILES_DELETED_FROM_TRASH_QUEUE));
     ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
   }
 

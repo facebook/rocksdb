@@ -356,6 +356,9 @@ class WriteBatch : public WriteBatchBase {
   // Retrieve the serialized version of this batch.
   const std::string& Data() const { return rep_; }
 
+  // Release the serialized data and clear this batch.
+  std::string Release();
+
   // Retrieve data size of the batch.
   size_t GetDataSize() const { return rep_.size(); }
 

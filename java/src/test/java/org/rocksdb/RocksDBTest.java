@@ -818,25 +818,27 @@ public class RocksDBTest {
     final int NUM_L0_FILES = 10;
     final int TEST_SCALE = 5;
     final int KEY_INTERVAL = 100;
-    try (final Options opt = new Options().
-        setCreateIfMissing(true).
-        setCompactionStyle(CompactionStyle.LEVEL).
-        setNumLevels(5).
-        // a slightly bigger write buffer than L0 file
-        // so that we can ensure manual flush always
-        // go before background flush happens.
-            setWriteBufferSize(L0_FILE_SIZE * 2).
-        // Disable auto L0 -> L1 compaction
-            setLevelZeroFileNumCompactionTrigger(20).
-            setTargetFileSizeBase(L0_FILE_SIZE * 100).
-            setTargetFileSizeMultiplier(1).
-        // To disable auto compaction
-            setMaxBytesForLevelBase(NUM_L0_FILES * L0_FILE_SIZE * 100).
-            setMaxBytesForLevelMultiplier(2).
-            setDisableAutoCompactions(true);
-         final RocksDB db = RocksDB.open(opt,
-             dbFolder.getRoot().getAbsolutePath())
-    ) {
+    try (final Options opt = new Options()
+                                 .setCreateIfMissing(true)
+                                 .setCompactionStyle(CompactionStyle.LEVEL)
+                                 .setLevelCompactionDynamicLevelBytes(false)
+                                 .setNumLevels(5)
+                                 .
+                             // a slightly bigger write buffer than L0 file
+                             // so that we can ensure manual flush always
+                             // go before background flush happens.
+                             setWriteBufferSize(L0_FILE_SIZE * 2)
+                                 .
+                             // Disable auto L0 -> L1 compaction
+                             setLevelZeroFileNumCompactionTrigger(20)
+                                 .setTargetFileSizeBase(L0_FILE_SIZE * 100)
+                                 .setTargetFileSizeMultiplier(1)
+                                 .
+                             // To disable auto compaction
+                             setMaxBytesForLevelBase(NUM_L0_FILES * L0_FILE_SIZE * 100)
+                                 .setMaxBytesForLevelMultiplier(2)
+                                 .setDisableAutoCompactions(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       // fill database with key/value pairs
       final byte[] value = new byte[VALUE_SIZE];
       int int_key = 0;
@@ -904,7 +906,8 @@ public class RocksDBTest {
                                  .setCompressionType(CompressionType.NO_COMPRESSION)
                                  .setTargetFileSizeBase(FILE_SIZE)
                                  .setWriteBufferSize(FILE_SIZE / 2)
-                                 .setDisableAutoCompactions(true);
+                                 .setDisableAutoCompactions(true)
+                                 .setLevelCompactionDynamicLevelBytes(false);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       final int records = FILE_SIZE / (KEY_SIZE + VALUE_SIZE);
 
@@ -954,25 +957,28 @@ public class RocksDBTest {
     final int TEST_SCALE = 5;
     final int KEY_INTERVAL = 100;
 
-    try (final DBOptions opt = new DBOptions().
-        setCreateIfMissing(true).
-        setCreateMissingColumnFamilies(true);
-         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions().
-             setCompactionStyle(CompactionStyle.LEVEL).
-             setNumLevels(5).
+    try (final DBOptions opt =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts =
+             new ColumnFamilyOptions()
+                 .setCompactionStyle(CompactionStyle.LEVEL)
+                 .setLevelCompactionDynamicLevelBytes(false)
+                 .setNumLevels(5)
+                 .
              // a slightly bigger write buffer than L0 file
              // so that we can ensure manual flush always
              // go before background flush happens.
-                 setWriteBufferSize(L0_FILE_SIZE * 2).
+             setWriteBufferSize(L0_FILE_SIZE * 2)
+                 .
              // Disable auto L0 -> L1 compaction
-                 setLevelZeroFileNumCompactionTrigger(20).
-                 setTargetFileSizeBase(L0_FILE_SIZE * 100).
-                 setTargetFileSizeMultiplier(1).
+             setLevelZeroFileNumCompactionTrigger(20)
+                 .setTargetFileSizeBase(L0_FILE_SIZE * 100)
+                 .setTargetFileSizeMultiplier(1)
+                 .
              // To disable auto compaction
-                 setMaxBytesForLevelBase(NUM_L0_FILES * L0_FILE_SIZE * 100).
-                 setMaxBytesForLevelMultiplier(2).
-                 setDisableAutoCompactions(true)
-    ) {
+             setMaxBytesForLevelBase(NUM_L0_FILES * L0_FILE_SIZE * 100)
+                 .setMaxBytesForLevelMultiplier(2)
+                 .setDisableAutoCompactions(true)) {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
           Arrays.asList(
               new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
@@ -1267,15 +1273,16 @@ public class RocksDBTest {
     final byte[] cfName = "pikachu".getBytes(UTF_8);
 
     try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setWriteBufferSize(writeBufferSize)
-        .setCompactionStyle(CompactionStyle.LEVEL)
-        .setTargetFileSizeBase(writeBufferSize)
-        .setMaxBytesForLevelBase(writeBufferSize * 2)
-        .setLevel0StopWritesTrigger(2)
-        .setMaxBytesForLevelMultiplier(2)
-        .setCompressionType(CompressionType.NO_COMPRESSION)
-        .setMaxSubcompactions(4)) {
+                                     .setCreateIfMissing(true)
+                                     .setWriteBufferSize(writeBufferSize)
+                                     .setCompactionStyle(CompactionStyle.LEVEL)
+                                     .setLevelCompactionDynamicLevelBytes(false)
+                                     .setTargetFileSizeBase(writeBufferSize)
+                                     .setMaxBytesForLevelBase(writeBufferSize * 2)
+                                     .setLevel0StopWritesTrigger(2)
+                                     .setMaxBytesForLevelMultiplier(2)
+                                     .setCompressionType(CompressionType.NO_COMPRESSION)
+                                     .setMaxSubcompactions(4)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath);
            final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions(options)) {

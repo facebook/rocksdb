@@ -254,7 +254,7 @@ def setup_expected_values_dir():
 
     # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
     # specified.
-    if test_exp_tmpdir is  None or test_exp_tmpdir == "":
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
@@ -280,7 +280,7 @@ def setup_multiops_txn_key_spaces_file():
 
     # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
     # specified.
-    if test_exp_tmpdir is  None or test_exp_tmpdir == "":
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
@@ -369,8 +369,10 @@ cf_consistency_params = {
     "ingest_external_file_one_in": 0,
 }
 
+# For pessimistic transaction db
 txn_params = {
     "use_txn": 1,
+    "use_optimistic_txn": 0,
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
@@ -383,7 +385,18 @@ txn_params = {
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
+}
+
+# For optimistic transaction db
+optimistic_txn_params = {
+    "use_txn": 1,
+    "use_optimistic_txn": 1,
+    "occ_validation_policy": random.randint(0, 1),
+    "share_occ_lock_buckets": random.randint(0, 1),
+    "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in": 0,
 }
 
 best_efforts_recovery_params = {
@@ -425,7 +438,7 @@ ts_params = {
     "use_txn": 0,
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
 }
 
 tiered_params = {
@@ -481,9 +494,9 @@ multiops_txn_default_params = {
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
-    "use_get_entity" : 0,
-    "use_multi_get_entity" : 0,
+    "use_put_entity_one_in": 0,
+    "use_get_entity": 0,
+    "use_multi_get_entity": 0,
 }
 
 multiops_wc_txn_params = {
@@ -549,12 +562,16 @@ def finalize_and_sanitize(src_params):
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1 or
-        dest_params.get("user_timestamp_size") > 0):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+        or dest_params.get("user_timestamp_size") > 0
+    ):
         dest_params["ingest_external_file_one_in"] = 0
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+    ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     if (
@@ -632,7 +649,7 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
     # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
@@ -662,6 +679,8 @@ def gen_cmd_params(args):
         params.update(cf_consistency_params)
     if args.txn:
         params.update(txn_params)
+    if args.optimistic_txn:
+        params.update(optimistic_txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
     if args.enable_ts:
@@ -707,6 +726,7 @@ def gen_cmd(params, unknown_params):
                 "random_kill_odd",
                 "cf_consistency",
                 "txn",
+                "optimistic_txn",
                 "test_best_efforts_recovery",
                 "enable_ts",
                 "test_multiops_txn",
@@ -879,9 +899,17 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params["ops_per_thread"],
             }
 
-        cur_compaction_style = additional_opts.get("compaction_style", cmd_params.get("compaction_style", 0))
-        if prev_compaction_style != -1 and prev_compaction_style != cur_compaction_style:
-            print("`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style." + "\n")
+        cur_compaction_style = additional_opts.get(
+            "compaction_style", cmd_params.get("compaction_style", 0)
+        )
+        if (
+            prev_compaction_style != -1
+            and prev_compaction_style != cur_compaction_style
+        ):
+            print(
+                "`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style."
+                + "\n"
+            )
             additional_opts["destroy_db_initially"] = 1
         prev_compaction_style = cur_compaction_style
 
@@ -959,7 +987,7 @@ def whitebox_crash_main(args, unknown_args):
                 os.mkdir(dbname)
             except OSError:
                 pass
-            if (expected_values_dir is not None):
+            if expected_values_dir is not None:
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
 
@@ -980,6 +1008,7 @@ def main():
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action="store_true")
     parser.add_argument("--txn", action="store_true")
+    parser.add_argument("--optimistic_txn", action="store_true")
     parser.add_argument("--test_best_efforts_recovery", action="store_true")
     parser.add_argument("--enable_ts", action="store_true")
     parser.add_argument("--test_multiops_txn", action="store_true")
@@ -1004,6 +1033,7 @@ def main():
         + list(cf_consistency_params.items())
         + list(tiered_params.items())
         + list(txn_params.items())
+        + list(optimistic_txn_params.items())
     )
 
     for k, v in all_params.items():
