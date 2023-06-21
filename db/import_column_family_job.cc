@@ -203,17 +203,19 @@ Status ImportColumnFamilyJob::Run() {
         tail_size = file_size - f.table_properties.tail_start_offset;
       }
 
-    VersionEdit dummy_version_edit;
-    dummy_version_edit.AddFile(
-        file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-        f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
-        file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
-        file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, f.unique_id, 0, tail_size,
-        static_cast<bool>(
-            f.table_properties.user_defined_timestamps_persisted));
-    s = dummy_version_builder.Apply(&dummy_version_edit);
+      VersionEdit dummy_version_edit;
+      dummy_version_edit.AddFile(
+          file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+          f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
+          file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
+          file_metadata.temperature, kInvalidBlobFileNumber,
+          oldest_ancester_time, current_time, file_metadata.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
+          tail_size,
+          static_cast<bool>(
+              f.table_properties.user_defined_timestamps_persisted));
+      s = dummy_version_builder.Apply(&dummy_version_edit);
+    }
   }
 
   if (s.ok()) {
@@ -318,6 +320,9 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support importing column
+  //  family. Pass in the correct `user_defined_timestamps_persisted` flag for
+  //  creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,

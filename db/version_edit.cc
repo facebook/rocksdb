@@ -245,6 +245,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutLengthPrefixedSlice(dst, Slice(varint_tail_size));
     }
     if (!f.user_defined_timestamps_persisted) {
+      // The default value for the flag is true, it's only explicitly persisted
+      // when it's false. We are putting 0 as the value here to signal false
+      // (i.e. UDTS not persisted).
       PutVarint32(dst, NewFileCustomTag::kUserDefinedTimestampsPersisted);
       char p = static_cast<char>(0);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));

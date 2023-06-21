@@ -686,6 +686,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support external sst file
+  //  ingestion. Pass in the correct `user_defined_timestamps_persisted` flag
+  //  for creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
