@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "table/cuckoo/cuckoo_table_builder.h"
 
@@ -71,8 +70,10 @@ class CuckooBuilderTest : public testing::Test {
 
     // Assert Table Properties.
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props));
+                                  kCuckooTableMagicNumber, ioptions,
+                                  read_options, &props));
     // Check unused bucket.
     std::string unused_key =
         props->user_collected_properties[CuckooTablePropertyNames::kEmptyKey];
@@ -628,13 +629,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

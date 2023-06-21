@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction/compaction_picker_universal.h"
-#ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 #include <limits>
@@ -20,7 +19,7 @@
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -134,8 +133,8 @@ class UniversalCompactionBuilder {
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
 
-  static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage);
+  static std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
+      const VersionStorageInfo& vstorage, int last_level);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.
@@ -293,7 +292,7 @@ bool UniversalCompactionPicker::NeedsCompaction(
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, const SequenceNumber /* earliest_mem_seqno */) {
+    LogBuffer* log_buffer) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, mutable_db_options,
                                      vstorage, this, log_buffer);
@@ -340,13 +339,13 @@ void UniversalCompactionBuilder::SortedRun::DumpSizeInfo(
 
 std::vector<UniversalCompactionBuilder::SortedRun>
 UniversalCompactionBuilder::CalculateSortedRuns(
-    const VersionStorageInfo& vstorage) {
+    const VersionStorageInfo& vstorage, int last_level) {
   std::vector<UniversalCompactionBuilder::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
     ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
                      f->being_compacted);
   }
-  for (int level = 1; level < vstorage.num_levels(); level++) {
+  for (int level = 1; level <= last_level; level++) {
     uint64_t total_compensated_size = 0U;
     uint64_t total_size = 0U;
     bool being_compacted = false;
@@ -375,7 +374,9 @@ UniversalCompactionBuilder::CalculateSortedRuns(
 Compaction* UniversalCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
-  sorted_runs_ = CalculateSortedRuns(*vstorage_);
+  int max_output_level =
+      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  sorted_runs_ = CalculateSortedRuns(*vstorage_, max_output_level);
 
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
@@ -400,6 +401,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   if (!vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
     // Always need to do a full compaction for periodic compaction.
     c = PickPeriodicCompaction();
+    TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
   }
 
   // Check for size amplification.
@@ -408,6 +410,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           static_cast<size_t>(
               mutable_cf_options_.level0_file_num_compaction_trigger)) {
     if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
+      TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: compacting for size amp\n",
                        cf_name_.c_str());
     } else {
@@ -417,6 +420,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           mutable_cf_options_.compaction_options_universal.size_ratio;
 
       if ((c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX)) != nullptr) {
+        TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
         ROCKS_LOG_BUFFER(log_buffer_,
                          "[%s] Universal: compacting for size ratio\n",
                          cf_name_.c_str());
@@ -457,6 +461,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
 
   if (c == nullptr) {
     if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
+      TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: delete triggered compaction\n",
                        cf_name_.c_str());
@@ -468,6 +473,8 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
         "UniversalCompactionBuilder::PickCompaction:Return", nullptr);
     return nullptr;
   }
+  assert(c->output_level() <=
+         vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
 
   if (mutable_cf_options_.compaction_options_universal.allow_trivial_move ==
           true &&
@@ -695,22 +702,18 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
   int output_level;
+  // last level is reserved for the files ingested behind
+  int max_output_level =
+      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
   if (first_index_after == sorted_runs_.size()) {
-    output_level = vstorage_->num_levels() - 1;
+    output_level = max_output_level;
   } else if (sorted_runs_[first_index_after].level == 0) {
     output_level = 0;
   } else {
     output_level = sorted_runs_[first_index_after].level - 1;
   }
 
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind &&
-      (output_level == vstorage_->num_levels() - 1)) {
-    assert(output_level > 1);
-    output_level--;
-  }
-
-  std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
+  std::vector<CompactionInputFiles> inputs(max_output_level + 1);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
@@ -1189,8 +1192,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       return nullptr;
     }
 
+    int max_output_level =
+        vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
     // Pick the first non-empty level after the start_level
-    for (output_level = start_level + 1; output_level < vstorage_->num_levels();
+    for (output_level = start_level + 1; output_level <= max_output_level;
          output_level++) {
       if (vstorage_->NumLevelFiles(output_level) != 0) {
         break;
@@ -1198,9 +1203,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     }
 
     // If all higher levels are empty, pick the highest level as output level
-    if (output_level == vstorage_->num_levels()) {
+    if (output_level > max_output_level) {
       if (start_level == 0) {
-        output_level = vstorage_->num_levels() - 1;
+        output_level = max_output_level;
       } else {
         // If start level is non-zero and all higher levels are empty, this
         // compaction will translate into a trivial move. Since the idea is
@@ -1209,11 +1214,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
         return nullptr;
       }
     }
-    if (ioptions_.allow_ingest_behind &&
-        output_level == vstorage_->num_levels() - 1) {
-      assert(output_level > 1);
-      output_level--;
-    }
+    assert(output_level <= max_output_level);
 
     if (output_level != 0) {
       if (start_level == 0) {
@@ -1290,8 +1291,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
-
-  std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
+  int max_output_level =
+      vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  std::vector<CompactionInputFiles> inputs(max_output_level + 1);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
@@ -1328,13 +1330,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
 
   int output_level;
   if (end_index == sorted_runs_.size() - 1) {
-    // output files at the last level, unless it's reserved
-    output_level = vstorage_->num_levels() - 1;
-    // last level is reserved for the files ingested behind
-    if (ioptions_.allow_ingest_behind) {
-      assert(output_level > 1);
-      output_level--;
-    }
+    output_level = max_output_level;
   } else {
     // if it's not including all sorted_runs, it can only output to the level
     // above the `end_index + 1` sorted_run.
@@ -1447,4 +1443,3 @@ uint64_t UniversalCompactionBuilder::GetMaxOverlappingBytes() const {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

@@ -14,7 +14,7 @@
 #include <string>
 
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -37,6 +37,10 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
           footer_.checksum_type(), slice_.data(), block_size_,
           file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+      if (!io_status_.ok()) {
+        assert(io_status_.IsCorruption());
+        RecordTick(ioptions_.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+      }
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -254,6 +258,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(
             opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
             &direct_io_buf_, read_options_.rate_limiter_priority);
@@ -262,6 +267,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(opts, handle_.offset(),
                                  block_size_with_trailer_, &slice_, used_buf_,
                                  nullptr, read_options_.rate_limiter_priority);

@@ -20,7 +20,7 @@
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -31,27 +31,15 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs,
-                           const SequenceNumber earliest_mem_seqno) {
-  // Do not pick ingested file when there is at least one memtable not flushed
-  // which of seqno is overlap with the sst.
+                           CompactionInputFiles* comp_inputs) {
   TEST_SYNC_POINT("FindIntraL0Compaction");
+
   size_t start = 0;
-  for (; start < level_files.size(); start++) {
-    if (level_files[start]->being_compacted) {
-      return false;
-    }
-    // If there is no data in memtable, the earliest sequence number would the
-    // largest sequence number in last memtable.
-    // Because all files are sorted in descending order by largest_seqno, so we
-    // only need to check the first one.
-    if (level_files[start]->fd.largest_seqno <= earliest_mem_seqno) {
-      break;
-    }
-  }
-  if (start >= level_files.size()) {
+
+  if (level_files.size() == 0 || level_files[start]->being_compacted) {
     return false;
   }
+
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
   size_t compact_bytes_per_del_file = std::numeric_limits<size_t>::max();
   // Compaction range will be [start, limit).
@@ -613,8 +601,7 @@ Compaction* CompactionPicker::CompactRange(
     int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-    const SequenceNumber /*earliest_mem_seqno*/) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -624,23 +611,21 @@ Compaction* CompactionPicker::CompactRange(
     // Universal compaction with more than one level always compacts all the
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
+    int max_output_level =
+        vstorage->MaxOutputLevel(ioptions_.allow_ingest_behind);
     // DBImpl::CompactRange() set output level to be the last level
-    if (ioptions_.allow_ingest_behind) {
-      assert(output_level == vstorage->num_levels() - 2);
-    } else {
-      assert(output_level == vstorage->num_levels() - 1);
-    }
+    assert(output_level == max_output_level);
     // DBImpl::RunManualCompaction will make full range for universal compaction
     assert(begin == nullptr);
     assert(end == nullptr);
     *compaction_end = nullptr;
 
     int start_level = 0;
-    for (; start_level < vstorage->num_levels() &&
+    for (; start_level <= max_output_level &&
            vstorage->NumLevelFiles(start_level) == 0;
          start_level++) {
     }
-    if (start_level == vstorage->num_levels()) {
+    if (start_level > max_output_level) {
       return nullptr;
     }
 
@@ -650,9 +635,9 @@ Compaction* CompactionPicker::CompactRange(
       return nullptr;
     }
 
-    std::vector<CompactionInputFiles> inputs(vstorage->num_levels() -
+    std::vector<CompactionInputFiles> inputs(max_output_level + 1 -
                                              start_level);
-    for (int level = start_level; level < vstorage->num_levels(); level++) {
+    for (int level = start_level; level <= max_output_level; level++) {
       inputs[level - start_level].level = level;
       auto& files = inputs[level - start_level].files;
       for (FileMetaData* f : vstorage->LevelFiles(level)) {
@@ -766,8 +751,10 @@ Compaction* CompactionPicker::CompactRange(
 
   // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out
   // files that are created during the current compaction.
-  if (compact_range_options.bottommost_level_compaction ==
-          BottommostLevelCompaction::kForceOptimized &&
+  if ((compact_range_options.bottommost_level_compaction ==
+           BottommostLevelCompaction::kForceOptimized ||
+       compact_range_options.bottommost_level_compaction ==
+           BottommostLevelCompaction::kIfHaveCompactionFilter) &&
       max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
@@ -890,7 +877,6 @@ Compaction* CompactionPicker::CompactRange(
   return compaction;
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 // Test whether two files have overlapping key-ranges.
 bool HaveOverlappingKeyRanges(const Comparator* c, const SstFileMetaData& a,
@@ -919,8 +905,7 @@ bool HaveOverlappingKeyRanges(const Comparator* c, const SstFileMetaData& a,
 
 Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     std::unordered_set<uint64_t>* input_files,
-    const ColumnFamilyMetaData& cf_meta, const int output_level,
-    const SequenceNumber earliest_mem_seqno) const {
+    const ColumnFamilyMetaData& cf_meta, const int output_level) const {
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
@@ -997,12 +982,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
                                current_files[f].name +
                                " is currently being compacted.");
       }
-      if (output_level == 0 &&
-          current_files[f].largest_seqno > earliest_mem_seqno) {
-        return Status::Aborted(
-            "Necessary compaction input file " + current_files[f].name +
-            " has overlapping seqnos with earliest memtable seqnos.");
-      }
 
       input_files->insert(TableFileNameToNumber(current_files[f].name));
     }
@@ -1060,14 +1039,12 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         "A running compaction is writing to the same output level in an "
         "overlapping key range");
   }
-
   return Status::OK();
 }
 
 Status CompactionPicker::SanitizeCompactionInputFiles(
     std::unordered_set<uint64_t>* input_files,
-    const ColumnFamilyMetaData& cf_meta, const int output_level,
-    const SequenceNumber earliest_mem_seqno) const {
+    const ColumnFamilyMetaData& cf_meta, const int output_level) const {
   assert(static_cast<int>(cf_meta.levels.size()) - 1 ==
          cf_meta.levels[cf_meta.levels.size() - 1].level);
   if (output_level >= static_cast<int>(cf_meta.levels.size())) {
@@ -1093,8 +1070,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
         "A compaction must contain at least one file.");
   }
 
-  Status s = SanitizeCompactionInputFilesForAllLevels(
-      input_files, cf_meta, output_level, earliest_mem_seqno);
+  Status s = SanitizeCompactionInputFilesForAllLevels(input_files, cf_meta,
+                                                      output_level);
 
   if (!s.ok()) {
     return s;
@@ -1138,7 +1115,6 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 
   return Status::OK();
 }
-#endif  // !ROCKSDB_LITE
 
 void CompactionPicker::RegisterCompaction(Compaction* c) {
   if (c == nullptr) {
@@ -1148,7 +1124,11 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
          c->output_level() == 0 ||
          !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
                                           c->GetPenultimateLevel()));
-  if (c->start_level() == 0 ||
+  // CompactionReason::kExternalSstIngestion's start level is just a placeholder
+  // number without actual meaning as file ingestion technically does not have
+  // an input level like other compactions
+  if ((c->start_level() == 0 &&
+       c->compaction_reason() != CompactionReason::kExternalSstIngestion) ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.insert(c);
   }

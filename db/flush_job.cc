@@ -23,6 +23,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/version_edit.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
 #include "file/filename.h"
@@ -48,7 +49,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const char* GetFlushReasonString (FlushReason flush_reason) {
+const char* GetFlushReasonString(FlushReason flush_reason) {
   switch (flush_reason) {
     case FlushReason::kOthers:
       return "Other Reasons";
@@ -74,6 +75,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kErrorRecoveryRetryFlush:
+      return "Error Recovery Retry Flush";
     case FlushReason::kWalFull:
       return "WAL Full";
     default:
@@ -90,7 +93,7 @@ FlushJob::FlushJob(
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, JobContext* job_context,
-    LogBuffer* log_buffer, FSDirectory* db_directory,
+    FlushReason flush_reason, LogBuffer* log_buffer, FSDirectory* db_directory,
     FSDirectory* output_file_directory, CompressionType output_compression,
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
@@ -113,6 +116,7 @@ FlushJob::FlushJob(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       job_context_(job_context),
+      flush_reason_(flush_reason),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_file_directory_(output_file_directory),
@@ -136,17 +140,15 @@ FlushJob::FlushJob(
   TEST_SYNC_POINT("FlushJob::FlushJob()");
 }
 
-FlushJob::~FlushJob() {
-  ThreadStatusUtil::ResetThreadStatus();
-}
+FlushJob::~FlushJob() { ThreadStatusUtil::ResetThreadStatus(); }
 
 void FlushJob::ReportStartedFlush() {
-  ThreadStatusUtil::SetColumnFamily(cfd_, cfd_->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetColumnFamily(cfd_);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
-  ThreadStatusUtil::SetThreadOperationProperty(
-      ThreadStatus::COMPACTION_JOB_ID,
-      job_context_->job_id);
+  ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
+                                               job_context_->job_id);
+
   IOSTATS_RESET(bytes_written);
 }
 
@@ -156,8 +158,7 @@ void FlushJob::ReportFlushInputSize(const autovector<MemTable*>& mems) {
     input_size += mem->ApproximateMemoryUsage();
   }
   ThreadStatusUtil::IncreaseThreadOperationProperty(
-      ThreadStatus::FLUSH_BYTES_MEMTABLES,
-      input_size);
+      ThreadStatus::FLUSH_BYTES_MEMTABLES, input_size);
 }
 
 void FlushJob::RecordFlushIOStats() {
@@ -203,6 +204,7 @@ void FlushJob::PickMemTable() {
 
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+  meta_.epoch_number = cfd_->NewEpochNumber();
 
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
@@ -220,8 +222,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   double mempurge_threshold =
       mutable_cf_options_.experimental_mempurge_threshold;
 
-  AutoThreadOperationStageUpdater stage_run(
-      ThreadStatus::STAGE_FLUSH_RUN);
+  AutoThreadOperationStageUpdater stage_run(ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] Nothing in memtable to flush",
                      cfd_->GetName().c_str());
@@ -248,9 +249,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   }
   Status mempurge_s = Status::NotFound("No MemPurge.");
   if ((mempurge_threshold > 0.0) &&
-      (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty()) && MemPurgeDecider(mempurge_threshold) &&
-      !(db_options_.atomic_flush)) {
+      (flush_reason_ == FlushReason::kWriteBufferFull) && (!mems_.empty()) &&
+      MemPurgeDecider(mempurge_threshold) && !(db_options_.atomic_flush)) {
     cfd_->SetMempurgeUsed();
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
@@ -354,6 +354,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
+  TEST_SYNC_POINT("FlushJob::End");
   return s;
 }
 
@@ -382,6 +383,7 @@ Status FlushJob::MemPurge() {
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
   // Range Tombstones (from DeleteRanges).
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -599,12 +601,10 @@ Status FlushJob::MemPurge() {
         // we do not call SchedulePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
         new_mem->Ref();
-#ifndef ROCKSDB_LITE
         // Piggyback FlushJobInfo on the first flushed memtable.
         db_mutex_->AssertHeld();
         meta_.fd.file_size = 0;
         mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
-#endif  // !ROCKSDB_LITE
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
@@ -674,6 +674,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   // Cochran formula for determining sample size.
   // 95% confidence interval, 7% precision.
   //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
+  // TODO: plumb Env::IOActivity
   double n0 = 196.0;
   ReadOptions ro;
   ro.total_order_seek = true;
@@ -846,6 +847,7 @@ Status FlushJob::WriteLevel0Table() {
         range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
+    ro.io_activity = Env::IOActivity::kFlush;
     Arena arena;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
@@ -881,7 +883,7 @@ Status FlushJob::WriteLevel0Table() {
                          << total_num_deletes << "total_data_size"
                          << total_data_size << "memory_usage"
                          << total_memory_usage << "flush_reason"
-                         << GetFlushReasonString(cfd_->GetFlushReason());
+                         << GetFlushReasonString(flush_reason_);
 
     {
       ScopedArenaIterator iter(
@@ -906,8 +908,7 @@ Status FlushJob::WriteLevel0Table() {
       }
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
-      uint64_t oldest_key_time =
-          mems_.front()->ApproximateOldestKeyTime();
+      uint64_t oldest_key_time = mems_.front()->ApproximateOldestKeyTime();
 
       // It's not clear whether oldest_key_time is always available. In case
       // it is not available, use current_time.
@@ -936,17 +937,19 @@ Status FlushJob::WriteLevel0Table() {
           meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
-      s = BuildTable(
-          dbname_, versions_, db_options_, tboptions, file_options_,
-          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_,
-          earliest_write_conflict_snapshot_, job_snapshot_seq,
-          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
-          cfd_->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
-          job_context_->job_id, io_priority, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      s = BuildTable(dbname_, versions_, db_options_, tboptions, file_options_,
+                     read_options, cfd_->table_cache(), iter.get(),
+                     std::move(range_del_iters), &meta_, &blob_file_additions,
+                     existing_snapshots_, earliest_write_conflict_snapshot_,
+                     job_snapshot_seq, snapshot_checker_,
+                     mutable_cf_options_.paranoid_file_checks,
+                     cfd_->internal_stats(), &io_s, io_tracer_,
+                     BlobFileCreationReason::kFlush, seqno_to_time_mapping_,
+                     event_logger_, job_context_->job_id, io_priority,
+                     &table_properties_, write_hint, full_history_ts_low,
+                     blob_callback_, base_, &num_input_entries,
+                     &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
@@ -1005,15 +1008,14 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.temperature,
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
-                   meta_.file_creation_time, meta_.file_checksum,
-                   meta_.file_checksum_func_name, meta_.unique_id);
-
+                   meta_.file_creation_time, meta_.epoch_number,
+                   meta_.file_checksum, meta_.file_checksum_func_name,
+                   meta_.unique_id, meta_.compensated_range_deletion_size,
+                   meta_.tail_size);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
-#ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
-#endif  // !ROCKSDB_LITE
 
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
@@ -1063,7 +1065,6 @@ Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
   return Env::IO_HIGH;
 }
 
-#ifndef ROCKSDB_LITE
 std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   db_mutex_->AssertHeld();
   std::unique_ptr<FlushJobInfo> info(new FlushJobInfo{});
@@ -1080,7 +1081,7 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->smallest_seqno = meta_.fd.smallest_seqno;
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
-  info->flush_reason = cfd_->GetFlushReason();
+  info->flush_reason = flush_reason_;
   info->blob_compression_type = mutable_cf_options_.blob_compression_type;
 
   // Update BlobFilesInfo.
@@ -1095,6 +1096,5 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   }
   return info;
 }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

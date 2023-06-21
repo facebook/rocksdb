@@ -268,7 +268,8 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_NE(table_options, nullptr);
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,
-                                    &table_reader));
+                                    0 /* block_protection_bytes_per_key */,
+                                    &table_reader, 0 /* tail_size */));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -282,9 +283,9 @@ class BlockFetcherTest : public testing::Test {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
-    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
-                                 file_size, footer,
-                                 kBlockBasedTableMagicNumber));
+    ASSERT_OK(ReadFooterFromFile(opts, file, *fs_,
+                                 nullptr /* prefetch_buffer */, file_size,
+                                 footer, kBlockBasedTableMagicNumber));
   }
 
   // NOTE: compression_type returns the compression type of the fetched block
@@ -363,7 +364,6 @@ class BlockFetcherTest : public testing::Test {
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
-#ifndef ROCKSDB_LITE
 
 // Fetch index block under both direct IO and non-direct IO.
 // Expects:
@@ -509,7 +509,6 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
                      expected_stats_by_mode);
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE

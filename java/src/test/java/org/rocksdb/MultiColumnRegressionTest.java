@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,15 +51,14 @@ public class MultiColumnRegressionTest {
   public void transactionDB() throws RocksDBException {
     final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
     for (int i = 0; i < params.numColumns; i++) {
-      StringBuilder sb = new StringBuilder();
+      final StringBuilder sb = new StringBuilder();
       sb.append("cf" + i);
       for (int j = 0; j < params.keySize; j++) sb.append("_cf");
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(sb.toString().getBytes()));
     }
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<ColumnFamilyHandle> columnFamilyHandles =
-          db.createColumnFamilies(columnFamilyDescriptors);
+      db.createColumnFamilies(columnFamilyDescriptors);
     }
 
     columnFamilyDescriptors.add(new ColumnFamilyDescriptor("default".getBytes()));
@@ -62,7 +67,7 @@ public class MultiColumnRegressionTest {
              new TransactionDBOptions(), dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
       final WriteOptions writeOptions = new WriteOptions();
-      try (Transaction transaction = tdb.beginTransaction(writeOptions)) {
+      try (final Transaction transaction = tdb.beginTransaction(writeOptions)) {
         for (int i = 0; i < params.numColumns; i++) {
           transaction.put(
               columnFamilyHandles.get(i), ("key" + i).getBytes(), ("value" + (i - 7)).getBytes());
@@ -70,7 +75,7 @@ public class MultiColumnRegressionTest {
         transaction.put("key".getBytes(), "value".getBytes());
         transaction.commit();
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
         columnFamilyHandle.close();
       }
     }
@@ -79,7 +84,7 @@ public class MultiColumnRegressionTest {
     try (final TransactionDB tdb = TransactionDB.open(new DBOptions().setCreateIfMissing(true),
              new TransactionDBOptions(), dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles2)) {
-      try (Transaction transaction = tdb.beginTransaction(new WriteOptions())) {
+      try (final Transaction transaction = tdb.beginTransaction(new WriteOptions())) {
         final ReadOptions readOptions = new ReadOptions();
         for (int i = 0; i < params.numColumns; i++) {
           final byte[] value =
@@ -88,7 +93,7 @@ public class MultiColumnRegressionTest {
         }
         transaction.commit();
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles2) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles2) {
         columnFamilyHandle.close();
       }
     }
@@ -106,7 +111,7 @@ public class MultiColumnRegressionTest {
     try (final OptimisticTransactionDB otdb = OptimisticTransactionDB.open(
              new DBOptions().setCreateIfMissing(true), dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
-      try (Transaction transaction = otdb.beginTransaction(new WriteOptions())) {
+      try (final Transaction transaction = otdb.beginTransaction(new WriteOptions())) {
         for (int i = 0; i < params.numColumns; i++) {
           transaction.put(
               columnFamilyHandles.get(i), ("key" + i).getBytes(), ("value" + (i - 7)).getBytes());
@@ -114,7 +119,7 @@ public class MultiColumnRegressionTest {
         transaction.put("key".getBytes(), "value".getBytes());
         transaction.commit();
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
         columnFamilyHandle.close();
       }
     }
@@ -123,7 +128,7 @@ public class MultiColumnRegressionTest {
     try (final OptimisticTransactionDB otdb = OptimisticTransactionDB.open(
              new DBOptions().setCreateIfMissing(true), dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles2)) {
-      try (Transaction transaction = otdb.beginTransaction(new WriteOptions())) {
+      try (final Transaction transaction = otdb.beginTransaction(new WriteOptions())) {
         final ReadOptions readOptions = new ReadOptions();
         for (int i = 0; i < params.numColumns; i++) {
           final byte[] value =
@@ -132,7 +137,7 @@ public class MultiColumnRegressionTest {
         }
         transaction.commit();
       }
-      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles2) {
+      for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles2) {
         columnFamilyHandle.close();
       }
     }

@@ -7,7 +7,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/merge_operators.h"
-#ifndef ROCKSDB_LITE
 
 #include "test_util/testutil.h"
 #include "utilities/transactions/transaction_test.h"
@@ -320,6 +319,7 @@ TEST_P(WriteCommittedTxnWithTsTest, Merge) {
 
   ColumnFamilyOptions cf_options;
   cf_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
   const std::string test_cf_name = "test_cf";
   ColumnFamilyHandle* cfh = nullptr;
   assert(db);
@@ -338,8 +338,17 @@ TEST_P(WriteCommittedTxnWithTsTest, Merge) {
       NewTxn(WriteOptions(), TransactionOptions()));
   assert(txn);
   ASSERT_OK(txn->Put(handles_[1], "foo", "bar"));
-  ASSERT_TRUE(txn->Merge(handles_[1], "foo", "1").IsInvalidArgument());
+  ASSERT_OK(txn->Merge(handles_[1], "foo", "1"));
+  ASSERT_OK(txn->SetCommitTimestamp(24));
+  ASSERT_OK(txn->Commit());
   txn.reset();
+  {
+    std::string value;
+    const Status s =
+        GetFromDb(ReadOptions(), handles_[1], "foo", /*ts=*/24, &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("bar,1", value);
+  }
 }
 
 TEST_P(WriteCommittedTxnWithTsTest, GetForUpdate) {
@@ -567,12 +576,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Transactions not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

@@ -52,23 +52,15 @@ class CompactionPicker {
 
   // Pick level and inputs for a new compaction.
   //
-  // `earliest_mem_seqno` is the earliest seqno of unflushed memtables.
-  // It is needed to compare with compaction input SST files' largest seqnos
-  // in order to exclude those of seqnos potentially overlap with memtables'
-  // seqnos when doing compaction to L0. This will avoid creating a SST files in
-  // L0 newer than a unflushed memtable. Such SST file can exist in the first
-  // place when it's ingested or resulted from compaction involving files
-  // ingested.
-  //
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
-  virtual Compaction* PickCompaction(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) = 0;
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     const MutableDBOptions& mutable_db_options,
+                                     VersionStorageInfo* vstorage,
+                                     LogBuffer* log_buffer) = 0;
 
-  // `earliest_mem_seqno`: see PickCompaction() API
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete
@@ -87,8 +79,7 @@ class CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-      const SequenceNumber earliest_mem_seqno);
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -102,18 +93,9 @@ class CompactionPicker {
 // into a valid one by adding more files, the function will return a
 // non-ok status with specific reason.
 //
-// Cases of returning non-ok status include but not limited to:
-// - When output_level == 0 and input_files contains sst files
-// of largest seqno greater than `earliest_mem_seqno`. This will
-// avoid creating a SST files in L0 newer than a unflushed memtable.
-// Such SST file can exist in the first place when it's ingested or
-// resulted from compaction involving files ingested.
-#ifndef ROCKSDB_LITE
-  Status SanitizeCompactionInputFiles(
-      std::unordered_set<uint64_t>* input_files,
-      const ColumnFamilyMetaData& cf_meta, const int output_level,
-      const SequenceNumber earliest_mem_seqno) const;
-#endif  // ROCKSDB_LITE
+  Status SanitizeCompactionInputFiles(std::unordered_set<uint64_t>* input_files,
+                                      const ColumnFamilyMetaData& cf_meta,
+                                      const int output_level) const;
 
   // Free up the files that participated in a compaction
   //
@@ -245,12 +227,9 @@ class CompactionPicker {
 
 // A helper function to SanitizeCompactionInputFiles() that
 // sanitizes "input_files" by adding necessary files.
-#ifndef ROCKSDB_LITE
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::unordered_set<uint64_t>* input_files,
-      const ColumnFamilyMetaData& cf_meta, const int output_level,
-      const SequenceNumber earliest_mem_seqno) const;
-#endif  // ROCKSDB_LITE
+      const ColumnFamilyMetaData& cf_meta, const int output_level) const;
 
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
@@ -263,7 +242,6 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
-#ifndef ROCKSDB_LITE
 // A dummy compaction that never triggers any automatic
 // compaction.
 class NullCompactionPicker : public CompactionPicker {
@@ -274,27 +252,27 @@ class NullCompactionPicker : public CompactionPicker {
   virtual ~NullCompactionPicker() {}
 
   // Always return "nullptr"
-  Compaction* PickCompaction(
-      const std::string& /*cf_name*/,
-      const MutableCFOptions& /*mutable_cf_options*/,
-      const MutableDBOptions& /*mutable_db_options*/,
-      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
-      const SequenceNumber /* earliest_mem_seqno */) override {
+  Compaction* PickCompaction(const std::string& /*cf_name*/,
+                             const MutableCFOptions& /*mutable_cf_options*/,
+                             const MutableDBOptions& /*mutable_db_options*/,
+                             VersionStorageInfo* /*vstorage*/,
+                             LogBuffer* /* log_buffer */) override {
     return nullptr;
   }
 
   // Always return "nullptr"
-  Compaction* CompactRange(
-      const std::string& /*cf_name*/,
-      const MutableCFOptions& /*mutable_cf_options*/,
-      const MutableDBOptions& /*mutable_db_options*/,
-      VersionStorageInfo* /*vstorage*/, int /*input_level*/,
-      int /*output_level*/,
-      const CompactRangeOptions& /*compact_range_options*/,
-      const InternalKey* /*begin*/, const InternalKey* /*end*/,
-      InternalKey** /*compaction_end*/, bool* /*manual_conflict*/,
-      uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/,
-      const SequenceNumber /* earliest_mem_seqno */) override {
+  Compaction* CompactRange(const std::string& /*cf_name*/,
+                           const MutableCFOptions& /*mutable_cf_options*/,
+                           const MutableDBOptions& /*mutable_db_options*/,
+                           VersionStorageInfo* /*vstorage*/,
+                           int /*input_level*/, int /*output_level*/,
+                           const CompactRangeOptions& /*compact_range_options*/,
+                           const InternalKey* /*begin*/,
+                           const InternalKey* /*end*/,
+                           InternalKey** /*compaction_end*/,
+                           bool* /*manual_conflict*/,
+                           uint64_t /*max_file_num_to_ignore*/,
+                           const std::string& /*trim_ts*/) override {
     return nullptr;
   }
 
@@ -304,7 +282,6 @@ class NullCompactionPicker : public CompactionPicker {
     return false;
   }
 };
-#endif  // !ROCKSDB_LITE
 
 // Attempts to find an intra L0 compaction conforming to the given parameters.
 //
@@ -321,14 +298,12 @@ class NullCompactionPicker : public CompactionPicker {
 //                                        initialized with corresponding input
 //                                        files. Cannot be nullptr.
 //
-// @param earliest_mem_seqno              See PickCompaction() API
 // @return                                true iff compaction was found.
 bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs,
-                           const SequenceNumber earliest_mem_seqno);
+                           CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
                                    const MutableCFOptions& mutable_cf_options,

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/db_impl/compacted_db_impl.h"
 
 #include "db/db_impl/db_impl.h"
@@ -47,6 +46,11 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value,
                             std::string* timestamp) {
+  if (options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   assert(user_comparator_);
   if (options.timestamp) {
     const Status s = FailIfTsMismatchCf(
@@ -254,4 +258,3 @@ Status CompactedDBImpl::Open(const Options& options, const std::string& dbname,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

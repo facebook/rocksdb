@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 // Syncpoint prevents us building and running tests in release
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/checkpoint.h"
 
 #ifndef OS_WIN
@@ -461,8 +460,8 @@ TEST_F(CheckpointTest, CheckpointCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"CheckpointTest::CheckpointCF:2", "DBImpl::GetLiveFiles:2"},
-       {"DBImpl::GetLiveFiles:1", "CheckpointTest::CheckpointCF:1"}});
+      {{"CheckpointTest::CheckpointCF:2", "DBImpl::FlushAllColumnFamilies:2"},
+       {"DBImpl::FlushAllColumnFamilies:1", "CheckpointTest::CheckpointCF:1"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -855,6 +854,30 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
   delete snapshot_db;
 }
 
+TEST_F(CheckpointTest, CheckpointWithLockWAL) {
+  Options options = CurrentOptions();
+  ASSERT_OK(Put("foo", "foo_value"));
+
+  ASSERT_OK(db_->LockWAL());
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  checkpoint = nullptr;
+
+  ASSERT_OK(db_->UnlockWAL());
+  Close();
+
+  DB* snapshot_db = nullptr;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
+  ASSERT_EQ("foo_value", get_result);
+  delete snapshot_db;
+}
+
 TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
@@ -962,13 +985,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Checkpoint is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

@@ -3,7 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+
+#include "db/write_callback.h"
 
 #include <atomic>
 #include <functional>
@@ -12,7 +13,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/write_callback.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
@@ -37,11 +37,11 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
  public:
   bool was_called = false;
 
-  Status Callback(DB *db) override {
+  Status Callback(DB* db) override {
     was_called = true;
 
     // Make sure db is a DBImpl
-    DBImpl* db_impl = dynamic_cast<DBImpl*> (db);
+    DBImpl* db_impl = dynamic_cast<DBImpl*>(db);
     if (db_impl == nullptr) {
       return Status::InvalidArgument("");
     }
@@ -397,7 +397,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = dynamic_cast<DBImpl*> (db);
+  db_impl = dynamic_cast<DBImpl*>(db);
   ASSERT_TRUE(db_impl);
 
   WriteBatch wb;
@@ -452,13 +452,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

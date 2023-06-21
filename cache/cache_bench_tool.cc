@@ -13,11 +13,10 @@
 #include <set>
 #include <sstream>
 
-#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -78,11 +77,9 @@ DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
             "operations.");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
-#endif  // ROCKSDB_LITE
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
@@ -227,7 +224,7 @@ struct KeyGen {
   }
 };
 
-char* createValue(Random64& rnd) {
+Cache::ObjectPtr createValue(Random64& rnd) {
   char* rv = new char[FLAGS_value_bytes];
   // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
@@ -237,28 +234,36 @@ char* createValue(Random64& rnd) {
 }
 
 // Callbacks for secondary cache
-size_t SizeFn(void* /*obj*/) { return FLAGS_value_bytes; }
+size_t SizeFn(Cache::ObjectPtr /*obj*/) { return FLAGS_value_bytes; }
 
-Status SaveToFn(void* obj, size_t /*offset*/, size_t size, void* out) {
-  memcpy(out, obj, size);
+Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
+                size_t length, char* out) {
+  memcpy(out, from_obj, length);
   return Status::OK();
 }
 
-// Different deleters to simulate using deleter to gather
-// stats on the code origin and kind of cache entries.
-void deleter1(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter2(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter3(const Slice& /*key*/, void* value) {
+Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
+                MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
+                size_t* out_charge) {
+  *out_obj = new char[data.size()];
+  memcpy(*out_obj, data.data(), data.size());
+  *out_charge = data.size();
+  return Status::OK();
+};
+
+void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
   delete[] static_cast<char*>(value);
 }
 
-Cache::CacheItemHelper helper1(SizeFn, SaveToFn, deleter1);
-Cache::CacheItemHelper helper2(SizeFn, SaveToFn, deleter2);
-Cache::CacheItemHelper helper3(SizeFn, SaveToFn, deleter3);
+Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
+Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn, &helper1_wos);
+Cache::CacheItemHelper helper2_wos(CacheEntryRole::kIndexBlock, DeleteFn);
+Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn, &helper2_wos);
+Cache::CacheItemHelper helper3_wos(CacheEntryRole::kFilterBlock, DeleteFn);
+Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn, &helper3_wos);
 }  // namespace
 
 class CacheBench {
@@ -297,15 +302,10 @@ class CacheBench {
       cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
                                       FLAGS_num_shard_bits)
                    .MakeSharedCache();
-    } else if (FLAGS_cache_type == "fast_lru_cache") {
-      cache_ = NewFastLRUCache(
-          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
                            false /* strict_capacity_limit */,
                            0.5 /* high_pri_pool_ratio */);
-#ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -318,7 +318,6 @@ class CacheBench {
         }
         opts.secondary_cache = secondary_cache;
       }
-#endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
     } else {
@@ -441,7 +440,7 @@ class CacheBench {
     uint64_t total_entry_count = 0;
     uint64_t table_occupancy = 0;
     uint64_t table_size = 0;
-    std::set<Cache::DeleterFn> deleters;
+    std::set<const Cache::CacheItemHelper*> helpers;
     StopWatchNano timer(clock);
 
     for (;;) {
@@ -466,7 +465,7 @@ class CacheBench {
                  << BytesToHumanString(static_cast<uint64_t>(
                         1.0 * total_charge / total_entry_count))
                  << "\n"
-                 << "Unique deleters: " << deleters.size() << "\n";
+                 << "Unique helpers: " << helpers.size() << "\n";
             *stats_report = ostr.str();
             return;
           }
@@ -482,14 +481,14 @@ class CacheBench {
       total_key_size = 0;
       total_charge = 0;
       total_entry_count = 0;
-      deleters.clear();
-      auto fn = [&](const Slice& key, void* /*value*/, size_t charge,
-                    Cache::DeleterFn deleter) {
+      helpers.clear();
+      auto fn = [&](const Slice& key, Cache::ObjectPtr /*value*/, size_t charge,
+                    const Cache::CacheItemHelper* helper) {
         total_key_size += key.size();
         total_charge += charge;
         ++total_entry_count;
-        // Something slightly more expensive as in (future) stats by category
-        deleters.insert(deleter);
+        // Something slightly more expensive as in stats by category
+        helpers.insert(helper);
       };
       timer.Start();
       Cache::ApplyToAllEntriesOptions opts;
@@ -538,14 +537,6 @@ class CacheBench {
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
-      Cache::CreateCallback create_cb = [](const void* buf, size_t size,
-                                           void** out_obj,
-                                           size_t* charge) -> Status {
-        *out_obj = reinterpret_cast<void*>(new char[size]);
-        memcpy(*out_obj, buf, size);
-        *charge = size;
-        return Status::OK();
-      };
 
       timer.Start();
 
@@ -555,8 +546,8 @@ class CacheBench {
           handle = nullptr;
         }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
-                                true);
+        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
@@ -584,8 +575,8 @@ class CacheBench {
           handle = nullptr;
         }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
-                                true);
+        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data

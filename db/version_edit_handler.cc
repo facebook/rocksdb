@@ -14,6 +14,7 @@
 
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_source.h"
+#include "db/version_edit.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
 
@@ -26,7 +27,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
   assert(log_read_status);
   assert(log_read_status->ok());
 
-  size_t recovered_edits = 0;
+  [[maybe_unused]] size_t recovered_edits = 0;
   Status s = Initialize();
   while (reader.LastRecordEnd() < max_manifest_read_size_ && s.ok() &&
          reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {
@@ -154,8 +155,9 @@ VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, bool track_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
-    bool skip_load_table_files)
-    : VersionEditHandlerBase(),
+    const ReadOptions& read_options, bool skip_load_table_files,
+    EpochNumberRequirement epoch_number_requirement)
+    : VersionEditHandlerBase(read_options),
       read_only_(read_only),
       column_families_(std::move(column_families)),
       version_set_(version_set),
@@ -163,7 +165,8 @@ VersionEditHandler::VersionEditHandler(
       no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
-      initialized_(false) {
+      initialized_(false),
+      epoch_number_requirement_(epoch_number_requirement) {
   assert(version_set_ != nullptr);
 }
 
@@ -431,6 +434,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
     }
   }
+
   if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {
       if (cfd->IsDropped()) {
@@ -477,7 +481,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
 
 ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
     const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
-  ColumnFamilyData* cfd = version_set_->CreateColumnFamily(cf_options, &edit);
+  ColumnFamilyData* cfd =
+      version_set_->CreateColumnFamily(cf_options, read_options_, &edit);
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(edit.column_family_) == builders_.end());
@@ -528,12 +533,13 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     auto* builder = builder_iter->second->version_builder();
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
                           *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                          version_set_->current_version_number_++);
+                          version_set_->current_version_number_++,
+                          epoch_number_requirement_);
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
       // Install new version
       v->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(),
+          *cfd->GetLatestMutableCFOptions(), read_options_,
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
     } else {
@@ -560,12 +566,13 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
   assert(builder_iter->second != nullptr);
   VersionBuilder* builder = builder_iter->second->version_builder();
   assert(builder);
+  const MutableCFOptions* moptions = cfd->GetLatestMutableCFOptions();
   Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor,
-      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+      moptions->prefix_extractor, MaxFileSizeForL0MetaPin(*moptions),
+      read_options_, moptions->block_protection_bytes_per_key);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -642,10 +649,13 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
 
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-    VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
+    VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+    const ReadOptions& read_options,
+    EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_files_missing=*/true, io_tracer) {}
+                         /*no_error_if_files_missing=*/true, io_tracer,
+                         read_options, epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -734,12 +744,13 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   assert(!cfd->ioptions()->cf_paths.empty());
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
+    int level = elem.first;
     const FileMetaData& meta = elem.second;
     const FileDescriptor& fd = meta.fd;
     uint64_t file_num = fd.GetNumber();
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
-    s = VerifyFile(fpath, meta);
+    s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
@@ -801,13 +812,27 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       assert(builder);
     }
 
+    const MutableCFOptions* cf_opts_ptr = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
-                                *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                                version_set_->current_version_number_++);
+                                *cf_opts_ptr, io_tracer_,
+                                version_set_->current_version_number_++,
+                                epoch_number_requirement_);
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(),
+        version_set_->db_options_->max_file_opening_threads, false, true,
+        cf_opts_ptr->prefix_extractor, MaxFileSizeForL0MetaPin(*cf_opts_ptr),
+        read_options_, cf_opts_ptr->block_protection_bytes_per_key);
+    if (!s.ok()) {
+      delete version;
+      if (s.IsCorruption()) {
+        s = Status::OK();
+      }
+      return s;
+    }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
       version->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(),
+          *cfd->GetLatestMutableCFOptions(), read_options_,
           !version_set_->db_options_->skip_stats_update_on_db_open);
       auto v_iter = versions_.find(cfd->GetID());
       if (v_iter != versions_.end()) {
@@ -823,9 +848,12 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   return s;
 }
 
-Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
+Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
+                                                 const std::string& fpath,
+                                                 int level,
                                                  const FileMetaData& fmeta) {
-  return version_set_->VerifyFileMetadata(fpath, fmeta);
+  return version_set_->VerifyFileMetadata(read_options_, cfd, fpath, level,
+                                          fmeta);
 }
 
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
@@ -834,13 +862,21 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   BlobSource* blob_source = cfd->blob_source();
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s = blob_source->GetBlobFileReader(blob_file_num, &blob_file_reader);
+
+  Status s = blob_source->GetBlobFileReader(read_options_, blob_file_num,
+                                            &blob_file_reader);
   if (!s.ok()) {
     return s;
   }
   // TODO: verify checksum
   (void)blob_addition;
   return s;
+}
+
+Status VersionEditHandlerPointInTime::LoadTables(
+    ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
+    bool /*is_initial_load*/) {
+  return Status::OK();
 }
 
 Status ManifestTailer::Initialize() {
@@ -930,9 +966,11 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   }
 }
 
-Status ManifestTailer::VerifyFile(const std::string& fpath,
+Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
+                                  const std::string& fpath, int level,
                                   const FileMetaData& fmeta) {
-  Status s = VersionEditHandlerPointInTime::VerifyFile(fpath, fmeta);
+  Status s =
+      VersionEditHandlerPointInTime::VerifyFile(cfd, fpath, level, fmeta);
   // TODO: Open file or create hard link to prevent the file from being
   // deleted.
   return s;

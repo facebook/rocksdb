@@ -168,10 +168,6 @@ class PosixFileSystem : public FileSystem {
     FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
@@ -223,10 +219,6 @@ class PosixFileSystem : public FileSystem {
     int flags = cloexec_flags(O_RDONLY, &options);
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
@@ -300,10 +292,6 @@ class PosixFileSystem : public FileSystem {
       // appends data to the end of the file, regardless of the value of
       // offset.
       // More info here: https://linux.die.net/man/2/pwrite
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // ROCKSDB_LITE
       flags |= O_WRONLY;
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
@@ -392,10 +380,6 @@ class PosixFileSystem : public FileSystem {
     int flags = 0;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
@@ -1199,6 +1183,14 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
+  bool use_async_io() override {
+#if defined(ROCKSDB_IOURING_PRESENT)
+    return IsIOUringEnabled();
+#else
+    return false;
+#endif
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
@@ -1278,7 +1270,6 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return instance;
 }
 
-#ifndef ROCKSDB_LITE
 static FactoryFunc<FileSystem> posix_filesystem_reg =
     ObjectLibrary::Default()->AddFactory<FileSystem>(
         ObjectLibrary::PatternEntry("posix").AddSeparator("://", false),
@@ -1287,7 +1278,6 @@ static FactoryFunc<FileSystem> posix_filesystem_reg =
           f->reset(new PosixFileSystem());
           return f->get();
         });
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 

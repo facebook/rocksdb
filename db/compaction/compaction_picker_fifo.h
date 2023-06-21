@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "db/compaction/compaction_picker.h"
 
@@ -19,15 +18,12 @@ class FIFOCompactionPicker : public CompactionPicker {
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
 
-  virtual Compaction* PickCompaction(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* version,
-      LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) override;
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     const MutableDBOptions& mutable_db_options,
+                                     VersionStorageInfo* version,
+                                     LogBuffer* log_buffer) override;
 
-  // `earliest_mem_seqno`: see PickCompaction() API for more. In FIFO's
-  // implementation of CompactRange(), different from others, we will not return
-  // `nullptr` right away when intput files of compaction to L0 has seqnos
-  // potentially overlapping with memtable's but exlucde those files.
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
@@ -35,8 +31,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-      const SequenceNumber earliest_mem_seqno) override;
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override { return 0; }
@@ -55,15 +50,11 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  const MutableCFOptions& mutable_cf_options,
                                  const MutableDBOptions& mutable_db_options,
                                  VersionStorageInfo* version,
-                                 LogBuffer* log_buffer,
-                                 SequenceNumber earliest_mem_seqno);
+                                 LogBuffer* log_buffer);
 
-  Compaction* PickCompactionToWarm(const std::string& cf_name,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   const MutableDBOptions& mutable_db_options,
-                                   VersionStorageInfo* version,
-                                   LogBuffer* log_buffer,
-                                   const SequenceNumber earliest_mem_seqno);
+  Compaction* PickTemperatureChangeCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer);
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

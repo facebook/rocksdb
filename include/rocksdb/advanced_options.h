@@ -27,14 +27,11 @@ enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
   // Universal compaction style
-  // Not supported in ROCKSDB_LITE.
   kCompactionStyleUniversal = 0x1,
   // FIFO compaction style
-  // Not supported in ROCKSDB_LITE
   kCompactionStyleFIFO = 0x2,
   // Disable background compaction. Compaction jobs are submitted
   // via CompactFiles().
-  // Not supported in ROCKSDB_LITE
   kCompactionStyleNone = 0x3,
 };
 
@@ -62,43 +59,30 @@ enum CompactionPri : char {
   kRoundRobin = 0x4,
 };
 
-struct CompactionOptionsFIFO {
-  // once the total sum of table files reaches this, we will delete the oldest
-  // table file
-  // Default: 1GB
-  uint64_t max_table_files_size;
-
-  // If true, try to do compaction to compact smaller files into larger ones.
-  // Minimum files to compact follows options.level0_file_num_compaction_trigger
-  // and compaction won't trigger if average compact bytes per del file is
-  // larger than options.write_buffer_size. This is to protect large files
-  // from being compacted again.
-  // Default: false;
-  bool allow_compaction = false;
-
-  // When not 0, if the data in the file is older than this threshold, RocksDB
-  // will soon move the file to warm temperature.
-  uint64_t age_for_warm = 0;
-
-  CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
-  CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
-      : max_table_files_size(_max_table_files_size),
-        allow_compaction(_allow_compaction) {}
-};
-
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
+  // ==> BEGIN options that can be set by deprecated configuration syntax, <==
+  // ==> e.g. compression_opts=5:6:7:8:9:10:true:11:false                  <==
+  // ==> Please use compression_opts={level=6;strategy=7;} form instead.   <==
+
   // RocksDB's generic default compression level. Internally it'll be translated
   // to the default compression level specific to the library being used (see
   // comment above `ColumnFamilyOptions::compression`).
   //
   // The default value is the max 16-bit int as it'll be written out in OPTIONS
   // file, which should be portable.
-  const static int kDefaultCompressionLevel = 32767;
+  static constexpr int kDefaultCompressionLevel = 32767;
 
-  int window_bits;
-  int level;
-  int strategy;
+  // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
+  int window_bits = -14;
+
+  // Compression "level" applicable to zstd, zlib, LZ4. Except for
+  // kDefaultCompressionLevel (see above), the meaning of each value depends
+  // on the compression algorithm.
+  int level = kDefaultCompressionLevel;
+
+  // zlib only: strategy parameter. See https://www.zlib.net/manual.html
+  int strategy = 0;
 
   // Maximum size of dictionaries used to prime the compression library.
   // Enabling dictionary can improve compression ratios when there are
@@ -120,18 +104,14 @@ struct CompressionOptions {
   // If block cache insertion fails with `Status::MemoryLimit` (i.e., it is
   // full), we finalize the dictionary with whatever data we have and then stop
   // buffering.
-  //
-  // Default: 0.
-  uint32_t max_dict_bytes;
+  uint32_t max_dict_bytes = 0;
 
   // Maximum size of training data passed to zstd's dictionary trainer. Using
   // zstd's dictionary trainer can achieve even better compression ratio
   // improvements than using `max_dict_bytes` alone.
   //
   // The training data will be used to generate a dictionary of max_dict_bytes.
-  //
-  // Default: 0.
-  uint32_t zstd_max_train_bytes;
+  uint32_t zstd_max_train_bytes = 0;
 
   // Number of threads for parallel compression.
   // Parallel compression is enabled only if threads > 1.
@@ -144,9 +124,7 @@ struct CompressionOptions {
   // compressed size is in flight when compression is parallelized. To be
   // reasonably accurate, this inflation is also estimated by using historical
   // compression ratio and current bytes inflight.
-  //
-  // Default: 1.
-  uint32_t parallel_threads;
+  uint32_t parallel_threads = 1;
 
   // When the compression options are set by the user, it will be set to "true".
   // For bottommost_compression_opts, to enable it, user must set enabled=true.
@@ -155,9 +133,7 @@ struct CompressionOptions {
   //
   // For compression_opts, if compression_opts.enabled=false, it is still
   // used as compression options for compression process.
-  //
-  // Default: false.
-  bool enabled;
+  bool enabled = false;
 
   // Limit on data buffering when gathering samples to build a dictionary. Zero
   // means no limit. When dictionary is disabled (`max_dict_bytes == 0`),
@@ -176,9 +152,7 @@ struct CompressionOptions {
   // `zstd_max_train_bytes` (when enabled) can restrict how many samples we can
   // pass to the dictionary trainer. Configuring it below `max_dict_bytes` can
   // restrict the size of the final dictionary.
-  //
-  // Default: 0 (unlimited)
-  uint64_t max_dict_buffer_bytes;
+  uint64_t max_dict_buffer_bytes = 0;
 
   // Use zstd trainer to generate dictionaries. When this option is set to true,
   // zstd_max_train_bytes of training data sampled from max_dict_buffer_bytes
@@ -190,34 +164,29 @@ struct CompressionOptions {
   // data will be passed to this API. Using this API should save CPU time on
   // dictionary training, but the compression ratio may not be as good as using
   // a dictionary trainer.
-  //
-  // Default: true
-  bool use_zstd_dict_trainer;
+  bool use_zstd_dict_trainer = true;
 
-  CompressionOptions()
-      : window_bits(-14),
-        level(kDefaultCompressionLevel),
-        strategy(0),
-        max_dict_bytes(0),
-        zstd_max_train_bytes(0),
-        parallel_threads(1),
-        enabled(false),
-        max_dict_buffer_bytes(0),
-        use_zstd_dict_trainer(true) {}
-  CompressionOptions(int wbits, int _lev, int _strategy,
-                     uint32_t _max_dict_bytes, uint32_t _zstd_max_train_bytes,
-                     uint32_t _parallel_threads, bool _enabled,
-                     uint64_t _max_dict_buffer_bytes,
-                     bool _use_zstd_dict_trainer)
-      : window_bits(wbits),
-        level(_lev),
-        strategy(_strategy),
-        max_dict_bytes(_max_dict_bytes),
-        zstd_max_train_bytes(_zstd_max_train_bytes),
-        parallel_threads(_parallel_threads),
-        enabled(_enabled),
-        max_dict_buffer_bytes(_max_dict_buffer_bytes),
-        use_zstd_dict_trainer(_use_zstd_dict_trainer) {}
+  // ===> END options that can be set by deprecated configuration syntax <===
+  // ===> Use compression_opts={level=6;strategy=7;} form for below opts <===
+
+  // Essentially specifies a minimum acceptable compression ratio. A block is
+  // stored uncompressed if the compressed block does not achieve this ratio,
+  // because the downstream cost of decompression is not considered worth such
+  // a small savings (if any).
+  // However, the ratio is specified in a way that is efficient for checking.
+  // An integer from 1 to 1024 indicates the maximum allowable compressed bytes
+  // per 1KB of input, so the minimum acceptable ratio is 1024.0 / this value.
+  // For example, for a minimum ratio of 1.5:1, set to 683. See SetMinRatio().
+  // Default: abandon use of compression for a specific block or entry if
+  // compressed by less than 12.5% (minimum ratio of 1.143:1).
+  int max_compressed_bytes_per_kb = 1024 * 7 / 8;
+
+  // A convenience function for setting max_compressed_bytes_per_kb based on a
+  // minimum acceptable compression ratio (uncompressed size over compressed
+  // size).
+  void SetMinRatio(double min_ratio) {
+    max_compressed_bytes_per_kb = static_cast<int>(1024.0 / min_ratio + 0.5);
+  }
 };
 
 // Temperature of a file. Used to pass to FileSystem for a different
@@ -230,6 +199,60 @@ enum class Temperature : uint8_t {
   kWarm = 0x08,
   kCold = 0x0C,
   kLastTemperature,
+};
+
+struct FileTemperatureAge {
+  Temperature temperature = Temperature::kUnknown;
+  uint64_t age = 0;
+};
+
+struct CompactionOptionsFIFO {
+  // once the total sum of table files reaches this, we will delete the oldest
+  // table file
+  // Default: 1GB
+  uint64_t max_table_files_size;
+
+  // If true, try to do compaction to compact smaller files into larger ones.
+  // Minimum files to compact follows options.level0_file_num_compaction_trigger
+  // and compaction won't trigger if average compact bytes per del file is
+  // larger than options.write_buffer_size. This is to protect large files
+  // from being compacted again.
+  // Default: false;
+  bool allow_compaction = false;
+
+  // DEPRECATED
+  // When not 0, if the data in the file is older than this threshold, RocksDB
+  // will soon move the file to warm temperature.
+  uint64_t age_for_warm = 0;
+
+  // EXPERIMENTAL
+  // Age (in seconds) threshold for different file temperatures.
+  // When not empty, each element specifies an age threshold `age` and a
+  // temperature such that if all the data in a file is older than `age`,
+  // RocksDB will compact the file to the specified `temperature`.
+  //
+  // Note:
+  // - Flushed files will always have temperature kUnknown.
+  // - Compaction output files will have temperature kUnknown by default, so
+  //   only temperatures other than kUnknown needs to be specified.
+  // - The elements should be in increasing order with respect to `age` field.
+  //
+  // Dynamically changeable through SetOptions() API, e.g.,
+  //   SetOptions("compaction_options_fifo",
+  //   "{file_temperature_age_thresholds={
+  //    {age=10;temperature=kWarm}:{age=20;temperature=kCold}}}")
+  // In this example, all files that are at least 20 seconds old will be
+  // compacted and output files will have temperature kCold. All files that are
+  // at least 10 seconds old but younger than 20 seconds will be compacted to
+  // files with temperature kWarm.
+  //
+  // Default: empty
+  std::vector<FileTemperatureAge> file_temperature_age_thresholds{};
+
+  CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
+  CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
+      : max_table_files_size(_max_table_files_size),
+        allow_compaction(_allow_compaction) {}
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
@@ -577,11 +600,11 @@ struct AdvancedColumnFamilyOptions {
   // 1. target size is in the range of
   //   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
   //    max_bytes_for_level_base]
-  // 2. target size of the last level (level num_levels-1) equals to extra size
-  //    of the level.
-  // At the same time max_bytes_for_level_multiplier and
-  // max_bytes_for_level_multiplier_additional are still satisfied.
-  // (When L0 is too large, we make some adjustment. See below.)
+  // 2. target size of the last level (level num_levels-1) equals to the max
+  //    size of a level in the LSM (typically the last level).
+  // At the same time max_bytes_for_level_multiplier is still satisfied.
+  // Note that max_bytes_for_level_multiplier_additional is ignored with this
+  // flag on.
   //
   // With this option on, from an empty DB, we make last level the base level,
   // which means merging L0 data into the last level, until it exceeds
@@ -595,7 +618,7 @@ struct AdvancedColumnFamilyOptions {
   // and max_bytes_for_level_base=10MB.
   // Target sizes of level 1 to 5 starts with:
   // [- - - - 10MB]
-  // with base level is level. Target sizes of level 1 to 4 are not applicable
+  // with base level is level 5. Target sizes of level 1 to 4 are not applicable
   // because they will not be used.
   // Until the size of Level 5 grows to more than 10MB, say 11MB, we make
   // base target to level 4 and now the targets looks like:
@@ -619,37 +642,37 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
+  // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
+  // then the last level is reserved, and we will start filling LSM from the
+  // second last level.
   //
+  // With this option on, compaction is more adaptive to write traffic:
+  // Compaction priority will take into account estimated bytes to be compacted
+  // down to a level and favors compacting lower levels when there is a write
+  // traffic spike (and hence more compaction debt). Refer to
+  // https://github.com/facebook/rocksdb/wiki/Leveled-Compactio#option-level_compaction_dynamic_level_bytes-and-levels-target-size
+  // for more detailed description. See more implementation detail in:
+  // VersionStorageInfo::ComputeCompactionScore().
   //
-  // If the compaction from L0 is lagged behind, a special mode will be turned
-  // on to prioritize write amplification against max_bytes_for_level_multiplier
-  // or max_bytes_for_level_base. The L0 compaction is lagged behind by looking
-  // at number of L0 files and total L0 size. If number of L0 files is at least
-  // the double of level0_file_num_compaction_trigger, or the total size is
-  // at least max_bytes_for_level_base, this mode is on. The target of L1 grows
-  // to the actual data size in L0, and then determine the target for each level
-  // so that each level will have the same level multiplier.
+  // With this option on, unneeded levels will be drained automatically:
+  // Note that there may be excessive levels (where target level size is 0 when
+  // computed based on this feature) in the LSM. This can happen after a user
+  // migrates to turn this feature on or deletes a lot of data. This is
+  // especially likely when a user migrates from leveled compaction with a
+  // smaller multiplier or from universal compaction. RocksDB will gradually
+  // drain these unnecessary levels by compacting files down the LSM. Smaller
+  // number of levels should help to reduce read amplification.
   //
-  // For example, when L0 size is 100MB, the size of last level is 1600MB,
-  // max_bytes_for_level_base = 80MB, and max_bytes_for_level_multiplier = 10.
-  // Since L0 size is larger than max_bytes_for_level_base, this is a L0
-  // compaction backlogged mode. So that the L1 size is determined to be 100MB.
-  // Based on max_bytes_for_level_multiplier = 10, at least 3 non-0 levels will
-  // be needed. The level multiplier will be calculated to be 4 and the three
-  // levels' target to be [100MB, 400MB, 1600MB].
+  // Migration to turn on this option:
+  // - Before RocksDB v8.2, users are expected to do a full manual compaction
+  //   and then restart DB to turn on this option.
+  // - Since RocksDB v8.2, users can just restart DB with this option on, as
+  //   long as num_levels is no smaller than number of non-empty levels in the
+  //   LSM. Migration will be done automatically by RocksDB. See more in
+  //   https://github.com/facebook/rocksdb/wiki/Leveled-Compaction#migrating-from-level_compaction_dynamic_level_bytesfalse-to-level_compaction_dynamic_level_bytestrue
   //
-  // In this mode, The number of levels will be no more than the normal mode,
-  // and the level multiplier will be lower. The write amplification will
-  // likely to be reduced.
-  //
-  //
-  // max_bytes_for_level_multiplier_additional is ignored with this flag on.
-  //
-  // Turning this feature on or off for an existing DB can cause unexpected
-  // LSM tree structure so it's not recommended.
-  //
-  // Default: false
-  bool level_compaction_dynamic_level_bytes = false;
+  // Default: true
+  bool level_compaction_dynamic_level_bytes = true;
 
   // Allows RocksDB to generate files that are not exactly the target_file_size
   // only for the non-bottommost files. Which can reduce the write-amplification
@@ -668,6 +691,8 @@ struct AdvancedColumnFamilyOptions {
   // Different max-size multipliers for different levels.
   // These are multiplied by max_bytes_for_level_multiplier to arrive
   // at the max-size of each level.
+  // This option only applies to leveled compaction with
+  // `level_compaction_dynamic_level_bytes = false`.
   //
   // Default: 1
   //
@@ -753,7 +778,7 @@ struct AdvancedColumnFamilyOptions {
   // Related options that were originally here but now moved include:
   //   no_block_cache
   //   block_cache
-  //   block_cache_compressed
+  //   block_cache_compressed (removed)
   //   block_size
   //   block_size_deviation
   //   block_restart_interval
@@ -866,7 +891,9 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Supported in Level and FIFO compaction.
+  // Supported in all compaction styles.
+  // In Universal compaction, rocksdb will try to do a full compaction when
+  // possible, see more in UniversalCompactionBuilder::PickPeriodicCompaction().
   // In FIFO compaction, this option has the same meaning as TTL and whichever
   // stricter will be used.
   // Pre-req: max_open_file == -1.
@@ -1086,6 +1113,37 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
   uint32_t memtable_protection_bytes_per_key = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When the user-defined timestamp feature is enabled, this flag controls
+  // whether the user-defined timestamps will be persisted.
+  //
+  // When it's false, the user-defined timestamps will be removed from the user
+  // keys when data is flushed from memtables to SST files. Other places that
+  // user keys can be persisted like WAL and blob files go through a similar
+  // process. Users should call `DB::IncreaseFullHistoryTsLow` to set a cutoff
+  // timestamp. RocksDB refrains from flushing a memtable with data still above
+  // the cutoff timestamp with best effort. When users try to read below the
+  // cutoff timestamp, an error will be returned.
+  //
+  // Default: true (user-defined timestamps are persisted)
+  // Not dynamically changeable, change it requires db restart and
+  // only compatible changes are allowed.
+  bool persist_user_defined_timestamps = true;
+
+  // Enable/disable per key-value checksum protection for in memory blocks.
+  //
+  // Checksum is constructed when a block is loaded into memory and verification
+  // is done for each key read from the block. This is useful for detecting
+  // in-memory data corruption. Note that this feature has a non-trivial
+  // negative impact on read performance. Different values of the
+  // option have similar performance impact, but different memory cost and
+  // corruption detection probability (e.g. 1 byte gives 255/256 chance for
+  // detecting a corruption).
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint8_t block_protection_bytes_per_key = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

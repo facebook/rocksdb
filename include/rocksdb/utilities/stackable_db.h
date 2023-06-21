@@ -136,6 +136,24 @@ class StackableDB : public DB {
                          statuses, sorted_input);
   }
 
+  using DB::MultiGetEntity;
+
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input) override {
+    db_->MultiGetEntity(options, column_family, num_keys, keys, results,
+                        statuses, sorted_input);
+  }
+
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableWideColumns* results, Status* statuses,
+                      bool sorted_input) override {
+    db_->MultiGetEntity(options, num_keys, column_families, keys, results,
+                        statuses, sorted_input);
+  }
+
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
@@ -154,10 +172,17 @@ class StackableDB : public DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) override {
     return db_->CreateColumnFamilyWithImport(options, column_family_name,
-                                             import_options, metadata, handle);
+                                             import_options, metadatas, handle);
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) override {
+    return db_->ClipColumnFamily(column_family, begin_key, end_key);
   }
 
   using DB::VerifyFileChecksums;
@@ -214,6 +239,10 @@ class StackableDB : public DB {
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override {
     return db_->Merge(options, column_family, key, value);
+  }
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override {
+    return db_->Merge(options, column_family, key, ts, value);
   }
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
@@ -318,6 +347,11 @@ class StackableDB : public DB {
     return db_->DisableManualCompaction();
   }
 
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override {
+    return db_->WaitForCompact(wait_for_compact_options);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
@@ -372,7 +406,6 @@ class StackableDB : public DB {
 
   virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
 
-#ifndef ROCKSDB_LITE
 
   virtual Status DisableFileDeletions() override {
     return db_->DisableFileDeletions();
@@ -444,7 +477,6 @@ class StackableDB : public DB {
     return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
   }
 
-#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
@@ -548,11 +580,9 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
-#ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
   }
-#endif  // ROCKSDB_LITE
 
  protected:
   DB* db_;

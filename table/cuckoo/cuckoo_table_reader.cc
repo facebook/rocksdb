@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/cuckoo/cuckoo_table_reader.h"
 
 #include <algorithm>
@@ -60,8 +59,11 @@ CuckooTableReader::CuckooTableReader(
   }
   {
     std::unique_ptr<TableProperties> props;
-    status_ = ReadTableProperties(file_.get(), file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props);
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+    status_ =
+        ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
+                            ioptions, read_options, &props);
     if (!status_.ok()) {
       return;
     }
@@ -408,4 +410,3 @@ InternalIterator* CuckooTableReader::NewIterator(
 size_t CuckooTableReader::ApproximateMemoryUsage() const { return 0; }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif

@@ -57,7 +57,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
-  no_wait.allow_write_stall=true;
+  no_wait.allow_write_stall = true;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -73,9 +73,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   ASSERT_OK(dbfull()->Flush(no_wait));
   // If the issue is hit we will wait here forever.
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
-#endif  // ROCKSDB_LITE
 }
 
 // Disable this test temporarily on Travis as it fails intermittently.
@@ -105,9 +103,7 @@ TEST_F(DBFlushTest, SyncFail) {
   // Now the background job will do the flush; wait for it.
   // Returns the IO error happend during flush.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
-#endif                             // ROCKSDB_LITE
   Destroy(options);
 }
 
@@ -664,7 +660,6 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
@@ -744,7 +739,152 @@ class TestFlushListener : public EventListener {
   Env* env_;
   DBFlushTest* test_;
 };
-#endif  // !ROCKSDB_LITE
+
+TEST_F(
+    DBFlushTest,
+    FixUnrecoverableWriteDuringAtomicFlushWaitUntilFlushWouldNotStallWrites) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+
+  // To simulate a real-life crash where we can't flush during db's shutdown
+  options.avoid_flush_during_shutdown = true;
+
+  // Set 3 low thresholds (while `disable_auto_compactions=false`) here so flush
+  // adding one more L0 file during `GetLiveFiles()` will have to wait till such
+  // flush will not stall writes
+  options.level0_stop_writes_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  // Disable level-0 compaction triggered by number of files to avoid
+  // stalling check being skipped (resulting in the flush mentioned above didn't
+  // wait)
+  options.level0_file_num_compaction_trigger = -1;
+
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  // Manually pause compaction thread to ensure enough L0 files as
+  // `disable_auto_compactions=false`is needed, in order to meet the 3 low
+  // thresholds above
+  std::unique_ptr<test::SleepingBackgroundTask> sleeping_task_;
+  sleeping_task_.reset(new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task_.get(), Env::Priority::LOW);
+  sleeping_task_->WaitUntilSleeping();
+
+  // Create some initial file to help meet the 3 low thresholds above
+  ASSERT_OK(Put(1, "dontcare", "dontcare"));
+  ASSERT_OK(Flush(1));
+
+  // Insert some initial data so we have something to atomic-flush later
+  // triggered by `GetLiveFiles()`
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  ASSERT_OK(Put(1, "k1", "v1", write_opts));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({{
+      "DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
+      "DBFlushTest::"
+      "UnrecoverableWriteInAtomicFlushWaitUntilFlushWouldNotStallWrites::Write",
+  }});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write to db when atomic flush releases the lock to wait on write stall
+  // condition to be gone in `WaitUntilFlushWouldNotStallWrites()`
+  port::Thread write_thread([&] {
+    TEST_SYNC_POINT(
+        "DBFlushTest::"
+        "UnrecoverableWriteInAtomicFlushWaitUntilFlushWouldNotStallWrites::"
+        "Write");
+    // Before the fix, the empty default CF would've been prematurely excluded
+    // from this atomic flush. The following two writes together make default CF
+    // later contain data that should've been included in the atomic flush.
+    ASSERT_OK(Put(0, "k2", "v2", write_opts));
+    // The following write increases the max seqno of this atomic flush to be 3,
+    // which is greater than the seqno of default CF's data. This then violates
+    // the invariant that all entries of seqno less than the max seqno
+    // of this atomic flush should've been flushed by the time of this atomic
+    // flush finishes.
+    ASSERT_OK(Put(1, "k3", "v3", write_opts));
+
+    // Resume compaction threads and reduce L0 files so `GetLiveFiles()` can
+    // resume from the wait
+    sleeping_task_->WakeUp();
+    sleeping_task_->WaitUntilDone();
+    MoveFilesToLevel(1, 1);
+  });
+
+  // Trigger an atomic flush by `GetLiveFiles()`
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+
+  write_thread.join();
+
+  ReopenWithColumnFamilies({"default", "cf1"}, options);
+
+  ASSERT_EQ(Get(1, "k3"), "v3");
+  // Prior to the fix, `Get()` will return `NotFound as "k2" entry in default CF
+  // can't be recovered from a crash right after the atomic flush finishes,
+  // resulting in a "recovery hole" as "k3" can be recovered. It's due to the
+  // invariant violation described above.
+  ASSERT_EQ(Get(0, "k2"), "v2");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  for (int idx = 0; idx < 1; ++idx) {
+    ASSERT_OK(Put(0, Key(idx), std::string(1, 'v')));
+    ASSERT_OK(Put(1, Key(idx), std::string(1, 'v')));
+  }
+
+  // To coerce a manual flush happenning in the middle of GetLiveFiles's flush,
+  // we need to pause background flush thread and enable it later.
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task =
+      std::make_shared<test::SleepingBackgroundTask>();
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Coerce a manual flush happenning in the middle of GetLiveFiles's flush
+  bool get_live_files_paused_at_sync_point = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush", [&](void* /* arg */) {
+        if (get_live_files_paused_at_sync_point) {
+          // To prevent non-GetLiveFiles() flush from pausing at this sync point
+          return;
+        }
+        get_live_files_paused_at_sync_point = true;
+
+        FlushOptions fo;
+        fo.wait = false;
+        fo.allow_write_stall = true;
+        ASSERT_OK(dbfull()->Flush(fo));
+
+        // Resume background flush thread so GetLiveFiles() can finish
+        sleeping_task->WakeUp();
+        sleeping_task->WaitUntilDone();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  // Before the fix, a race condition on default cf's flush reason due to
+  // concurrent GetLiveFiles's flush and manual flush will fail
+  // an internal assertion.
+  // After the fix, such race condition is fixed and there is no assertion
+  // failure.
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_TRUE(get_live_files_paused_at_sync_point);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
 
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
@@ -777,24 +917,16 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
-#ifndef ROCKSDB_LITE
   // Initially deactivate the MemPurge prototype.
   options.experimental_mempurge_threshold = 0.0;
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#else
-  // Activate directly the MemPurge prototype.
-  // (RocksDB lite does not support dynamic options)
-  options.experimental_mempurge_threshold = 1.0;
-#endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
 
   // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
-#endif
 
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
@@ -927,7 +1059,6 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 }
 
 // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   Options options = CurrentOptions();
 
@@ -1040,12 +1171,10 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 
   Close();
 }
-// Closes the "#ifndef ROCKSDB_LITE"
 // End of MemPurgeBasicToggle, which is not
 // supported with RocksDB LITE because it
 // relies on dynamically changing the option
 // flag experimental_mempurge_threshold.
-#endif
 
 // At the moment, MemPurge feature is deactivated
 // when atomic_flush is enabled. This is because the level
@@ -1163,10 +1292,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
@@ -1364,10 +1491,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Create a ConditionalUpdate compaction filter
   // that will update all the values of the KV pairs
   // where the keys are "lower" than KEY4.
@@ -1820,12 +1945,10 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_OK(db_->ContinueBackgroundWork());
   // We ingested the error to env, so the returned status is not OK.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
-                                  &num_bg_errors));
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
-#endif  // ROCKSDB_LITE
 
   // In the bug scenario, triggering another flush would cause the second flush
   // to hang forever. After the fix we expect it to return an error.
@@ -1867,7 +1990,6 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   class TestListener : public EventListener {
    public:
@@ -1958,7 +2080,6 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
@@ -2020,7 +2141,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2036,7 +2156,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
@@ -2350,7 +2469,6 @@ TEST_P(DBFlushTestBlobError, FlushError) {
     ASSERT_NE(type, kBlobFile);
   }
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2374,10 +2492,8 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
   class SimpleTestFlushListener : public EventListener {
    public:
@@ -2440,7 +2556,9 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   options.atomic_flush = GetParam();
   // 64MB so that memtable flush won't be trigger by the small writes.
   options.write_buffer_size = (static_cast<size_t>(64) << 20);
-
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kManualFlush;
+  options.listeners.push_back(flush_listener);
   // Destroy the DB to recreate as a TransactionDB.
   Close();
   Destroy(options, true);
@@ -2507,7 +2625,6 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
-    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
   }
 
   // The recovered min log number with prepared data should be non-zero.
@@ -2520,13 +2637,15 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.atomic_flush = GetParam();
   options.write_buffer_size = (static_cast<size_t>(64) << 20);
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kManualFlush;
+  options.listeners.push_back(flush_listener);
 
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
@@ -2551,7 +2670,6 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
 
   for (size_t i = 0; i != num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
-    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }

@@ -14,7 +14,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 struct ConfigOptions;
 class OptionTypeInfo;
 class TableFactory;
@@ -146,6 +145,5 @@ class RocksDBOptionsParser {
   int opt_file_version[3];
 };
 
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

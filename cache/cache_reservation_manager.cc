@@ -13,7 +13,6 @@
 #include <cstring>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -41,17 +40,17 @@ CacheReservationManagerImpl<
 template <CacheEntryRole R>
 CacheReservationManagerImpl<R>::CacheReservationManagerImpl(
     std::shared_ptr<Cache> cache, bool delayed_decrease)
-    : delayed_decrease_(delayed_decrease),
+    : cache_(cache),
+      delayed_decrease_(delayed_decrease),
       cache_allocated_size_(0),
       memory_used_(0) {
   assert(cache != nullptr);
-  cache_ = cache;
 }
 
 template <CacheEntryRole R>
 CacheReservationManagerImpl<R>::~CacheReservationManagerImpl() {
   for (auto* handle : dummy_handles_) {
-    cache_->Release(handle, true);
+    cache_.ReleaseAndEraseIfLastRef(handle);
   }
 }
 
@@ -115,8 +114,7 @@ Status CacheReservationManagerImpl<R>::IncreaseCacheReservation(
   Status return_status = Status::OK();
   while (new_mem_used > cache_allocated_size_.load(std::memory_order_relaxed)) {
     Cache::Handle* handle = nullptr;
-    return_status = cache_->Insert(GetNextCacheKey(), nullptr, kSizeDummyEntry,
-                                   GetNoopDeleterForRole<R>(), &handle);
+    return_status = cache_.Insert(GetNextCacheKey(), kSizeDummyEntry, &handle);
 
     if (return_status != Status::OK()) {
       return return_status;
@@ -141,7 +139,7 @@ Status CacheReservationManagerImpl<R>::DecreaseCacheReservation(
          cache_allocated_size_.load(std::memory_order_relaxed)) {
     assert(!dummy_handles_.empty());
     auto* handle = dummy_handles_.back();
-    cache_->Release(handle, true);
+    cache_.ReleaseAndEraseIfLastRef(handle);
     dummy_handles_.pop_back();
     cache_allocated_size_ -= kSizeDummyEntry;
   }
@@ -169,8 +167,9 @@ Slice CacheReservationManagerImpl<R>::GetNextCacheKey() {
 }
 
 template <CacheEntryRole R>
-Cache::DeleterFn CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole() {
-  return GetNoopDeleterForRole<R>();
+const Cache::CacheItemHelper*
+CacheReservationManagerImpl<R>::TEST_GetCacheItemHelperForRole() {
+  return CacheInterface::GetHelper();
 }
 
 template class CacheReservationManagerImpl<

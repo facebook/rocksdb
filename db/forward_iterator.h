@@ -5,11 +5,10 @@
 #pragma once
 
 #include "rocksdb/comparator.h"
-#ifndef ROCKSDB_LITE
 
+#include <queue>
 #include <string>
 #include <vector>
-#include <queue>
 
 #include "memory/arena.h"
 #include "rocksdb/db.h"
@@ -35,6 +34,7 @@ class MinIterComparator {
   bool operator()(InternalIterator* a, InternalIterator* b) {
     return comparator_->Compare(a->key(), b->key()) > 0;
   }
+
  private:
   const CompareInterface* comparator_;
 };
@@ -92,8 +92,8 @@ class ForwardIterator : public InternalIterator {
   // either done immediately or deferred until this iterator is unpinned by
   // PinnedIteratorsManager.
   void SVCleanup();
-  static void SVCleanup(
-    DBImpl* db, SuperVersion* sv, bool background_purge_on_iterator_cleanup);
+  static void SVCleanup(DBImpl* db, SuperVersion* sv,
+                        bool background_purge_on_iterator_cleanup);
   static void DeferredSVCleanup(void* arg);
 
   void RebuildIterators(bool refresh_sv);
@@ -107,9 +107,9 @@ class ForwardIterator : public InternalIterator {
   void UpdateCurrent();
   bool NeedToSeekImmutable(const Slice& internal_key);
   void DeleteCurrentIter();
-  uint32_t FindFileInRange(
-    const std::vector<FileMetaData*>& files, const Slice& internal_key,
-    uint32_t left, uint32_t right);
+  uint32_t FindFileInRange(const std::vector<FileMetaData*>& files,
+                           const Slice& internal_key, uint32_t left,
+                           uint32_t right);
 
   bool IsOverUpperBound(const Slice& internal_key) const;
 
@@ -122,7 +122,7 @@ class ForwardIterator : public InternalIterator {
   void DeleteIterator(InternalIterator* iter, bool is_arena = false);
 
   DBImpl* const db_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;
@@ -164,4 +164,3 @@ class ForwardIterator : public InternalIterator {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

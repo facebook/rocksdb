@@ -203,9 +203,17 @@ class Compaction {
   void AddInputDeletions(VersionEdit* edit);
 
   // Returns true if the available information we have guarantees that
-  // the input "user_key" does not exist in any level beyond "output_level()".
+  // the input "user_key" does not exist in any level beyond `output_level()`.
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
+
+  // Returns true if the user key range [begin_key, end_key) does not exist
+  // in any level beyond `output_level()`.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
+  // begin_key and end_key should include timestamp if enabled.
+  bool KeyRangeNotExistsBeyondOutputLevel(
+      const Slice& begin_key, const Slice& end_key,
+      std::vector<size_t>* level_ptrs) const;
 
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
@@ -378,6 +386,9 @@ class Compaction {
   // This is used to filter out some input files' ancester's time range.
   uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
                                           const InternalKey* end) const;
+  // Return the minimum epoch number among
+  // input files' associated with this compaction
+  uint64_t MinInputFileEpochNumber() const;
 
   // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
   // compaction begin and compaction completion callbacks match.
@@ -543,13 +554,16 @@ struct PerKeyPlacementContext {
   const Slice value;
   const SequenceNumber seq_num;
 
-  bool output_to_penultimate_level;
+  bool& output_to_penultimate_level;
 
   PerKeyPlacementContext(int _level, Slice _key, Slice _value,
-                         SequenceNumber _seq_num)
-      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
-    output_to_penultimate_level = false;
-  }
+                         SequenceNumber _seq_num,
+                         bool& _output_to_penultimate_level)
+      : level(_level),
+        key(_key),
+        value(_value),
+        seq_num(_seq_num),
+        output_to_penultimate_level(_output_to_penultimate_level) {}
 };
 #endif /* !NDEBUG */
 

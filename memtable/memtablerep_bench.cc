@@ -579,7 +579,6 @@ int main(int argc, char** argv) {
   std::unique_ptr<ROCKSDB_NAMESPACE::MemTableRepFactory> factory;
   if (FLAGS_memtablerep == "skiplist") {
     factory.reset(new ROCKSDB_NAMESPACE::SkipListFactory);
-#ifndef ROCKSDB_LITE
   } else if (FLAGS_memtablerep == "vector") {
     factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
   } else if (FLAGS_memtablerep == "hashskiplist" ||
@@ -597,7 +596,6 @@ int main(int argc, char** argv) {
         FLAGS_if_log_bucket_dist_when_flash, FLAGS_threshold_use_skiplist));
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_length));
-#endif  // ROCKSDB_LITE
   } else {
     ROCKSDB_NAMESPACE::ConfigOptions config_options;
     config_options.ignore_unsupported_options = false;

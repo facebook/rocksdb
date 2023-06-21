@@ -3,7 +3,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db_impl.h"
 
@@ -23,7 +22,7 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/instrumented_mutex.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -1632,6 +1631,11 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   // TODO(yiwu): For Get() retry if file not found would be a simpler strategy.
@@ -2037,6 +2041,11 @@ void BlobDBImpl::CopyBlobFiles(
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Cannot call NewIterator with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`"));
+  }
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
           ->cfd();
@@ -2174,4 +2183,3 @@ void BlobDBImpl::TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info) {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

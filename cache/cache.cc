@@ -16,7 +16,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
+const Cache::CacheItemHelper kNoopCacheItemHelper{};
+
 static std::unordered_map<std::string, OptionTypeInfo>
     lru_cache_options_type_info = {
         {"capacity",
@@ -64,7 +65,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
-#endif  // ROCKSDB_LITE
 
 Status SecondaryCache::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
@@ -75,7 +75,6 @@ Status SecondaryCache::CreateFromString(
     Status status;
     std::shared_ptr<SecondaryCache> sec_cache;
 
-#ifndef ROCKSDB_LITE
     CompressedSecondaryCacheOptions sec_cache_opts;
     status = OptionTypeInfo::ParseStruct(config_options, "",
                                          &comp_sec_cache_options_type_info, "",
@@ -84,19 +83,13 @@ Status SecondaryCache::CreateFromString(
       sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
     }
 
-#else
-    (void)config_options;
-    status = Status::NotSupported(
-        "Cannot load compressed secondary cache in LITE mode ", args);
-#endif  //! ROCKSDB_LITE
 
     if (status.ok()) {
       result->swap(sec_cache);
     }
     return status;
   } else {
-    return LoadSharedObject<SecondaryCache>(config_options, value, nullptr,
-                                            result);
+    return LoadSharedObject<SecondaryCache>(config_options, value, result);
   }
 }
 
@@ -108,7 +101,6 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
   if (value.find('=') == std::string::npos) {
     cache = NewLRUCache(ParseSizeT(value));
   } else {
-#ifndef ROCKSDB_LITE
     LRUCacheOptions cache_opts;
     status = OptionTypeInfo::ParseStruct(config_options, "",
                                          &lru_cache_options_type_info, "",
@@ -116,14 +108,51 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
     if (status.ok()) {
       cache = NewLRUCache(cache_opts);
     }
-#else
-    (void)config_options;
-    status = Status::NotSupported("Cannot load cache in LITE mode ", value);
-#endif  //! ROCKSDB_LITE
   }
   if (status.ok()) {
     result->swap(cache);
   }
   return status;
 }
+
+bool Cache::AsyncLookupHandle::IsReady() {
+  return pending_handle == nullptr || pending_handle->IsReady();
+}
+
+bool Cache::AsyncLookupHandle::IsPending() { return pending_handle != nullptr; }
+
+Cache::Handle* Cache::AsyncLookupHandle::Result() {
+  assert(!IsPending());
+  return result_handle;
+}
+
+void Cache::StartAsyncLookup(AsyncLookupHandle& async_handle) {
+  async_handle.found_dummy_entry = false;  // in case re-used
+  assert(!async_handle.IsPending());
+  async_handle.result_handle =
+      Lookup(async_handle.key, async_handle.helper, async_handle.create_context,
+             async_handle.priority, async_handle.stats);
+}
+
+Cache::Handle* Cache::Wait(AsyncLookupHandle& async_handle) {
+  WaitAll(&async_handle, 1);
+  return async_handle.Result();
+}
+
+void Cache::WaitAll(AsyncLookupHandle* async_handles, size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+    if (async_handles[i].IsPending()) {
+      // If a pending handle gets here, it should be marked at "to be handled
+      // by a caller" by that caller erasing the pending_cache on it.
+      assert(async_handles[i].pending_cache == nullptr);
+    }
+  }
+}
+
+void Cache::SetEvictionCallback(EvictionCallback&& fn) {
+  // Overwriting non-empty with non-empty could indicate a bug
+  assert(!eviction_callback_ || !fn);
+  eviction_callback_ = std::move(fn);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

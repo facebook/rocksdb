@@ -64,7 +64,6 @@ class RandomAccessFileReaderTest : public testing::Test {
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
-#ifndef ROCKSDB_LITE
 
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
@@ -284,7 +283,6 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST(FSReadRequest, Align) {
   FSReadRequest r;

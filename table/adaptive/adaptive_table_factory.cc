@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/adaptive/adaptive_table_factory.h"
 
 #include "port/port.h"
@@ -48,8 +47,9 @@ Status AdaptiveTableFactory::NewTableReader(
     bool prefetch_index_and_filter_in_cache) const {
   Footer footer;
   IOOptions opts;
-  auto s = ReadFooterFromFile(opts, file.get(), nullptr /* prefetch_buffer */,
-                              file_size, &footer);
+  auto s =
+      ReadFooterFromFile(opts, file.get(), *table_reader_options.ioptions.fs,
+                         nullptr /* prefetch_buffer */, file_size, &footer);
   if (!s.ok()) {
     return s;
   }
@@ -123,4 +123,3 @@ extern TableFactory* NewAdaptiveTableFactory(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

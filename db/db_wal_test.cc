@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -145,6 +146,11 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   options.write_buffer_size = 128;
   Reopen(options);
 
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::PurgeObsoleteFiles:End",
+        "DBWALTestWithEnrichedEnv.SkipDeletedWALs:AfterFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
   WriteOptions writeOpt = WriteOptions();
   for (int i = 0; i < 128 * 5; i++) {
     ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
@@ -152,6 +158,8 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   FlushOptions fo;
   fo.wait = true;
   ASSERT_OK(db_->Flush(fo));
+
+  TEST_SYNC_POINT("DBWALTestWithEnrichedEnv.SkipDeletedWALs:AfterFlush");
 
   // some wals are deleted
   ASSERT_NE(0, enriched_env_->deleted_wal_cnt);
@@ -163,6 +171,8 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   Reopen(options);
   ASSERT_FALSE(enriched_env_->deleted_wal_reopened);
   ASSERT_FALSE(enriched_env_->gap_in_wals);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBWALTest, WAL) {
@@ -299,6 +309,96 @@ TEST_F(DBWALTest, Recover) {
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
   } while (ChangeWalOptions());
+}
+
+class DBWALTestWithTimestamp : public DBBasicTestWithTimestampBase {
+ public:
+  DBWALTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("db_wal_test_with_timestamp") {}
+
+  Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
+                                     const Options& options) {
+    CreateColumnFamilies(cfs, options);
+    return ReopenColumnFamiliesWithTs(cfs, options);
+  }
+
+  Status ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
+                                    Options ts_options) {
+    Options default_options = CurrentOptions();
+    default_options.create_if_missing = false;
+    ts_options.create_if_missing = false;
+
+    std::vector<Options> cf_options(cfs.size(), ts_options);
+    std::vector<std::string> cfs_plus_default = cfs;
+    cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
+    cf_options.insert(cf_options.begin(), default_options);
+    Close();
+    return TryReopenWithColumnFamilies(cfs_plus_default, cf_options);
+  }
+
+  Status Put(uint32_t cf, const Slice& key, const Slice& ts,
+             const Slice& value) {
+    WriteOptions write_opts;
+    return db_->Put(write_opts, handles_[cf], key, ts, value);
+  }
+
+  void CheckGet(const ReadOptions& read_opts, uint32_t cf, const Slice& key,
+                const std::string& expected_value) {
+    std::string actual_value;
+    ASSERT_OK(db_->Get(read_opts, handles_[cf], key, &actual_value));
+    ASSERT_EQ(expected_value, actual_value);
+  }
+};
+
+TEST_F(DBWALTestWithTimestamp, Recover) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts = Timestamp(1, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = &test_cmp;
+
+  ReadOptions read_opts;
+  Slice ts_slice = ts;
+  read_opts.timestamp = &ts_slice;
+  do {
+    ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+    ASSERT_OK(Put(1, "foo", ts, "v1"));
+    ASSERT_OK(Put(1, "baz", ts, "v5"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
+    CheckGet(read_opts, 1, "foo", "v1");
+    CheckGet(read_opts, 1, "baz", "v5");
+    ASSERT_OK(Put(1, "bar", ts, "v2"));
+    ASSERT_OK(Put(1, "foo", ts, "v3"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
+    CheckGet(read_opts, 1, "foo", "v3");
+    ASSERT_OK(Put(1, "foo", ts, "v4"));
+    CheckGet(read_opts, 1, "foo", "v4");
+    CheckGet(read_opts, 1, "bar", "v2");
+    CheckGet(read_opts, 1, "baz", "v5");
+  } while (ChangeWalOptions());
+}
+
+TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
+  // Set up the option that enables user defined timestmp size.
+  std::string ts = Timestamp(1, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  Options ts_options;
+  ts_options.create_if_missing = true;
+  ts_options.comparator = &test_cmp;
+
+  ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+  ASSERT_OK(Put(1, "foo", ts, "v1"));
+  ASSERT_OK(Put(1, "baz", ts, "v5"));
+
+  TestComparator diff_test_cmp(kTimestampSize + 1);
+  ts_options.comparator = &diff_test_cmp;
+  ASSERT_TRUE(
+      ReopenColumnFamiliesWithTs({"pikachu"}, ts_options).IsInvalidArgument());
 }
 
 TEST_F(DBWALTest, RecoverWithTableHandle) {
@@ -444,7 +544,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   ASSERT_NE(internal_stats, nullptr);
 
@@ -460,7 +559,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
@@ -608,6 +706,41 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     Destroy(options);
   } while (ChangeWalOptions());
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+}
+
+TEST_F(DBWALTest, LockWal) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("foo", "v"));
+    ASSERT_OK(Put("bar", "v"));
+
+    ASSERT_OK(db_->LockWAL());
+    // Verify writes are stopped
+    WriteOptions wopts;
+    wopts.no_slowdown = true;
+    Status s = db_->Put(wopts, "foo", "dontcare");
+    ASSERT_TRUE(s.IsIncomplete());
+    {
+      VectorLogPtr wals;
+      ASSERT_OK(db_->GetSortedWalFiles(wals));
+      ASSERT_FALSE(wals.empty());
+    }
+    port::Thread worker([&]() {
+      Status tmp_s = db_->Flush(FlushOptions());
+      ASSERT_OK(tmp_s);
+    });
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    s = db_->Flush(flush_opts);
+    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_OK(db_->UnlockWAL());
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "dontcare"));
+
+    worker.join();
+  } while (ChangeWalOptions());
 }
 
 class DBRecoveryTestBlobError
@@ -846,7 +979,6 @@ TEST_F(DBWALTest, PreallocateBlock) {
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
   // TODO(ajkr): Disabled until WAL recycling is fixed for
   // `kPointInTimeRecovery`.
@@ -1599,6 +1731,71 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   delete db1;
 }
 
+TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
+  Options options = CurrentOptions();
+  // Small size to force manifest creation
+  options.max_manifest_file_size = 1;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+
+  // Accumulate memtable m1 and create the 1st wal (i.e, 4.log)
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Put(Key(2), ""));
+  ASSERT_OK(Put(Key(3), ""));
+
+  const std::string wal_file_path = db_->GetName() + "/000004.log";
+
+  // Coerce the following sequence of events:
+  // (1) Flush() marks 4.log to be obsoleted, 8.log to be the latest (i.e,
+  // active) log and release the lock
+  // (2) SyncWAL() proceeds with the lock. It
+  // creates a new manifest and syncs all the inactive wals before the latest
+  // (i.e, active log), which is 4.log. Note that SyncWAL() is not aware of the
+  // fact that 4.log has marked as to be obseleted. Such wal
+  // sync will then add a WAL addition record of 4.log to the new manifest
+  // without any special treatment. Prior to the fix, there is no WAL deletion
+  // record to offset it. (3) BackgroundFlush() will eventually purge 4.log.
+
+  bool wal_synced = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
+        ASSERT_OK(env_->FileExists(wal_file_path));
+        uint64_t pre_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        ASSERT_OK(db_->SyncWAL());
+        uint64_t post_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        bool new_manifest_created =
+            post_sync_wal_manifest_no == pre_sync_wal_manifest_no + 1;
+        ASSERT_TRUE(new_manifest_created);
+        wal_synced = true;
+      });
+
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  ASSERT_TRUE(wal_synced);
+  // BackgroundFlush() purged 4.log
+  // because the memtable associated with the WAL was flushed and new WAL was
+  // created (i.e, 8.log)
+  ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // To verify the corruption of "Missing WAL with log number: 4" under
+  // `options.track_and_verify_wals_in_manifest = true` is fixed.
+  //
+  // Before the fix, `db_->SyncWAL()` will sync and record WAL addtion of the
+  // obseleted WAL 4.log in a new manifest without any special treament.
+  // This will result in missing-wal corruption in DB::Reopen().
+  Status s = TryReopen(options);
+  EXPECT_OK(s);
+}
+
 // Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
@@ -2243,7 +2440,6 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   Close();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBWALTest, WalTermTest) {
   Options options = CurrentOptions();
@@ -2269,7 +2465,6 @@ TEST_F(DBWALTest, WalTermTest) {
   ASSERT_EQ("NOT_FOUND", Get(1, "foo2"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   if (db_->GetOptions().wal_compression == kNoCompression) {
     ROCKSDB_GTEST_BYPASS("stream compression not present");
@@ -2304,7 +2499,31 @@ TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   Status s = dbfull()->GetSortedWalFiles(wals);
   ASSERT_OK(s);
 }
-#endif  // ROCKSDB_LITE
+
+TEST_F(DBWALTest, EmptyWalReopenTest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // make sure we can re-open it.
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+
+  {
+    std::vector<std::string> files;
+    int num_wal_files = 0;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kWalFile;
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        num_wal_files++;
+      }
+    }
+
+    ASSERT_EQ(num_wal_files, 1);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
