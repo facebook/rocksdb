@@ -20,7 +20,6 @@ constexpr UniqueId64x2 kNullUniqueId64x2 = {};
 // Extended size unique ID, for extra certainty of uniqueness among SST files
 // spanning many hosts over a long time (rarely if ever needed)
 using UniqueId64x3 = std::array<uint64_t, 3>;
-using UniqueId64x2 = std::array<uint64_t, 2>;
 
 // Value never used as an actual unique ID so can be used for "null"
 constexpr UniqueId64x3 kNullUniqueId64x3 = {};
@@ -90,16 +89,5 @@ std::string EncodeSessionId(uint64_t upper, uint64_t lower);
 // functionality.
 Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
                        uint64_t *lower);
-
-// Generates a semi-random salt for some basic security purposes. Not validated
-// for cryptography! Thread safe. Uses
-// * An internal 256-bit entropy pool
-// * Initially populated using a combination of several randomness sources
-// * XXH128 as a pseudorandom generator or hash, revealing a maximum of 128 bits
-// of the pool before the hash is computed with a different seed.
-// * Tries to use timing data (non-blocking) to opportunistically mix new
-// entropy into the pool.
-// Only the first call might block, due to outside dependencies.
-void GenerateSalt(UniqueIdPtr buf);
 
 }  // namespace ROCKSDB_NAMESPACE

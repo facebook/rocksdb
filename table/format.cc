@@ -214,11 +214,9 @@ inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
 //      base_context_checksum (uint32LE, 4 bytes)
 //      metaindex block size (uint32LE, 4 bytes)
 //        - Assumed to be immediately before footer, < 4GB
-//      random salt (16 bytes)
-//        - See description below at call to GenerateSalt()
-//      <zero padding> (8 bytes, reserved for future use)
+//      <zero padding> (24 bytes, reserved for future use)
 //        - Brings part2 size also to 40 bytes
-//        - Checked that all eight bytes == 0, so reserved for a future
+//        - Checked that last eight bytes == 0, so reserved for a future
 //          incompatible feature (but under format_version=6)
 // * Part3
 //   -> format_version == 0 (inferred from legacy magic number)
@@ -305,32 +303,9 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     EncodeFixed32(cur, metaindex_size);
     cur += 4;
 
-    // Generate and save random salt
-    {
-      // The purpose of this salt is to allow non-cryptographic whole file
-      // checksums to be highly resistant to manipulation by a user able to
-      // manipulate key-value data and able to predict SST metadata such as
-      // DB session id and file number based on read access to logs or DB
-      // files. The adversary would also need to predict this salt in order
-      // to influence the checksum result toward collision with another
-      // SST file's checksum. Note that the salt is written *after* the
-      // key-value data, so that an adversary with read access to storage
-      // doesn't have timely access to the salt.
-      //
-      // Nothing in production should depend on the salt being here exactly,
-      // so in the future if more space is needed in the footer, the salt
-      // could be moved to some place between blocks or before the footer,
-      // or to table properties, or a dummy metaindex entry, etc., even in
-      // existing format versions.
-      UniqueId64x2 salt;
-      GenerateSalt(&salt);
-      memcpy(cur, &salt, sizeof(salt));
-      static_assert(sizeof(salt) == 16);
-      cur += 16;
-    }
     // Zero pad remainder (for future use)
-    std::fill_n(cur, 8U, char{0});
-    assert(cur + 8 == part3);
+    std::fill_n(cur, 24U, char{0});
+    assert(cur + 24 == part3);
 
     // Compute checksum, add context
     uint32_t checksum = ComputeBuiltinChecksum(
@@ -459,11 +434,11 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
     // Mark unpopulated
     index_handle_ = BlockHandle::NullBlockHandle();
 
-    // Skip 16 byte salt
+    // 16 bytes of unchecked reserved padding
     input.remove_prefix(16U);
 
-    // 8 bytes reserved padding, expected to be zero unless using a future
-    // feature.
+    // 8 bytes of checked reserved padding (expected to be zero unless using a
+    // future feature).
     uint64_t reserved = 0;
     success = GetFixed64(&input, &reserved);
     assert(success);
