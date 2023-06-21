@@ -858,15 +858,16 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Files containing updates older than TTL will go through the compaction
-  // process.
-  // The feature is used to remove stale entries that have been deleted or
-  // updated from the file system.
-  // In Level: Non-bottom-level files older than TTL will go through the
-  //           compaction process. This usually happens in a cascading way
-  //           so that those entries will be compacted to bottommost level/file.
-  // In FIFO:  Files older than TTL will be deleted. TTL is only supported if
-  //           option max_open_files is set to -1.
+  // This option has different meanings for different compaction styles:
+  //
+  // Leveled: Non-bottom-level files with all keys older than TTL will go
+  //    through the compaction process. This usually happens in a cascading
+  //    way so that those entries will be compacted to bottommost level/file.
+  //    The feature is used to remove stale entries that have been deleted or
+  //    updated from the file system.
+  //
+  // FIFO: Files with all keys older than TTL will be deleted. TTL is only
+  //    supported if option max_open_files is set to -1.
   //
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // 0 means disabling.
