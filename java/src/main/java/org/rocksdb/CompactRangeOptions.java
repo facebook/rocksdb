@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * CompactRangeOptions is used by CompactRange() call. In the documentation of the methods "the compaction" refers to
  * any compaction that is using this CompactRangeOptions.
@@ -66,6 +68,36 @@ public class CompactRangeOptions extends RocksObject {
           return kForceOptimized;
         default: return null;
       }
+    }
+  }
+
+  public static class Timestamp {
+    public final long start;
+    public final long range;
+
+    public Timestamp(final long start, final long duration) {
+      this.start = start;
+      this.range = duration;
+    }
+
+    public Timestamp() {
+      this.start = 0;
+      this.range = 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      if (o == null || getClass() != o.getClass())
+        return false;
+      Timestamp timestamp = (Timestamp) o;
+      return start == timestamp.start && range == timestamp.range;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(start, range);
     }
   }
 
@@ -218,6 +250,24 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
+  public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
+    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.range);
+    return this;
+  }
+
+  public Timestamp fullHistoryTSLow() {
+    return fullHistoryTSLow(nativeHandle_);
+  }
+
+  public CompactRangeOptions setCanceled(final boolean canceled) {
+    setCanceled(nativeHandle_, canceled);
+    return this;
+  }
+
+  public boolean canceled() {
+    return canceled(nativeHandle_);
+  }
+
   private static native long newCompactRangeOptions();
   @Override protected final native void disposeInternal(final long handle);
 
@@ -242,4 +292,13 @@ public class CompactRangeOptions extends RocksObject {
   private native void setMaxSubcompactions(final long handle,
       final int maxSubcompactions);
   private native int maxSubcompactions(final long handle);
+
+  private native void setFullHistoryTSLow(
+      final long handle, final long timestampStart, final long timestampRange);
+
+  private native Timestamp fullHistoryTSLow(final long handle);
+
+  private native void setCanceled(final long handle, final boolean canceled);
+
+  private native boolean canceled(final long handle);
 }

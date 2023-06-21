@@ -99,4 +99,40 @@ public class CompactRangeOptionsTest {
       assertThat(opt.maxSubcompactions()).isEqualTo(value);
     }
   }
+
+  @Test
+  public void fullHistoryTSLow() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    CompactRangeOptions.Timestamp timestamp = new CompactRangeOptions.Timestamp(18, 1);
+    opt.setFullHistoryTSLow(timestamp);
+
+    for (int times = 1; times <= 2; times++) {
+      // worried slightly about destructive reads, so read it twice
+      CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
+      assertThat(timestamp.start).isEqualTo(timestampResult.start);
+      assertThat(timestamp.range).isEqualTo(timestampResult.range);
+      assertThat(timestamp).isEqualTo(timestampResult);
+    }
+  }
+
+  @Test
+  public void fullHistoryTSLowDefault() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
+    assertThat(timestampResult).isNull();
+  }
+
+  @Test
+  public void canceled() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(false);
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+  }
 }

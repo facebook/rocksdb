@@ -602,6 +602,12 @@ DEFINE_uint32(
     "compress_format_version == 2 -- decompressed size is included"
     " in the block header in varint32 format.");
 
+DEFINE_bool(use_tiered_volatile_cache, false,
+            "If use_compressed_secondary_cache is true and "
+            "use_tiered_volatile_cache is true, then allocate a tiered cache "
+            "that distributes cache reservations proportionally over both "
+            "the caches.");
+
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
              "uncompressed data. Nagative value disables simcache.");
@@ -3009,8 +3015,26 @@ class Benchmark {
   }
 
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
+    CompressedSecondaryCacheOptions secondary_cache_opts;
+    bool use_tiered_cache = false;
     if (capacity <= 0) {
       return nullptr;
+    }
+    if (FLAGS_use_compressed_secondary_cache) {
+      secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
+      secondary_cache_opts.num_shard_bits =
+          FLAGS_compressed_secondary_cache_numshardbits;
+      secondary_cache_opts.high_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
+      secondary_cache_opts.low_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
+      secondary_cache_opts.compression_type =
+          FLAGS_compressed_secondary_cache_compression_type_e;
+      secondary_cache_opts.compress_format_version =
+          FLAGS_compressed_secondary_cache_compress_format_version;
+      if (FLAGS_use_tiered_volatile_cache) {
+        use_tiered_cache = true;
+      }
     }
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
@@ -3021,7 +3045,16 @@ class Benchmark {
           static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,
           FLAGS_cache_numshardbits};
       hcco.hash_seed = GetCacheHashSeed();
-      return hcco.MakeSharedCache();
+      if (use_tiered_cache) {
+        TieredVolatileCacheOptions opts;
+        hcco.capacity += secondary_cache_opts.capacity;
+        opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+        opts.cache_opts = &hcco;
+        opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredVolatileCache(opts);
+      } else {
+        return hcco.MakeSharedCache();
+      }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
@@ -3040,26 +3073,21 @@ class Benchmark {
           exit(1);
         }
         opts.secondary_cache = secondary_cache;
-      }
-
-      if (FLAGS_use_compressed_secondary_cache) {
-        CompressedSecondaryCacheOptions secondary_cache_opts;
-        secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
-        secondary_cache_opts.num_shard_bits =
-            FLAGS_compressed_secondary_cache_numshardbits;
-        secondary_cache_opts.high_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
-        secondary_cache_opts.low_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
-        secondary_cache_opts.compression_type =
-            FLAGS_compressed_secondary_cache_compression_type_e;
-        secondary_cache_opts.compress_format_version =
-            FLAGS_compressed_secondary_cache_compress_format_version;
+      } else if (FLAGS_use_compressed_secondary_cache && !use_tiered_cache) {
         opts.secondary_cache =
             NewCompressedSecondaryCache(secondary_cache_opts);
       }
 
-      return opts.MakeSharedCache();
+      if (use_tiered_cache) {
+        TieredVolatileCacheOptions tiered_opts;
+        opts.capacity += secondary_cache_opts.capacity;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredVolatileCache(tiered_opts);
+      } else {
+        return opts.MakeSharedCache();
+      }
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);

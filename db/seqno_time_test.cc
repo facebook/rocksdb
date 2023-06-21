@@ -93,7 +93,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // All data is hot, only output to penultimate level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
@@ -114,7 +114,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
       });
     }
     ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->WaitForCompact());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
     ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
   }
@@ -128,7 +128,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
       });
     }
     ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->WaitForCompact());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
   CompactRangeOptions cro;
@@ -226,7 +226,8 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // Second to last level
+  MoveFilesToLevel(5);
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 

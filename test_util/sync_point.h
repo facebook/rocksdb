@@ -85,7 +85,9 @@ class SyncPoint {
   };
 
   // call once at the beginning of a test to setup the dependency between
-  // sync points
+  // sync points. Specifically, execution will not be allowed to proceed past
+  // each successor until execution has reached the corresponding predecessor,
+  // in any thread.
   void LoadDependency(const std::vector<SyncPointPair>& dependencies);
 
   // call once at the beginning of a test to setup the dependency between

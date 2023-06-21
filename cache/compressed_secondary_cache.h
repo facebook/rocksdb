@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <memory>
 
+#include "cache/cache_reservation_manager.h"
 #include "cache/lru_cache.h"
 #include "memory/memory_allocator_impl.h"
 #include "rocksdb/secondary_cache.h"
@@ -93,7 +94,13 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   Status GetCapacity(size_t& capacity) override;
 
+  Status Deflate(size_t decrease) override;
+
+  Status Inflate(size_t increase) override;
+
   std::string GetPrintableOptions() const override;
+
+  size_t TEST_GetUsage() { return cache_->GetUsage(); }
 
  private:
   friend class CompressedSecondaryCacheTestBase;
@@ -127,6 +134,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
   mutable port::Mutex capacity_mutex_;
+  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

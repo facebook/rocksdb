@@ -3,17 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "rocksdb/options.h"
-
 #include <algorithm>
 #include <string>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "file/file_util.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "rocksdb/transaction_log.h"
 #include "table/unique_id_impl.h"
 #include "util/string_util.h"
@@ -313,6 +313,78 @@ TEST_F(RepairTest, UnflushedSst) {
     ASSERT_GT(total_ssts_size, 0);
   }
   ASSERT_EQ(Get("key"), "val");
+}
+
+class RepairTestWithTimestamp : public DBBasicTestWithTimestampBase {
+ public:
+  RepairTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("repair_test_with_timestamp") {}
+
+  Status Put(const Slice& key, const Slice& ts, const Slice& value) {
+    WriteOptions write_opts;
+    return db_->Put(write_opts, handles_[0], key, ts, value);
+  }
+
+  void CheckGet(const ReadOptions& read_opts, const Slice& key,
+                const std::string& expected_value) {
+    std::string actual_value;
+    ASSERT_OK(db_->Get(read_opts, handles_[0], key, &actual_value));
+    ASSERT_EQ(expected_value, actual_value);
+  }
+};
+
+TEST_F(RepairTestWithTimestamp, UnflushedSst) {
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  std::string ts = Timestamp(0, 0);
+  const size_t kTimestampSize = ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+
+  ASSERT_OK(DB::Open(options, dbname_, column_families, &handles_, &db_));
+
+  ASSERT_OK(Put("key", ts, "val"));
+  VectorLogPtr wal_files;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+  ASSERT_EQ(wal_files.size(), 1);
+  {
+    uint64_t total_ssts_size;
+    std::unordered_map<std::string, uint64_t> sst_files;
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
+    ASSERT_EQ(total_ssts_size, 0);
+  }
+  // Need to get path before Close() deletes db_, but delete it after Close() to
+  // ensure Close() didn't change the manifest.
+  std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+
+  Close();
+  ASSERT_OK(env_->FileExists(manifest_path));
+  ASSERT_OK(env_->DeleteFile(manifest_path));
+  ASSERT_OK(RepairDB(dbname_, options));
+  ASSERT_OK(DB::Open(options, dbname_, column_families, &handles_, &db_));
+
+  ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+  ASSERT_EQ(wal_files.size(), 0);
+  {
+    uint64_t total_ssts_size;
+    std::unordered_map<std::string, uint64_t> sst_files;
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
+    ASSERT_GT(total_ssts_size, 0);
+  }
+
+  ReadOptions read_opts;
+  Slice read_ts_slice = ts;
+  read_opts.timestamp = &read_ts_slice;
+  CheckGet(read_opts, "key", "val");
 }
 
 TEST_F(RepairTest, SeparateWalDir) {

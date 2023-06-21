@@ -75,6 +75,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kErrorRecoveryRetryFlush:
+      return "Error Recovery Retry Flush";
     case FlushReason::kWalFull:
       return "WAL Full";
     default:
@@ -352,6 +354,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
+  TEST_SYNC_POINT("FlushJob::End");
   return s;
 }
 

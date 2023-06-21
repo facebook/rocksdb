@@ -279,6 +279,7 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
 
   if (bg_error_stats_ != nullptr) {
     RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
   }
   ROCKS_LOG_INFO(db_options_.info_log,
                  "ErrorHandler: Set regular background error\n");
@@ -416,7 +417,11 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
     CheckAndSetRecoveryAndBGError(bg_err);
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
     }
     ROCKS_LOG_INFO(
         db_options_.info_log,
@@ -443,9 +448,15 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                           &auto_recovery);
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
       RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
+      RecordTick(bg_error_stats_.get(),
                  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED);
     }
     ROCKS_LOG_INFO(db_options_.info_log,
                    "ErrorHandler: Set background retryable IO error\n");
@@ -486,6 +497,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   } else {
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
     }
     // HandleKnownErrors() will use recovery_error_, so ignore
     // recovery_io_error_.

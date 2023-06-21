@@ -2160,13 +2160,13 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
   }
 
   // Insert 100 -> 200 using IngestExternalFile
   file_data.clear();
   for (int i = 0; i <= 20; i++) {
     file_data.emplace_back(Key(i), "ingest_behind");
+    true_data[Key(i)] = "ingest_behind";
   }
 
   bool allow_global_seqno = true;
@@ -2188,6 +2188,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
 
   options.num_levels = 3;
   DestroyAndReopen(options);
+  true_data.clear();
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
@@ -2207,11 +2208,42 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
       verify_checksums_before_ingest, true /*ingest_behind*/,
       false /*sort_data*/, &true_data));
   ASSERT_EQ("0,1,1", FilesPerLevel());
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // bottom level should be empty
-  ASSERT_EQ("0,1", FilesPerLevel());
-
+  // Last level should not be compacted
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+
+  // Auto-compaction should not include the last level.
+  // Trigger compaction if size amplification exceeds 110%.
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  options.level0_file_num_compaction_trigger = 4;
+  TryReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 10; j++) {
+      true_data[Key(j)] = rnd.RandomString(1000);
+      ASSERT_OK(Put(Key(j), true_data[Key(j)]));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+
+  // Turning off the option allows DB to compact ingested files.
+  options.allow_ingest_behind = false;
+  TryReopen(options);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 

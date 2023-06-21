@@ -17,6 +17,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+std::shared_ptr<OccLockBuckets> MakeSharedOccLockBuckets(size_t bucket_count,
+                                                         bool cache_aligned) {
+  if (cache_aligned) {
+    return std::make_shared<OccLockBucketsImpl<true>>(bucket_count);
+  } else {
+    return std::make_shared<OccLockBucketsImpl<false>>(bucket_count);
+  }
+}
+
 Transaction* OptimisticTransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options, Transaction* old_txn) {
@@ -26,12 +35,6 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
   } else {
     return new OptimisticTransaction(this, write_options, txn_options);
   }
-}
-
-std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(
-    size_t idx) {
-  assert(idx < bucketed_locks_.size());
-  return std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
 }
 
 Status OptimisticTransactionDB::Open(const Options& options,
