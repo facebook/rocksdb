@@ -493,7 +493,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(
       handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled()) {
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
         0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);

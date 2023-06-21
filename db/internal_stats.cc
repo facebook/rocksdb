@@ -291,6 +291,7 @@ static const std::string min_obsolete_sst_number_to_keep_str =
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
+static const std::string obsolete_sst_files_size = "obsolete-sst-files-size";
 static const std::string live_sst_files_size_at_temperature =
     "live-sst-files-size-at-temperature";
 static const std::string estimate_pending_comp_bytes =
@@ -394,6 +395,8 @@ const std::string DB::Properties::kTotalSstFilesSize =
     rocksdb_prefix + total_sst_files_size;
 const std::string DB::Properties::kLiveSstFilesSize =
     rocksdb_prefix + live_sst_files_size;
+const std::string DB::Properties::kObsoleteSstFilesSize =
+    rocksdb_prefix + obsolete_sst_files_size;
 const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level_str;
 const std::string DB::Properties::kEstimatePendingCompactionBytes =
     rocksdb_prefix + estimate_pending_comp_bytes;
@@ -565,6 +568,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSizeAtTemperature,
          {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
           nullptr, nullptr}},
+        {DB::Properties::kObsoleteSstFilesSize,
+         {false, nullptr, &InternalStats::HandleObsoleteSstFilesSize, nullptr,
+          nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -1392,6 +1398,12 @@ bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
                                            Version* /*version*/) {
   *value = cfd_->GetLiveSstFilesSize();
+  return true;
+}
+
+bool InternalStats::HandleObsoleteSstFilesSize(uint64_t* value, DBImpl* db,
+                                               Version* /*version*/) {
+  *value = db->GetObsoleteSstFilesSize();
   return true;
 }
 

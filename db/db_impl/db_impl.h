@@ -531,7 +531,7 @@ class DBImpl : public DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) override;
 
   using DB::ClipColumnFamily;
@@ -810,6 +810,8 @@ class DBImpl : public DB {
   // files pending creation, although it prevents more files than necessary from
   // being deleted.
   uint64_t MinObsoleteSstNumberToKeep();
+
+  uint64_t GetObsoleteSstFilesSize();
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.

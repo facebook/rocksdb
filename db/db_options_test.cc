@@ -582,6 +582,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
 
 TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
   options.env = env_;

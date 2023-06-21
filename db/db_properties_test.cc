@@ -1715,14 +1715,35 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
     ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
+
   uint64_t sst_size;
-  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
-  ASSERT_TRUE(ok);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size));
   ASSERT_GT(sst_size, 0);
   listener->size_before_compaction = sst_size;
+
+  uint64_t obsolete_sst_size;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
+
+  // Hold files from being deleted so we can test property for size of obsolete
+  // SST files.
+  ASSERT_OK(db_->DisableFileDeletions());
+
   // Compact to clean all keys and trigger listener.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_TRUE(listener->callback_triggered);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, sst_size);
+
+  // Let the obsolete files be deleted.
+  ASSERT_OK(db_->EnableFileDeletions());
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
 }
 
 TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {

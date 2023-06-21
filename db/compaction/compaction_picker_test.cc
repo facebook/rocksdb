@@ -70,6 +70,11 @@ class CompactionPickerTestBase : public testing::Test {
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     ioptions_.cf_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
+    // When the default value of this option is true, universal compaction
+    // tests can encounter assertion failure since SanitizeOption() is
+    // not run to set this option to false. So we do the sanitization
+    // here. Tests that test this option set this option to true explicitly.
+    ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
   ~CompactionPickerTestBase() override {}
@@ -505,7 +510,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   const uint64_t kFileSize = 100000;
-  NewVersionStorage(1, kCompactionStyleUniversal);
+  NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
   ioptions_.allow_ingest_behind = true;
   ioptions_.num_levels = 3;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -532,6 +537,14 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
 
   // output level should be the one above the bottom-most
   ASSERT_EQ(1, compaction->output_level());
+
+  // input should not include the reserved level
+  const std::vector<CompactionInputFiles>* inputs = compaction->inputs();
+  for (const auto& compaction_input : *inputs) {
+    if (!compaction_input.empty()) {
+      ASSERT_LT(compaction_input.level, 2);
+    }
+  }
 }
 // Tests if the files can be trivially moved in multi level
 // universal compaction when allow_trivial_move option is set

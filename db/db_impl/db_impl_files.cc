@@ -35,6 +35,11 @@ uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
   return std::numeric_limits<uint64_t>::max();
 }
 
+uint64_t DBImpl::GetObsoleteSstFilesSize() {
+  mutex_.AssertHeld();
+  return versions_->GetObsoleteSstFilesSize();
+}
+
 Status DBImpl::DisableFileDeletions() {
   Status s;
   int my_disable_delete_obsolete_files;
