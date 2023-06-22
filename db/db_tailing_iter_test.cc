@@ -56,7 +56,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorSingle) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -93,7 +93,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorSeekToNext) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -166,7 +166,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorSeekToNext) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   const uint64_t k150KB = 150 * 1024;
@@ -315,7 +315,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -369,7 +369,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   ReadOptions read_options;
@@ -414,7 +414,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorIncomplete) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -451,7 +451,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorIncomplete) {
 
 TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -502,7 +502,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
 // iterators, including the memtable iterator, are over the upper bound.
 TEST_P(DBTestTailingIterator, TailingIteratorUpperBound) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(
@@ -583,7 +583,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorGap) {
   // if both file fit in that gap. In this example, 25 < key < 35
   // https://github.com/facebook/rocksdb/issues/1372
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   std::unique_ptr<Env> env(

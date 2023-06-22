@@ -227,9 +227,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
                                 handle.offset());
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
-    } else if (use_fs_scratch) {
-      // Free the allocated scratch buffer by fs.
-      req.fs_scratch.reset();
     } else if (!use_shared_buffer) {
       // Free the allocated scratch buffer.
       delete[] req.scratch;
@@ -281,10 +278,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
           s.PermitUncheckedError();
-          if (use_fs_scratch) {
-            // Free the allocated scratch buffer by fs.
-            req.fs_scratch.reset();
-          }
           continue;
         }
       }
@@ -314,9 +307,16 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       }
     }
     statuses[idx_in_batch] = s;
-    if (use_fs_scratch) {
-      // Free the allocated scratch buffer by fs.
-      req.fs_scratch.reset();
+  }
+
+  if (use_fs_scratch) {
+    // Free the allocated scratch buffer by fs here as read requests might have
+    // been combined into one.
+    for (FSReadRequest& req : read_reqs) {
+      if (req.fs_scratch != nullptr) {
+        req.fs_scratch.reset();
+        req.fs_scratch = nullptr;
+      }
     }
   }
 }

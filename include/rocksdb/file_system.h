@@ -689,8 +689,8 @@ class FileSystem : public Customizable {
   //  will have corresponding bit (i.e FSSupportedOps::kAsyncIO) set to 1.
   //
   // By default, no operation is supported and FS should override this API and
-  // set whatever operations they support.
-  virtual void SupportedOps(int64_t& /*supported_ops*/) {}
+  // set all the operations they support provided in FSSupportedOps.
+  virtual void SupportedOps(int64_t& supported_ops) { supported_ops = 0; }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 

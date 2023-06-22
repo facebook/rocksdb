@@ -15,7 +15,7 @@
 
 namespace {
 static bool enable_io_uring = true;
-// extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
 }  // namespace
 
 namespace ROCKSDB_NAMESPACE {
@@ -1305,7 +1305,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
 // async_io is enabled.
 TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   const int kNumKeys = 1000;
@@ -1789,7 +1789,7 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
 // async_io.
 TEST_P(PrefetchTest1, SeekParallelizationTest) {
   if (mem_env_ || encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
     return;
   }
   const int kNumKeys = 2000;

@@ -92,19 +92,10 @@ Status DestroyDir(Env* env, const std::string& dir);
 inline bool CheckFSFeatureSupport(FileSystem* fs, FSSupportedOps feat) {
   int64_t supported_ops = 0;
   fs->SupportedOps(supported_ops);
-  if (supported_ops == 0) {
-    return false;
+  if (supported_ops & (1 << feat)) {
+    return true;
   }
-
-  uint32_t set_pos = 0;
-  while (supported_ops && set_pos < static_cast<uint32_t>(feat)) {
-    // Find the rightmost set bit.
-    set_pos = static_cast<uint32_t>(log2(supported_ops & -supported_ops));
-    // unset the rightmost bit.
-    supported_ops &= (supported_ops - 1);
-  }
-
-  return (set_pos == static_cast<uint32_t>(feat));
+  return false;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
