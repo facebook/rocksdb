@@ -293,6 +293,8 @@ Status BuildTable(
       meta->fd.file_size = file_size;
       meta->tail_size = builder->GetTailSize();
       meta->marked_for_compaction = builder->NeedCompact();
+      meta->user_defined_timestamps_persisted =
+          ioptions.persist_user_defined_timestamps;
       assert(meta->fd.GetFileSize() > 0);
       tp = builder
                ->GetTableProperties();  // refresh now that builder is finished

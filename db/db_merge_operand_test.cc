@@ -49,10 +49,8 @@ TEST_F(DBMergeOperandTest, CacheEvictedMergeOperandReadAfterFreeBug) {
   // There was a bug of reading merge operands after they are mistakely freed
   // in DB::GetMergeOperands, which is surfaced by cache full.
   // See PR#9507 for more.
-  Options options;
-  options.create_if_missing = true;
+  Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  options.env = env_;
   BlockBasedTableOptions table_options;
 
   // Small cache to simulate cache full
@@ -121,11 +119,9 @@ TEST_F(DBMergeOperandTest, FlushedMergeOperandReadAfterFreeBug) {
 }
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
-  Options options;
-  options.create_if_missing = true;
+  Options options = CurrentOptions();
   // Use only the latest two merge operands.
   options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
-  options.env = env_;
   Reopen(options);
   int num_records = 4;
   int number_of_operands = 0;
@@ -309,13 +305,11 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
 }
 
 TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
-  Options options;
-  options.create_if_missing = true;
+  Options options = CurrentOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   // Use only the latest two merge operands.
   options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
-  options.env = env_;
   Reopen(options);
   int num_records = 4;
   int number_of_operands = 0;
@@ -401,8 +395,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
   const int kNumOperands = 1024;
   const int kOperandLen = 1024;
 
-  Options options;
-  options.create_if_missing = true;
+  Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   DestroyAndReopen(options);
 

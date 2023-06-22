@@ -353,14 +353,22 @@ enum Tickers : uint32_t {
   // # of files marked as trash by sst file manager and will be deleted
   // later by background thread.
   FILES_MARKED_TRASH,
-  // # of files deleted immediately by sst file manger through delete scheduler.
+  // # of trash files deleted by the background thread from the trash queue.
+  FILES_DELETED_FROM_TRASH_QUEUE,
+  // # of files deleted immediately by sst file manager through delete
+  // scheduler.
   FILES_DELETED_IMMEDIATELY,
 
   // The counters for error handler, not that, bg_io_error is the subset of
-  // bg_error and bg_retryable_io_error is the subset of bg_io_error
+  // bg_error and bg_retryable_io_error is the subset of bg_io_error.
+  // The misspelled versions are deprecated and only kept for compatibility.
+  // TODO: remove the misspelled tickers in the next major release.
   ERROR_HANDLER_BG_ERROR_COUNT,
+  ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_IO_ERROR_COUNT,
+  ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED,
   ERROR_HANDLER_AUTORESUME_COUNT,
   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,

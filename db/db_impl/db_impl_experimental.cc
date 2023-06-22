@@ -138,7 +138,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    f->oldest_blob_file_number, f->oldest_ancester_time,
                    f->file_creation_time, f->epoch_number, f->file_checksum,
                    f->file_checksum_func_name, f->unique_id,
-                   f->compensated_range_deletion_size, f->tail_size);
+                   f->compensated_range_deletion_size, f->tail_size,
+                   f->user_defined_timestamps_persisted);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

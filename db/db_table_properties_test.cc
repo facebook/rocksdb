@@ -282,6 +282,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   Random rnd(301);
 
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
   options.max_write_buffer_number = 2;
