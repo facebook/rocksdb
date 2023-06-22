@@ -383,7 +383,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
     if (is_block_based_table) {
-      // For FIFO, max_open_files is checked in ValidateOptions().
+      // FIFO also requires max_open_files=-1, which is checked in
+      // ValidateOptions().
       result.ttl = kAdjustedTtl;
     } else {
       result.ttl = 0;
@@ -391,20 +392,20 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
-
-  // Turn on periodic compactions and set them to occur once every 30 days if
-  // compaction filters are used and periodic_compaction_seconds is set to the
-  // default value.
-  if (result.compaction_style != kCompactionStyleFIFO) {
+  if (result.compaction_style == kCompactionStyleLevel) {
     if ((result.compaction_filter != nullptr ||
          result.compaction_filter_factory != nullptr) &&
         result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
         is_block_based_table) {
       result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
     }
-  } else {
-    if (result.periodic_compaction_seconds != kDefaultPeriodicCompSecs &&
-        result.periodic_compaction_seconds > 0) {
+  } else if (result.compaction_style == kCompactionStyleUniversal) {
+    if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
+        is_block_based_table) {
+      result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+    }
+  } else if (result.compaction_style == kCompactionStyleFIFO) {
+    if (result.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
       ROCKS_LOG_WARN(
           db_options.info_log.get(),
           "periodic_compaction_seconds does not support FIFO compaction. You"
@@ -412,15 +413,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
-  // TTL compactions would work similar to Periodic Compactions in Universal in
-  // most of the cases. So, if ttl is set, execute the periodic compaction
-  // codepath.
-  if (result.compaction_style == kCompactionStyleUniversal && result.ttl != 0) {
-    if (result.periodic_compaction_seconds != 0) {
+  // For universal compaction, `ttl` and `periodic_compaction_seconds` mean the
+  // same thing, take the stricter value.
+  if (result.compaction_style == kCompactionStyleUniversal) {
+    if (result.periodic_compaction_seconds == 0) {
+      result.periodic_compaction_seconds = result.ttl;
+    } else if (result.ttl != 0) {
       result.periodic_compaction_seconds =
           std::min(result.ttl, result.periodic_compaction_seconds);
-    } else {
-      result.periodic_compaction_seconds = result.ttl;
     }
   }
 
