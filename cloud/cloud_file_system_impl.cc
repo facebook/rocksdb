@@ -1632,17 +1632,9 @@ IOStatus CloudFileSystemImpl::LoadCloudManifest(const std::string& local_dbname,
     // Create dummy CURRENT file to point to the dummy manifest (cloud env
     // will remap the filename appropriately, this is just to fool the
     // underyling RocksDB)
-    std::unique_ptr<FSWritableFile> destfile;
-    st = NewWritableFile(CurrentFileName(local_dbname), FileOptions(),
-                         &destfile, dbg);
-    if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "Unable to create local CURRENT file to %s %s",
-          CurrentFileName(local_dbname).c_str(), st.ToString().c_str());
-      return st;
-    }
-    Log(InfoLogLevel::INFO_LEVEL, info_log_, "Creating a dummy CURRENT file.");
-    st = destfile->Append(Slice("MANIFEST-000001\n"), io_opts, dbg);
+    st = SetCurrentFile(GetBaseFileSystem().get(), local_dbname,
+                        1 /* descriptor_number */,
+                        nullptr /* dir_contains_current_file */);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "Unable to write local CURRENT file to %s %s",
