@@ -489,6 +489,8 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   // two table insertions could lead to an LRU eviction, depending on
   // hash values.
   options.table_cache_numshardbits = 2;
+  // To exercise verification of compaction output table
+  options.paranoid_file_checks = true;
   DestroyAndReopen(options);
   Random rnd(301);
 
@@ -515,8 +517,9 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
       num_table_cache_lookup = 0;
       ASSERT_OK(Flush());
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
-      // preloading iterator issues one table cache lookup and create
-      // a new table reader, if not preloaded.
+      // `paranoid_file_checks = true` results in verifying the compaction
+      // output table. Such verification creates iterator, which issues one
+      // table cache lookup and create a new table reader, if not preloaded.
       int old_num_table_cache_lookup = num_table_cache_lookup;
       ASSERT_GE(num_table_cache_lookup, 1);
       ASSERT_EQ(num_new_table_reader, 1);

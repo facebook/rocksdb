@@ -1039,6 +1039,10 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
 
   options.compaction_readahead_size = 0;
   options.level0_file_num_compaction_trigger = 2;
+  // To force creation of table cache's iterator, during which
+  // the dynamically changed readahead size is pass down to the test Env level
+  options.paranoid_file_checks = true;
+
   const std::string kValue(1024, 'v');
   Reopen(options);
 

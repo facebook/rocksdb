@@ -938,6 +938,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
+  options.paranoid_file_checks = true;
+
   Status s;
   std::string old_manifest;
   std::string new_manifest;
@@ -2100,6 +2102,8 @@ TEST_F(DBErrorHandlingFSTest,
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 2;
   options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.paranoid_file_checks = true;
+
   Status s;
   std::string old_manifest;
   std::string new_manifest;

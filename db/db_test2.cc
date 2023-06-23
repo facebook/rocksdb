@@ -2161,6 +2161,9 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
 TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   Options options = CurrentOptions();
+  // To force verification of compaction output table
+  // for test purposes.
+  options.paranoid_file_checks = true;
   // This ensures that db does not ref anything in the block cache, so
   // EraseUnRefEntries could clear them up.
   bool close_afterwards = true;
@@ -2241,7 +2244,8 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
 
   // Force a full compaction to one single file. There will be a block
   // cache read for both of index and filter. If prefetch doesn't explicitly
-  // happen, it will happen when verifying the file.
+  // happen, it will happen when verifying the file as `paranoid_file_checks` is
+  // set to true.
   Compact(1, "a", "zzzzz");
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 

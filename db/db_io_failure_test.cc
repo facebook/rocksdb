@@ -25,6 +25,7 @@ TEST_F(DBIOFailureTest, DropWrites) {
     Options options = CurrentOptions();
     options.env = env_;
     options.paranoid_checks = false;
+    options.paranoid_file_checks = true;
     Reopen(options);
 
     ASSERT_OK(Put("foo", "v1"));
