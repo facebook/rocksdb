@@ -267,15 +267,14 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 1);
   ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_READ_BYTES), 1);
   ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
-  // even with remote compaction, primary host still needs to read SST files to
-  // `verify_table()`.
-  ASSERT_GE(primary_statistics->getTickerCount(COMPACT_READ_BYTES), 1);
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_READ_BYTES), 0);
+
   // all the compaction write happens on the remote side
   ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
             compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES));
-  ASSERT_GE(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 1);
-  ASSERT_GT(primary_statistics->getTickerCount(COMPACT_READ_BYTES),
-            primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES));
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES),
+            compactor_statistics->getTickerCount(COMPACT_READ_BYTES));
+
   // compactor is already the remote side, which doesn't have remote
   ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 0);
   ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),

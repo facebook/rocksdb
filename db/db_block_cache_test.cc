@@ -525,7 +525,9 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
 
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS));
-    ASSERT_EQ(i * 3, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT));
+    // Index block in cache is hit once in table open during flush and index
+    // read during Get
+    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT));
     if (filter_type == 1) {
       ASSERT_EQ(i * 3,
                 options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));

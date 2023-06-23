@@ -366,7 +366,7 @@ Status BuildTable(
     // TODO Also check the IO status when create the Iterator.
 
     TEST_SYNC_POINT("BuildTable:BeforeOutputValidation");
-    if (s.ok() && !empty) {
+    if (s.ok() && !empty && paranoid_file_checks) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
       // here because this is a special case after we finish the table building.
@@ -386,7 +386,7 @@ Status BuildTable(
           /*allow_unprepared_value*/ false,
           mutable_cf_options.block_protection_bytes_per_key));
       s = it->status();
-      if (s.ok() && paranoid_file_checks) {
+      if (s.ok()) {
         OutputValidator file_validator(tboptions.internal_comparator,
                                        /*enable_order_check=*/true,
                                        /*enable_hash=*/true);
