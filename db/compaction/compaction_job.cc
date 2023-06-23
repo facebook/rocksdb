@@ -710,64 +710,63 @@ Status CompactionJob::Run() {
         compact_->compaction->mutable_cf_options()->prefix_extractor;
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
-      while (true) {
+      while (paranoid_file_checks_) {
         size_t file_idx = next_file_idx.fetch_add(1);
         if (file_idx >= files_output.size()) {
           break;
         }
-        if (paranoid_file_checks_) {
-          // Verify that the table is usable
-          // We set for_compaction to false and don't
-          // OptimizeForCompactionTableRead here because this is a special case
-          // after we finish the table building No matter whether
-          // use_direct_io_for_flush_and_compaction is true, we will regard this
-          // verification as user reads since the goal is to cache it here for
-          // further user reads
-          const ReadOptions verify_table_read_options(
-              Env::IOActivity::kCompaction);
-          InternalIterator* iter = cfd->table_cache()->NewIterator(
-              verify_table_read_options, file_options_,
-              cfd->internal_comparator(), files_output[file_idx]->meta,
-              /*range_del_agg=*/nullptr, prefix_extractor,
-              /*table_reader_ptr=*/nullptr,
-              cfd->internal_stats()->GetFileReadHist(
-                  compact_->compaction->output_level()),
-              TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
-              /*skip_filters=*/false, compact_->compaction->output_level(),
-              MaxFileSizeForL0MetaPin(
-                  *compact_->compaction->mutable_cf_options()),
-              /*smallest_compaction_key=*/nullptr,
-              /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false,
-              compact_->compaction->mutable_cf_options()
-                  ->block_protection_bytes_per_key);
-          auto s = iter->status();
 
+        // Verify that the table is usable
+        // We set for_compaction to false and don't
+        // OptimizeForCompactionTableRead here because this is a special case
+        // after we finish the table building No matter whether
+        // use_direct_io_for_flush_and_compaction is true, we will regard this
+        // verification as user reads since the goal is to cache it here for
+        // further user reads
+        const ReadOptions verify_table_read_options(
+            Env::IOActivity::kCompaction);
+        InternalIterator* iter = cfd->table_cache()->NewIterator(
+            verify_table_read_options, file_options_,
+            cfd->internal_comparator(), files_output[file_idx]->meta,
+            /*range_del_agg=*/nullptr, prefix_extractor,
+            /*table_reader_ptr=*/nullptr,
+            cfd->internal_stats()->GetFileReadHist(
+                compact_->compaction->output_level()),
+            TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
+            /*skip_filters=*/false, compact_->compaction->output_level(),
+            MaxFileSizeForL0MetaPin(
+                *compact_->compaction->mutable_cf_options()),
+            /*smallest_compaction_key=*/nullptr,
+            /*largest_compaction_key=*/nullptr,
+            /*allow_unprepared_value=*/false,
+            compact_->compaction->mutable_cf_options()
+                ->block_protection_bytes_per_key);
+        auto s = iter->status();
+
+        if (s.ok()) {
+          OutputValidator validator(cfd->internal_comparator(),
+                                    /*_enable_order_check=*/true,
+                                    /*_enable_hash=*/true);
+          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+            s = validator.Add(iter->key(), iter->value());
+            if (!s.ok()) {
+              break;
+            }
+          }
           if (s.ok()) {
-            OutputValidator validator(cfd->internal_comparator(),
-                                      /*_enable_order_check=*/true,
-                                      /*_enable_hash=*/true);
-            for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-              s = validator.Add(iter->key(), iter->value());
-              if (!s.ok()) {
-                break;
-              }
-            }
-            if (s.ok()) {
-              s = iter->status();
-            }
-            if (s.ok() && !validator.CompareValidator(
-                              files_output[file_idx]->validator)) {
-              s = Status::Corruption("Paranoid checksums do not match");
-            }
+            s = iter->status();
           }
-
-          delete iter;
-
-          if (!s.ok()) {
-            output_status = s;
-            break;
+          if (s.ok() &&
+              !validator.CompareValidator(files_output[file_idx]->validator)) {
+            s = Status::Corruption("Paranoid checksums do not match");
           }
+        }
+
+        delete iter;
+
+        if (!s.ok()) {
+          output_status = s;
+          break;
         }
       }
     };
