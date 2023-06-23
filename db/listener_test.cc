@@ -551,6 +551,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(

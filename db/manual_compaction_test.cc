@@ -190,6 +190,7 @@ TEST_F(ManualCompactionTest, Test) {
 TEST_F(ManualCompactionTest, SkipLevel) {
   DB* db;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 3;
   // Initially, flushed L0 files won't exceed 100.
   options.level0_file_num_compaction_trigger = 100;

@@ -1386,6 +1386,14 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
+  if (cfd->ioptions()->allow_ingest_behind &&
+      output_level >= cfd->ioptions()->num_levels - 1) {
+    return Status::InvalidArgument(
+        "Exceed the maximum output level defined by "
+        "the current compaction algorithm with ingest_behind --- " +
+        std::to_string(cfd->ioptions()->num_levels - 1));
+  }
+
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
       &input_set, cf_meta, output_level);
   TEST_SYNC_POINT("DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles");
@@ -1769,7 +1777,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->epoch_number,
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
-          f->compensated_range_deletion_size, f->tail_size);
+          f->compensated_range_deletion_size, f->tail_size,
+          f->user_defined_timestamps_persisted);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -3502,7 +3511,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->epoch_number, f->file_checksum,
             f->file_checksum_func_name, f->unique_id,
-            f->compensated_range_deletion_size, f->tail_size);
+            f->compensated_range_deletion_size, f->tail_size,
+            f->user_defined_timestamps_persisted);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

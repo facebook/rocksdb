@@ -75,6 +75,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kErrorRecoveryRetryFlush:
+      return "Error Recovery Retry Flush";
     case FlushReason::kWalFull:
       return "WAL Full";
     default:
@@ -1009,7 +1011,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.file_creation_time, meta_.epoch_number,
                    meta_.file_checksum, meta_.file_checksum_func_name,
                    meta_.unique_id, meta_.compensated_range_deletion_size,
-                   meta_.tail_size);
+                   meta_.tail_size, meta_.user_defined_timestamps_persisted);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.

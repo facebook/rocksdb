@@ -29,79 +29,132 @@ namespace ROCKSDB_NAMESPACE {
 Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                                       SuperVersion* sv) {
   Status status;
+  std::vector<ColumnFamilyIngestFileInfo> cf_ingest_infos;
+  for (const auto& metadata_per_cf : metadatas_) {
+    // Read the information of files we are importing
+    ColumnFamilyIngestFileInfo cf_file_info;
+    InternalKey smallest, largest;
+    int num_files = 0;
+    std::vector<IngestedFileInfo> files_to_import_per_cf;
+    for (size_t i = 0; i < metadata_per_cf.size(); i++) {
+      auto file_metadata = *metadata_per_cf[i];
+      const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
+      IngestedFileInfo file_to_import;
+      status = GetIngestedFileInfo(file_path, next_file_number++, sv,
+                                   file_metadata, &file_to_import);
+      if (!status.ok()) {
+        return status;
+      }
 
-  // Read the information of files we are importing
-  for (const auto& file_metadata : metadata_) {
-    const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
-    IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, next_file_number++, sv,
-                                 file_metadata, &file_to_import);
-    if (!status.ok()) {
+      if (file_to_import.num_entries == 0) {
+        status = Status::InvalidArgument("File contain no entries");
+        return status;
+      }
+
+      if (!file_to_import.smallest_internal_key.Valid() ||
+          !file_to_import.largest_internal_key.Valid()) {
+        status = Status::Corruption("File has corrupted keys");
+        return status;
+      }
+
+      files_to_import_per_cf.push_back(file_to_import);
+      num_files++;
+
+      // Calculate the smallest and largest keys of all files in this CF
+      if (i == 0) {
+        smallest = file_to_import.smallest_internal_key;
+        largest = file_to_import.largest_internal_key;
+      } else {
+        if (cfd_->internal_comparator().Compare(
+                smallest, file_to_import.smallest_internal_key) < 0) {
+          smallest = file_to_import.smallest_internal_key;
+        }
+        if (cfd_->internal_comparator().Compare(
+                largest, file_to_import.largest_internal_key) > 0) {
+          largest = file_to_import.largest_internal_key;
+        }
+      }
+    }
+
+    if (num_files == 0) {
+      status = Status::InvalidArgument("The list of files is empty");
       return status;
     }
-    files_to_import_.push_back(file_to_import);
+    files_to_import_.push_back(files_to_import_per_cf);
+    cf_file_info.smallest_internal_key = smallest;
+    cf_file_info.largest_internal_key = largest;
+    cf_ingest_infos.push_back(cf_file_info);
   }
 
-  auto num_files = files_to_import_.size();
-  if (num_files == 0) {
-    status = Status::InvalidArgument("The list of files is empty");
-    return status;
-  }
+  std::sort(cf_ingest_infos.begin(), cf_ingest_infos.end(),
+            [this](const ColumnFamilyIngestFileInfo& info1,
+                   const ColumnFamilyIngestFileInfo& info2) {
+              return cfd_->user_comparator()->Compare(
+                         info1.smallest_internal_key.user_key(),
+                         info2.smallest_internal_key.user_key()) < 0;
+            });
 
-  for (const auto& f : files_to_import_) {
-    if (f.num_entries == 0) {
-      status = Status::InvalidArgument("File contain no entries");
-      return status;
-    }
-
-    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      status = Status::Corruption("File has corrupted keys");
+  for (size_t i = 0; i + 1 < cf_ingest_infos.size(); i++) {
+    if (cfd_->user_comparator()->Compare(
+            cf_ingest_infos[i].largest_internal_key.user_key(),
+            cf_ingest_infos[i + 1].smallest_internal_key.user_key()) >= 0) {
+      status = Status::InvalidArgument("CFs have overlapping ranges");
       return status;
     }
   }
 
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
-  for (auto& f : files_to_import_) {
-    const auto path_outside_db = f.external_file_path;
-    const auto path_inside_db = TableFileName(
-        cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
 
-    if (hardlink_files) {
-      status =
-          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
-      if (status.IsNotSupported()) {
-        // Original file is on a different FS, use copy instead of hard linking
-        hardlink_files = false;
-        ROCKS_LOG_INFO(db_options_.info_log,
-                       "Try to link file %s but it's not supported : %s",
-                       f.internal_file_path.c_str(), status.ToString().c_str());
+  for (auto& files_to_import_per_cf : files_to_import_) {
+    for (auto& f : files_to_import_per_cf) {
+      const auto path_outside_db = f.external_file_path;
+      const auto path_inside_db = TableFileName(
+          cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
+
+      if (hardlink_files) {
+        status = fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(),
+                               nullptr);
+        if (status.IsNotSupported()) {
+          // Original file is on a different FS, use copy instead of hard
+          // linking
+          hardlink_files = false;
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "Try to link file %s but it's not supported : %s",
+                         f.internal_file_path.c_str(),
+                         status.ToString().c_str());
+        }
       }
-    }
-    if (!hardlink_files) {
-      status =
-          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+      if (!hardlink_files) {
+        status =
+            CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                     db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
+      }
+      if (!status.ok()) {
+        break;
+      }
+      f.copy_file = !hardlink_files;
+      f.internal_file_path = path_inside_db;
     }
     if (!status.ok()) {
       break;
     }
-    f.copy_file = !hardlink_files;
-    f.internal_file_path = path_inside_db;
   }
 
   if (!status.ok()) {
     // We failed, remove all files that we copied into the db
-    for (const auto& f : files_to_import_) {
-      if (f.internal_file_path.empty()) {
-        break;
-      }
-      const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        if (f.internal_file_path.empty()) {
+          break;
+        }
+        const auto s =
+            fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "AddFile() clean up for file %s failed : %s",
+                         f.internal_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   }
@@ -134,30 +187,37 @@ Status ImportColumnFamilyJob::Run() {
       nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
       EpochNumberRequirement::kMightMissing);
   Status s;
+
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
-    const auto& f = files_to_import_[i];
-    const auto& file_metadata = metadata_[i];
+    for (size_t j = 0; s.ok() && j < files_to_import_[i].size(); ++j) {
+      const auto& f = files_to_import_[i][j];
+      const auto& file_metadata = *metadatas_[i][j];
 
-    uint64_t tail_size = 0;
-    bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
-                                  (f.table_properties.num_entries ==
-                                   f.table_properties.num_range_deletions);
-    if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
-      uint64_t file_size = f.fd.GetFileSize();
-      assert(f.table_properties.tail_start_offset <= file_size);
-      tail_size = file_size - f.table_properties.tail_start_offset;
+      uint64_t tail_size = 0;
+      bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
+                                    (f.table_properties.num_entries ==
+                                     f.table_properties.num_range_deletions);
+      if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
+        uint64_t file_size = f.fd.GetFileSize();
+        assert(f.table_properties.tail_start_offset <= file_size);
+        tail_size = file_size - f.table_properties.tail_start_offset;
+      }
+
+      VersionEdit dummy_version_edit;
+      dummy_version_edit.AddFile(
+          file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+          f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
+          file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
+          file_metadata.temperature, kInvalidBlobFileNumber,
+          oldest_ancester_time, current_time, file_metadata.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
+          tail_size,
+          static_cast<bool>(
+              f.table_properties.user_defined_timestamps_persisted));
+      s = dummy_version_builder.Apply(&dummy_version_edit);
     }
-
-    VersionEdit dummy_version_edit;
-    dummy_version_edit.AddFile(
-        file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-        f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
-        file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
-        file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, f.unique_id, 0, tail_size);
-    s = dummy_version_builder.Apply(&dummy_version_edit);
   }
+
   if (s.ok()) {
     s = dummy_version_builder.SaveTo(&dummy_vstorage);
   }
@@ -198,26 +258,30 @@ Status ImportColumnFamilyJob::Run() {
 void ImportColumnFamilyJob::Cleanup(const Status& status) {
   if (!status.ok()) {
     // We failed to add files to the database remove all the files we copied.
-    for (const auto& f : files_to_import_) {
-      const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "AddFile() clean up for file %s failed : %s",
-                       f.internal_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        const auto s =
+            fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "AddFile() clean up for file %s failed : %s",
+                         f.internal_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   } else if (status.ok() && import_options_.move_files) {
     // The files were moved and added successfully, remove original file links
-    for (IngestedFileInfo& f : files_to_import_) {
-      const auto s =
-          fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(
-            db_options_.info_log,
-            "%s was added to DB successfully but failed to remove original "
-            "file link : %s",
-            f.external_file_path.c_str(), s.ToString().c_str());
+    for (auto& files_to_import_per_cf : files_to_import_) {
+      for (auto& f : files_to_import_per_cf) {
+        const auto s =
+            fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(
+              db_options_.info_log,
+              "%s was added to DB successfully but failed to remove original "
+              "file link : %s",
+              f.external_file_path.c_str(), s.ToString().c_str());
+        }
       }
     }
   }
@@ -256,6 +320,9 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support importing column
+  //  family. Pass in the correct `user_defined_timestamps_persisted` flag for
+  //  creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,

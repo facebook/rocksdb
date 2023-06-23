@@ -955,6 +955,9 @@ class FSWritableFile {
         write_hint_(Env::WLTH_NOT_SET),
         strict_bytes_per_sync_(options.strict_bytes_per_sync) {}
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // FSWritableFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
@@ -1028,6 +1031,12 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
+
+  // The caller should call Close() before destroying the FSWritableFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual IOStatus Close(const IOOptions& /*options*/,
                          IODebugContext* /*dbg*/) = 0;
 
@@ -1185,6 +1194,9 @@ class FSRandomRWFile {
  public:
   FSRandomRWFile() {}
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // FSRandomRWFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~FSRandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -1220,6 +1232,11 @@ class FSRandomRWFile {
     return Sync(options, dbg);
   }
 
+  // The caller should call Close() before destroying the FSRandomRWFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
 
   // EXPERIMENTAL
@@ -1263,6 +1280,9 @@ class FSMemoryMappedFileBuffer {
 // filesystem operations that can be executed on directories.
 class FSDirectory {
  public:
+  // For cases when Close() hasn't been called, many derived classes of
+  // FSDirectory will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~FSDirectory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) = 0;
@@ -1276,7 +1296,9 @@ class FSDirectory {
     return Fsync(options, dbg);
   }
 
-  // Close directory
+  // Calling Close() before destroying a FSDirectory is recommended to surface
+  // any errors associated with finishing writes (in case of future features).
+  // The directory is considered closed regardless of return status.
   virtual IOStatus Close(const IOOptions& /*options*/,
                          IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported("Close");

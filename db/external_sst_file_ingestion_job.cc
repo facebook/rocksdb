@@ -482,7 +482,9 @@ Status ExternalSstFileIngestionJob::Run() {
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
-        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size);
+        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
+        static_cast<bool>(
+            f.table_properties.user_defined_timestamps_persisted));
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -684,6 +686,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support external sst file
+  //  ingestion. Pass in the correct `user_defined_timestamps_persisted` flag
+  //  for creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
@@ -708,9 +713,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
-  }
-  if (!status.ok()) {
-    return status;
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   // Get the external file properties
