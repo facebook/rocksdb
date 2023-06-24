@@ -377,7 +377,7 @@ class BlockBasedTable : public TableReader {
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
-      const UncompressionDict& uncompression_dict);
+      const UncompressionDict& uncompression_dict, bool use_fs_scratch);
 
   // Get the iterator from the index reader.
   //

@@ -39,6 +39,7 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
+#include "file/file_util.h"
 #include "table/compaction_merging_iterator.h"
 
 #if USE_COROUTINES
@@ -2190,7 +2191,12 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
       io_tracer_(io_tracer),
-      use_async_io_(env_->GetFileSystem()->use_async_io()) {}
+      use_async_io_(false) {
+  if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
+                            FSSupportedOps::kAsyncIO)) {
+    use_async_io_ = true;
+  }
+}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const Slice& blob_index_slice,

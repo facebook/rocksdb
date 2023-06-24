@@ -1183,11 +1183,13 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  bool use_async_io() override {
+  void SupportedOps(int64_t& supported_ops) override {
+    supported_ops = 0;
 #if defined(ROCKSDB_IOURING_PRESENT)
-    return IsIOUringEnabled();
-#else
-    return false;
+    if (IsIOUringEnabled()) {
+      // Underlying FS supports async_io
+      supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+    }
 #endif
   }
 
