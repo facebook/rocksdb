@@ -831,7 +831,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   bool is_eligible_for_prefetching = false;
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
-       num_file_reads_ + 1 >= num_file_reads_for_auto_readahead_)) {
+       num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
     is_eligible_for_prefetching = true;
   }
 
@@ -941,6 +941,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     prev_len_ = 0;
   }
   if (read_len2) {
+    TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching");
     s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
     if (!s.ok()) {
       DestroyAndClearIOHandle(second);
