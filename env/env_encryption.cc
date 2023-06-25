@@ -808,8 +808,7 @@ std::shared_ptr<FileSystem> NewEncryptedFS(
     return nullptr;
   }
 }
-// Returns an Env that encrypts data when stored on disk and decrypts data when
-// read from disk.
+
 Env* NewEncryptedEnv(Env* base_env,
                      const std::shared_ptr<EncryptionProvider>& provider) {
   return new CompositeEnvWrapper(

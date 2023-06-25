@@ -23,6 +23,9 @@ struct ConfigOptions;
 // read from disk.
 Env* NewEncryptedEnv(Env* base_env,
                      const std::shared_ptr<EncryptionProvider>& provider);
+std::shared_ptr<FileSystem> NewEncryptedFS(
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::shared_ptr<EncryptionProvider>& provider);
 
 // BlockAccessCipherStream is the base class for any cipher stream that
 // supports random access at block level (without requiring data from other
