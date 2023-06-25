@@ -211,7 +211,9 @@ Status ImportColumnFamilyJob::Run() {
           file_metadata.temperature, kInvalidBlobFileNumber,
           oldest_ancester_time, current_time, file_metadata.epoch_number,
           kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
-          tail_size);
+          tail_size,
+          static_cast<bool>(
+              f.table_properties.user_defined_timestamps_persisted));
       s = dummy_version_builder.Apply(&dummy_version_edit);
     }
   }
@@ -318,6 +320,9 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support importing column
+  //  family. Pass in the correct `user_defined_timestamps_persisted` flag for
+  //  creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
