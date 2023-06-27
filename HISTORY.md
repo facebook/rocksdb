@@ -813,6 +813,9 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 ### Miscellaneous
 * Add a paranoid check where in case FileSystem layer doesn't fill the buffer but returns succeed, checksum is unlikely to match even if buffer contains a previous block. The byte modified is not useful anyway, so it isn't expected to change any behavior when FileSystem is satisfying its contract.
 
+### Behavior Change
+* RocksDB will try to schedule compactions based on options.ttl slightly ahead of the deadline, so that when the time the threshold hits, compaction usually already finished.
+
 ## 6.24.0 (2021-08-20)
 ### Bug Fixes
 * If the primary's CURRENT file is missing or inaccessible, the secondary instance should not hang repeatedly trying to switch to a new MANIFEST. It should instead return the error code encountered while accessing the file.
