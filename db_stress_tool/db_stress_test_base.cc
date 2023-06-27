@@ -56,7 +56,7 @@ StressTest::StressTest()
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
-
+      optimistic_txn_db_(nullptr),
       db_aptr_(nullptr),
       clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
@@ -301,7 +301,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
       exit(1);
     }
   }
-  if (FLAGS_use_txn) {
+  if (FLAGS_use_txn && !FLAGS_use_optimistic_txn) {
     // It's OK here without sync because unsynced data cannot be lost at this
     // point
     // - even with sync_fault_injection=1 as the
@@ -556,6 +556,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     delete db_;
     db_ = nullptr;
     txn_db_ = nullptr;
+    optimistic_txn_db_ = nullptr;
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -634,55 +635,66 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   write_opts.disableWAL = FLAGS_disable_wal;
   static std::atomic<uint64_t> txn_id = {0};
-  TransactionOptions txn_options;
-  txn_options.use_only_the_last_commit_time_batch_for_recovery =
-      FLAGS_use_only_the_last_commit_time_batch_for_recovery;
-  txn_options.lock_timeout = 600000;  // 10 min
-  txn_options.deadlock_detect = true;
-  *txn = txn_db_->BeginTransaction(write_opts, txn_options);
-  auto istr = std::to_string(txn_id.fetch_add(1));
-  Status s = (*txn)->SetName("xid" + istr);
-  return s;
+  if (FLAGS_use_optimistic_txn) {
+    *txn = optimistic_txn_db_->BeginTransaction(write_opts);
+    return Status::OK();
+  } else {
+    TransactionOptions txn_options;
+    txn_options.use_only_the_last_commit_time_batch_for_recovery =
+        FLAGS_use_only_the_last_commit_time_batch_for_recovery;
+    txn_options.lock_timeout = 600000;  // 10 min
+    txn_options.deadlock_detect = true;
+    *txn = txn_db_->BeginTransaction(write_opts, txn_options);
+    auto istr = std::to_string(txn_id.fetch_add(1));
+    Status s = (*txn)->SetName("xid" + istr);
+    return s;
+  }
 }
 
 Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
-  assert(txn_db_);
-  Status s = txn->Prepare();
-  std::shared_ptr<const Snapshot> timestamped_snapshot;
-  if (s.ok()) {
-    if (thread && FLAGS_create_timestamped_snapshot_one_in &&
-        thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
-      uint64_t ts = db_stress_env->NowNanos();
-      s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
-                                          &timestamped_snapshot);
+  Status s = Status::OK();
+  if (FLAGS_use_optimistic_txn) {
+    assert(optimistic_txn_db_);
+    s = txn->Commit();
+  } else {
+    assert(txn_db_);
+    s = txn->Prepare();
+    std::shared_ptr<const Snapshot> timestamped_snapshot;
+    if (s.ok()) {
+      if (thread && FLAGS_create_timestamped_snapshot_one_in &&
+          thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
+        uint64_t ts = db_stress_env->NowNanos();
+        s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                            &timestamped_snapshot);
 
-      std::pair<Status, std::shared_ptr<const Snapshot>> res;
-      if (thread->tid == 0) {
-        uint64_t now = db_stress_env->NowNanos();
-        res = txn_db_->CreateTimestampedSnapshot(now);
-        if (res.first.ok()) {
-          assert(res.second);
-          assert(res.second->GetTimestamp() == now);
-          if (timestamped_snapshot) {
-            assert(res.second->GetTimestamp() >
-                   timestamped_snapshot->GetTimestamp());
+        std::pair<Status, std::shared_ptr<const Snapshot>> res;
+        if (thread->tid == 0) {
+          uint64_t now = db_stress_env->NowNanos();
+          res = txn_db_->CreateTimestampedSnapshot(now);
+          if (res.first.ok()) {
+            assert(res.second);
+            assert(res.second->GetTimestamp() == now);
+            if (timestamped_snapshot) {
+              assert(res.second->GetTimestamp() >
+                     timestamped_snapshot->GetTimestamp());
+            }
+          } else {
+            assert(!res.second);
           }
-        } else {
-          assert(!res.second);
         }
+      } else {
+        s = txn->Commit();
       }
-    } else {
-      s = txn->Commit();
     }
-  }
-  if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
-      thread->rand.OneInOpt(50000)) {
-    uint64_t now = db_stress_env->NowNanos();
-    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
-    txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
+    if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
+        thread->rand.OneInOpt(50000)) {
+      uint64_t now = db_stress_env->NowNanos();
+      constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+      txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
+    }
   }
   delete txn;
   return s;
@@ -2311,24 +2323,39 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
-
   if (FLAGS_use_txn) {
-    fprintf(stdout, "Two write queues:         : %s\n",
-            FLAGS_two_write_queues ? "true" : "false");
-    fprintf(stdout, "Write policy              : %d\n",
-            static_cast<int>(FLAGS_txn_write_policy));
-    if (static_cast<uint64_t>(TxnDBWritePolicy::WRITE_PREPARED) ==
-            FLAGS_txn_write_policy ||
-        static_cast<uint64_t>(TxnDBWritePolicy::WRITE_UNPREPARED) ==
-            FLAGS_txn_write_policy) {
-      fprintf(stdout, "Snapshot cache bits       : %d\n",
-              static_cast<int>(FLAGS_wp_snapshot_cache_bits));
-      fprintf(stdout, "Commit cache bits         : %d\n",
-              static_cast<int>(FLAGS_wp_commit_cache_bits));
+    fprintf(stdout, "TransactionDB Type        : %s\n",
+            FLAGS_use_optimistic_txn ? "Optimistic" : "Pessimistic");
+    if (FLAGS_use_optimistic_txn) {
+      fprintf(stdout, "OCC Validation Type       : %d\n",
+              static_cast<int>(FLAGS_occ_validation_policy));
+      if (static_cast<uint64_t>(OccValidationPolicy::kValidateParallel) ==
+          FLAGS_occ_validation_policy) {
+        fprintf(stdout, "Share Lock Buckets        : %s\n",
+                FLAGS_share_occ_lock_buckets ? "true" : "false");
+        if (FLAGS_share_occ_lock_buckets) {
+          fprintf(stdout, "Lock Bucket Count         : %d\n",
+                  static_cast<int>(FLAGS_occ_lock_bucket_count));
+        }
+      }
+    } else {
+      fprintf(stdout, "Two write queues:         : %s\n",
+              FLAGS_two_write_queues ? "true" : "false");
+      fprintf(stdout, "Write policy              : %d\n",
+              static_cast<int>(FLAGS_txn_write_policy));
+      if (static_cast<uint64_t>(TxnDBWritePolicy::WRITE_PREPARED) ==
+              FLAGS_txn_write_policy ||
+          static_cast<uint64_t>(TxnDBWritePolicy::WRITE_UNPREPARED) ==
+              FLAGS_txn_write_policy) {
+        fprintf(stdout, "Snapshot cache bits       : %d\n",
+                static_cast<int>(FLAGS_wp_snapshot_cache_bits));
+        fprintf(stdout, "Commit cache bits         : %d\n",
+                static_cast<int>(FLAGS_wp_commit_cache_bits));
+      }
+      fprintf(stdout, "last cwb for recovery    : %s\n",
+              FLAGS_use_only_the_last_commit_time_batch_for_recovery ? "true"
+                                                                     : "false");
     }
-    fprintf(stdout, "last cwb for recovery    : %s\n",
-            FLAGS_use_only_the_last_commit_time_batch_for_recovery ? "true"
-                                                                   : "false");
   }
 
   fprintf(stdout, "Stacked BlobDB            : %s\n",
@@ -2477,6 +2504,7 @@ void StressTest::PrintEnv() const {
 void StressTest::Open(SharedState* shared) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
+  assert(optimistic_txn_db_ == nullptr);
   if (!InitializeOptionsFromFile(options_)) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
@@ -2704,36 +2732,65 @@ void StressTest::Open(SharedState* shared) {
         break;
       }
     } else {
-      TransactionDBOptions txn_db_options;
-      assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
-      txn_db_options.write_policy =
-          static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
-      if (FLAGS_unordered_write) {
-        assert(txn_db_options.write_policy == TxnDBWritePolicy::WRITE_PREPARED);
-        options_.unordered_write = true;
-        options_.two_write_queues = true;
-        txn_db_options.skip_concurrency_control = true;
-      } else {
-        options_.two_write_queues = FLAGS_two_write_queues;
-      }
-      txn_db_options.wp_snapshot_cache_bits =
-          static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
-      txn_db_options.wp_commit_cache_bits =
-          static_cast<size_t>(FLAGS_wp_commit_cache_bits);
-      PrepareTxnDbOptions(shared, txn_db_options);
-      s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
-                              cf_descriptors, &column_families_, &txn_db_);
-      if (!s.ok()) {
-        fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
-                s.ToString().c_str());
-        fflush(stderr);
-      }
-      assert(s.ok());
+      if (FLAGS_use_optimistic_txn) {
+        OptimisticTransactionDBOptions optimistic_txn_db_options;
+        optimistic_txn_db_options.validate_policy =
+            static_cast<OccValidationPolicy>(FLAGS_occ_validation_policy);
 
-      // Do not swap the order of the following.
-      {
-        db_ = txn_db_;
-        db_aptr_.store(txn_db_, std::memory_order_release);
+        if (FLAGS_share_occ_lock_buckets) {
+          optimistic_txn_db_options.shared_lock_buckets =
+              MakeSharedOccLockBuckets(FLAGS_occ_lock_bucket_count);
+        } else {
+          optimistic_txn_db_options.occ_lock_buckets =
+              FLAGS_occ_lock_bucket_count;
+          optimistic_txn_db_options.shared_lock_buckets = nullptr;
+        }
+        s = OptimisticTransactionDB::Open(
+            options_, optimistic_txn_db_options, FLAGS_db, cf_descriptors,
+            &column_families_, &optimistic_txn_db_);
+        if (!s.ok()) {
+          fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
+                  s.ToString().c_str());
+          fflush(stderr);
+        }
+        assert(s.ok());
+        {
+          db_ = optimistic_txn_db_;
+          db_aptr_.store(optimistic_txn_db_, std::memory_order_release);
+        }
+      } else {
+        TransactionDBOptions txn_db_options;
+        assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
+        txn_db_options.write_policy =
+            static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
+        if (FLAGS_unordered_write) {
+          assert(txn_db_options.write_policy ==
+                 TxnDBWritePolicy::WRITE_PREPARED);
+          options_.unordered_write = true;
+          options_.two_write_queues = true;
+          txn_db_options.skip_concurrency_control = true;
+        } else {
+          options_.two_write_queues = FLAGS_two_write_queues;
+        }
+        txn_db_options.wp_snapshot_cache_bits =
+            static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
+        txn_db_options.wp_commit_cache_bits =
+            static_cast<size_t>(FLAGS_wp_commit_cache_bits);
+        PrepareTxnDbOptions(shared, txn_db_options);
+        s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+                                cf_descriptors, &column_families_, &txn_db_);
+        if (!s.ok()) {
+          fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
+                  s.ToString().c_str());
+          fflush(stderr);
+        }
+        assert(s.ok());
+
+        // Do not swap the order of the following.
+        {
+          db_ = txn_db_;
+          db_aptr_.store(txn_db_, std::memory_order_release);
+        }
       }
     }
     if (!s.ok()) {
@@ -2811,10 +2868,12 @@ void StressTest::Reopen(ThreadState* thread) {
     }
     assert(s.ok());
   }
-  assert(txn_db_ == nullptr || db_ == txn_db_);
+  assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
+         (db_ == txn_db_ || db_ == optimistic_txn_db_));
   delete db_;
   db_ = nullptr;
   txn_db_ = nullptr;
+  optimistic_txn_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();

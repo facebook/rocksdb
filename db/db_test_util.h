@@ -114,6 +114,12 @@ struct OptionsOverride {
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
+
+  // The default value for this option is changed from false to true.
+  // Keeping the default to false for unit tests as old unit tests assume
+  // this behavior. Tests for level_compaction_dynamic_level_bytes
+  // will set the option to true explicitly.
+  bool level_compaction_dynamic_level_bytes = false;
 };
 
 }  // namespace anon

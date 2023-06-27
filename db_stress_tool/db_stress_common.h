@@ -54,6 +54,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -194,9 +195,6 @@ DECLARE_bool(rate_limit_user_ops);
 DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
-DECLARE_bool(use_txn);
-DECLARE_uint64(txn_write_policy);
-DECLARE_bool(unordered_write);
 DECLARE_int32(backup_one_in);
 DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
@@ -254,6 +252,21 @@ DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+
+// Options for transaction dbs.
+// Use TransactionDB (a.k.a. Pessimistic Transaction DB)
+// OR OptimisticTransactionDB
+DECLARE_bool(use_txn);
+
+// Options for TransactionDB (a.k.a. Pessimistic Transaction DB)
+DECLARE_uint64(txn_write_policy);
+DECLARE_bool(unordered_write);
+
+// Options for OptimisticTransactionDB
+DECLARE_bool(use_optimistic_txn);
+DECLARE_uint64(occ_validation_policy);
+DECLARE_bool(share_occ_lock_buckets);
+DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);

@@ -3097,7 +3097,7 @@ class ModelDB : public DB {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not implemented.");
   }
@@ -5272,6 +5272,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   const uint64_t k1MB = 1 << 20;
   const uint64_t k4KB = 1 << 12;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;

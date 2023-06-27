@@ -324,6 +324,12 @@ Options DBTestBase::GetDefaultOptions() const {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  // The original default value for this option is false,
+  // and many unit tests assume this value. It also makes
+  // it easier to create desired LSM shape in unit tests.
+  // Unit tests for this option sets level_compaction_dynamic_level_bytes=true
+  // explicitly.
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   if (!env_->skip_fsync_) {
     options.track_and_verify_wals_in_manifest = true;
@@ -569,6 +575,8 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  options.level_compaction_dynamic_level_bytes =
+      options_override.level_compaction_dynamic_level_bytes;
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;

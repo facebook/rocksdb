@@ -165,10 +165,19 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
+  // TODO(yuzhangyu): full support in sst_dump for SST files generated when
+  // `user_defined_timestamps_persisted` is false.
   auto t_opt = TableReaderOptions(
       ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
       0 /* block_protection_bytes_per_key */, false /* skip_filters */,
-      false /* immortal */, true /* force_direct_prefetch */);
+      false /* immortal */, true /* force_direct_prefetch */, -1 /* level */,
+      nullptr /* block_cache_tracer */, 0 /* max_file_size_for_l0_meta_pin */,
+      "" /* cur_db_session_id */, 0 /* cur_file_num */, {} /* unique_id */,
+      0 /* largest_seqno */, 0 /* tail_size */,
+      table_properties_ == nullptr
+          ? true
+          : static_cast<bool>(
+                table_properties_->user_defined_timestamps_persisted));
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 

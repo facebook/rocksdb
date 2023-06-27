@@ -851,8 +851,13 @@ Status BlockBasedTable::PrefetchTail(
     prefetch_off = static_cast<size_t>(file_size - tail_prefetch_size);
     prefetch_len = tail_prefetch_size;
   }
+
+#ifndef NDEBUG
+  std::pair<size_t*, size_t*> prefetch_off_len_pair = {&prefetch_off,
+                                                       &prefetch_len};
   TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::TailPrefetchLen",
-                           &tail_prefetch_size);
+                           &prefetch_off_len_pair);
+#endif  // NDEBUG
 
   // Try file system prefetch
   if (!file->use_direct_io() && !force_direct_prefetch) {
