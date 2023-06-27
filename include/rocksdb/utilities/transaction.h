@@ -278,6 +278,17 @@ class Transaction {
   // Otherwise returns Status::OK().
   virtual Status PopSavePoint() = 0;
 
+  // Toggle the concurrency control for the transaction from this operation on.
+  // if value is set to true, concurrency control for all following operations
+  // in the transaction is skipped. If value is set to false, concurrency
+  // control is enabled for all following operations in the transaction.
+  // May only be supported by some types of transactions.
+  virtual Status SetSkipConcurrencyControl(bool /*value*/) {
+    // The default implementation will do nothing. Derived transaction classes
+    // can override it with more useful behavior.
+    return Status::NotSupported();
+  }
+
   // This function is similar to DB::Get() except it will also read pending
   // changes in this transaction.  Currently, this function will return
   // Status::MergeInProgress if the most recent write to the queried key in

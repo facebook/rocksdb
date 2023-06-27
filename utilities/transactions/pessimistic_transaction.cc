@@ -119,6 +119,11 @@ void PessimisticTransaction::Clear() {
   TransactionBaseImpl::Clear();
 }
 
+Status PessimisticTransaction::SetSkipConcurrencyControl(bool value) {
+  skip_concurrency_control_ = value;
+  return Status::OK();
+}
+
 void PessimisticTransaction::Reinitialize(
     TransactionDB* txn_db, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {

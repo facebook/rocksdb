@@ -150,6 +150,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   void Clear() override;
 
+  Status SetSkipConcurrencyControl(bool value) override;
+
   PessimisticTransactionDB* txn_db_impl_;
   DBImpl* db_impl_;
 
