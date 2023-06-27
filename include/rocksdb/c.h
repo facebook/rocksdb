@@ -411,6 +411,16 @@ rocksdb_create_column_family(rocksdb_t* db,
                              const rocksdb_options_t* column_family_options,
                              const char* column_family_name, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t**
+rocksdb_create_column_families(rocksdb_t* db,
+                               const rocksdb_options_t* column_family_options,
+                               int num_column_families,
+                               const char* const* column_family_names,
+                               size_t* lencfs, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_create_column_families_destroy(
+    rocksdb_column_family_handle_t** list);
+
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
 rocksdb_create_column_family_with_ttl(
     rocksdb_t* db, const rocksdb_options_t* column_family_options,
