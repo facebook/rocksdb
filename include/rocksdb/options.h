@@ -495,6 +495,19 @@ struct DBOptions {
   // Default: true
   bool flush_verify_memtable_count = true;
 
+  // If true, during compaction, RocksDB will count the number of entries
+  // read and compare it against the number of entries in the compaction
+  // input files. This is intended to add protection against corruption
+  // during compaction.
+  //
+  // Turning on this option will disallow RocksDB to use seek to skip over
+  // keys during compaction (e.g. when CompactionFilter decides
+  // kRemoveAndSkipUntil). In case you are skipping a lot of keys using
+  // CompactionFilter, you may want to set this option to false.
+  //
+  // Default: true
+  bool compaction_verify_record_count = true;
+
   // If true, the log numbers and sizes of the synced WALs are tracked
   // in MANIFEST. During DB recovery, if a synced WAL is missing
   // from disk, or the WAL's size does not match the recorded size in

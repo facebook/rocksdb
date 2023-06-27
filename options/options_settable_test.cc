@@ -308,6 +308,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
+                             "compaction_verify_record_count=true;"
                              "track_and_verify_wals_in_manifest=true;"
                              "verify_sst_unique_id_in_manifest=true;"
                              "is_fd_close_on_exec=false;"

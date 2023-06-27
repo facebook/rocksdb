@@ -801,10 +801,36 @@ Status CompactionJob::Run() {
   }
   compact_->compaction->SetOutputTableProperties(std::move(tp));
 
-  // Finish up all book-keeping to unify the subcompaction results
+  // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
-  UpdateCompactionStats();
-
+  uint64_t num_input_range_del = 0;
+  bool ok = UpdateCompactionStats(db_options_.compaction_verify_record_count,
+                                  &num_input_range_del);
+  // (Sub)compactions returned ok, do sanity check on the number of input keys.
+  if (status.ok() && ok) {
+    size_t ts_sz = compact_->compaction->column_family_data()
+                       ->user_comparator()
+                       ->timestamp_size();
+    if (!(ts_sz > 0 && !trim_ts_.empty()) &&
+        db_options_.compaction_verify_record_count) {
+      assert(compaction_stats_.stats.num_input_records > 0);
+      uint64_t expected =
+          compaction_stats_.stats.num_input_records - num_input_range_del;
+      uint64_t actual = compaction_job_stats_->num_input_records;
+      if (expected != actual) {
+        std::string msg =
+            "Total number of input records: " + std::to_string(expected) +
+            ", but processed " + std::to_string(actual) + " records.";
+        ROCKS_LOG_WARN(
+            db_options_.info_log, "[%s] [JOB %d] Compaction %s",
+            compact_->compaction->column_family_data()->GetName().c_str(),
+            job_context_->job_id, msg.c_str());
+        status = Status::Corruption(
+            "Compaction number of input keys does not match number of keys "
+            "processed.");
+      }
+    }
+  }
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
@@ -1252,8 +1278,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       /*expect_valid_internal_key=*/true, range_del_agg.get(),
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
-      sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_,
+      db_options_.compaction_verify_record_count, sub_compact->compaction,
+      compaction_filter, shutting_down_, db_options_.info_log,
+      full_history_ts_low, preserve_time_min_seqno_,
       preclude_last_level_min_seqno_);
   c_iter->SeekToFirst();
 
@@ -1316,8 +1343,19 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
     }
+
+#ifndef NDEBUG
+    bool stop = false;
+    TEST_SYNC_POINT_CALLBACK("CompactionJob::ProcessKeyValueCompaction()::stop",
+                             static_cast<void*>(&stop));
+    if (stop) {
+      break;
+    }
+#endif  // NDEBUG
   }
 
+  sub_compact->compaction_job_stats.num_input_records =
+      c_iter->num_input_entry_scanned();
   sub_compact->compaction_job_stats.num_blobs_read =
       c_iter_stats.num_blobs_read;
   sub_compact->compaction_job_stats.total_blob_bytes_read =
@@ -1903,33 +1941,64 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-
-void CompactionJob::UpdateCompactionStats() {
+bool CompactionJob::UpdateCompactionStats(bool may_load_table_property,
+                                          uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
-  compaction_stats_.stats.num_input_files_in_non_output_levels = 0;
-  compaction_stats_.stats.num_input_files_in_output_level = 0;
-  for (int input_level = 0;
-       input_level < static_cast<int>(compaction->num_input_levels());
-       ++input_level) {
-    if (compaction->level(input_level) != compaction->output_level()) {
-      UpdateCompactionInputStatsHelper(
-          &compaction_stats_.stats.num_input_files_in_non_output_levels,
-          &compaction_stats_.stats.bytes_read_non_output_levels, input_level);
-    } else {
-      UpdateCompactionInputStatsHelper(
-          &compaction_stats_.stats.num_input_files_in_output_level,
-          &compaction_stats_.stats.bytes_read_output_level, input_level);
-    }
-  }
-
   assert(compaction_job_stats_);
   compaction_stats_.stats.bytes_read_blob =
       compaction_job_stats_->total_blob_bytes_read;
 
   compaction_stats_.stats.num_dropped_records =
       compaction_stats_.DroppedRecords();
+  compaction_stats_.stats.num_input_files_in_non_output_levels = 0;
+  compaction_stats_.stats.num_input_files_in_output_level = 0;
+
+  bool has_error = false;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  for (int input_level = 0;
+       input_level < static_cast<int>(compaction->num_input_levels());
+       ++input_level) {
+    size_t num_input_files = compaction->num_input_files(input_level);
+    uint64_t* bytes_read;
+    if (compaction->level(input_level) != compaction->output_level()) {
+      compaction_stats_.stats.num_input_files_in_non_output_levels +=
+          num_input_files;
+      bytes_read = &compaction_stats_.stats.bytes_read_non_output_levels;
+    } else {
+      compaction_stats_.stats.num_input_files_in_output_level +=
+          num_input_files;
+      bytes_read = &compaction_stats_.stats.bytes_read_output_level;
+    }
+    for (size_t i = 0; i < num_input_files; ++i) {
+      const FileMetaData* file_meta = compaction->input(input_level, i);
+      *bytes_read += file_meta->fd.GetFileSize();
+      uint64_t file_input_entries = file_meta->num_entries;
+      uint64_t file_num_range_del = file_meta->num_range_deletions;
+      if (may_load_table_property && file_input_entries == 0 && !has_error) {
+        // FileMetaData was not initialized
+        std::shared_ptr<const TableProperties> tp;
+        Status s = compaction->input_version()->GetTableProperties(
+            read_options, &tp, file_meta, nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_ERROR(db_options_.info_log,
+                          "Unable to load table properties for file %" PRIu64
+                          " --- %s\n",
+                          file_meta->fd.GetNumber(), s.ToString().c_str());
+          has_error = true;
+        } else {
+          file_input_entries = tp->num_entries;
+          file_num_range_del = tp->num_range_deletions;
+        }
+      }
+      compaction_stats_.stats.num_input_records += file_input_entries;
+      if (num_input_range_del) {
+        *num_input_range_del += file_num_range_del;
+      }
+    }
+  }
+  return !has_error;
 }
 
 void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,

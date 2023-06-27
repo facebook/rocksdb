@@ -192,7 +192,24 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  void UpdateCompactionStats();
+  // Update the following stats in compaction_stats_.stats
+  // - num_input_files_in_non_output_levels
+  // - num_input_files_in_output_level
+  // - bytes_read_non_output_levels
+  // - bytes_read_output_level
+  // - num_input_records
+  // - bytes_read_bob
+  // - num_dropped_records
+  //
+  // @param may_load_table_property specifies whether table property is
+  // consulted when needed (e.g., FileMetaData may not have been initialized, so
+  // we cannot get num_entries from it).
+  // @param num_input_range_del if non-null, will be set to the number of range
+  // deletion entries in this compaction input.
+  //
+  // Returns true if no error occurred when getting table property.
+  bool UpdateCompactionStats(bool may_load_table_property = false,
+                             uint64_t* num_input_range_del = nullptr);
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();

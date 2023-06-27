@@ -38,15 +38,17 @@ class SequenceIterWrapper : public InternalIterator {
   bool Valid() const override { return inner_iter_->Valid(); }
   Status status() const override { return inner_iter_->status(); }
   void Next() override {
-    num_itered_++;
+    if (!inner_iter_->IsDeleteRangeSentinelKey()) {
+      num_itered_++;
+    }
     inner_iter_->Next();
   }
   void Seek(const Slice& target) override {
     if (!need_count_entries_) {
       inner_iter_->Seek(target);
     } else {
-      // For flush cases, we need to count total number of entries, so we
-      // do Next() rather than Seek().
+      // Need to count total number of entries,
+      // so we do Next() rather than Seek().
       while (inner_iter_->Valid() &&
              icmp_.Compare(inner_iter_->key(), target) < 0) {
         Next();
@@ -189,6 +191,8 @@ class CompactionIterator {
     const Compaction* compaction_;
   };
 
+  // @param count_input_entries  if true, `num_input_entry_scanned()` will
+  // return the number of input keys scanned.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -199,7 +203,7 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      const Compaction* compaction = nullptr,
+      bool count_input_entries, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -218,7 +222,7 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      std::unique_ptr<CompactionProxy> compaction,
+      std::unique_ptr<CompactionProxy> compaction, bool count_input_entries,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
