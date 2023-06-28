@@ -806,7 +806,7 @@ Status CompactionJob::Run() {
   uint64_t num_input_range_del = 0;
   bool ok = UpdateCompactionStats(&num_input_range_del);
   // (Sub)compactions returned ok, do sanity check on the number of input keys.
-  if (status.ok() && ok) {
+  if (status.ok() && ok && compaction_job_stats_->has_num_input_records) {
     size_t ts_sz = compact_->compaction->column_family_data()
                        ->user_comparator()
                        ->timestamp_size();
@@ -1277,9 +1277,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       /*expect_valid_internal_key=*/true, range_del_agg.get(),
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
-      db_options_.compaction_verify_record_count, sub_compact->compaction,
-      compaction_filter, shutting_down_, db_options_.info_log,
-      full_history_ts_low, preserve_time_min_seqno_,
+      sub_compact->compaction
+          ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
+      sub_compact->compaction, compaction_filter, shutting_down_,
+      db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_,
       preclude_last_level_min_seqno_);
   c_iter->SeekToFirst();
 
@@ -1353,8 +1354,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 #endif  // NDEBUG
   }
 
+  // This number may not be accurate when CompactionIterator was created
+  // with `must_count_input_entries=false`.
+  assert(!sub_compact->compaction->DoesInputReferenceBlobFiles() ||
+         c_iter->HasNumInputEntryScanned());
+  sub_compact->compaction_job_stats.has_num_input_records =
+      c_iter->HasNumInputEntryScanned();
   sub_compact->compaction_job_stats.num_input_records =
-      c_iter->num_input_entry_scanned();
+      c_iter->NumInputEntryScanned();
   sub_compact->compaction_job_stats.num_blobs_read =
       c_iter_stats.num_blobs_read;
   sub_compact->compaction_job_stats.total_blob_bytes_read =

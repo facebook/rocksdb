@@ -47,6 +47,7 @@ class SequenceIterWrapper : public InternalIterator {
     if (!need_count_entries_) {
       inner_iter_->Seek(target);
     } else {
+      has_num_itered_ = false;
       // Need to count total number of entries,
       // so we do Next() rather than Seek().
       while (inner_iter_->Valid() &&
@@ -64,7 +65,8 @@ class SequenceIterWrapper : public InternalIterator {
   void SeekForPrev(const Slice& /* target */) override { assert(false); }
   void SeekToLast() override { assert(false); }
 
-  uint64_t num_itered() const { return num_itered_; }
+  uint64_t NumItered() const { return num_itered_; }
+  bool HasNumItered() const { return has_num_itered_; }
   bool IsDeleteRangeSentinelKey() const override {
     assert(Valid());
     return inner_iter_->IsDeleteRangeSentinelKey();
@@ -75,6 +77,7 @@ class SequenceIterWrapper : public InternalIterator {
   InternalIterator* inner_iter_;  // not owned
   uint64_t num_itered_ = 0;
   bool need_count_entries_;
+  bool has_num_itered_ = true;
 };
 
 class CompactionIterator {
@@ -191,8 +194,10 @@ class CompactionIterator {
     const Compaction* compaction_;
   };
 
-  // @param count_input_entries  if true, `num_input_entry_scanned()` will
-  // return the number of input keys scanned.
+  // @param must_count_input_entries  if true, `NumInputEntryScanned()` will
+  // return the number of input keys scanned. If false, `NumInputEntryScanned()`
+  // will return this number if no Seek was called on `input`. User should call
+  // `HasNumInputEntryScanned()` first in this case.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -203,7 +208,7 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      bool count_input_entries, const Compaction* compaction = nullptr,
+      bool must_count_input_entries, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -222,7 +227,8 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      std::unique_ptr<CompactionProxy> compaction, bool count_input_entries,
+      std::unique_ptr<CompactionProxy> compaction,
+      bool must_count_input_entries,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -257,7 +263,8 @@ class CompactionIterator {
     return current_user_key_;
   }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
-  uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
+  bool HasNumInputEntryScanned() const { return input_.HasNumItered(); }
+  uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
   // If the current key should be placed on penultimate level, only valid if
   // per_key_placement is supported
   bool output_to_penultimate_level() const {

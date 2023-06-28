@@ -498,12 +498,11 @@ struct DBOptions {
   // If true, during compaction, RocksDB will count the number of entries
   // read and compare it against the number of entries in the compaction
   // input files. This is intended to add protection against corruption
-  // during compaction.
+  // during compaction. Note that this verification is not done for compactions
+  // during which a compaction filter returns kRemoveAndSkipUntil.
   //
-  // Turning on this option will disallow RocksDB to use seek to skip over
-  // keys during compaction (e.g. when CompactionFilter decides
-  // kRemoveAndSkipUntil). In case you are skipping a lot of keys using
-  // CompactionFilter, you may want to set this option to false.
+  // The option is here to turn the feature off in case this new validation
+  // feature has a bug.
   //
   // Default: true
   bool compaction_verify_record_count = true;

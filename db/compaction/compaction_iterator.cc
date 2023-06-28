@@ -31,7 +31,7 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    bool count_input_entries, const Compaction* compaction,
+    bool must_count_input_entries, const Compaction* compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
@@ -46,7 +46,7 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          count_input_entries, compaction_filter, shutting_down, info_log,
+          must_count_input_entries, compaction_filter, shutting_down, info_log,
           full_history_ts_low, preserve_time_min_seqno,
           preclude_last_level_min_seqno) {}
 
@@ -60,16 +60,14 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    std::unique_ptr<CompactionProxy> compaction, bool count_input_entries,
+    std::unique_ptr<CompactionProxy> compaction, bool must_count_input_entries,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
     const SequenceNumber preserve_time_min_seqno,
     const SequenceNumber preclude_last_level_min_seqno)
-    : input_(input, cmp,
-             count_input_entries ||
-                 (compaction && compaction->DoesInputReferenceBlobFiles())),
+    : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
