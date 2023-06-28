@@ -45,9 +45,9 @@ class SequenceIterWrapper : public InternalIterator {
   }
   void Seek(const Slice& target) override {
     if (!need_count_entries_) {
+      has_num_itered_ = false;
       inner_iter_->Seek(target);
     } else {
-      has_num_itered_ = false;
       // Need to count total number of entries,
       // so we do Next() rather than Seek().
       while (inner_iter_->Valid() &&

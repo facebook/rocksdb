@@ -1951,12 +1951,6 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
-  assert(compaction_job_stats_);
-  compaction_stats_.stats.bytes_read_blob =
-      compaction_job_stats_->total_blob_bytes_read;
-
-  compaction_stats_.stats.num_dropped_records =
-      compaction_stats_.DroppedRecords();
   compaction_stats_.stats.num_input_files_in_non_output_levels = 0;
   compaction_stats_.stats.num_input_files_in_output_level = 0;
 
@@ -2002,22 +1996,14 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
       }
     }
   }
+
+  assert(compaction_job_stats_);
+  compaction_stats_.stats.bytes_read_blob =
+      compaction_job_stats_->total_blob_bytes_read;
+
+  compaction_stats_.stats.num_dropped_records =
+      compaction_stats_.DroppedRecords();
   return !has_error;
-}
-
-void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,
-                                                     uint64_t* bytes_read,
-                                                     int input_level) {
-  const Compaction* compaction = compact_->compaction;
-  auto num_input_files = compaction->num_input_files(input_level);
-  *num_files += static_cast<int>(num_input_files);
-
-  for (size_t i = 0; i < num_input_files; ++i) {
-    const auto* file_meta = compaction->input(input_level, i);
-    *bytes_read += file_meta->fd.GetFileSize();
-    compaction_stats_.stats.num_input_records +=
-        static_cast<uint64_t>(file_meta->num_entries);
-  }
 }
 
 void CompactionJob::UpdateCompactionJobStats(

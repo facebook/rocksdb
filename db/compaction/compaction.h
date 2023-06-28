@@ -522,8 +522,6 @@ class Compaction {
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
 
-  //  TablePropertiesCollection input_table_properties_;
-
   bool input_table_properties_initialized_ = false;
   // table properties of output files
   TablePropertiesCollection table_properties_;
