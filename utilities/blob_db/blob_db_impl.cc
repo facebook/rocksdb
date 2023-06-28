@@ -111,6 +111,12 @@ Status BlobDBImpl::Close() {
   }
   closed_ = true;
 
+  SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
+      db_impl_->immutable_db_options().sst_file_manager.get());
+  if (sfm != nullptr) {
+    sfm->UnregisterStackedDB(dbname_);
+  }
+
   // Close base DB before BlobDBImpl destructs to stop event listener and
   // compaction filter call.
   Status s = db_->Close();
@@ -269,6 +275,11 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
       db_impl_->immutable_db_options().sst_file_manager.get());
+  // Register the blob size counter with SFM so it can make rate limiting
+  // decisions based on the total DB size
+  if (sfm != nullptr) {
+    sfm->RegisterStackedDB(dbname_, &total_blob_size_);
+  }
   DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
 
   UpdateLiveSSTSize();

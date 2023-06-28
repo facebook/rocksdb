@@ -222,6 +222,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
     InstrumentedMutexLock l(&mu_);
     while (queue_.empty() && !closing_) {
       cv_.Wait();
+      TEST_SYNC_POINT("DeleteScheduler::BackgroundEmptyTrash:Wakeup");
     }
 
     if (closing_) {
