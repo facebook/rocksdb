@@ -9826,6 +9826,7 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
   }
   ASSERT_OK(Flush());
 
+  // Only iterator through 10 keys and force compaction to finish.
   int num_iter = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::ProcessKeyValueCompaction()::stop", [&](void* stop_ptr) {

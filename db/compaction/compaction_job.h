@@ -204,7 +204,8 @@ class CompactionJob {
   // @param num_input_range_del if non-null, will be set to the number of range
   // deletion entries in this compaction input.
   //
-  // Returns true if no error occurred when getting table property.
+  // Returns true iff compaction_stats_.stats.num_input_records and
+  // num_input_range_del are calculated successfully.
   bool UpdateCompactionStats(uint64_t* num_input_range_del = nullptr);
   void LogCompaction();
   virtual void RecordCompactionIOStats();
