@@ -1964,11 +1964,11 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
     uint64_t* bytes_read;
     if (compaction->level(input_level) != compaction->output_level()) {
       compaction_stats_.stats.num_input_files_in_non_output_levels +=
-          num_input_files;
+          static_cast<int>(num_input_files);
       bytes_read = &compaction_stats_.stats.bytes_read_non_output_levels;
     } else {
       compaction_stats_.stats.num_input_files_in_output_level +=
-          num_input_files;
+          static_cast<int>(num_input_files);
       bytes_read = &compaction_stats_.stats.bytes_read_output_level;
     }
     for (size_t i = 0; i < num_input_files; ++i) {
