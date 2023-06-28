@@ -490,8 +490,11 @@ struct DBOptions {
 
   // If true, during memtable flush, RocksDB will validate total entries
   // read in flush, and compare with counter inserted into it.
+  //
   // The option is here to turn the feature off in case this new validation
-  // feature has a bug.
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
+  //
   // Default: true
   bool flush_verify_memtable_count = true;
 
@@ -502,7 +505,8 @@ struct DBOptions {
   // during which a compaction filter returns kRemoveAndSkipUntil.
   //
   // The option is here to turn the feature off in case this new validation
-  // feature has a bug.
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
   //
   // Default: true
   bool compaction_verify_record_count = true;
