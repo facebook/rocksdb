@@ -111,13 +111,17 @@ Status TableCache::GetTableReader(
     RecordTick(ioptions_.stats, NO_FILE_OPENS);
   } else if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
-    if (s.ok()) {
-      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                            nullptr);
+    // If this file is also not found, we want to use the error message
+    // that contains the table file name which is less confusing.
+    Status temp_s =
+        PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
+    if (temp_s.ok()) {
+      temp_s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
+                                                 nullptr);
     }
-    if (s.ok()) {
+    if (temp_s.ok()) {
       RecordTick(ioptions_.stats, NO_FILE_OPENS);
+      s = temp_s;
     }
   }
 
