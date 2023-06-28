@@ -3926,7 +3926,7 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
-  compaction_job_info->table_properties = c->GetOutputTableProperties();
+  compaction_job_info->table_properties = c->GetTableProperties();
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
 
@@ -3941,12 +3941,6 @@ void DBImpl::BuildCompactionJobInfo(
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
     }
-  }
-
-  const TablePropertiesCollection& input_table_properties =
-      c->GetInputTableProperties();
-  for (const auto& tp : input_table_properties) {
-    compaction_job_info->table_properties[tp.first] = tp.second;
   }
 
   for (const auto& newf : c->edit()->GetNewFiles()) {

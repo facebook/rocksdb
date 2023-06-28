@@ -796,10 +796,10 @@ Status CompactionJob::Run() {
       auto fn =
           TableFileName(state.compaction->immutable_options()->cf_paths,
                         output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
-      tp[fn] = output.table_properties;
+      compact_->compaction->SetOutputTableProperties(fn,
+                                                     output.table_properties);
     }
   }
-  compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
@@ -1955,7 +1955,7 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
 
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
-  const auto& input_table_properties = compaction->GetInputTableProperties();
+  const auto& input_table_properties = compaction->GetTableProperties();
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {

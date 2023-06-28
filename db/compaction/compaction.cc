@@ -204,8 +204,8 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-const TablePropertiesCollection& Compaction::GetInputTableProperties() {
-  if (input_table_properties_.empty()) {
+const TablePropertiesCollection& Compaction::GetTableProperties() {
+  if (!input_table_properties_initialized_) {
     // Initialize
     const ReadOptions read_options(Env::IOActivity::kCompaction);
     for (size_t i = 0; i < num_input_levels(); ++i) {
@@ -217,7 +217,7 @@ const TablePropertiesCollection& Compaction::GetInputTableProperties() {
         Status s = input_version_->GetTableProperties(read_options, &tp, fmd,
                                                       &file_name);
         if (s.ok()) {
-          input_table_properties_[file_name] = tp;
+          table_properties_[file_name] = tp;
         } else {
           ROCKS_LOG_ERROR(immutable_options_.info_log,
                           "Unable to load table properties for file %" PRIu64
@@ -226,9 +226,11 @@ const TablePropertiesCollection& Compaction::GetInputTableProperties() {
         }
       }
     }
+
+    input_table_properties_initialized_ = true;
   };
 
-  return input_table_properties_;
+  return table_properties_;
 }
 
 Compaction::Compaction(

@@ -230,7 +230,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
 
 std::shared_ptr<const TableProperties> MockTableReader::GetTableProperties()
     const {
-  return std::shared_ptr<const TableProperties>(new TableProperties());
+  TableProperties* tp = new TableProperties();
+  tp->num_entries = table_.size();
+  tp->num_range_deletions = 0;
+  tp->raw_key_size = 1;
+  tp->raw_value_size = 1;
+
+  return std::shared_ptr<const TableProperties>(tp);
 }
 
 MockTableFactory::MockTableFactory()
