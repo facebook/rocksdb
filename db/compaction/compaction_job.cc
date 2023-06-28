@@ -804,8 +804,7 @@ Status CompactionJob::Run() {
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
   uint64_t num_input_range_del = 0;
-  bool ok = UpdateCompactionStats(db_options_.compaction_verify_record_count,
-                                  &num_input_range_del);
+  bool ok = UpdateCompactionStats(&num_input_range_del);
   // (Sub)compactions returned ok, do sanity check on the number of input keys.
   if (status.ok() && ok) {
     size_t ts_sz = compact_->compaction->column_family_data()
@@ -1941,8 +1940,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-bool CompactionJob::UpdateCompactionStats(bool may_load_table_property,
-                                          uint64_t* num_input_range_del) {
+bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
@@ -1957,6 +1955,7 @@ bool CompactionJob::UpdateCompactionStats(bool may_load_table_property,
 
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const auto& input_table_properties = compaction->GetInputTableProperties();
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
@@ -1976,20 +1975,18 @@ bool CompactionJob::UpdateCompactionStats(bool may_load_table_property,
       *bytes_read += file_meta->fd.GetFileSize();
       uint64_t file_input_entries = file_meta->num_entries;
       uint64_t file_num_range_del = file_meta->num_range_deletions;
-      if (may_load_table_property && file_input_entries == 0 && !has_error) {
-        // FileMetaData was not initialized
-        std::shared_ptr<const TableProperties> tp;
-        Status s = compaction->input_version()->GetTableProperties(
-            read_options, &tp, file_meta, nullptr);
-        if (!s.ok()) {
-          ROCKS_LOG_ERROR(db_options_.info_log,
-                          "Unable to load table properties for file %" PRIu64
-                          " --- %s\n",
-                          file_meta->fd.GetNumber(), s.ToString().c_str());
-          has_error = true;
+      if (file_input_entries == 0) {
+        uint64_t file_number = file_meta->fd.GetNumber();
+        // Try getting info from table property
+        std::string fn =
+            TableFileName(compaction->immutable_options()->cf_paths,
+                          file_number, file_meta->fd.GetPathId());
+        const auto& tp = input_table_properties.find(fn);
+        if (tp != input_table_properties.end()) {
+          file_input_entries = tp->second->num_entries;
+          file_num_range_del = tp->second->num_range_deletions;
         } else {
-          file_input_entries = tp->num_entries;
-          file_num_range_del = tp->num_range_deletions;
+          has_error = true;
         }
       }
       compaction_stats_.stats.num_input_records += file_input_entries;
