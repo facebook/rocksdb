@@ -210,18 +210,19 @@ Status BuildTable(
     const bool strip_timestamp =
         ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
 
+    std::string key_after_flush_buf;
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      std::string key_after_flush_buf;
       Slice key_after_flush = key;
       // If user defined timestamps will be stripped from user key after flush,
       // the in memory version of the key act logically the same as one with a
       // minimum timestamp. We update the timestamp here so file boundary and
       // output validator, block builder all see the effect of the stripping.
       if (strip_timestamp) {
+        key_after_flush_buf.clear();
         ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
         key_after_flush = key_after_flush_buf;
       }
@@ -324,17 +325,12 @@ Status BuildTable(
                                        total_tombstone_payload_bytes;
         uint64_t total_payload_bytes_written =
             (tp.raw_key_size + tp.raw_value_size);
-        // TODO(yuzhangyu): update this to include number of range delete
-        // entries.
-        uint64_t stripped_ts_bytes =
-            strip_timestamp ? ts_sz * tp.num_entries : 0;
         // Prevent underflow, which may still happen at this point
         // since we only support inserts, deletes, and deleteRanges.
         if (total_payload_bytes_written <= total_payload_bytes) {
           *memtable_payload_bytes = total_payload_bytes;
           *memtable_garbage_bytes =
-              total_payload_bytes -
-              (total_payload_bytes_written + stripped_ts_bytes);
+              total_payload_bytes - total_payload_bytes_written;
         } else {
           *memtable_payload_bytes = 0;
           *memtable_garbage_bytes = 0;
