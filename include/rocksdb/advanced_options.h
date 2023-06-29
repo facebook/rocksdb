@@ -1120,11 +1120,30 @@ struct AdvancedColumnFamilyOptions {
   //
   // When it's false, the user-defined timestamps will be removed from the user
   // keys when data is flushed from memtables to SST files. Other places that
-  // user keys can be persisted like WAL and blob files go through a similar
-  // process. Users should call `DB::IncreaseFullHistoryTsLow` to set a cutoff
-  // timestamp. RocksDB refrains from flushing a memtable with data still above
-  // the cutoff timestamp with best effort. When users try to read below the
-  // cutoff timestamp, an error will be returned.
+  // user keys can be persisted like file boundaries in file metadata and blob
+  // files go through a similar process. There are two major motivations
+  // for this flag:
+  // 1) backward compatibility: if the user later decides to
+  // disable the user-defined timestamp feature for the column family, these SST
+  // files can be handled by a user comparator that is not aware of user-defined
+  // timestamps.
+  // 2) enable user-defined timestamp feature for an existing column family
+  // while set this flag to be `false`: user keys in the newly generated SST
+  // files are of the same format as the existing SST files.
+  //
+  // When setting this flag to `false`, users should also call
+  // `DB::IncreaseFullHistoryTsLow` to set a cutoff timestamp for flush. RocksDB
+  // refrains from flushing a memtable with data still above
+  // the cutoff timestamp with best effort. Users can do user-defined
+  // multi-versioned read above the cutoff timestamp. When users try to read
+  // below the cutoff timestamp, an error will be returned.
+  //
+  // Note that if WAL is enabled, unlike SST files, user-defined timestamps are
+  // persisted to WAL even if this flag is set to `false`. The benefit of this
+  // is that user-defined timestamps can be recovered with the caveat that users
+  // should flush all memtables so there is no active WAL files before doing a
+  // downgrade or toggling on / off the user-defined timestamp feature on a
+  // column family.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and
