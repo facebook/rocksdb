@@ -1141,8 +1141,9 @@ struct AdvancedColumnFamilyOptions {
   // Note that if WAL is enabled, unlike SST files, user-defined timestamps are
   // persisted to WAL even if this flag is set to `false`. The benefit of this
   // is that user-defined timestamps can be recovered with the caveat that users
-  // should do a clean shutdown before doing a downgrade or toggling on / off
-  // the user-defined timestamp feature on a column family.
+  // should flush all memtables so there is no active WAL files before doing a
+  // downgrade or toggling on / off the user-defined timestamp feature on a
+  // column family.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and
