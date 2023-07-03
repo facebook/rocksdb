@@ -168,51 +168,57 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
 EntryType GetEntryType(ValueType value_type);
 
 // Append the serialization of "key" to *result.
-extern void AppendInternalKey(std::string* result,
-                              const ParsedInternalKey& key);
+void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 
 // Append the serialization of "key" to *result, replacing the original
 // timestamp with argument ts.
-extern void AppendInternalKeyWithDifferentTimestamp(
-    std::string* result, const ParsedInternalKey& key, const Slice& ts);
+void AppendInternalKeyWithDifferentTimestamp(std::string* result,
+                                             const ParsedInternalKey& key,
+                                             const Slice& ts);
 
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
 // contains the user key at the end.
-extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
-                                    ValueType t);
+void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
+                             ValueType t);
 
 // Append the key and a minimal timestamp to *result
-extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
-                                      size_t ts_sz);
+void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz);
 
 // Append the key and a maximal timestamp to *result
-extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
-                                      size_t ts_sz);
+void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz);
 
 // `key` is a user key with timestamp. Append the user key without timestamp
 // and the maximal timestamp to *result.
-extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
-                                          size_t ts_sz);
+void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz);
 
 // `key` is an internal key containing a user key without timestamp. Create a
 // new key in *result by padding a min timestamp of size `ts_sz` to the user key
 // and copying the remaining internal key bytes.
-extern void PadInternalKeyWithMinTimestamp(std::string* result,
-                                           const Slice& key, size_t ts_sz);
+void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz);
 
 // `key` is an internal key containing a user key with timestamp of size
 // `ts_sz`. Create a new internal key in *result by stripping the timestamp from
 // the user key and copying the remaining internal key bytes.
-extern void StripTimestampFromInternalKey(std::string* result, const Slice& key,
-                                          size_t ts_sz);
+void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                   size_t ts_sz);
+
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result while replace the original
+// timestamp with min timestamp.
+void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                        size_t ts_sz);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
 // On error, returns false, leaves "*result" in an undefined state.
-extern Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result, bool log_err_key);
+Status ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result,
+                        bool log_err_key);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -783,8 +789,7 @@ class InternalKeySliceTransform : public SliceTransform {
 // Read the key of a record from a write batch.
 // if this record represent the default column family then cf_record
 // must be passed as false, otherwise it must be passed as true.
-extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
-                                       bool cf_record);
+bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record);
 
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
@@ -793,9 +798,9 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 // input will be advanced to after the record.
 // If user-defined timestamp is enabled for a column family, then the `key`
 // resulting from this call will include timestamp.
-extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
-                                       uint32_t* column_family, Slice* key,
-                                       Slice* value, Slice* blob, Slice* xid);
+Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                uint32_t* column_family, Slice* key,
+                                Slice* value, Slice* blob, Slice* xid);
 
 // When user call DeleteRange() to delete a range of keys,
 // we will store a serialized RangeTombstone in MemTable and SST.
