@@ -1138,8 +1138,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   if (start.has_value()) {
-    start_ikey.SetInternalKey(*start, kMaxSequenceNumber,
-                              kValueTypeForSeek);
+    start_ikey.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
     if (ts_sz > 0) {
       start_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
                                    &ts_slice);
@@ -1289,8 +1288,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-    assert(!end.has_value() || cfd->user_comparator()->Compare(
-                                   c_iter->user_key(), *end) < 0);
+    assert(!end.has_value() ||
+           cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
 
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {

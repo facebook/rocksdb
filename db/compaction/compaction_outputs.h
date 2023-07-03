@@ -207,9 +207,9 @@ class CompactionOutputs {
       if ((!end.has_value() ||
            icmp->user_comparator()->Compare(
                ExtractUserKey(output_split_key->Encode()), *end) < 0) &&
-          (!start.has_value() || icmp->user_comparator()->Compare(
-                                     ExtractUserKey(output_split_key->Encode()),
-                                     *start) > 0)) {
+          (!start.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), *start) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }
