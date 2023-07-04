@@ -3,15 +3,14 @@
    found in the LICENSE file. See the AUTHORS file for names of contributors. */
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
-#include <stdio.h>
+#include "rocksdb/c.h"
 
 #include <assert.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-
-#include "rocksdb/c.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -2064,8 +2063,9 @@ int main(int argc, char** argv) {
     CheckCondition(0 == rocksdb_options_get_statistics_level(o));
     rocksdb_options_enable_statistics(o);
     CheckCondition(0 != rocksdb_options_get_statistics_level(o));
-    rocksdb_options_set_statistics_level(o, 5);
-    CheckCondition(5 == rocksdb_options_get_statistics_level(o));
+    rocksdb_options_set_statistics_level(o, rocksdb_statistics_level_all);
+    CheckCondition(rocksdb_statistics_level_all ==
+                   rocksdb_options_get_statistics_level(o));
 
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
@@ -3647,7 +3647,7 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_options_enable_statistics(options);
-    rocksdb_options_set_statistics_level(options, 5);
+    rocksdb_options_set_statistics_level(options, rocksdb_statistics_level_all);
 
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);

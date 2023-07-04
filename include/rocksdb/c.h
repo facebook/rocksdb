@@ -1254,6 +1254,18 @@ rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
+
+enum {
+  rocksdb_statistics_level_disable_all,
+  rocksdb_statistics_level_except_tickers =
+      rocksdb_statistics_level_disable_all,
+  rocksdb_statistics_level_except_histogram_or_timers,
+  rocksdb_statistics_level_except_timers,
+  rocksdb_statistics_level_except_detailed_timers,
+  rocksdb_statistics_level_except_time_for_mutex,
+  rocksdb_statistics_level_all,
+};
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_statistics_level(
     rocksdb_options_t*, int level);
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_statistics_level(
@@ -1335,9 +1347,9 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_prepopulate_blob_cache(
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_options_statistics_get_ticker_count(
-    rocksdb_options_t* opt, uint32_t type);
+    rocksdb_options_t* opt, uint32_t ticker_type);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_statistics_get_histogram_data(
-    rocksdb_options_t* opt, uint32_t type,
+    rocksdb_options_t* opt, uint32_t histogram_type,
     rocksdb_statistics_histogram_data_t* data);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_write_buffer_number(
@@ -2268,7 +2280,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_fifo_compaction_options_t*
 rocksdb_fifo_compaction_options_create(void);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_fifo_compaction_options_set_allow_compaction(
-    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction);
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char allow_compaction);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_fifo_compaction_options_get_allow_compaction(
     rocksdb_fifo_compaction_options_t* fifo_opts);
