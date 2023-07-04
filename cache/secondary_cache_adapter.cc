@@ -376,7 +376,7 @@ void CacheWithSecondaryAdapter::WaitAll(AsyncLookupHandle* async_handles,
     for (AsyncLookupHandle* cur : my_pending) {
       my_secondary_handles.push_back(cur->pending_handle);
     }
-    secondary_cache_->WaitAll(my_secondary_handles);
+    secondary_cache_->WaitAll(std::move(my_secondary_handles));
   }
 
   // Process results

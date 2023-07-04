@@ -1672,7 +1672,8 @@ int main(int argc, char** argv) {
     rocksdb_options_set_prefix_extractor(
         options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
-    rocksdb_options_set_plain_table_factory(options, 4, 10, 0.75, 16);
+    rocksdb_options_set_plain_table_factory(options, 4, 10, 0.75, 16, 0, 0, 0,
+                                            0);
     rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
 
     db = rocksdb_open(options, dbname, &err);
@@ -3374,8 +3375,19 @@ int main(int argc, char** argv) {
     rocksdb_put(db, woptions, "key", 3, "value", 5, &err);
     CheckNoError(err);
     rocksdb_column_family_handle_t *cfh1, *cfh2;
-    cfh1 = rocksdb_create_column_family(db, db_options, "txn_db_cf1", &err);
-    cfh2 = rocksdb_create_column_family(db, db_options, "txn_db_cf2", &err);
+    char** list_const_cf_names = (char**)malloc(2 * sizeof(char*));
+    list_const_cf_names[0] = "txn_db_cf1";
+    list_const_cf_names[1] = "txn_db_cf2";
+    size_t cflen;
+    rocksdb_column_family_handle_t** list_cfh = rocksdb_create_column_families(
+        db, db_options, 2, (const char* const*)list_const_cf_names, &cflen,
+        &err);
+    free(list_const_cf_names);
+    CheckNoError(err);
+    assert(cflen == 2);
+    cfh1 = list_cfh[0];
+    cfh2 = list_cfh[1];
+    rocksdb_create_column_families_destroy(list_cfh);
     txn = rocksdb_optimistictransaction_begin(otxn_db, woptions, otxn_options,
                                               NULL);
     rocksdb_transaction_put_cf(txn, cfh1, "key_cf1", 7, "val_cf1", 7, &err);
