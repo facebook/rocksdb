@@ -810,7 +810,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
         earliest_seqno_.load(std::memory_order_relaxed);
     while (
         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
-        !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+        !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
   }
   if (type == kTypeRangeDeletion) {
