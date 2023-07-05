@@ -196,6 +196,7 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
+  assert(read_options_.verify_checksums);
   // We could pass specific readahead setting into read options if needed.
   return table_reader_->VerifyChecksum(read_options_,
                                        TableReaderCaller::kSSTDumpTool);
