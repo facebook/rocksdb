@@ -3538,7 +3538,7 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
         }
       };
 
-  fs_.workers.emplace_back(submit_request, req);
+  fs_.workers.emplace_back(submit_request, std::move(req));
   return IOStatus::OK();
 }
 

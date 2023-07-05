@@ -94,11 +94,10 @@ class BlockBuilder {
   const bool use_delta_encoding_;
   // Refer to BlockIter::DecodeCurrentValue for format of delta encoded values
   const bool use_value_delta_encoding_;
-  // Size in bytes for the user-defined timestamp in a user key.
-  const size_t ts_sz_;
-  // Whether the user-defined timestamp part in user keys should be persisted.
-  // If false, it will be stripped from the key before it's encoded.
-  const bool persist_user_defined_timestamps_;
+  // Size in bytes for the user-defined timestamp to strip in a user key.
+  // This is non-zero if there is user-defined timestamp in the user key and it
+  // should not be persisted.
+  const size_t strip_ts_sz_;
   // Whether the keys provided to build this block are user keys. If not,
   // the keys are internal keys. This will affect how timestamp stripping is
   // done for the key if `persisted_user_defined_timestamps_` is false and

@@ -146,7 +146,8 @@ Status TableCache::GetTableReader(
             false /* force_direct_prefetch */, level, block_cache_tracer_,
             max_file_size_for_l0_meta_pin, db_session_id_,
             file_meta.fd.GetNumber(), expected_unique_id,
-            file_meta.fd.largest_seqno, file_meta.tail_size),
+            file_meta.fd.largest_seqno, file_meta.tail_size,
+            file_meta.user_defined_timestamps_persisted),
         std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");

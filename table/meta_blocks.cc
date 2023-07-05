@@ -116,6 +116,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
         props.fast_compression_estimated_data_size);
   }
   Add(TablePropertiesNames::kTailStartOffset, props.tail_start_offset);
+  if (props.user_defined_timestamps_persisted == 0) {
+    Add(TablePropertiesNames::kUserDefinedTimestampsPersisted,
+        props.user_defined_timestamps_persisted);
+  }
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -310,6 +314,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->fast_compression_estimated_data_size},
       {TablePropertiesNames::kTailStartOffset,
        &new_table_properties->tail_start_offset},
+      {TablePropertiesNames::kUserDefinedTimestampsPersisted,
+       &new_table_properties->user_defined_timestamps_persisted},
   };
 
   std::string last_key;

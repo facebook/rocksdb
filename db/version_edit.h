@@ -91,6 +91,7 @@ enum NewFileCustomTag : uint32_t {
   kEpochNumber = 13,
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
+  kUserDefinedTimestampsPersisted = 16,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -243,6 +244,11 @@ struct FileMetaData {
   // "Tail" refers to all blocks after data blocks till the end of the SST file
   uint64_t tail_size = 0;
 
+  // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+  // flag when the file is created. Default to true, only when this flag is
+  // false, it's explicitly written to Manifest.
+  bool user_defined_timestamps_persisted = true;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -255,7 +261,7 @@ struct FileMetaData {
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
-               uint64_t _tail_size)
+               uint64_t _tail_size, bool _user_defined_timestamps_persisted)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -269,7 +275,8 @@ struct FileMetaData {
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
-        tail_size(_tail_size) {
+        tail_size(_tail_size),
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -454,7 +461,7 @@ class VersionEdit {
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
                const uint64_t compensated_range_deletion_size,
-               uint64_t tail_size) {
+               uint64_t tail_size, bool user_defined_timestamps_persisted) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -463,7 +470,8 @@ class VersionEdit {
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, epoch_number, file_checksum,
                      file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size, tail_size));
+                     compensated_range_deletion_size, tail_size,
+                     user_defined_timestamps_persisted));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

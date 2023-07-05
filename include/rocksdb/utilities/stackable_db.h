@@ -172,6 +172,15 @@ class StackableDB : public DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadata, handle);
+  }
+
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
       const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) override {
     return db_->CreateColumnFamilyWithImport(options, column_family_name,

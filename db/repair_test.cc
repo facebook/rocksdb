@@ -315,7 +315,13 @@ TEST_F(RepairTest, UnflushedSst) {
   ASSERT_EQ(Get("key"), "val");
 }
 
-class RepairTestWithTimestamp : public DBBasicTestWithTimestampBase {
+// Test parameters:
+// param 0): paranoid file check
+// param 1): user-defined timestamp test mode
+class RepairTestWithTimestamp
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<
+          std::tuple<bool, test::UserDefinedTimestampTestMode>> {
  public:
   RepairTestWithTimestamp()
       : DBBasicTestWithTimestampBase("repair_test_with_timestamp") {}
@@ -326,23 +332,46 @@ class RepairTestWithTimestamp : public DBBasicTestWithTimestampBase {
   }
 
   void CheckGet(const ReadOptions& read_opts, const Slice& key,
-                const std::string& expected_value) {
+                const std::string& expected_value,
+                const std::string& expected_ts) {
     std::string actual_value;
-    ASSERT_OK(db_->Get(read_opts, handles_[0], key, &actual_value));
+    std::string actual_ts;
+    ASSERT_OK(db_->Get(read_opts, handles_[0], key, &actual_value, &actual_ts));
     ASSERT_EQ(expected_value, actual_value);
+    ASSERT_EQ(expected_ts, actual_ts);
+  }
+
+  void CheckFileBoundaries(const Slice& smallest_user_key,
+                           const Slice& largest_user_key) {
+    std::vector<std::vector<FileMetaData>> level_to_files;
+    dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                    &level_to_files);
+    ASSERT_GT(level_to_files.size(), 1);
+    // L0 only has one SST file.
+    ASSERT_EQ(level_to_files[0].size(), 1);
+    auto file_meta = level_to_files[0][0];
+    ASSERT_EQ(smallest_user_key, file_meta.smallest.user_key());
+    ASSERT_EQ(largest_user_key, file_meta.largest.user_key());
   }
 };
 
-TEST_F(RepairTestWithTimestamp, UnflushedSst) {
+TEST_P(RepairTestWithTimestamp, UnflushedSst) {
   Destroy(last_options_);
 
+  bool paranoid_file_checks = std::get<0>(GetParam());
+  bool persist_udt = test::ShouldPersistUDT(std::get<1>(GetParam()));
+  std::string smallest_ukey_without_ts = "bar";
+  std::string largest_ukey_without_ts = "foo";
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  std::string ts = Timestamp(0, 0);
-  const size_t kTimestampSize = ts.size();
+  std::string min_ts = Timestamp(0, 0);
+  std::string write_ts = Timestamp(1, 0);
+  const size_t kTimestampSize = write_ts.size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
+  options.persist_user_defined_timestamps = persist_udt;
+  options.paranoid_file_checks = paranoid_file_checks;
 
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -351,7 +380,10 @@ TEST_F(RepairTestWithTimestamp, UnflushedSst) {
 
   ASSERT_OK(DB::Open(options, dbname_, column_families, &handles_, &db_));
 
-  ASSERT_OK(Put("key", ts, "val"));
+  ASSERT_OK(Put(smallest_ukey_without_ts, write_ts,
+                smallest_ukey_without_ts + ":val"));
+  ASSERT_OK(
+      Put(largest_ukey_without_ts, write_ts, largest_ukey_without_ts + ":val"));
   VectorLogPtr wal_files;
   ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
   ASSERT_EQ(wal_files.size(), 1);
@@ -381,11 +413,45 @@ TEST_F(RepairTestWithTimestamp, UnflushedSst) {
     ASSERT_GT(total_ssts_size, 0);
   }
 
+  // Check file boundaries are correct for different
+  // `persist_user_defined_timestamps` option values.
+  if (persist_udt) {
+    CheckFileBoundaries(smallest_ukey_without_ts + write_ts,
+                        largest_ukey_without_ts + write_ts);
+  } else {
+    CheckFileBoundaries(smallest_ukey_without_ts + min_ts,
+                        largest_ukey_without_ts + min_ts);
+  }
+
   ReadOptions read_opts;
-  Slice read_ts_slice = ts;
+  Slice read_ts_slice = write_ts;
   read_opts.timestamp = &read_ts_slice;
-  CheckGet(read_opts, "key", "val");
+  if (persist_udt) {
+    CheckGet(read_opts, smallest_ukey_without_ts,
+             smallest_ukey_without_ts + ":val", write_ts);
+    CheckGet(read_opts, largest_ukey_without_ts,
+             largest_ukey_without_ts + ":val", write_ts);
+  } else {
+    // TODO(yuzhangyu): currently when `persist_user_defined_timestamps` is
+    //  false, ts is unconditionally stripped during flush.
+    //  When `full_history_ts_low` is set and respected during flush.
+    //  We should prohibit reading below `full_history_ts_low` all together.
+    CheckGet(read_opts, smallest_ukey_without_ts,
+             smallest_ukey_without_ts + ":val", min_ts);
+    CheckGet(read_opts, largest_ukey_without_ts,
+             largest_ukey_without_ts + ":val", min_ts);
+  }
 }
+
+// Param 0: paranoid file check
+// Param 1: test mode for the user-defined timestamp feature
+INSTANTIATE_TEST_CASE_P(
+    UnflushedSst, RepairTestWithTimestamp,
+    ::testing::Combine(
+        ::testing::Bool(),
+        ::testing::Values(
+            test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+            test::UserDefinedTimestampTestMode::kNormal)));
 
 TEST_F(RepairTest, SeparateWalDir) {
   do {

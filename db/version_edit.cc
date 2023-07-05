@@ -244,6 +244,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint64(&varint_tail_size, f.tail_size);
       PutLengthPrefixedSlice(dst, Slice(varint_tail_size));
     }
+    if (!f.user_defined_timestamps_persisted) {
+      // The default value for the flag is true, it's only explicitly persisted
+      // when it's false. We are putting 0 as the value here to signal false
+      // (i.e. UDTS not persisted).
+      PutVarint32(dst, NewFileCustomTag::kUserDefinedTimestampsPersisted);
+      char p = static_cast<char>(0);
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
@@ -426,6 +434,12 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           if (!GetVarint64(&field, &f.tail_size)) {
             return "invalid tail start offset";
           }
+          break;
+        case kUserDefinedTimestampsPersisted:
+          if (field.size() != 1) {
+            return "user-defined timestamps persisted field wrong size";
+          }
+          f.user_defined_timestamps_persisted = (field[0] == 1);
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -862,8 +876,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       InternalUniqueIdToExternal(&id);
       r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
     }
-    r.append(" tail size:");
+    r.append(" tail size: ");
     AppendNumberTo(&r, f.tail_size);
+    r.append(" User-defined timestamps persisted: ");
+    r.append(f.user_defined_timestamps_persisted ? "true" : "false");
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -980,6 +996,8 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
         jw << "Temperature" << static_cast<int>(f.temperature);
       }
       jw << "TailSize" << f.tail_size;
+      jw << "UserDefinedTimestampsPersisted"
+         << f.user_defined_timestamps_persisted;
       jw.EndArrayedObject();
     }
 

@@ -1671,6 +1671,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->compressible_input_data_bytes +
           rep_->uncompressible_input_data_bytes;
     }
+    rep_->props.user_defined_timestamps_persisted =
+        rep_->persist_user_defined_timestamps;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);

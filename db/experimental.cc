@@ -102,7 +102,8 @@ Status UpdateManifestForFilesState(
                   lf->oldest_blob_file_number, lf->oldest_ancester_time,
                   lf->file_creation_time, lf->epoch_number, lf->file_checksum,
                   lf->file_checksum_func_name, lf->unique_id,
-                  lf->compensated_range_deletion_size, lf->tail_size);
+                  lf->compensated_range_deletion_size, lf->tail_size,
+                  lf->user_defined_timestamps_persisted);
             }
           }
         } else {

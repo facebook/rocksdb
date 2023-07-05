@@ -25,7 +25,6 @@
 #include "test_util/transaction_test_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -1600,7 +1599,7 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
 
     if (i % 29 == 0) {
       // crash
-      env->SetFilesystemActive(false);
+      fault_fs->SetFilesystemActive(false);
       reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
       ReOpenNoDelete();
     } else if (i % 37 == 0) {
@@ -1668,7 +1667,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   ReOpenNoDelete();
   assert(db != nullptr);
 
@@ -1705,7 +1704,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ReOpenNoDelete();
 
@@ -1738,7 +1737,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
 
@@ -2090,7 +2089,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   ASSERT_OK(db->FlushWAL(false));
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
@@ -6367,11 +6366,11 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       // Corrupt the last log file in the middle, so that it is not corrupted
       // in the tail.
       std::string file_content;
-      ASSERT_OK(ReadFileToString(env, fname, &file_content));
+      ASSERT_OK(ReadFileToString(env.get(), fname, &file_content));
       file_content[400] = 'h';
       file_content[401] = 'a';
       ASSERT_OK(env->DeleteFile(fname));
-      ASSERT_OK(WriteStringToFile(env, file_content, fname, true));
+      ASSERT_OK(WriteStringToFile(env.get(), file_content, fname, true));
 
       // Recover from corruption
       std::vector<ColumnFamilyHandle*> handles;

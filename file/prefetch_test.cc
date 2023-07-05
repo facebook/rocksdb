@@ -1304,10 +1304,14 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
 // This test verifies the functionality of ReadOptions.adaptive_readahead when
 // async_io is enabled.
 TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   const int kNumKeys = 1000;
   // Set options
   std::shared_ptr<MockFS> fs =
-      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+      std::make_shared<MockFS>(FileSystem::Default(), false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   bool use_direct_io = std::get<0>(GetParam());
@@ -1341,15 +1345,25 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   }
   MoveFilesToLevel(2);
   int buff_async_prefetch_count = 0;
+  int buff_prefetch_count = 0;
   int readahead_carry_over_count = 0;
   int num_sst_files = NumTableFilesAtLevel(2);
   size_t current_readahead_size = 0;
+  bool read_async_called = false;
 
   // Test - Iterate over the keys sequentially.
   {
     SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::Prefetch:Start",
+        [&](void*) { buff_prefetch_count++; });
+
+    SyncPoint::GetInstance()->SetCallBack(
         "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
         [&](void*) { buff_async_prefetch_count++; });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "UpdateResults::io_uring_result",
+        [&](void* /*arg*/) { read_async_called = true; });
 
     // The callback checks, since reads are sequential, readahead_size doesn't
     // start from 8KB when iterator moves to next file and its called
@@ -1393,15 +1407,18 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
     } else {
       ASSERT_EQ(readahead_carry_over_count, 0);
     }
-    ASSERT_GT(buff_async_prefetch_count, 0);
 
     // Check stats to make sure async prefetch is done.
     {
       HistogramData async_read_bytes;
       options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
-      if (ro.async_io) {
+      // Not all platforms support iouring. In that case, ReadAsync in posix
+      // won't submit async requests.
+      if (read_async_called) {
+        ASSERT_GT(buff_async_prefetch_count, 0);
         ASSERT_GT(async_read_bytes.count, 0);
       } else {
+        ASSERT_GT(buff_prefetch_count, 0);
         ASSERT_EQ(async_read_bytes.count, 0);
       }
     }
@@ -1434,6 +1451,7 @@ TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
   Status s = TryReopen(options);
   if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
     // If direct IO is not supported, skip the test
+    enable_io_uring = true;
     return;
   } else {
     ASSERT_OK(s);
@@ -1515,7 +1533,8 @@ class PrefetchTest1 : public DBTestBase,
  public:
   PrefetchTest1() : DBTestBase("prefetch_test1", true) {}
 
-  void SetGenericOptions(Env* env, bool use_direct_io, Options& options) {
+  virtual void SetGenericOptions(Env* env, bool use_direct_io,
+                                 Options& options) {
     options = CurrentOptions();
     options.write_buffer_size = 1024;
     options.create_if_missing = true;
@@ -1538,6 +1557,105 @@ class PrefetchTest1 : public DBTestBase,
 };
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1, ::testing::Bool());
+
+TEST_P(PrefetchTest1, SeekWithExtraPrefetchAsyncIO) {
+  const int kNumKeys = 2000;
+  // Set options
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  Options options;
+  SetGenericOptions(env.get(), GetParam(), options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (GetParam() && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+  Close();
+
+  for (size_t i = 0; i < 3; i++) {
+    table_options.num_file_reads_for_auto_readahead = i;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    s = TryReopen(options);
+    ASSERT_OK(s);
+
+    int buff_prefetch_count = 0;
+    int extra_prefetch_buff_cnt = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching",
+        [&](void*) { extra_prefetch_buff_cnt++; });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
+        [&](void*) { buff_prefetch_count++; });
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ReadOptions ro;
+    ro.async_io = true;
+    {
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      // First Seek
+      iter->Seek(BuildKey(
+          0));  // Prefetch data on seek because of seek parallelization.
+      ASSERT_TRUE(iter->Valid());
+
+      // Do extra prefetching in Seek only if num_file_reads_for_auto_readahead
+      // = 0.
+      ASSERT_EQ(extra_prefetch_buff_cnt, (i == 0 ? 1 : 0));
+      // buff_prefetch_count is 2 because of index block when
+      // num_file_reads_for_auto_readahead = 0.
+      // If num_file_reads_for_auto_readahead > 0, index block isn't prefetched.
+      ASSERT_EQ(buff_prefetch_count, i == 0 ? 2 : 1);
+
+      extra_prefetch_buff_cnt = 0;
+      buff_prefetch_count = 0;
+      // Reset all values of FilePrefetchBuffer on new seek.
+      iter->Seek(
+          BuildKey(22));  // Prefetch data because of seek parallelization.
+      ASSERT_TRUE(iter->Valid());
+      // Do extra prefetching in Seek only if num_file_reads_for_auto_readahead
+      // = 0.
+      ASSERT_EQ(extra_prefetch_buff_cnt, (i == 0 ? 1 : 0));
+      ASSERT_EQ(buff_prefetch_count, 1);
+
+      extra_prefetch_buff_cnt = 0;
+      buff_prefetch_count = 0;
+      // Reset all values of FilePrefetchBuffer on new seek.
+      iter->Seek(
+          BuildKey(33));  // Prefetch data because of seek parallelization.
+      ASSERT_TRUE(iter->Valid());
+      // Do extra prefetching in Seek only if num_file_reads_for_auto_readahead
+      // = 0.
+      ASSERT_EQ(extra_prefetch_buff_cnt, (i == 0 ? 1 : 0));
+      ASSERT_EQ(buff_prefetch_count, 1);
+    }
+    Close();
+  }
+}
 
 // This test verifies the functionality of ReadOptions.adaptive_readahead when
 // reads are not sequential.
@@ -1769,10 +1887,14 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
 // This test verifies the basic functionality of seek parallelization for
 // async_io.
 TEST_P(PrefetchTest1, SeekParallelizationTest) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   const int kNumKeys = 2000;
   // Set options
-  std::shared_ptr<MockFS> fs =
-      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), /*support_prefetch=*/false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   Options options;
@@ -1805,10 +1927,19 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   int buff_prefetch_count = 0;
+  int buff_prefetch_async_count = 0;
 
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
-      [&](void*) { buff_prefetch_count++; });
+      [&](void*) { buff_prefetch_async_count++; });
+
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+
+  bool read_async_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "UpdateResults::io_uring_result",
+      [&](void* /*arg*/) { read_async_called = true; });
 
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;
@@ -1843,17 +1974,17 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
     iter->Next();
     ASSERT_TRUE(iter->Valid());
 
-    ASSERT_EQ(buff_prefetch_count, 2);
-
-    // Check stats to make sure async prefetch is done.
-    {
-      HistogramData async_read_bytes;
-      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    HistogramData async_read_bytes;
+    options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    // not all platforms support io_uring. In that case it'll fallback to normal
+    // prefetching without async_io.
+    if (read_async_called) {
+      ASSERT_EQ(buff_prefetch_async_count, 2);
       ASSERT_GT(async_read_bytes.count, 0);
       ASSERT_GT(get_perf_context()->number_async_seek, 0);
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 1);
     }
-
-    buff_prefetch_count = 0;
   }
   Close();
 }

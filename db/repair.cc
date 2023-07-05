@@ -560,6 +560,8 @@ class Repairer {
             AddColumnFamily(props->column_family_name, t->column_family_id);
       }
       t->meta.oldest_ancester_time = props->creation_time;
+      t->meta.user_defined_timestamps_persisted =
+          static_cast<bool>(props->user_defined_timestamps_persisted);
     }
     if (status.ok()) {
       uint64_t tail_size = 0;
@@ -703,7 +705,8 @@ class Repairer {
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.epoch_number, table->meta.file_checksum,
             table->meta.file_checksum_func_name, table->meta.unique_id,
-            table->meta.compensated_range_deletion_size, table->meta.tail_size);
+            table->meta.compensated_range_deletion_size, table->meta.tail_size,
+            table->meta.user_defined_timestamps_persisted);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {
