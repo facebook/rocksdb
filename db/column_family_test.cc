@@ -17,6 +17,7 @@
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -63,6 +64,9 @@ class ColumnFamilyTestBase : public testing::Test {
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
+  }
+
+  void SetUp() override {
     EXPECT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
@@ -3378,6 +3382,171 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 
   cf_options.memtable_protection_bytes_per_key = 0;
   ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+}
+
+// Tests the flushing behavior of a column family to retain user-defined
+// timestamp when `persist_user_defined_timestamp` is false.
+class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
+ public:
+  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
+
+  void SetUp() override {
+    column_family_options_.comparator =
+        test::BytewiseComparatorWithU64TsWrapper();
+    column_family_options_.persist_user_defined_timestamps = false;
+    ColumnFamilyTestBase::SetUp();
+  }
+
+  Status Put(int cf, const std::string& key, const std::string& ts,
+             const std::string& value) {
+    return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(ts),
+                    Slice(value));
+  }
+};
+
+class TestTsComparator : public Comparator {
+ public:
+  TestTsComparator() : Comparator(8 /*ts_sz*/) {}
+
+  int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
+              const ROCKSDB_NAMESPACE::Slice& /*b*/) const override {
+    return 0;
+  }
+  const char* Name() const override { return "TestTs"; }
+  void FindShortestSeparator(
+      std::string* /*start*/,
+      const ROCKSDB_NAMESPACE::Slice& /*limit*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
+TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
+  Open();
+  ColumnFamilyOptions cf_options;
+  cf_options.persist_user_defined_timestamps = false;
+  TestTsComparator test_comparator;
+  cf_options.comparator = &test_comparator;
+  ColumnFamilyHandle* handle;
+  // Not persisting user-defined timestamps feature only supports user-defined
+  // timestamps formatted as uint64_t.
+  ASSERT_TRUE(
+      db_->CreateColumnFamily(cf_options, "pikachu", &handle).IsNotSupported());
+
+  Destroy();
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with atomic flush.
+  db_options_.atomic_flush = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  // Flush() defaults to wait, so OK status indicates flushing success.
+  ASSERT_OK(Flush(0));
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 2);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // Flush() defaults to wait, so OK status indicates success flushing.
+  ASSERT_OK(Flush(0));
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredUserTryAgain) {
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // Flush() defaults to wait, wait cannot succeed because `full_history_ts_low`
+  // treats the Memtable as still worth postponing its flush to retain UDT.
+  ASSERT_TRUE(Flush(0).IsTryAgain());
+
+  // Try flush again after increasing full_history_ts_low succeeds.
+  cutoff_ts.clear();
+  PutFixed64(&cutoff_ts, 2);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  ASSERT_OK(Flush(0));
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredContinueFlush) {
+  Open();
+  std::string write_ts;
+  uint64_t cutoff_ts = 2;
+  PutFixed64(&write_ts, cutoff_ts);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], full_history_ts_low));
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->SetOptions(cfh, {{"max_write_buffer_number", "1"}}));
+  // Although some user-defined timestamps haven't expired w.r.t
+  // full_history_ts_low, flush is continued to avoid write stall because
+  // max_write_buffer_number is 1.
+  ASSERT_OK(Flush(0));
+
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  std::string expected_new_full_history_ts_low;
+  // The effective new full_history_ts_low should
+  // be the newest UDT in the flushed Memtables, plus 1 (the next immediately
+  // larger) udt.
+  PutFixed64(&expected_new_full_history_ts_low, cutoff_ts + 1);
+  ASSERT_EQ(expected_new_full_history_ts_low, effective_full_history_ts_low);
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  FlushOptions flush_options;
+  // Setting wait to false, to test the FlushRequest reschedule code path, which
+  // is shared between manual flush and automatic flush.
+  flush_options.wait = false;
+  ASSERT_OK(db_->Flush(flush_options, handles_[0]));
+
+  // No sst files created because flush is rescheduled and won't continue
+  // until full_history_ts_low has a value that marks all user-defined
+  // timestamps in the Memtable as expired.
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 0);
+
+  // Increase full_history_ts_low so that the rescheduled flush can continue
+  // with the actual flushing now.
+  cutoff_ts.clear();
+  PutFixed64(&cutoff_ts, 2);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  WaitForFlush(0);
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 1);
+
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  // Original flush request rescheduled to respect full_histor_ts_low, as a
+  // result, full_history_ts_low stays unchanged.
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

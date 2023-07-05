@@ -527,6 +527,15 @@ class MemTable {
     }
   }
 
+  // Get the newest user-defined timestamp contained in this MemTable. Check
+  // `newest_udt_` for what newer means. This method should only be invoked for
+  // an immutable MemTable that has enabled user-defined timestamp feature and
+  // set `persist_user_defined_timestamps` to false. Used by flush job in the
+  // background to help check the MemTable's eligibility for Flush.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the field `newest_udt_`.
+  const Slice& GetNewestUDT();
+
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
                                     uint32_t protection_bytes_per_key,
@@ -616,6 +625,14 @@ class MemTable {
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+
+  // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
+  // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
+  // ts2. We track this field for a MemTable if its column family has UDT
+  // feature enabled and the `persist_user_defined_timestamp` flag is false.
+  // Otherwise, this field just contains an empty Slice. This field is only
+  // updated by a background flush job holding the db mutex.
+  Slice newest_udt_;
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

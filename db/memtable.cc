@@ -1672,4 +1672,29 @@ uint64_t MemTable::GetMinLogContainingPrepSection() {
   return min_prep_log_referenced_.load();
 }
 
+const Slice& MemTable::GetNewestUDT() {
+  const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
+  size_t ts_sz = ucmp->timestamp_size();
+  // This path should not be invoked for MemTables that does not enable the UDT
+  // feature.
+  assert(ts_sz > 0);
+  if (!newest_udt_.empty()) {
+    return newest_udt_;
+  }
+
+  Arena arena;
+  ReadOptions ro;
+  InternalIterator* iter = NewIterator(ro, &arena);
+
+  Slice udt;
+  iter->SeekToFirst();
+  for (; iter->Valid(); iter->Next()) {
+    udt = ExtractTimestampFromKey(iter->key(), ts_sz);
+    if (newest_udt_.empty() || ucmp->CompareTimestamp(udt, newest_udt_) > 0) {
+      newest_udt_ = udt;
+    }
+  }
+  return newest_udt_;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

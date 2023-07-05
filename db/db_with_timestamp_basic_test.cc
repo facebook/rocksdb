@@ -3289,13 +3289,13 @@ TEST_P(HandleFileBoundariesTest, ConfigurePersistUdt) {
   options.env = env_;
   // Write a timestamp that is not the min timestamp to help test the behavior
   // of flag `persist_user_defined_timestamps`.
-  std::string write_ts = Timestamp(1, 0);
-  std::string min_ts = Timestamp(0, 0);
+  std::string write_ts;
+  std::string min_ts;
+  PutFixed64(&write_ts, 1);
+  PutFixed64(&min_ts, 0);
   std::string smallest_ukey_without_ts = "bar";
   std::string largest_ukey_without_ts = "foo";
-  const size_t kTimestampSize = write_ts.size();
-  TestComparator test_cmp(kTimestampSize);
-  options.comparator = &test_cmp;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   bool persist_udt = test::ShouldPersistUDT(GetParam());
   options.persist_user_defined_timestamps = persist_udt;
   DestroyAndReopen(options);
