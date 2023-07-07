@@ -3916,6 +3916,14 @@ void rocksdb_options_set_row_cache(rocksdb_options_t* opt,
 }
 
 void rocksdb_options_add_compact_on_deletion_collector_factory(
+    rocksdb_options_t* opt, size_t window_size, size_t num_dels_trigger) {
+  std::shared_ptr<ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory>
+      compact_on_del =
+          NewCompactOnDeletionCollectorFactory(window_size, num_dels_trigger);
+  opt->rep.table_properties_collector_factories.emplace_back(compact_on_del);
+}
+
+void rocksdb_options_add_compact_on_deletion_collector_factory_del_ratio(
     rocksdb_options_t* opt, size_t window_size, size_t num_dels_trigger,
     double deletion_ratio) {
   std::shared_ptr<ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory>
