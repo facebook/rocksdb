@@ -673,21 +673,11 @@ class VersionEdit {
 
   const char* DecodeNewFile4From(Slice* input);
 
+  // Encode file boundaries `FileMetaData.smallest` and `FileMetaData.largest`.
+  // User-defined timestamps in the user key will be stripped if they shouldn't
+  // be persisted.
   void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
-                            size_t ts_sz) const {
-    if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
-      PutLengthPrefixedSlice(dst, meta.smallest.Encode());
-      PutLengthPrefixedSlice(dst, meta.largest.Encode());
-      return;
-    }
-    std::string smallest_buf;
-    std::string largest_buf;
-    StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
-    StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
-    PutLengthPrefixedSlice(dst, smallest_buf);
-    PutLengthPrefixedSlice(dst, largest_buf);
-    return;
-  };
+                            size_t ts_sz) const;
 
   int max_level_ = 0;
   std::string db_id_;

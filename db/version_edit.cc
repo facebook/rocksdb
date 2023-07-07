@@ -460,6 +460,23 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   return nullptr;
 }
 
+void VersionEdit::EncodeFileBoundaries(std::string* dst,
+                                       const FileMetaData& meta,
+                                       size_t ts_sz) const {
+  if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
+    PutLengthPrefixedSlice(dst, meta.smallest.Encode());
+    PutLengthPrefixedSlice(dst, meta.largest.Encode());
+    return;
+  }
+  std::string smallest_buf;
+  std::string largest_buf;
+  StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
+  StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
+  PutLengthPrefixedSlice(dst, smallest_buf);
+  PutLengthPrefixedSlice(dst, largest_buf);
+  return;
+};
+
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
 #ifndef NDEBUG
