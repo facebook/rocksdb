@@ -743,7 +743,7 @@ def gen_cmd(params, unknown_params):
     return cmd
 
 
-def execute_cmd(cmd, timeout):
+def execute_cmd(cmd, timeout=None):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
 
@@ -800,6 +800,24 @@ def blackbox_crash_main(args, unknown_args):
         time.sleep(1)  # time to stabilize before the next run
 
         time.sleep(1)  # time to stabilize before the next run
+
+    # We should run the test one more time with VerifyOnly setup and no-timeout
+    # Only do this if the tests are not failed for total-duration
+    print("Running final time for verification")
+    ops_count = max(cmd_params.get("reopen", 0), 1)
+    cmd_params.update({"ops_per_thread": ops_count})
+    cmd = gen_cmd(
+        dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+    )
+    hit_timeout, retcode, outs, errs = execute_cmd(cmd)
+
+    # Print stats of the final run
+    print("stdout:", outs)
+
+    for line in errs.split("\n"):
+        if line != "" and not line.startswith("WARNING"):
+            print("stderr has error message:")
+            print("***" + line + "***")
 
     # we need to clean up after ourselves -- only do this on test success
     shutil.rmtree(dbname, True)
