@@ -720,7 +720,9 @@ int main(int argc, char** argv) {
   rocksdb_compactoptions_set_exclusive_manual_compaction(coptions, 1);
 
   rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
-                                                            10001, 0.0);
+                                                            10001);
+  rocksdb_options_add_compact_on_deletion_collector_factory_del_ratio(
+      options, 10000, 10001, 0.0);
 
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);
