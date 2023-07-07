@@ -392,15 +392,13 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
     read_opts.timestamp = &ts_slice;
     ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options,
                                           avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
     ASSERT_OK(Put(1, "foo", ts1, "v1"));
     ASSERT_OK(Put(1, "baz", ts1, "v5"));
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
     // Do a timestamped read with ts1 after second reopen.
     CheckGet(read_opts, 1, "foo", "v1", ts1);
     CheckGet(read_opts, 1, "baz", "v5", ts1);
@@ -413,8 +411,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
     std::string ts3 = Timestamp(3, 0);
     ASSERT_OK(Put(1, "foo", ts3, "v4"));
 
@@ -481,16 +478,14 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
 
   ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
   // No flush, no sst files, because of no data.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-            static_cast<uint64_t>(0));
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
   ASSERT_OK(Put(1, largest_ukey_without_ts, write_ts, "v1"));
   ASSERT_OK(Put(1, smallest_ukey_without_ts, write_ts, "v5"));
 
   ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
   // Memtable recovered from WAL flushed because `avoid_flush_during_recovery`
   // defaults to false, created one L0 file.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-            static_cast<uint64_t>(1));
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1U);
 
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
