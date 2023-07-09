@@ -1,1 +1,0 @@
-RocksDB will try to drop range tombstones during non-bottommost compaction when it is safe to do so. (#11459)
