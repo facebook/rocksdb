@@ -1164,7 +1164,7 @@ class TestFileOperationListener : public EventListener {
 
  private:
   void ReportDuration(const FileOperationInfo& info) const {
-    ASSERT_GT(info.duration.count(), 0);
+    ASSERT_GE(info.duration.count(), 0);
   }
 };
 

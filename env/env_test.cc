@@ -3095,6 +3095,7 @@ TEST_F(EnvTest, GenerateRawUniqueIdTrackEnvDetailsOnly) {
     uint64_pair_t Generate() override {
       uint64_pair_t p;
       TEST_GenerateRawUniqueId(&p.first, &p.second, true, false, true);
+      env->SleepForMicroseconds(1);
       return p;
     }
   };
