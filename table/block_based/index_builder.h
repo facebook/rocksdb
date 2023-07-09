@@ -37,9 +37,8 @@ class IndexBuilder {
       BlockBasedTableOptions::IndexType index_type,
       const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
-      bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt, size_t ts_sz,
-      bool persist_user_defined_timestamps);
+      bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
+      size_t ts_sz, bool persist_user_defined_timestamps);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -234,9 +233,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   using IndexBuilder::Finish;
-  Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& /*last_partition_block_handle*/) override {
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& /*last_partition_block_handle*/) override {
     if (seperator_is_key_plus_seq_) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
@@ -353,9 +351,8 @@ class HashIndexBuilder : public IndexBuilder {
     }
   }
 
-  Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& last_partition_block_handle) override {
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& last_partition_block_handle) override {
     if (pending_block_num_ != 0) {
       FlushPendingPrefix();
     }
@@ -419,14 +416,12 @@ class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
-      bool use_value_delta_encoding,
-      const BlockBasedTableOptions& table_opt, size_t ts_sz,
-      bool persist_user_defined_timestamps);
+      bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
+      size_t ts_sz, bool persist_user_defined_timestamps);
 
   explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                                    const BlockBasedTableOptions& table_opt,
-                                   bool use_value_delta_encoding,
-                                   size_t ts_sz,
+                                   bool use_value_delta_encoding, size_t ts_sz,
                                    bool persist_user_defined_timestamps);
 
   ~PartitionedIndexBuilder() override;
@@ -435,9 +430,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
                      const Slice* first_key_in_next_block,
                      const BlockHandle& block_handle) override;
 
-  Status Finish(
-      IndexBlocks* index_blocks,
-      const BlockHandle& last_partition_block_handle) override;
+  Status Finish(IndexBlocks* index_blocks,
+                const BlockHandle& last_partition_block_handle) override;
 
   size_t IndexSize() const override { return index_size_; }
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
@@ -462,7 +456,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return seperator_is_key_plus_seq_;
   }
 
-  bool get_use_value_delta_encoding() const { return use_value_delta_encoding_; }
+  bool get_use_value_delta_encoding() const {
+    return use_value_delta_encoding_;
+  }
 
  private:
   // Set after ::Finish is called
