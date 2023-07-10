@@ -93,7 +93,8 @@ void VersionEdit::Clear() {
   full_history_ts_low_.clear();
 }
 
-bool VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst,
+                           std::optional<size_t> ts_sz) const {
   if (has_db_id_) {
     PutVarint32(dst, kDbId);
     PutLengthPrefixedSlice(dst, db_id_);
@@ -133,6 +134,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   bool min_log_num_written = false;
+
+  assert(new_files_.empty() || ts_sz.has_value());
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
     if (!f.smallest.Valid() || !f.largest.Valid() ||
@@ -142,8 +145,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kNewFile4);
     PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
     PutVarint64(dst, f.fd.GetFileSize());
-    PutLengthPrefixedSlice(dst, f.smallest.Encode());
-    PutLengthPrefixedSlice(dst, f.largest.Encode());
+    EncodeFileBoundaries(dst, f, ts_sz.value());
     PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
     // Customized fields' format:
     // +-----------------------------+
@@ -457,6 +459,23 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
+
+void VersionEdit::EncodeFileBoundaries(std::string* dst,
+                                       const FileMetaData& meta,
+                                       size_t ts_sz) const {
+  if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
+    PutLengthPrefixedSlice(dst, meta.smallest.Encode());
+    PutLengthPrefixedSlice(dst, meta.largest.Encode());
+    return;
+  }
+  std::string smallest_buf;
+  std::string largest_buf;
+  StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
+  StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
+  PutLengthPrefixedSlice(dst, smallest_buf);
+  PutLengthPrefixedSlice(dst, largest_buf);
+  return;
+};
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
