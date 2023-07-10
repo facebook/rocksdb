@@ -38,6 +38,9 @@ class RemoteCompactionTest : public testing::Test {
     clone_dir_ = test::TmpDir() + "/ctest";
     cloud_fs_options_.TEST_Initialize("dbcloud.", dbname_);
     cloud_fs_options_.keep_local_sst_files = true;
+    // To catch any possible file deletion bugs, cloud files are deleted
+    // right away
+    cloud_fs_options_.cloud_file_deletion_delay = std::nullopt;
 
     options_.create_if_missing = true;
     options_.create_missing_column_families = true;
@@ -105,7 +108,6 @@ class RemoteCompactionTest : public testing::Test {
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
     auto* cimpl = static_cast<CloudFileSystemImpl*>(afs);
-    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     std::shared_ptr<FileSystem> fs(cimpl);
     aenv_ = CloudFileSystem::NewCompositeEnv(base_env_, std::move(fs));
   }
@@ -166,10 +168,6 @@ class RemoteCompactionTest : public testing::Test {
     // Create new AWS env
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
                                                 copt, options_.info_log, &cfs));
-    // To catch any possible file deletion bugs, we set file deletion delay to
-    // smallest possible
-    auto* cimpl = static_cast<CloudFileSystemImpl*>(cfs);
-    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     // sets the env to be used by the env wrapper, and returns that env
     env->reset(
         new CompositeEnvWrapper(base_env_, std::shared_ptr<FileSystem>(cfs)));
