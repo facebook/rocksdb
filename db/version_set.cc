@@ -6873,7 +6873,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           const FileMetaData& fmd = *flevel->files[i].file_metadata;
           if (start.has_value() &&
               cfd->user_comparator()->CompareWithoutTimestamp(
-                  start.value(), fmd.largest.user_key()) > 0) {
+                  *start, fmd.largest.user_key()) > 0) {
             continue;
           }
           // We should be able to filter out the case where the end key
@@ -6881,7 +6881,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           // We try to be extra safe here.
           if (end.has_value() &&
               cfd->user_comparator()->CompareWithoutTimestamp(
-                  end.value(), fmd.smallest.user_key()) < 0) {
+                  *end, fmd.smallest.user_key()) < 0) {
             continue;
           }
           TruncatedRangeDelIterator* range_tombstone_iter = nullptr;

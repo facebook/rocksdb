@@ -36,7 +36,7 @@ RecoveryType GetRecoveryType(const size_t running_ts_sz,
     return RecoveryType::kPadTimestamp;
   }
 
-  if (running_ts_sz != recorded_ts_sz.value()) {
+  if (running_ts_sz != *recorded_ts_sz) {
     return RecoveryType::kUnrecoverable;
   }
 
@@ -214,7 +214,7 @@ Status TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
       break;
     case RecoveryType::kStripTimestamp:
       assert(record_ts_sz.has_value());
-      *new_key = StripTimestampFromUserKey(key, record_ts_sz.value());
+      *new_key = StripTimestampFromUserKey(key, *record_ts_sz);
       new_batch_diff_from_orig_batch_ = true;
       break;
     case RecoveryType::kPadTimestamp:
