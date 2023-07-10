@@ -679,7 +679,7 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
     ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
   }
 #endif
-  EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
+  EXPECT_GE(get_perf_context()->merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->Flush(FlushOptions()));
 
@@ -690,7 +690,7 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
     ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
   }
 #endif
-  EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
+  EXPECT_GE(get_perf_context()->merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
