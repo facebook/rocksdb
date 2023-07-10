@@ -60,7 +60,7 @@ class CloudTest : public testing::Test {
     cloud_fs_options_.use_aws_transfer_manager = true;
     // To catch any possible file deletion bugs, cloud files are deleted
     // right away
-    cloud_fs_options_.cloud_file_deletion_delay = std::nullopt;
+    cloud_fs_options_.cloud_file_deletion_delay = std::chrono::seconds(0);
 
     options_.create_if_missing = true;
     options_.stats_dump_period_sec = 0;
