@@ -86,7 +86,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
         message << ' ';
       }
       // append the filename to the corruption message
-      message << "in file " << reader.file()->file_name();
+      message << " The file " << reader.file()->file_name()
+              << " may be corrupted.";
       // overwrite the status with the extended status
       s = Status(s.code(), s.subcode(), s.severity(), message.str());
     }
