@@ -490,7 +490,7 @@ class VersionEdit {
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
-  NewFiles& GetMutableNewFiles() { return new_files_; };
+  NewFiles& GetMutableNewFiles() { return new_files_; }
 
   // Retrieve all the compact cursors
   using CompactCursors = std::vector<std::pair<int, InternalKey>>;
