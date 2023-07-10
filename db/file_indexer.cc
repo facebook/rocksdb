@@ -56,17 +56,15 @@ void FileIndexer::GetNextLevelIndex(const size_t level, const size_t file_index,
   } else if (cmp_smallest == 0) {
     *left_bound = index.smallest_lb;
     *right_bound = index.smallest_rb;
-  } else if (cmp_smallest > 0 && cmp_largest < 0) {
+  } else if (cmp_largest < 0) {
     *left_bound = index.smallest_lb;
     *right_bound = index.largest_rb;
   } else if (cmp_largest == 0) {
     *left_bound = index.largest_lb;
     *right_bound = index.largest_rb;
-  } else if (cmp_largest > 0) {
+  } else {
     *left_bound = index.largest_lb;
     *right_bound = level_rb_[level + 1];
-  } else {
-    assert(false);
   }
 
   assert(*left_bound >= 0);

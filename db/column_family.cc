@@ -382,8 +382,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
-    if (is_block_based_table &&
-        result.compaction_style != kCompactionStyleFIFO) {
+    if (is_block_based_table) {
+      // For FIFO, max_open_files is checked in ValidateOptions().
       result.ttl = kAdjustedTtl;
     } else {
       result.ttl = 0;
@@ -403,16 +403,12 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
       result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
     }
   } else {
-    // result.compaction_style == kCompactionStyleFIFO
-    if (result.ttl == 0) {
-      if (is_block_based_table) {
-        if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-          result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
-        }
-        result.ttl = result.periodic_compaction_seconds;
-      }
-    } else if (result.periodic_compaction_seconds != 0) {
-      result.ttl = std::min(result.ttl, result.periodic_compaction_seconds);
+    if (result.periodic_compaction_seconds != kDefaultPeriodicCompSecs &&
+        result.periodic_compaction_seconds > 0) {
+      ROCKS_LOG_WARN(
+          db_options.info_log.get(),
+          "periodic_compaction_seconds does not support FIFO compaction. You"
+          "may want to set option TTL instead.");
     }
   }
 

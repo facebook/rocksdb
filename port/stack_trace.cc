@@ -31,6 +31,10 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <string.h>
 #include <unistd.h>
 
+#ifdef OS_OPENBSD
+#include <sys/wait.h>
+#include <sys/sysctl.h>
+#endif  // OS_OPENBSD
 #ifdef OS_FREEBSD
 #include <sys/sysctl.h>
 #endif  // OS_FREEBSD
@@ -51,21 +55,11 @@ namespace port {
 
 namespace {
 
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_GNU_KFREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 
-#if !defined(OS_FREEBSD)
-  char link[1024];
-  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
-  auto read = readlink(link, name, sizeof(name) - 1);
-  if (-1 == read) {
-    return nullptr;
-  } else {
-    name[read] = 0;
-    return name;
-  }
-#else
+#if defined(OS_FREEBSD)
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
   size_t namesz = sizeof(name);
 
@@ -73,6 +67,27 @@ const char* GetExecutableName() {
   if (-1 == ret) {
     return nullptr;
   } else {
+    return name;
+  }
+#elif defined(OS_OPENBSD)
+  int mib[4] = {CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV};
+  size_t namesz = sizeof(name);
+  char* bin[namesz];
+
+  auto ret = sysctl(mib, 4, bin, &namesz, nullptr, 0);
+  if (-1 == ret) {
+    return nullptr;
+  } else {
+    return bin[0];
+  }
+#else
+  char link[1024];
+  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
+  auto read = readlink(link, name, sizeof(name) - 1);
+  if (-1 == read) {
+    return nullptr;
+  } else {
+    name[read] = 0;
     return name;
   }
 #endif
@@ -271,7 +286,7 @@ void PrintStack(int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto num_frames = backtrace(frames, kMaxFrames);
+  int num_frames = (int) backtrace(frames, kMaxFrames);
   PrintStack(&frames[first_frames_to_skip], num_frames - first_frames_to_skip);
 }
 
@@ -284,7 +299,7 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto count = backtrace(frames, kMaxFrames);
+  int count = (int) backtrace(frames, kMaxFrames);
   *num_frames = count - first_frames_to_skip;
   void* callstack = malloc(sizeof(void*) * *num_frames);
   memcpy(callstack, &frames[first_frames_to_skip], sizeof(void*) * *num_frames);

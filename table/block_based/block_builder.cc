@@ -53,8 +53,7 @@ BlockBuilder::BlockBuilder(
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
-      ts_sz_(ts_sz),
-      persist_user_defined_timestamps_(persist_user_defined_timestamps),
+      strip_ts_sz_(persist_user_defined_timestamps ? 0 : ts_sz),
       is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
@@ -100,8 +99,8 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
   // Note: this is an imprecise estimate as it accounts for the whole key size
   // instead of non-shared key size.
   estimate += key.size();
-  if (ts_sz_ > 0 && !persist_user_defined_timestamps_) {
-    estimate -= ts_sz_;
+  if (strip_ts_sz_ > 0) {
+    estimate -= strip_ts_sz_;
   }
   // In value delta encoding we estimate the value delta size as half the full
   // value size since only the size field of block handle is encoded.
@@ -175,13 +174,13 @@ void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
   // or Reset. This is more convenient for the caller and we can be more
   // clever inside BlockBuilder. On this hot code path, we want to avoid
   // conditional jumps like `buffer_.empty() ? ... : ...` so we can use a
-  // fast min operation instead, with an assertion to be sure our logic is
-  // sound.
+  // fast arithmetic operation instead, with an assertion to be sure our logic
+  // is sound.
   size_t buffer_size = buffer_.size();
   size_t last_key_size = last_key_param.size();
-  assert(buffer_size == 0 || buffer_size >= last_key_size);
+  assert(buffer_size == 0 || buffer_size >= last_key_size - strip_ts_sz_);
 
-  Slice last_key(last_key_param.data(), std::min(buffer_size, last_key_size));
+  Slice last_key(last_key_param.data(), last_key_size * (buffer_size > 0));
 
   AddWithLastKeyImpl(key, value, last_key, delta_value, buffer_size);
 }
@@ -255,11 +254,11 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
                                                      const Slice& key) {
   Slice stripped_key = key;
-  if (ts_sz_ > 0 && !persist_user_defined_timestamps_) {
+  if (strip_ts_sz_ > 0) {
     if (is_user_key_) {
-      stripped_key.remove_suffix(ts_sz_);
+      stripped_key.remove_suffix(strip_ts_sz_);
     } else {
-      StripTimestampFromInternalKey(key_buf, key, ts_sz_);
+      StripTimestampFromInternalKey(key_buf, key, strip_ts_sz_);
       stripped_key = *key_buf;
     }
   }

@@ -312,6 +312,27 @@ TEST_F(FormatTest, StripTimestampFromInternalKey) {
   ASSERT_EQ(kTypeValue, key_without_timestamp.type);
 }
 
+TEST_F(FormatTest, ReplaceInternalKeyWithMinTimestamp) {
+  std::string orig_user_key = "foo";
+  size_t ts_sz = 8;
+  orig_user_key.append(ts_sz, static_cast<unsigned char>(1));
+  std::string orig_internal_key = IKey(orig_user_key, 100, kTypeValue);
+
+  std::string key_buf;
+  ReplaceInternalKeyWithMinTimestamp(&key_buf, orig_internal_key, ts_sz);
+  ParsedInternalKey new_key;
+  Slice in(key_buf);
+  ASSERT_OK(ParseInternalKey(in, &new_key, true /*log_err_key*/));
+
+  std::string min_timestamp(ts_sz, static_cast<unsigned char>(0));
+  size_t ukey_diff_offset = new_key.user_key.difference_offset(orig_user_key);
+  ASSERT_EQ(min_timestamp,
+            Slice(new_key.user_key.data() + ukey_diff_offset, ts_sz));
+  ASSERT_EQ(orig_user_key.size(), new_key.user_key.size());
+  ASSERT_EQ(100, new_key.sequence);
+  ASSERT_EQ(kTypeValue, new_key.type);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

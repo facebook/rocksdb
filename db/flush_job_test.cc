@@ -117,6 +117,8 @@ class FlushJobTestBase : public testing::Test {
     db_options_.statistics = CreateDBStatistics();
 
     cf_options_.comparator = ucmp_;
+    cf_options_.persist_user_defined_timestamps = persist_udt_;
+    cf_options_.paranoid_file_checks = paranoid_file_checks_;
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
@@ -148,6 +150,9 @@ class FlushJobTestBase : public testing::Test {
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+
+  bool persist_udt_ = true;
+  bool paranoid_file_checks_ = false;
 
   SeqnoToTimeMapping empty_seqno_to_time_mapping_;
 };
@@ -600,7 +605,13 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
   }
 }
 
-class FlushJobTimestampTest : public FlushJobTestBase {
+// Test parameters:
+// param 0): paranoid file check
+// param 1): user-defined timestamp test mode
+class FlushJobTimestampTest
+    : public FlushJobTestBase,
+      public testing::WithParamInterface<
+          std::tuple<bool, test::UserDefinedTimestampTestMode>> {
  public:
   FlushJobTimestampTest()
       : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
@@ -616,13 +627,36 @@ class FlushJobTimestampTest : public FlushJobTestBase {
   }
 
  protected:
+  void SetUp() override {
+    paranoid_file_checks_ = std::get<0>(GetParam());
+    auto udt_test_mode = std::get<1>(GetParam());
+    persist_udt_ = test::ShouldPersistUDT(udt_test_mode);
+    FlushJobTestBase::SetUp();
+  }
   static constexpr uint64_t kStartTs = 10;
   static constexpr SequenceNumber kStartSeq = 0;
   SequenceNumber curr_seq_{kStartSeq};
   std::atomic<uint64_t> curr_ts_{kStartTs};
+
+  void CheckFileMetaData(ColumnFamilyData* cfd,
+                         const InternalKey& expected_smallest,
+                         const InternalKey& expected_largest,
+                         const FileMetaData* meta_from_flush) const {
+    ASSERT_EQ(expected_smallest.Encode(), meta_from_flush->smallest.Encode());
+    ASSERT_EQ(expected_largest.Encode(), meta_from_flush->largest.Encode());
+
+    const VersionStorageInfo* storage_info = cfd->current()->storage_info();
+    const std::vector<FileMetaData*>& l0_files = storage_info->LevelFiles(0);
+
+    ASSERT_EQ(l0_files.size(), 1);
+    auto installed_file_meta = l0_files[0];
+    ASSERT_EQ(expected_smallest.Encode(),
+              installed_file_meta->smallest.Encode());
+    ASSERT_EQ(expected_largest.Encode(), installed_file_meta->largest.Encode());
+  }
 };
 
-TEST_F(FlushJobTimestampTest, AllKeysExpired) {
+TEST_P(FlushJobTimestampTest, AllKeysExpired) {
   ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
   autovector<MemTable*> to_delete;
 
@@ -669,17 +703,24 @@ TEST_F(FlushJobTimestampTest, AllKeysExpired) {
 
   {
     std::string key = test::EncodeInt(0);
-    key.append(test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1));
+    if (!persist_udt_) {
+      // When `AdvancedColumnFamilyOptions.persist_user_defined_timestamps` flag
+      // is set to false. The user-defined timestamp is stripped from user key
+      // during flush, making the user key logically containing the minimum
+      // timestamp.
+      key.append(test::EncodeInt(0));
+    } else {
+      key.append(test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1));
+    }
     InternalKey ikey(key, curr_seq_ - 1, ValueType::kTypeDeletionWithTimestamp);
-    ASSERT_EQ(ikey.Encode(), fmeta.smallest.Encode());
-    ASSERT_EQ(ikey.Encode(), fmeta.largest.Encode());
+    CheckFileMetaData(cfd, ikey, ikey, &fmeta);
   }
 
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());
 }
 
-TEST_F(FlushJobTimestampTest, NoKeyExpired) {
+TEST_P(FlushJobTimestampTest, NoKeyExpired) {
   ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
   autovector<MemTable*> to_delete;
 
@@ -722,17 +763,37 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
 
   {
     std::string ukey = test::EncodeInt(0);
-    std::string smallest_key =
-        ukey + test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1);
-    std::string largest_key = ukey + test::EncodeInt(kStartTs);
+    std::string smallest_key;
+    std::string largest_key;
+    if (!persist_udt_) {
+      // When `AdvancedColumnFamilyOptions.persist_user_defined_timestamps` flag
+      // is set to false. The user-defined timestamp is stripped from user key
+      // during flush, making the user key logically containing the minimum
+      // timestamp, which is hardcoded to be all zeros for now.
+      smallest_key = ukey + test::EncodeInt(0);
+      largest_key = ukey + test::EncodeInt(0);
+    } else {
+      smallest_key =
+          ukey + test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1);
+      largest_key = ukey + test::EncodeInt(kStartTs);
+    }
     InternalKey smallest(smallest_key, curr_seq_ - 1, ValueType::kTypeValue);
     InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
-    ASSERT_EQ(smallest.Encode(), fmeta.smallest.Encode());
-    ASSERT_EQ(largest.Encode(), fmeta.largest.Encode());
+    CheckFileMetaData(cfd, smallest, largest, &fmeta);
   }
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());
 }
+
+// Param 0: paranoid file check
+// Param 1: test mode for the user-defined timestamp feature
+INSTANTIATE_TEST_CASE_P(
+    FlushJobTimestampTest, FlushJobTimestampTest,
+    ::testing::Combine(
+        ::testing::Bool(),
+        ::testing::Values(
+            test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+            test::UserDefinedTimestampTestMode::kNormal)));
 
 }  // namespace ROCKSDB_NAMESPACE
 
