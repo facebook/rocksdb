@@ -195,6 +195,7 @@ inline void CorrectNearOverflow(uint64_t old_meta,
 inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
                             uint64_t initial_countdown, bool* already_matches) {
   assert(*already_matches == false);
+
   // Optimistically transition the slot from "empty" to
   // "under construction" (no effect on other states)
   uint64_t old_meta = h.meta.fetch_or(
@@ -648,40 +649,36 @@ HyperClockTable::HandleImpl* HyperClockTable::DoInsert(
   HandleImpl* e = FindSlot(
       proto.hashed_key,
       [&](HandleImpl* h) {
-        return TryInsert(proto, *h, initial_countdown, keep_ref,
-                         &already_matches);
+        // FIXME: simplify and handle in abort_fn below?
+        bool inserted =
+            TryInsert(proto, *h, initial_countdown, keep_ref, &already_matches);
+        return inserted || already_matches;
       },
-      [&](HandleImpl* h) {
-        if (already_matches) {
-          // Stop searching & roll back
-          Rollback(proto.hashed_key, h);
-          return true;
-        } else {
-          // Keep going
-          return false;
-        }
-      },
+      [&](HandleImpl* /*h*/) { return false; },
       [&](HandleImpl* h) {
         h->displacements.fetch_add(1, std::memory_order_relaxed);
       },
       probe);
-  if (already_matches) {
-    // Insertion skipped
-    return nullptr;
+  if (e == nullptr) {
+    // Occupancy check and never abort FindSlot above should generally
+    // prevent this, except it's theoretically possible for other threads
+    // to evict and replace entries in the right order to hit every slot
+    // when it is populated. Assuming random hashing, the chance of that
+    // should be no higher than pow(kStrictLoadFactor, n) for n slots.
+    // That should be infeasible for roughly n >= 256, so if this assertion
+    // fails, that suggests something is going wrong.
+    assert(GetTableSize() < 256);
+    // WART/FIXME: need to roll back every slot
+    already_matches = true;
   }
-  if (e != nullptr) {
+  if (!already_matches) {
     // Successfully inserted
+    assert(e);
     return e;
   }
-  // Else, no available slot found. Occupancy check should generally prevent
-  // this, except it's theoretically possible for other threads to evict and
-  // replace entries in the right order to hit every slot when it is populated.
-  // Assuming random hashing, the chance of that should be no higher than
-  // pow(kStrictLoadFactor, n) for n slots. That should be infeasible for
-  // roughly n >= 256, so if this assertion fails, that suggests something is
-  // going wrong.
-  assert(GetTableSize() < 256);
-  // WART/TODO: need to roll back every slot
+  // Roll back displacements from failed table insertion
+  Rollback(proto.hashed_key, e);
+  // Insertion skipped
   return nullptr;
 }
 
