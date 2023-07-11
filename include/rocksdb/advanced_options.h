@@ -901,9 +901,10 @@ struct AdvancedColumnFamilyOptions {
   // FIFO: not supported. Setting this option has no effect for FIFO compaction.
   //
   // Universal: when there are files older than `periodic_compaction_seconds`,
-  //    rocksdb will try to do a full compaction if possible. Such compaction
-  //    is only skipped if only last level is to be compacted and no file in
-  //    last level is older than `periodic_compaction_seconds`. See more in
+  //    rocksdb will try to do as large a compaction as possible including the
+  //    last level. Such compaction is only skipped if only last level is to
+  //    be compacted and no file in last level is older than
+  //    `periodic_compaction_seconds`. See more in
   //    UniversalCompactionBuilder::PickPeriodicCompaction().
   //    For backward compatibility, the effective value of this option takes
   //    into account the value of option `ttl`. The logic is as follows:
