@@ -7,6 +7,8 @@
 #include <string>
 #include <cstring>
 
+#include <rocksdb/slice.h>
+
 //
 // These are inlined methods to deal with pathnames and filenames.
 
@@ -150,14 +152,14 @@ inline bool IsWalFile(const std::string& pathname) {
 
 inline bool IsManifestFile(const std::string& pathname) {
   // extract last component of the path
-  std::string fname;
+  rocksdb::Slice fname;
   size_t offset = pathname.find_last_of(pathsep);
   if (offset != std::string::npos) {
-    fname = pathname.substr(offset + 1, pathname.size());
+    fname = rocksdb::Slice(&pathname[offset + 1], pathname.size() - offset - 1);
   } else {
     fname = pathname;
   }
-  if (fname.find("MANIFEST") == 0) {
+  if (fname.starts_with("MANIFEST")) {
     return true;
   }
   return false;
