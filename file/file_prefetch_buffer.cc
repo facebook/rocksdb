@@ -93,8 +93,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   // &bufs_[index].buffer_ is unused.
   Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
                           bufs_[index].buffer_.Destination(),
-                          &bufs_[index].buffer_,
-                          rate_limiter_priority);
+                          &bufs_[index].buffer_, rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
