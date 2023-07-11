@@ -224,7 +224,7 @@ inline void BlockFetcher::GetBlockContents() {
       } else {
         heap_buf_ = std::move(compressed_buf_);
       }
-    } else if (direct_io_buf_.get() != nullptr) {
+    } else if (direct_io_buf_.BufferStart() != nullptr) {
       if (compression_type_ == kNoCompression) {
         CopyBufferToHeapBuf();
       } else {

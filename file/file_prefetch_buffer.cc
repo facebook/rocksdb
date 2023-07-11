@@ -84,10 +84,17 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 Env::IOPriority rate_limiter_priority,
                                 uint64_t read_len, uint64_t chunk_len,
                                 uint64_t rounddown_start, uint32_t index) {
+  // TODO: why aren't we provided with a properly sized buffer?
+  // assert(chunk_len == bufs_[index].buffer_.CurrentSize());
+  bufs_[index].buffer_.Size(chunk_len);
+  assert(chunk_len + read_len <= bufs_[index].buffer_.Capacity());
   Slice result;
+  // TODO: this is confusing for the buffered I/O case as
+  // &bufs_[index].buffer_ is unused.
   Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
-                          bufs_[index].buffer_.BufferStart() + chunk_len,
-                          /*aligned_buf=*/nullptr, rate_limiter_priority);
+                          bufs_[index].buffer_.Destination(),
+                          &bufs_[index].buffer_,
+                          rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -100,6 +107,8 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   }
 
   // Update the buffer offset and size.
+  // TODO: this is confusing for the direct I/O case as these should already
+  // be set properly
   bufs_[index].offset_ = rounddown_start;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;

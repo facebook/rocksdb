@@ -1533,7 +1533,7 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 
   // Allocate the buffer. This is safe in C++11
   std::string buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer aligned_buf;
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;

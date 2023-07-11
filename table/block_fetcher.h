@@ -116,7 +116,7 @@ class BlockFetcher {
   IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
-  AlignedBuf direct_io_buf_;
+  AlignedBuffer direct_io_buf_;
   CacheAllocationPtr heap_buf_;
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];

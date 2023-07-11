@@ -135,7 +135,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     read_reqs.emplace_back(std::move(req));
   }
 
-  AlignedBuf direct_io_buf;
+  AlignedBuffer direct_io_buf;
   {
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);

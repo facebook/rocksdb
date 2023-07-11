@@ -89,7 +89,7 @@ class BlobFileReader {
                              const ReadOptions& read_options,
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
-                             AlignedBuf* aligned_buf,
+                             AlignedBuffer* aligned_buf,
                              Env::IOPriority rate_limiter_priority);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
