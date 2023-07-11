@@ -195,7 +195,6 @@ inline void CorrectNearOverflow(uint64_t old_meta,
 inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
                             uint64_t initial_countdown, bool* already_matches) {
   assert(*already_matches == false);
-
   // Optimistically transition the slot from "empty" to
   // "under construction" (no effect on other states)
   uint64_t old_meta = h.meta.fetch_or(
@@ -486,9 +485,6 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   // Do we have the available occupancy? Optimistically assume we do
   // and deal with it if we don't.
   size_t old_occupancy = occupancy_.fetch_add(1, std::memory_order_acquire);
-  auto revert_occupancy_fn = [&]() {
-    occupancy_.fetch_sub(1, std::memory_order_relaxed);
-  };
   // Whether we over-committed and need an eviction to make up for it
   bool need_evict_for_occupancy =
       !derived.GrowIfNeeded(old_occupancy + 1, state);
@@ -501,7 +497,8 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
     Status s = ChargeUsageMaybeEvictStrict<Table>(
         total_charge, capacity, need_evict_for_occupancy, state);
     if (!s.ok()) {
-      revert_occupancy_fn();
+      // Revert occupancy
+      occupancy_.fetch_sub(1, std::memory_order_relaxed);
       return s;
     }
   } else {
@@ -509,7 +506,8 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
     bool success = ChargeUsageMaybeEvictNonStrict<Table>(
         total_charge, capacity, need_evict_for_occupancy, state);
     if (!success) {
-      revert_occupancy_fn();
+      // Revert occupancy
+      occupancy_.fetch_sub(1, std::memory_order_relaxed);
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry
         // inserted into cache and evicted immediately.
@@ -522,11 +520,6 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
       }
     }
   }
-  auto revert_usage_fn = [&]() {
-    usage_.fetch_sub(total_charge, std::memory_order_relaxed);
-    // No underflow
-    assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
-  };
 
   if (!use_standalone_insert) {
     // Attempt a table insert, but abort if we find an existing entry for the
@@ -551,10 +544,14 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
       return Status::OK();
     }
     // Not inserted
-    revert_occupancy_fn();
+    // Revert occupancy
+    occupancy_.fetch_sub(1, std::memory_order_relaxed);
     // Maybe fall back on standalone insert
     if (handle == nullptr) {
-      revert_usage_fn();
+      // Revert usage
+      usage_.fetch_sub(total_charge, std::memory_order_relaxed);
+      // No underflow
+      assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
       // As if unrefed entry immdiately evicted
       proto.FreeData(allocator_);
       return Status::OK();
@@ -680,47 +677,52 @@ bool HyperClockTable::GrowIfNeeded(size_t new_occupancy, InsertState&) {
 HyperClockTable::HandleImpl* HyperClockTable::DoInsert(
     const ClockHandleBasicData& proto, uint64_t initial_countdown,
     bool keep_ref, InsertState&) {
-  size_t probe = 0;
   bool already_matches = false;
   HandleImpl* e = FindSlot(
       proto.hashed_key,
       [&](HandleImpl* h) {
-        // FIXME: simplify and handle in abort_fn below?
-        bool inserted =
-            TryInsert(proto, *h, initial_countdown, keep_ref, &already_matches);
-        return inserted || already_matches;
+        return TryInsert(proto, *h, initial_countdown, keep_ref,
+                         &already_matches);
       },
-      [&](HandleImpl* /*h*/) { return false; },
       [&](HandleImpl* h) {
-        h->displacements.fetch_add(1, std::memory_order_relaxed);
+        if (already_matches) {
+          // Stop searching & roll back displacements
+          Rollback(proto.hashed_key, h);
+          return true;
+        } else {
+          // Keep going
+          return false;
+        }
       },
-      probe);
-  if (e == nullptr) {
-    // Occupancy check and never abort FindSlot above should generally
-    // prevent this, except it's theoretically possible for other threads
-    // to evict and replace entries in the right order to hit every slot
-    // when it is populated. Assuming random hashing, the chance of that
-    // should be no higher than pow(kStrictLoadFactor, n) for n slots.
-    // That should be infeasible for roughly n >= 256, so if this assertion
-    // fails, that suggests something is going wrong.
-    assert(GetTableSize() < 256);
-    // WART/FIXME: need to roll back every slot
-    already_matches = true;
+      [&](HandleImpl* h, bool is_last) {
+        if (is_last) {
+          // Search is ending. Roll back displacements
+          Rollback(proto.hashed_key, h);
+        } else {
+          h->displacements.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  if (already_matches) {
+    // Insertion skipped
+    return nullptr;
   }
-  if (!already_matches) {
+  if (e != nullptr) {
     // Successfully inserted
-    assert(e);
     return e;
   }
-  // Roll back displacements from failed table insertion
-  Rollback(proto.hashed_key, e);
-  // Insertion skipped
+  // Else, no available slot found. Occupancy check should generally prevent
+  // this, except it's theoretically possible for other threads to evict and
+  // replace entries in the right order to hit every slot when it is populated.
+  // Assuming random hashing, the chance of that should be no higher than
+  // pow(kStrictLoadFactor, n) for n slots. That should be infeasible for
+  // roughly n >= 256, so if this assertion fails, that suggests something is
+  // going wrong.
+  assert(GetTableSize() < 256);
   return nullptr;
 }
 
 HyperClockTable::HandleImpl* HyperClockTable::Lookup(
     const UniqueId64x2& hashed_key) {
-  size_t probe = 0;
   HandleImpl* e = FindSlot(
       hashed_key,
       [&](HandleImpl* h) {
@@ -780,7 +782,7 @@ HyperClockTable::HandleImpl* HyperClockTable::Lookup(
       [&](HandleImpl* h) {
         return h->displacements.load(std::memory_order_relaxed) == 0;
       },
-      [&](HandleImpl* /*h*/) {}, probe);
+      [&](HandleImpl* /*h*/, bool /*is_last*/) {});
 
   return e;
 }
@@ -873,7 +875,6 @@ void HyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
 #endif
 
 void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
-  size_t probe = 0;
   (void)FindSlot(
       hashed_key,
       [&](HandleImpl* h) {
@@ -940,7 +941,7 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
       [&](HandleImpl* h) {
         return h->displacements.load(std::memory_order_relaxed) == 0;
       },
-      [&](HandleImpl* /*h*/) {}, probe);
+      [&](HandleImpl* /*h*/, bool /*is_last*/) {});
 }
 
 void HyperClockTable::ConstApplyToEntriesRange(
@@ -1005,10 +1006,10 @@ void HyperClockTable::EraseUnRefEntries() {
   }
 }
 
+template <typename MatchFn, typename AbortFn, typename UpdateFn>
 inline HyperClockTable::HandleImpl* HyperClockTable::FindSlot(
-    const UniqueId64x2& hashed_key, std::function<bool(HandleImpl*)> match_fn,
-    std::function<bool(HandleImpl*)> abort_fn,
-    std::function<void(HandleImpl*)> update_fn, size_t& probe) {
+    const UniqueId64x2& hashed_key, MatchFn match_fn, AbortFn abort_fn,
+    UpdateFn update_fn) {
   // NOTE: upper 32 bits of hashed_key[0] is used for sharding
   //
   // We use double-hashing probing. Every probe in the sequence is a
@@ -1022,20 +1023,21 @@ inline HyperClockTable::HandleImpl* HyperClockTable::FindSlot(
   // TODO: we could also reconsider linear probing, though locality benefits
   // are limited because each slot is a full cache line
   size_t increment = static_cast<size_t>(hashed_key[0]) | 1U;
-  size_t current = ModTableSize(base + probe * increment);
-  while (probe <= length_bits_mask_) {
+  size_t first = ModTableSize(base);
+  size_t current = first;
+  bool is_last;
+  do {
     HandleImpl* h = &array_[current];
     if (match_fn(h)) {
-      probe++;
       return h;
     }
     if (abort_fn(h)) {
       return nullptr;
     }
-    probe++;
-    update_fn(h);
     current = ModTableSize(current + increment);
-  }
+    is_last = current == first;
+    update_fn(h, is_last);
+  } while (!is_last);
   // We looped back.
   return nullptr;
 }
