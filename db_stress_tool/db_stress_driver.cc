@@ -18,7 +18,8 @@ void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
-  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()) {
+  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()
+      && !FLAGS_post_verification_only) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -31,8 +32,9 @@ void ThreadBody(void* v) {
       shared->GetCondVar()->Wait();
     }
   }
-  thread->shared->GetStressTest()->OperateDb(thread);
-
+  if (!FLAGS_post_verification_only) {
+     thread->shared->GetStressTest()->OperateDb(thread);
+  }
   {
     MutexLock l(shared->GetMutex());
     shared->IncOperated();
@@ -147,9 +149,13 @@ bool RunStressTestImpl(SharedState* shared) {
       stress->TrackExpectedState(shared);
     }
 
-    now = clock->NowMicros();
-    fprintf(stdout, "%s Starting database operations\n",
-            clock->TimeToString(now / 1000000).c_str());
+    if (!FLAGS_post_verification_only) {
+      now = clock->NowMicros();
+      fprintf(stdout, "%s Starting database operations\n",
+               clock->TimeToString(now / 1000000).c_str());
+    } else {
+       fprintf(stdout, "Skipping database operations\n");
+    }
 
     shared->SetStart();
     shared->GetCondVar()->SignalAll();
@@ -176,10 +182,18 @@ bool RunStressTestImpl(SharedState* shared) {
     }
   }
 
-  for (unsigned int i = 1; i < n; i++) {
-    threads[0]->stats.Merge(threads[i]->stats);
+  // If we are running post_verification_only
+  // stats will be empty and trying to report them will
+  // emit no ops or writes error. To avoid this, merging and reporting stats
+  // are not executed when running with post_verification_only
+  // TODO: We need to create verification stats (e.g. how many keys
+  // are verified by which method) and report them here instead of operation stats.
+  if (!FLAGS_post_verification_only){
+    for (unsigned int i = 1; i < n; i++) {
+      threads[0]->stats.Merge(threads[i]->stats);
+    }
+    threads[0]->stats.Report("Stress Test");
   }
-  threads[0]->stats.Report("Stress Test");
 
   for (unsigned int i = 0; i < n; i++) {
     delete threads[i];

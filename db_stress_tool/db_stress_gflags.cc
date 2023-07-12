@@ -1110,6 +1110,10 @@ DEFINE_uint64(stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
 DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
+
+DEFINE_bool(
+    post_verification_only, false,
+    "If true, tests will only execute post-verification step");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 
 DEFINE_uint32(memtable_max_range_deletions, 0,
