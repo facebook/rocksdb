@@ -371,8 +371,8 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
   // TODO: make these coundown values tuning parameters for eviction?
 
-  // See above
-  std::atomic<uint64_t> meta{};
+  // See above. Mutable for read reference counting.
+  mutable std::atomic<uint64_t> meta{};
 
   // Whether this is a "deteched" handle that is independently allocated
   // with `new` (so must be deleted with `delete`).
@@ -536,17 +536,13 @@ class HyperClockTable : public BaseClockTable {
 
   void Erase(const UniqueId64x2& hashed_key);
 
-  void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
-                                size_t index_begin, size_t index_end,
-                                bool apply_if_will_be_deleted) const;
-
   void EraseUnRefEntries();
 
   size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
-  int GetLengthBits() const { return length_bits_; }
-
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
+
+  const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
 #ifndef NDEBUG
   size_t& TEST_MutableOccupancyLimit() const {

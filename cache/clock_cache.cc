@@ -289,6 +289,46 @@ bool TryInsert(const ClockHandleBasicData& proto, ClockHandle& h,
   return b;
 }
 
+template <class HandleImpl, class Func>
+void ConstApplyToEntriesRange(Func /*const HandleImpl& -> void*/ func,
+                              const HandleImpl* begin, const HandleImpl* end,
+                              bool apply_if_will_be_deleted) {
+  uint64_t check_state_mask = ClockHandle::kStateShareableBit;
+  if (!apply_if_will_be_deleted) {
+    check_state_mask |= ClockHandle::kStateVisibleBit;
+  }
+
+  for (const HandleImpl* h = begin; h < end; ++h) {
+    // Note: to avoid using compare_exchange, we have to be extra careful.
+    uint64_t old_meta = h->meta.load(std::memory_order_relaxed);
+    // Check if it's an entry visible to lookups
+    if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
+      // Increment acquire counter. Note: it's possible that the entry has
+      // completely changed since we loaded old_meta, but incrementing acquire
+      // count is always safe. (Similar to optimistic Lookup here.)
+      old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
+                                   std::memory_order_acquire);
+      // Check whether we actually acquired a reference.
+      if ((old_meta >> ClockHandle::kStateShift) &
+          ClockHandle::kStateShareableBit) {
+        // Apply func if appropriate
+        if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
+          func(*h);
+        }
+        // Pretend we never took the reference
+        h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
+                          std::memory_order_release);
+        // No net change, so don't need to check for overflow
+      } else {
+        // For other states, incrementing the acquire counter has no effect
+        // so we don't need to undo it. Furthermore, we cannot safely undo
+        // it because we did not acquire a read reference to lock the
+        // entry in a Shareable state.
+      }
+    }
+  }
+}
+
 }  // namespace
 
 void ClockHandleBasicData::FreeData(MemoryAllocator* allocator) const {
@@ -944,47 +984,6 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
       [&](HandleImpl* /*h*/, bool /*is_last*/) {});
 }
 
-void HyperClockTable::ConstApplyToEntriesRange(
-    std::function<void(const HandleImpl&)> func, size_t index_begin,
-    size_t index_end, bool apply_if_will_be_deleted) const {
-  uint64_t check_state_mask = ClockHandle::kStateShareableBit;
-  if (!apply_if_will_be_deleted) {
-    check_state_mask |= ClockHandle::kStateVisibleBit;
-  }
-
-  for (size_t i = index_begin; i < index_end; i++) {
-    HandleImpl& h = array_[i];
-
-    // Note: to avoid using compare_exchange, we have to be extra careful.
-    uint64_t old_meta = h.meta.load(std::memory_order_relaxed);
-    // Check if it's an entry visible to lookups
-    if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-      // Increment acquire counter. Note: it's possible that the entry has
-      // completely changed since we loaded old_meta, but incrementing acquire
-      // count is always safe. (Similar to optimistic Lookup here.)
-      old_meta = h.meta.fetch_add(ClockHandle::kAcquireIncrement,
-                                  std::memory_order_acquire);
-      // Check whether we actually acquired a reference.
-      if ((old_meta >> ClockHandle::kStateShift) &
-          ClockHandle::kStateShareableBit) {
-        // Apply func if appropriate
-        if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-          func(h);
-        }
-        // Pretend we never took the reference
-        h.meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                         std::memory_order_release);
-        // No net change, so don't need to check for overflow
-      } else {
-        // For other states, incrementing the acquire counter has no effect
-        // so we don't need to undo it. Furthermore, we cannot safely undo
-        // it because we did not acquire a read reference to lock the
-        // entry in a Shareable state.
-      }
-    }
-  }
-}
-
 void HyperClockTable::EraseUnRefEntries() {
   for (size_t i = 0; i <= this->length_bits_mask_; i++) {
     HandleImpl& h = array_[i];
@@ -1150,35 +1149,32 @@ void ClockCacheShard<Table>::ApplyToSomeEntries(
                              size_t charge,
                              const Cache::CacheItemHelper* helper)>& callback,
     size_t average_entries_per_lock, size_t* state) {
-  // The state is essentially going to be the starting hash, which works
-  // nicely even if we resize between calls because we use upper-most
-  // hash bits for table indexes.
-  size_t length_bits = table_.GetLengthBits();
+  // The state will be a simple index into the table. Even with a dynamic
+  // hyper clock cache, entries will generally stay in their existing
+  // slots, so we don't need to be aware of the high-level organization
+  // that makes lookup efficient.
   size_t length = table_.GetTableSize();
 
   assert(average_entries_per_lock > 0);
-  // Assuming we are called with same average_entries_per_lock repeatedly,
-  // this simplifies some logic (index_end will not overflow).
-  assert(average_entries_per_lock < length || *state == 0);
 
-  size_t index_begin = *state >> (sizeof(size_t) * 8u - length_bits);
+  size_t index_begin = *state;
   size_t index_end = index_begin + average_entries_per_lock;
   if (index_end >= length) {
     // Going to end.
     index_end = length;
     *state = SIZE_MAX;
   } else {
-    *state = index_end << (sizeof(size_t) * 8u - length_bits);
+    *state = index_end;
   }
 
   auto hash_seed = table_.GetHashSeed();
-  table_.ConstApplyToEntriesRange(
+  ConstApplyToEntriesRange(
       [callback, hash_seed](const HandleImpl& h) {
         UniqueId64x2 unhashed;
         callback(ReverseHash(h.hashed_key, &unhashed, hash_seed), h.value,
                  h.GetTotalCharge(), h.helper);
       },
-      index_begin, index_end, false);
+      table_.HandlePtr(index_begin), table_.HandlePtr(index_end), false);
 }
 
 int HyperClockTable::CalcHashBits(
@@ -1335,7 +1331,7 @@ size_t ClockCacheShard<Table>::GetPinnedUsage() const {
   size_t table_pinned_usage = 0;
   const bool charge_metadata =
       metadata_charge_policy_ == kFullChargeCacheMetadata;
-  table_.ConstApplyToEntriesRange(
+  ConstApplyToEntriesRange(
       [&table_pinned_usage, charge_metadata](const HandleImpl& h) {
         uint64_t meta = h.meta.load(std::memory_order_relaxed);
         uint64_t refcount = GetRefcount(meta);
@@ -1348,7 +1344,7 @@ size_t ClockCacheShard<Table>::GetPinnedUsage() const {
           }
         }
       },
-      0, table_.GetTableSize(), true);
+      table_.HandlePtr(0), table_.HandlePtr(table_.GetTableSize()), true);
 
   return table_pinned_usage + table_.GetStandaloneUsage();
 }
