@@ -214,10 +214,13 @@ TEST_F(HandleTimestampSizeDifferenceTest,
       &batch, running_ts_sz, record_ts_sz,
       TimestampSizeConsistencyMode::kVerifyConsistency));
   std::unique_ptr<WriteBatch> new_batch(nullptr);
+  bool batch_updated = false;
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
       &batch, running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch,
+      &batch_updated));
   ASSERT_TRUE(new_batch.get() == nullptr);
+  ASSERT_FALSE(batch_updated);
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest, InvolvedColumnFamiliesConsistent) {
@@ -232,10 +235,13 @@ TEST_F(HandleTimestampSizeDifferenceTest, InvolvedColumnFamiliesConsistent) {
       &batch, running_ts_sz, record_ts_sz,
       TimestampSizeConsistencyMode::kVerifyConsistency));
   std::unique_ptr<WriteBatch> new_batch(nullptr);
+  bool batch_updated = false;
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
       &batch, running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch,
+      &batch_updated));
   ASSERT_TRUE(new_batch.get() == nullptr);
+  ASSERT_FALSE(batch_updated);
 }
 
 TEST_F(HandleTimestampSizeDifferenceTest,
@@ -253,10 +259,13 @@ TEST_F(HandleTimestampSizeDifferenceTest,
                   .IsInvalidArgument());
 
   std::unique_ptr<WriteBatch> new_batch(nullptr);
+  bool batch_updated = false;
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
       &batch, running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch,
+      &batch_updated));
   ASSERT_TRUE(new_batch.get() != nullptr);
+  ASSERT_TRUE(batch_updated);
   CheckContentsWithTimestampStripping(batch, *new_batch, sizeof(uint64_t),
                                       std::nullopt /* dropped_cf */);
 }
@@ -278,10 +287,13 @@ TEST_F(HandleTimestampSizeDifferenceTest,
                   .IsInvalidArgument());
 
   std::unique_ptr<WriteBatch> new_batch(nullptr);
+  bool batch_updated = false;
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
       &batch, running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch,
+      &batch_updated));
   ASSERT_TRUE(new_batch.get() != nullptr);
+  ASSERT_TRUE(batch_updated);
   CheckContentsWithTimestampPadding(batch, *new_batch, sizeof(uint64_t));
 }
 
@@ -293,14 +305,17 @@ TEST_F(HandleTimestampSizeDifferenceTest,
   WriteBatch batch;
   CreateWriteBatch(record_ts_sz, &batch);
   std::unique_ptr<WriteBatch> new_batch(nullptr);
+  bool batch_updated = false;
 
   // kReconcileInconsistency tolerate inconsistency for dropped column family
   // and all related entries copied over to the new WriteBatch.
   ASSERT_OK(HandleWriteBatchTimestampSizeDifference(
       &batch, running_ts_sz, record_ts_sz,
-      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch));
+      TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch,
+      &batch_updated));
 
   ASSERT_TRUE(new_batch.get() != nullptr);
+  ASSERT_TRUE(batch_updated);
   CheckContentsWithTimestampStripping(batch, *new_batch, sizeof(uint64_t),
                                       std::optional<uint32_t>(2));
 }
@@ -319,6 +334,122 @@ TEST_F(HandleTimestampSizeDifferenceTest, UnrecoverableInconsistency) {
   ASSERT_TRUE(HandleWriteBatchTimestampSizeDifference(
                   &batch, running_ts_sz, record_ts_sz,
                   TimestampSizeConsistencyMode::kReconcileInconsistency)
+                  .IsInvalidArgument());
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest, EnableUserDefinedTimestamps) {
+  bool mark_sst_files = false;
+  const Comparator* new_comparator = test::BytewiseComparatorWithU64TsWrapper();
+  const Comparator* old_comparator = BytewiseComparator();
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      new_comparator, std::string(old_comparator->Name()),
+      false /*new_persist_udt*/, true /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_TRUE(mark_sst_files);
+
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      new_comparator, std::string(old_comparator->Name()),
+      false /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_TRUE(mark_sst_files);
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest,
+     EnableUserDefinedTimestampsNewPersistUDTFlagIncorrect) {
+  bool mark_sst_files = false;
+  const Comparator* new_comparator = test::BytewiseComparatorWithU64TsWrapper();
+  const Comparator* old_comparator = BytewiseComparator();
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  new_comparator, std::string(old_comparator->Name()),
+                  true /*new_persist_udt*/, true /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  new_comparator, std::string(old_comparator->Name()),
+                  true /*new_persist_udt*/, false /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest, DisableUserDefinedTimestamps) {
+  bool mark_sst_files = false;
+  const Comparator* new_comparator = BytewiseComparator();
+  const Comparator* old_comparator = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      new_comparator, std::string(old_comparator->Name()),
+      false /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      new_comparator, std::string(old_comparator->Name()),
+      true /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest,
+     DisableUserDefinedTimestampsOldPersistUDTFlagIncorrect) {
+  bool mark_sst_files = false;
+  const Comparator* new_comparator = BytewiseComparator();
+  const Comparator* old_comparator = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  new_comparator, std::string(old_comparator->Name()),
+                  false /*new_persist_udt*/, true /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  new_comparator, std::string(old_comparator->Name()),
+                  true /*new_persist_udt*/, true /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest, UserComparatorUnchanged) {
+  bool mark_sst_files = false;
+  const Comparator* ucmp_without_ts = BytewiseComparator();
+  const Comparator* ucmp_with_ts = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_without_ts, std::string(ucmp_without_ts->Name()),
+      false /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_without_ts, std::string(ucmp_without_ts->Name()),
+      true /*new_persist_udt*/, true /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_without_ts, std::string(ucmp_without_ts->Name()),
+      true /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_without_ts, std::string(ucmp_without_ts->Name()),
+      false /*new_persist_udt*/, true /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_with_ts, std::string(ucmp_with_ts->Name()), true /*new_persist_udt*/,
+      true /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+  ASSERT_OK(ValidateUserDefinedTimestampsOptions(
+      ucmp_with_ts, std::string(ucmp_with_ts->Name()),
+      false /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));
+  ASSERT_FALSE(mark_sst_files);
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  ucmp_with_ts, std::string(ucmp_with_ts->Name()),
+                  true /*new_persist_udt*/, false /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  ucmp_with_ts, std::string(ucmp_with_ts->Name()),
+                  false /*new_persist_udt*/, true /*old_persist_udt*/,
+                  &mark_sst_files)
+                  .IsInvalidArgument());
+}
+
+TEST(ValidateUserDefinedTimestampsOptionsTest, InvalidUserComparatorChange) {
+  bool mark_sst_files = false;
+  const Comparator* new_comparator = BytewiseComparator();
+  const Comparator* old_comparator = ReverseBytewiseComparator();
+  ASSERT_TRUE(ValidateUserDefinedTimestampsOptions(
+                  new_comparator, std::string(old_comparator->Name()),
+                  false /*new_persist_udt*/, true /*old_persist_udt*/,
+                  &mark_sst_files)
                   .IsInvalidArgument());
 }
 }  // namespace ROCKSDB_NAMESPACE

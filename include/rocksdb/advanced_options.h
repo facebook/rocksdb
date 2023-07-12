@@ -1176,8 +1176,7 @@ struct AdvancedColumnFamilyOptions {
   // persisted to WAL even if this flag is set to `false`. The benefit of this
   // is that user-defined timestamps can be recovered with the caveat that users
   // should flush all memtables so there is no active WAL files before doing a
-  // downgrade or toggling on / off the user-defined timestamp feature on a
-  // column family.
+  // downgrade.
   //
   // Note that setting this flag to false is not supported in combination with
   // atomic flush, or concurrent memtable write enabled by

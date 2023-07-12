@@ -1206,35 +1206,37 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
       // We create a new batch and initialize with a valid prot_info_ to store
       // the data checksums
-      WriteBatch batch;
+      std::unique_ptr<WriteBatch> batch(new WriteBatch());
 
-      status = WriteBatchInternal::SetContents(&batch, record);
+      status = WriteBatchInternal::SetContents(batch.get(), record);
       if (!status.ok()) {
         return status;
       }
 
       const UnorderedMap<uint32_t, size_t>& record_ts_sz =
           reader.GetRecordedTimestampSize();
-      // TODO(yuzhangyu): update mode to kReconcileInconsistency when user
-      // comparator can be changed.
+      bool batch_updated = false;
       status = HandleWriteBatchTimestampSizeDifference(
-          &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kVerifyConsistency);
+          batch.get(), running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kReconcileInconsistency, &batch,
+          &batch_updated);
       if (!status.ok()) {
         return status;
       }
       TEST_SYNC_POINT_CALLBACK(
-          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch", &batch);
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
+          batch.get());
       TEST_SYNC_POINT_CALLBACK(
           "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
           &record_checksum);
       status = WriteBatchInternal::UpdateProtectionInfo(
-          &batch, 8 /* bytes_per_key */, &record_checksum);
+          batch.get(), 8 /* bytes_per_key */,
+          batch_updated ? nullptr : &record_checksum);
       if (!status.ok()) {
         return status;
       }
 
-      SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
+      SequenceNumber sequence = WriteBatchInternal::Sequence(batch.get());
 
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
@@ -1255,7 +1257,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // and returns true.
       if (!InvokeWalFilterIfNeededOnWalRecord(wal_number, fname, reporter,
                                               status, stop_replay_by_wal_filter,
-                                              batch)) {
+                                              *batch)) {
         continue;
       }
 
@@ -1266,7 +1268,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
       status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), &flush_scheduler_,
+          batch.get(), column_family_memtables_.get(), &flush_scheduler_,
           &trim_history_scheduler_, true, wal_number, this,
           false /* concurrent_memtable_writes */, next_sequence,
           &has_valid_writes, seq_per_batch_, batch_per_txn_);

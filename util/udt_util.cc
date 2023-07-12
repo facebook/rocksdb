@@ -100,6 +100,45 @@ Status CheckWriteBatchTimestampSizeConsistency(
   }
   return Status::OK();
 }
+
+enum class ToggleUDT {
+  kUnchanged,
+  kEnableUDT,
+  kDisableUDT,
+  kInvalidChange,
+};
+
+bool IsPrefix(const char* str, const char* prefix) {
+  return strncmp(str, prefix, strlen(prefix)) == 0;
+}
+
+ToggleUDT CompareComparator(const Comparator* new_comparator,
+                            const std::string& old_comparator_name) {
+  static const char* kUDTSuffix = ".u64ts";
+  static const size_t kSuffixSize = 6;
+  size_t ts_sz = new_comparator->timestamp_size();
+  (void)ts_sz;
+  const char* new_comparator_name = new_comparator->Name();
+  size_t new_name_size = strlen(new_comparator_name);
+  size_t old_name_size = old_comparator_name.size();
+  if (new_name_size == old_name_size &&
+      IsPrefix(new_comparator_name, old_comparator_name.data())) {
+    return ToggleUDT::kUnchanged;
+  }
+  if (new_name_size == old_name_size + kSuffixSize &&
+      IsPrefix(new_comparator_name, old_comparator_name.data()) &&
+      IsPrefix(new_comparator_name + old_name_size, kUDTSuffix)) {
+    assert(ts_sz == 8);
+    return ToggleUDT::kEnableUDT;
+  }
+  if (new_name_size + kSuffixSize == old_name_size &&
+      IsPrefix(old_comparator_name.data(), new_comparator_name) &&
+      IsPrefix(old_comparator_name.data() + new_name_size, kUDTSuffix)) {
+    assert(ts_sz == 0);
+    return ToggleUDT::kDisableUDT;
+  }
+  return ToggleUDT::kInvalidChange;
+}
 }  // namespace
 
 TimestampRecoveryHandler::TimestampRecoveryHandler(
@@ -237,7 +276,7 @@ Status HandleWriteBatchTimestampSizeDifference(
     const UnorderedMap<uint32_t, size_t>& running_ts_sz,
     const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>* new_batch) {
+    std::unique_ptr<WriteBatch>* new_batch, bool* batch_updated) {
   // Quick path to bypass checking the WriteBatch.
   if (AllRunningColumnFamiliesConsistent(running_ts_sz, record_ts_sz)) {
     return Status::OK();
@@ -249,6 +288,7 @@ Status HandleWriteBatchTimestampSizeDifference(
     return status;
   } else if (need_recovery) {
     assert(new_batch);
+    assert(batch_updated);
     SequenceNumber sequence = WriteBatchInternal::Sequence(batch);
     TimestampRecoveryHandler recovery_handler(running_ts_sz, record_ts_sz);
     status = batch->Iterate(&recovery_handler);
@@ -257,8 +297,54 @@ Status HandleWriteBatchTimestampSizeDifference(
     } else {
       *new_batch = recovery_handler.TransferNewBatch();
       WriteBatchInternal::SetSequence(new_batch->get(), sequence);
+      *batch_updated = true;
     }
   }
   return Status::OK();
+}
+
+Status ValidateUserDefinedTimestampsOptions(
+    const Comparator* new_comparator, const std::string& old_comparator_name,
+    bool new_persist_udt, bool old_persist_udt,
+    bool* mark_sst_files_has_no_udt) {
+  size_t ts_sz = new_comparator->timestamp_size();
+  ToggleUDT res = CompareComparator(new_comparator, old_comparator_name);
+  switch (res) {
+    case ToggleUDT::kUnchanged:
+      if (old_persist_udt == new_persist_udt) {
+        return Status::OK();
+      }
+      if (ts_sz == 0) {
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot toggle the persist_user_defined_timestamps flag for a column "
+          "family with user-defined timestamps feature enabled.");
+    case ToggleUDT::kEnableUDT:
+      if (!new_persist_udt) {
+        *mark_sst_files_has_no_udt = true;
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot open a column family and enable user-defined timestamps "
+          "feature without setting persist_user_defined_timestamps flag to "
+          "false.");
+    case ToggleUDT::kDisableUDT:
+      if (!old_persist_udt) {
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot open a column family and disable user-defined timestamps "
+          "feature if its existing persist_user_defined_timestamps flag is not "
+          "false.");
+    case ToggleUDT::kInvalidChange:
+      return Status::InvalidArgument(
+          new_comparator->Name(),
+          "does not match existing comparator " + old_comparator_name);
+    default:
+      break;
+  }
+  return Status::InvalidArgument(
+      "Unsupported user defined timestamps settings change.");
 }
 }  // namespace ROCKSDB_NAMESPACE

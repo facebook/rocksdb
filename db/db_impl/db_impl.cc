@@ -3191,6 +3191,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     edit.SetColumnFamily(new_id);
     edit.SetLogNumber(logfile_number_);
     edit.SetComparatorName(cf_options.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
