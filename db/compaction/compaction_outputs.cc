@@ -127,11 +127,7 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
-  assert(!internal_key.empty());
-  InternalKey ikey;
-  ikey.DecodeFrom(internal_key);
-  assert(ikey.Valid());
-
+  const Slice& ikey = internal_key; // alias, reduce code changes
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
   // Move the grandparent_index_ to the file containing the current user_key.
