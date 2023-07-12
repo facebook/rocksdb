@@ -438,6 +438,8 @@ class BaseClockTable {
                 typename Table::HandleImpl** handle, Cache::Priority priority,
                 size_t capacity, bool strict_capacity_limit);
 
+  void Ref(ClockHandle& handle);
+
   size_t GetOccupancy() const {
     return occupancy_.load(std::memory_order_relaxed);
   }
@@ -449,6 +451,13 @@ class BaseClockTable {
   }
 
   uint32_t GetHashSeed() const { return hash_seed_; }
+
+#ifndef NDEBUG
+  // Acquire N references
+  void TEST_RefN(ClockHandle& handle, size_t n);
+  // Helper for TEST_ReleaseN
+  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
+#endif
 
  protected:
   // We partition the following members into different cache lines
@@ -525,8 +534,6 @@ class HyperClockTable : public BaseClockTable {
 
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
 
-  void Ref(HandleImpl& handle);
-
   void Erase(const UniqueId64x2& hashed_key);
 
   void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
@@ -541,9 +548,9 @@ class HyperClockTable : public BaseClockTable {
 
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
 
-  // Acquire/release N references
-  void TEST_RefN(HandleImpl& handle, size_t n);
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+#ifndef NDEBUG
+  void TEST_ReleaseN(HandleImpl* h, size_t n);
+#endif
 
  private:  // functions
   // Returns x mod 2^{length_bits_}.

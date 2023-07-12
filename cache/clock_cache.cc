@@ -576,6 +576,42 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   return Status::OkOverwritten();
 }
 
+void BaseClockTable::Ref(ClockHandle& h) {
+  // Increment acquire counter
+  uint64_t old_meta = h.meta.fetch_add(ClockHandle::kAcquireIncrement,
+                                       std::memory_order_acquire);
+
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateShareableBit);
+  // Must have already had a reference
+  assert(GetRefcount(old_meta) > 0);
+  (void)old_meta;
+}
+
+#ifndef NDEBUG
+void BaseClockTable::TEST_RefN(ClockHandle& h, size_t n) {
+  // Increment acquire counter
+  uint64_t old_meta = h.meta.fetch_add(n * ClockHandle::kAcquireIncrement,
+                                       std::memory_order_acquire);
+
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateShareableBit);
+  (void)old_meta;
+}
+
+void BaseClockTable::TEST_ReleaseNMinus1(ClockHandle* h, size_t n) {
+  assert(n > 0);
+
+  // Like n-1 Releases, but assumes one more will happen in the caller to take
+  // care of anything like erasing an unreferenced, invisible entry.
+  uint64_t old_meta = h->meta.fetch_add(
+      (n - 1) * ClockHandle::kReleaseIncrement, std::memory_order_acquire);
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateShareableBit);
+  (void)old_meta;
+}
+#endif
+
 HyperClockTable::HyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
     CacheMetadataChargePolicy metadata_charge_policy,
@@ -824,40 +860,17 @@ bool HyperClockTable::Release(HandleImpl* h, bool useful,
   }
 }
 
-void HyperClockTable::Ref(HandleImpl& h) {
-  // Increment acquire counter
-  uint64_t old_meta = h.meta.fetch_add(ClockHandle::kAcquireIncrement,
-                                       std::memory_order_acquire);
-
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
-  // Must have already had a reference
-  assert(GetRefcount(old_meta) > 0);
-  (void)old_meta;
-}
-
-void HyperClockTable::TEST_RefN(HandleImpl& h, size_t n) {
-  // Increment acquire counter
-  uint64_t old_meta = h.meta.fetch_add(n * ClockHandle::kAcquireIncrement,
-                                       std::memory_order_acquire);
-
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
-  (void)old_meta;
-}
-
+#ifndef NDEBUG
 void HyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
   if (n > 0) {
-    // Split into n - 1 and 1 steps.
-    uint64_t old_meta = h->meta.fetch_add(
-        (n - 1) * ClockHandle::kReleaseIncrement, std::memory_order_acquire);
-    assert((old_meta >> ClockHandle::kStateShift) &
-           ClockHandle::kStateShareableBit);
-    (void)old_meta;
+    // Do n-1 simple releases first
+    TEST_ReleaseNMinus1(h, n);
 
+    // Then the last release might be more involved
     Release(h, /*useful*/ true, /*erase_if_last_ref*/ false);
   }
 }
+#endif
 
 void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
   size_t probe = 0;
@@ -1267,6 +1280,7 @@ bool ClockCacheShard<Table>::Release(HandleImpl* handle, bool useful,
   return table_.Release(handle, useful, erase_if_last_ref);
 }
 
+#ifndef NDEBUG
 template <class Table>
 void ClockCacheShard<Table>::TEST_RefN(HandleImpl* h, size_t n) {
   table_.TEST_RefN(*h, n);
@@ -1276,6 +1290,7 @@ template <class Table>
 void ClockCacheShard<Table>::TEST_ReleaseN(HandleImpl* h, size_t n) {
   table_.TEST_ReleaseN(h, n);
 }
+#endif
 
 template <class Table>
 bool ClockCacheShard<Table>::Release(HandleImpl* handle,
