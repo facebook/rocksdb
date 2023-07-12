@@ -89,11 +89,13 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   assert(chunk_len == bufs_[index].buffer_.CurrentSize());
   assert(chunk_len + read_len <= bufs_[index].buffer_.Capacity());
   Slice result;
-  // TODO: this is confusing for the buffered I/O case as
-  // &bufs_[index].buffer_ is unused.
-  Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
-                          bufs_[index].buffer_.Destination(),
-                          &bufs_[index].buffer_, rate_limiter_priority);
+  // The result will be populated either through `scratch` or `res_buf`,
+  // depending on whether direct I/O (which needs an `AlignedBuffer`) is
+  // enabled.
+  Status s =
+      reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
+                   bufs_[index].buffer_.Destination() /* scratch */,
+                   &bufs_[index].buffer_ /* res_buf */, rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore

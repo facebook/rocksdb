@@ -167,7 +167,7 @@ class RandomAccessFileReader {
   // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
   // rate limiter.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuffer* aligned_buf,
+                char* scratch, AlignedBuffer* res_buf,
                 Env::IOPriority rate_limiter_priority) const;
 
   // REQUIRES:
