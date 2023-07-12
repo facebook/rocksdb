@@ -3276,6 +3276,28 @@ TEST_F(CloudTest, ReplayCloudManifestDeltaTest) {
   CloseDB();
 }
 
+TEST_F(CloudTest, CreateIfMissing) {
+  options_.create_if_missing = false;
+  ASSERT_TRUE(checkOpen().IsNotFound());
+  options_.create_if_missing = true;
+  OpenDB();
+  CloseDB();
+
+  // delete `CURRENT` file
+  DestroyDir(dbname_);
+  OpenDB();
+  CloseDB();
+
+  // Delete `CLOUDMANFIEST` file in cloud
+  auto cloudManifestFile =
+      MakeCloudManifestFile(dbname_, cloud_fs_options_.new_cookie_on_open);
+  ASSERT_OK(GetCloudFileSystem()->GetStorageProvider()->DeleteCloudObject(
+      GetCloudFileSystem()->GetSrcBucketName(), cloudManifestFile));
+
+  options_.create_if_missing = false;
+  ASSERT_TRUE(checkOpen().IsNotFound());
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb
