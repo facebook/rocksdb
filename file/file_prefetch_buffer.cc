@@ -76,6 +76,8 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
     bufs_[index].buffer_.AllocateNewBuffer(
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
         chunk_offset_in_buffer, static_cast<size_t>(chunk_len));
+  } else {
+    bufs_[index].buffer_.Size(0);
   }
 }
 
@@ -84,9 +86,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 Env::IOPriority rate_limiter_priority,
                                 uint64_t read_len, uint64_t chunk_len,
                                 uint64_t rounddown_start, uint32_t index) {
-  // TODO: why aren't we provided with a properly sized buffer?
-  // assert(chunk_len == bufs_[index].buffer_.CurrentSize());
-  bufs_[index].buffer_.Size(chunk_len);
+  assert(chunk_len == bufs_[index].buffer_.CurrentSize());
   assert(chunk_len + read_len <= bufs_[index].buffer_.Capacity());
   Slice result;
   // TODO: this is confusing for the buffered I/O case as
