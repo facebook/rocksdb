@@ -318,16 +318,25 @@ class DBWALTestWithTimestamp
   DBWALTestWithTimestamp()
       : DBBasicTestWithTimestampBase("db_wal_test_with_timestamp") {}
 
+  void SetUp() override {
+    persist_udt_ = test::ShouldPersistUDT(GetParam());
+    DBBasicTestWithTimestampBase::SetUp();
+  }
+
   Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
-                                     const Options& options) {
+                                     const Options& options,
+                                     bool avoid_flush_during_recovery = false) {
     CreateColumnFamilies(cfs, options);
-    return ReopenColumnFamiliesWithTs(cfs, options);
+    return ReopenColumnFamiliesWithTs(cfs, options,
+                                      avoid_flush_during_recovery);
   }
 
   Status ReopenColumnFamiliesWithTs(const std::vector<std::string>& cfs,
-                                    Options ts_options) {
+                                    Options ts_options,
+                                    bool avoid_flush_during_recovery = false) {
     Options default_options = CurrentOptions();
     default_options.create_if_missing = false;
+    default_options.avoid_flush_during_recovery = avoid_flush_during_recovery;
     ts_options.create_if_missing = false;
 
     std::vector<Options> cf_options(cfs.size(), ts_options);
@@ -345,46 +354,88 @@ class DBWALTestWithTimestamp
   }
 
   void CheckGet(const ReadOptions& read_opts, uint32_t cf, const Slice& key,
-                const std::string& expected_value) {
+                const std::string& expected_value,
+                const std::string& expected_ts) {
     std::string actual_value;
-    ASSERT_OK(db_->Get(read_opts, handles_[cf], key, &actual_value));
+    std::string actual_ts;
+    ASSERT_OK(
+        db_->Get(read_opts, handles_[cf], key, &actual_value, &actual_ts));
     ASSERT_EQ(expected_value, actual_value);
+    ASSERT_EQ(expected_ts, actual_ts);
   }
+
+ protected:
+  bool persist_udt_;
 };
 
-TEST_F(DBWALTestWithTimestamp, Recover) {
+TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
   // Set up the option that enables user defined timestmp size.
-  std::string ts = Timestamp(1, 0);
-  const size_t kTimestampSize = ts.size();
+  std::string ts1 = Timestamp(1, 0);
+  const size_t kTimestampSize = ts1.size();
   TestComparator test_cmp(kTimestampSize);
   Options ts_options;
   ts_options.create_if_missing = true;
   ts_options.comparator = &test_cmp;
+  // Test that user-defined timestamps are recovered from WAL regardless of
+  // the value of this flag because UDTs are saved in WAL nonetheless.
+  // We however need to explicitly disable flush during recovery by setting
+  // `avoid_flush_during_recovery=true` so that we can avoid timestamps getting
+  // stripped when the `persist_user_defined_timestamps` flag is false, so that
+  // all written timestamps are available for testing user-defined time travel
+  // read.
+  ts_options.persist_user_defined_timestamps = persist_udt_;
+  bool avoid_flush_during_recovery = true;
 
   ReadOptions read_opts;
-  Slice ts_slice = ts;
-  read_opts.timestamp = &ts_slice;
   do {
-    ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
-    ASSERT_OK(Put(1, "foo", ts, "v1"));
-    ASSERT_OK(Put(1, "baz", ts, "v5"));
+    Slice ts_slice = ts1;
+    read_opts.timestamp = &ts_slice;
+    ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options,
+                                          avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_OK(Put(1, "foo", ts1, "v1"));
+    ASSERT_OK(Put(1, "baz", ts1, "v5"));
 
-    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
-    CheckGet(read_opts, 1, "foo", "v1");
-    CheckGet(read_opts, 1, "baz", "v5");
-    ASSERT_OK(Put(1, "bar", ts, "v2"));
-    ASSERT_OK(Put(1, "foo", ts, "v3"));
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options,
+                                         avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    // Do a timestamped read with ts1 after second reopen.
+    CheckGet(read_opts, 1, "foo", "v1", ts1);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
 
-    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
-    CheckGet(read_opts, 1, "foo", "v3");
-    ASSERT_OK(Put(1, "foo", ts, "v4"));
-    CheckGet(read_opts, 1, "foo", "v4");
-    CheckGet(read_opts, 1, "bar", "v2");
-    CheckGet(read_opts, 1, "baz", "v5");
+    // Write more value versions for key "foo" and "bar" before and after second
+    // reopen.
+    std::string ts2 = Timestamp(2, 0);
+    ASSERT_OK(Put(1, "bar", ts2, "v2"));
+    ASSERT_OK(Put(1, "foo", ts2, "v3"));
+
+    ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options,
+                                         avoid_flush_during_recovery));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    std::string ts3 = Timestamp(3, 0);
+    ASSERT_OK(Put(1, "foo", ts3, "v4"));
+
+    // Do a timestamped read with ts1 after third reopen.
+    CheckGet(read_opts, 1, "foo", "v1", ts1);
+    std::string value;
+    ASSERT_TRUE(db_->Get(read_opts, handles_[1], "bar", &value).IsNotFound());
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+
+    // Do a timestamped read with ts2 after third reopen.
+    ts_slice = ts2;
+    CheckGet(read_opts, 1, "foo", "v3", ts2);
+    CheckGet(read_opts, 1, "bar", "v2", ts2);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
+
+    // Do a timestamped read with ts3 after third reopen.
+    ts_slice = ts3;
+    CheckGet(read_opts, 1, "foo", "v4", ts3);
+    CheckGet(read_opts, 1, "bar", "v2", ts2);
+    CheckGet(read_opts, 1, "baz", "v5", ts1);
   } while (ChangeWalOptions());
 }
 
-TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
+TEST_P(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
   // Set up the option that enables user defined timestmp size.
   std::string ts = Timestamp(1, 0);
   const size_t kTimestampSize = ts.size();
@@ -392,11 +443,19 @@ TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
   Options ts_options;
   ts_options.create_if_missing = true;
   ts_options.comparator = &test_cmp;
+  ts_options.persist_user_defined_timestamps = persist_udt_;
 
   ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
   ASSERT_OK(Put(1, "foo", ts, "v1"));
   ASSERT_OK(Put(1, "baz", ts, "v5"));
 
+  // In real use cases, switching to a different user comparator is prohibited
+  // by a sanity check during DB open that does a user comparator name
+  // comparison. This test mocked and bypassed that sanity check because the
+  // before and after user comparator are both named "TestComparator". This is
+  // to test the user-defined timestamp recovery logic for WAL files have
+  // the intended consistency check.
+  // `HandleWriteBatchTimestampSizeDifference` in udt_util.h has more details.
   TestComparator diff_test_cmp(kTimestampSize + 1);
   ts_options.comparator = &diff_test_cmp;
   ASSERT_TRUE(
@@ -404,7 +463,7 @@ TEST_F(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
 }
 
 TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
-  // Set up the option that enables user defined timestmp size.
+  // Set up the option that enables user defined timestamp size.
   std::string min_ts = Timestamp(0, 0);
   std::string write_ts = Timestamp(1, 0);
   const size_t kTimestampSize = write_ts.size();
@@ -412,22 +471,21 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
   Options ts_options;
   ts_options.create_if_missing = true;
   ts_options.comparator = &test_cmp;
-  bool persist_udt = test::ShouldPersistUDT(GetParam());
-  ts_options.persist_user_defined_timestamps = persist_udt;
+  ts_options.persist_user_defined_timestamps = persist_udt_;
 
   std::string smallest_ukey_without_ts = "baz";
   std::string largest_ukey_without_ts = "foo";
 
   ASSERT_OK(CreateAndReopenWithCFWithTs({"pikachu"}, ts_options));
+  // No flush, no sst files, because of no data.
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
   ASSERT_OK(Put(1, largest_ukey_without_ts, write_ts, "v1"));
   ASSERT_OK(Put(1, smallest_ukey_without_ts, write_ts, "v5"));
 
-  // Very small write buffer size to force flush memtables recovered from WAL.
-  ts_options.write_buffer_size = 16;
-  ts_options.arena_block_size = 16;
   ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options));
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-            static_cast<uint64_t>(1));
+  // Memtable recovered from WAL flushed because `avoid_flush_during_recovery`
+  // defaults to false, created one L0 file.
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1U);
 
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
@@ -435,7 +493,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
   // L0 only has one SST file.
   ASSERT_EQ(level_to_files[0].size(), 1);
   auto meta = level_to_files[0][0];
-  if (persist_udt) {
+  if (persist_udt_) {
     ASSERT_EQ(smallest_ukey_without_ts + write_ts, meta.smallest.user_key());
     ASSERT_EQ(largest_ukey_without_ts + write_ts, meta.largest.user_key());
   } else {
@@ -446,7 +504,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
 
 // Param 0: test mode for the user-defined timestamp feature
 INSTANTIATE_TEST_CASE_P(
-    RecoverAndFlush, DBWALTestWithTimestamp,
+    DBWALTestWithTimestamp, DBWALTestWithTimestamp,
     ::testing::Values(
         test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
         test::UserDefinedTimestampTestMode::kNormal));

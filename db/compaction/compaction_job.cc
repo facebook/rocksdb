@@ -1096,17 +1096,17 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // GenSubcompactionBoundaries doesn't strip away the timestamp.
   size_t ts_sz = cfd->user_comparator()->timestamp_size();
   if (start.has_value()) {
-    read_options.iterate_lower_bound = &start.value();
+    read_options.iterate_lower_bound = &(*start);
     if (ts_sz > 0) {
-      start_without_ts = StripTimestampFromUserKey(start.value(), ts_sz);
-      read_options.iterate_lower_bound = &start_without_ts.value();
+      start_without_ts = StripTimestampFromUserKey(*start, ts_sz);
+      read_options.iterate_lower_bound = &(*start_without_ts);
     }
   }
   if (end.has_value()) {
-    read_options.iterate_upper_bound = &end.value();
+    read_options.iterate_upper_bound = &(*end);
     if (ts_sz > 0) {
-      end_without_ts = StripTimestampFromUserKey(end.value(), ts_sz);
-      read_options.iterate_upper_bound = &end_without_ts.value();
+      end_without_ts = StripTimestampFromUserKey(*end, ts_sz);
+      read_options.iterate_upper_bound = &(*end_without_ts);
     }
   }
 
@@ -1138,8 +1138,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   if (start.has_value()) {
-    start_ikey.SetInternalKey(start.value(), kMaxSequenceNumber,
-                              kValueTypeForSeek);
+    start_ikey.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
     if (ts_sz > 0) {
       start_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
                                    &ts_slice);
@@ -1148,7 +1147,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     start_user_key = start_ikey.GetUserKey();
   }
   if (end.has_value()) {
-    end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+    end_ikey.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
     if (ts_sz > 0) {
       end_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
                                  &ts_slice);
@@ -1289,8 +1288,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-    assert(!end.has_value() || cfd->user_comparator()->Compare(
-                                   c_iter->user_key(), end.value()) < 0);
+    assert(!end.has_value() ||
+           cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
 
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {
@@ -1818,10 +1817,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
   InternalKey tmp_start, tmp_end;
   if (sub_compact->start.has_value()) {
-    tmp_start.SetMinPossibleForUserKey(sub_compact->start.value());
+    tmp_start.SetMinPossibleForUserKey(*(sub_compact->start));
   }
   if (sub_compact->end.has_value()) {
-    tmp_end.SetMinPossibleForUserKey(sub_compact->end.value());
+    tmp_end.SetMinPossibleForUserKey(*(sub_compact->end));
   }
   uint64_t oldest_ancester_time =
       sub_compact->compaction->MinInputFileOldestAncesterTime(

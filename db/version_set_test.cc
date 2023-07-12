@@ -3320,7 +3320,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ++last_seqno_;
     assert(log_writer_.get() != nullptr);
     std::string record;
-    ASSERT_TRUE(edit.EncodeTo(&record));
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
     Status s = log_writer_->AddRecord(record);
     ASSERT_OK(s);
   }

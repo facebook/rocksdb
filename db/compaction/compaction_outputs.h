@@ -206,10 +206,10 @@ class CompactionOutputs {
       // We may only split the output when the cursor is in the range. Split
       if ((!end.has_value() ||
            icmp->user_comparator()->Compare(
-               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
-          (!start.has_value() || icmp->user_comparator()->Compare(
-                                     ExtractUserKey(output_split_key->Encode()),
-                                     start.value()) > 0)) {
+               ExtractUserKey(output_split_key->Encode()), *end) < 0) &&
+          (!start.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), *start) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }
