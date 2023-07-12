@@ -105,6 +105,7 @@ default_params = {
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
+    "post_verification_only": 0,
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -804,8 +805,7 @@ def blackbox_crash_main(args, unknown_args):
     # We should run the test one more time with VerifyOnly setup and no-timeout
     # Only do this if the tests are not failed for total-duration
     print("Running final time for verification")
-    ops_count = max(cmd_params.get("reopen", 0), 1)
-    cmd_params.update({"ops_per_thread": ops_count})
+    cmd_params.update({"post_verification_only": 1})
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )

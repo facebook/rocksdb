@@ -2423,6 +2423,8 @@ void StressTest::PrintEnv() const {
           FLAGS_use_get_entity ? "true" : "false");
   fprintf(stdout, "Use MultiGetEntity        : %s\n",
           FLAGS_use_multi_get_entity ? "true" : "false");
+  fprintf(stdout, "Post-verification only    : %s\n",
+          FLAGS_post_verification_only ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {
