@@ -1655,6 +1655,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       Version* version = cfd->current();
       version->Ref();
       const ReadOptions read_option(Env::IOActivity::kDBOpen);
+      uint64_t num_input_entries = 0;
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, read_option, cfd->table_cache(),
@@ -1664,7 +1665,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           io_tracer_, BlobFileCreationReason::kRecovery,
           empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, write_hint,
-          nullptr /*full_history_ts_low*/, &blob_callback_, version);
+          nullptr /*full_history_ts_low*/, &blob_callback_, version,
+          &num_input_entries);
       version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -1677,6 +1679,19 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       // TODO(AR) is this ok?
       if (!io_s.ok() && s.ok()) {
         s = io_s;
+      }
+
+      uint64_t total_num_entries = mem->num_entries();
+      if (s.ok() && total_num_entries != num_input_entries) {
+        std::string msg = "Expected " + std::to_string(total_num_entries) +
+                          " entries in memtable, but read " +
+                          std::to_string(num_input_entries);
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "[%s] [JOB %d] Level-0 flush during recover: %s",
+                       cfd->GetName().c_str(), job_id, msg.c_str());
+        if (immutable_db_options_.flush_verify_memtable_count) {
+          s = Status::Corruption(msg);
+        }
       }
     }
   }
