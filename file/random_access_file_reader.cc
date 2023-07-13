@@ -113,30 +113,25 @@ IOStatus RandomAccessFileReader::Read(
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
       size_t read_size =
           Roundup(static_cast<size_t>(offset + n), alignment) - aligned_offset;
-      size_t orig_size;
-      AlignedBuffer buf;
-      if (res_buf != nullptr && res_buf->Capacity() > 0) {
-        assert(res_buf->CurrentSize() + read_size <= res_buf->Capacity());
-        assert(alignment == res_buf->Alignment());
+      AlignedBuffer* buf;
+      AlignedBuffer internal_buf;
+      if (res_buf != nullptr) {
         assert(AlignedBuffer::isAligned(res_buf->CurrentSize(), alignment));
-        orig_size = res_buf->CurrentSize();
-        // Move it over to `buf` so it can be populated directly
-        // TODO: This is a hack and could be improved to be resilient to early
-        // returns added in the future or exceptions.
-        buf = std::move(*res_buf);
+        buf = res_buf;
       } else {
-        buf.Alignment(alignment);
-        buf.AllocateNewBuffer(read_size);
-        orig_size = 0;
+        buf = &internal_buf;
       }
+      buf->Alignment(alignment);
+      buf->AllocateNewBuffer(read_size, true /* copy_data */);
+      size_t orig_size = buf->CurrentSize();
 
-      while (buf.CurrentSize() - orig_size < read_size) {
-        size_t bytes_read = buf.CurrentSize() - orig_size;
+      while (buf->CurrentSize() - orig_size < read_size) {
+        size_t bytes_read = buf->CurrentSize() - orig_size;
         size_t allowed;
         if (rate_limiter_priority != Env::IO_TOTAL &&
             rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
-              read_size - bytes_read, buf.Alignment(), rate_limiter_priority,
+              read_size - bytes_read, buf->Alignment(), rate_limiter_priority,
               stats_, RateLimiter::OpType::kRead);
         } else {
           assert(bytes_read == 0);
@@ -159,7 +154,7 @@ IOStatus RandomAccessFileReader::Read(
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
           io_s = file_->Read(aligned_offset + bytes_read, allowed, opts, &tmp,
-                             buf.Destination(), nullptr);
+                             buf->Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
@@ -171,22 +166,20 @@ IOStatus RandomAccessFileReader::Read(
           }
         }
 
-        buf.Size(buf.CurrentSize() + tmp.size());
+        buf->Size(buf->CurrentSize() + tmp.size());
         if (!io_s.ok() || tmp.size() < allowed) {
           break;
         }
       }
-      size_t bytes_read = buf.CurrentSize() - orig_size;
+      size_t bytes_read = buf->CurrentSize() - orig_size;
       size_t res_len = 0;
       if (io_s.ok() && offset_advance < bytes_read) {
         res_len = std::min(bytes_read - offset_advance, n);
         if (res_buf == nullptr) {
           assert(orig_size == 0);
-          buf.Read(scratch, offset_advance, res_len);
+          buf->Read(scratch, offset_advance, res_len);
         } else {
-          scratch = buf.BufferStart() + orig_size + offset_advance;
-          // Hand it back
-          *res_buf = std::move(buf);
+          scratch = buf->BufferStart() + orig_size + offset_advance;
         }
       }
       *result = Slice(scratch, res_len);

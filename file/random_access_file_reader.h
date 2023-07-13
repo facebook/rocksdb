@@ -159,9 +159,9 @@ class RandomAccessFileReader {
   // In direct IO mode, an aligned buffer is allocated internally.
   // 1. If aligned_buf is null, then results are copied to the buffer
   // starting from scratch;
-  // 2. Otherwise, scratch is not used and can be null. The aligned_buf is
-  // expected to either be unallocated or contain enough unused capacity for the
-  // read request. The result refers to a region in aligned_buf.
+  // 2. Otherwise, scratch is not used and can be null. The aligned_buf may be
+  // nonempty but must have an aligned CurrentSize(). The result refers to a
+  // region in aligned_buf after the pre-existing data.
   //
   // `rate_limiter_priority` is used to charge the internal rate limiter when
   // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
