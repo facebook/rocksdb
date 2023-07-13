@@ -106,7 +106,7 @@ IOStatus RandomAccessFileReader::Read(
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
+    if (use_direct_io() || res_buf != nullptr) {
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));

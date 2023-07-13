@@ -79,6 +79,7 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
   } else {
     bufs_[index].buffer_.Size(0);
   }
+  assert(chunk_len == bufs_[index].buffer_.CurrentSize());
 }
 
 Status FilePrefetchBuffer::Read(const IOOptions& opts,
@@ -86,16 +87,14 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 Env::IOPriority rate_limiter_priority,
                                 uint64_t read_len, uint64_t chunk_len,
                                 uint64_t rounddown_start, uint32_t index) {
-  assert(chunk_len == bufs_[index].buffer_.CurrentSize());
+  // This assertion holding means the upcoming `Read()` won't need to allocate
+  // any buffer
   assert(chunk_len + read_len <= bufs_[index].buffer_.Capacity());
   Slice result;
-  // The result will be populated either through `scratch` or `res_buf`,
-  // depending on whether direct I/O (which needs an `AlignedBuffer`) is
-  // enabled.
   Status s =
       reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
-                   bufs_[index].buffer_.Destination() /* scratch */,
-                   &bufs_[index].buffer_ /* res_buf */, rate_limiter_priority);
+                   nullptr /* scratch */, &bufs_[index].buffer_ /* res_buf */,
+                   rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -107,11 +106,8 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
     return s;
   }
 
-  // Update the buffer offset and size.
-  // TODO: this is confusing for the direct I/O case as these should already
-  // be set properly
+  // Update the buffer offset.
   bufs_[index].offset_ = rounddown_start;
-  bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;
 }
 
