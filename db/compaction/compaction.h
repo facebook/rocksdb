@@ -31,8 +31,19 @@ namespace ROCKSDB_NAMESPACE {
 // that key never appears in the database. We don't want adjacent sstables to
 // be considered overlapping if they are separated by the range tombstone
 // sentinel.
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const Slice&, const Slice&);
+inline int sstableKeyCompare(const Comparator* user_cmp, const Slice& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a, b.Encode());
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const Slice& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b);
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b.Encode());
+}
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
                       const InternalKey& b);
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
