@@ -113,6 +113,13 @@ class AlignedBuffer {
     alignment_ = alignment;
   }
 
+  void Reserve(size_t requested_capacity) {
+    if (requested_capacity <= Capacity()) {
+      return;
+    }
+    AllocateNewBuffer(requested_capacity, true /* copy_data */);
+  }
+
   // Allocates a new buffer and sets the start position to the first aligned
   // byte.
   //
