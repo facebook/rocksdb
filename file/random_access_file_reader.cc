@@ -122,7 +122,8 @@ IOStatus RandomAccessFileReader::Read(
         buf = &internal_buf;
       }
       buf->Alignment(alignment);
-      buf->AllocateNewBuffer(read_size, true /* copy_data */);
+      buf->AllocateNewBuffer(res_buf->CurrentSize() + read_size,
+                             true /* copy_data */);
       size_t orig_size = buf->CurrentSize();
 
       while (buf->CurrentSize() - orig_size < read_size) {
