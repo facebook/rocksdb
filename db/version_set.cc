@@ -6330,14 +6330,14 @@ Status VersionSet::DumpManifest(
         std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::map<std::string, const ColumnFamilyDescriptor*> cf_name2cf_desc;
+  std::map<std::string, const ColumnFamilyDescriptor*> cf_name_to_desc;
   for (const auto& cf_desc : cf_descs) {
-    cf_name2cf_desc[cf_desc.name] = &cf_desc;
+    cf_name_to_desc[cf_desc.name] = &cf_desc;
   }
   std::vector<ColumnFamilyDescriptor> final_cf_descs;
   for (const auto& cf : column_families) {
-    const auto iter = cf_name2cf_desc.find(cf);
-    if (iter != cf_name2cf_desc.cend()) {
+    const auto iter = cf_name_to_desc.find(cf);
+    if (iter != cf_name_to_desc.cend()) {
       final_cf_descs.push_back(*iter->second);
     } else {
       final_cf_descs.emplace_back(cf, options);
