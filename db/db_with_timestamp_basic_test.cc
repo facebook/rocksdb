@@ -3273,6 +3273,76 @@ TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
   Close();
 }
 
+// Tests the effect of flag `persist_user_defined_timestamps` on the file
+// boundaries contained in the Manifest, a.k.a FileMetaData.smallest,
+// FileMetaData.largest.
+class HandleFileBoundariesTest
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<test::UserDefinedTimestampTestMode> {
+ public:
+  HandleFileBoundariesTest()
+      : DBBasicTestWithTimestampBase("/handle_file_boundaries") {}
+};
+
+TEST_P(HandleFileBoundariesTest, ConfigurePersistUdt) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  // Write a timestamp that is not the min timestamp to help test the behavior
+  // of flag `persist_user_defined_timestamps`.
+  std::string write_ts = Timestamp(1, 0);
+  std::string min_ts = Timestamp(0, 0);
+  std::string smallest_ukey_without_ts = "bar";
+  std::string largest_ukey_without_ts = "foo";
+  const size_t kTimestampSize = write_ts.size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  bool persist_udt = test::ShouldPersistUDT(GetParam());
+  options.persist_user_defined_timestamps = persist_udt;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), smallest_ukey_without_ts, write_ts, "val1"));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), largest_ukey_without_ts, write_ts, "val2"));
+
+  // Create a L0 SST file and its record is added to the Manfiest.
+  ASSERT_OK(Flush());
+  Close();
+
+  options.create_if_missing = false;
+  // Reopen the DB and process manifest file.
+  Reopen(options);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_GT(level_to_files.size(), 1);
+  // L0 only has one SST file.
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  auto file_meta = level_to_files[0][0];
+  if (persist_udt) {
+    ASSERT_EQ(smallest_ukey_without_ts + write_ts,
+              file_meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + write_ts, file_meta.largest.user_key());
+  } else {
+    // If `persist_user_defined_timestamps` is false, the file boundaries should
+    // have the min timestamp. Behind the scenes, when file boundaries in
+    // FileMetaData is persisted to Manifest, the original user-defined
+    // timestamps in user key are stripped. When manifest is read and processed
+    // during DB open, a min timestamp is padded to the file boundaries. This
+    // test's writes contain non min timestamp to verify this logic end-to-end.
+    ASSERT_EQ(smallest_ukey_without_ts + min_ts, file_meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + min_ts, file_meta.largest.user_key());
+  }
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(
+    ConfigurePersistUdt, HandleFileBoundariesTest,
+    ::testing::Values(
+        test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+        test::UserDefinedTimestampTestMode::kNormal));
+
 TEST_F(DBBasicTestWithTimestamp,
        GCPreserveRangeTombstoneWhenNoOrSmallFullHistoryLow) {
   Options options = CurrentOptions();

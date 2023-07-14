@@ -86,7 +86,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
         message << ' ';
       }
       // append the filename to the corruption message
-      message << "in file " << reader.file()->file_name();
+      message << " The file " << reader.file()->file_name()
+              << " may be corrupted.";
       // overwrite the status with the extended status
       s = Status(s.code(), s.subcode(), s.severity(), message.str());
     }
@@ -308,6 +309,17 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
+      // It's important to handle file boundaries before `MaybeCreateVersion`
+      // because `VersionEditHandlerPointInTime::MaybeCreateVersion` does
+      // `FileMetaData` verification that involves the file boundaries.
+      // All `VersionEditHandlerBase` subclasses that need to deal with
+      // `FileMetaData` for new files are also subclasses of
+      // `VersionEditHandler`, so it's sufficient to do the file boundaries
+      // handling in this method.
+      s = MaybeHandleFileBoundariesForNewFiles(edit, tmp_cfd);
+      if (!s.ok()) {
+        return s;
+      }
       s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
@@ -645,6 +657,47 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
   }
   return s;
+}
+
+Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
+    VersionEdit& edit, const ColumnFamilyData* cfd) {
+  if (edit.GetNewFiles().empty()) {
+    return Status::OK();
+  }
+  auto ucmp = cfd->user_comparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0) {
+    return Status::OK();
+  }
+
+  VersionEdit::NewFiles& new_files = edit.GetMutableNewFiles();
+  assert(!new_files.empty());
+  bool file_boundaries_need_handling = false;
+  for (auto& new_file : new_files) {
+    FileMetaData& meta = new_file.second;
+    if (meta.user_defined_timestamps_persisted) {
+      // `FileMetaData.user_defined_timestamps_persisted` field is the value of
+      // the flag `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+      // at the time when the SST file was created. As a result, all added SST
+      // files in one `VersionEdit` should have the same value for it.
+      if (file_boundaries_need_handling) {
+        return Status::Corruption(
+            "New files in one VersionEdit has different "
+            "user_defined_timestamps_persisted value.");
+      }
+      break;
+    }
+    file_boundaries_need_handling = true;
+    std::string smallest_buf;
+    std::string largest_buf;
+    PadInternalKeyWithMinTimestamp(&smallest_buf, meta.smallest.Encode(),
+                                   ts_sz);
+    PadInternalKeyWithMinTimestamp(&largest_buf, meta.largest.Encode(), ts_sz);
+    meta.smallest.DecodeFrom(smallest_buf);
+    meta.largest.DecodeFrom(largest_buf);
+  }
+  return Status::OK();
 }
 
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(

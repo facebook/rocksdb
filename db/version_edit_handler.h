@@ -206,6 +206,17 @@ class VersionEditHandler : public VersionEditHandlerBase {
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
+
+  // When `FileMetaData.user_defined_timestamps_persisted` is false and
+  // user-defined timestamp size is non-zero. User-defined timestamps are
+  // stripped from file boundaries: `smallest`, `largest` in
+  // `VersionEdit.DecodeFrom` before they were written to Manifest.
+  // This is the mirroring change to handle file boundaries on the Manifest read
+  // path for this scenario: to pad a minimum timestamp to the user key in
+  // `smallest` and `largest` so their format are consistent with the running
+  // user comparator.
+  Status MaybeHandleFileBoundariesForNewFiles(VersionEdit& edit,
+                                              const ColumnFamilyData* cfd);
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
