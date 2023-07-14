@@ -715,6 +715,62 @@ TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
   ASSERT_EQ(val.deleted, 1);
 }
 
+TEST_F(ClockCacheTest, ClockTableFull) {
+  // Force clock cache table to fill up (not usually allowed) in order
+  // to test full probe sequence that is theoretically possible due to
+  // parallel operations
+  NewShard(6, /*strict_capacity_limit*/ false);
+  size_t size = shard_->GetTableAddressCount();
+  ASSERT_LE(size + 3, 256);  // for using char keys
+  // Modify occupancy and capacity limits to attempt insert on full
+  shard_->TEST_MutableOccupancyLimit() = size + 100;
+  shard_->SetCapacity(size + 100);
+
+  DeleteCounter val;
+  std::vector<HandleImpl*> handles;
+  // NOTE: the three extra insertions should create standalone entries
+  for (size_t i = 0; i < size + 3; ++i) {
+    UniqueId64x2 hkey = TestHashedKey(static_cast<char>(i));
+    ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, &val, &kDeleteCounterHelper,
+                             1, &handles.emplace_back(),
+                             Cache::Priority::HIGH));
+  }
+
+  for (size_t i = 0; i < size + 3; ++i) {
+    UniqueId64x2 hkey = TestHashedKey(static_cast<char>(i));
+    HandleImpl* h = shard_->Lookup(TestKey(hkey), hkey);
+    if (i < size) {
+      ASSERT_NE(h, nullptr);
+      shard_->Release(h);
+    } else {
+      // Standalone entries not visible by lookup
+      ASSERT_EQ(h, nullptr);
+    }
+  }
+
+  for (size_t i = 0; i < size + 3; ++i) {
+    ASSERT_NE(handles[i], nullptr);
+    shard_->Release(handles[i]);
+    if (i < size) {
+      // Everything still in cache
+      ASSERT_EQ(val.deleted, 0);
+    } else {
+      // Standalone entries freed on release
+      ASSERT_EQ(val.deleted, i + 1 - size);
+    }
+  }
+
+  for (size_t i = size + 3; i > 0; --i) {
+    UniqueId64x2 hkey = TestHashedKey(static_cast<char>(i - 1));
+    shard_->Erase(TestKey(hkey), hkey);
+    if (i - 1 > size) {
+      ASSERT_EQ(val.deleted, 3);
+    } else {
+      ASSERT_EQ(val.deleted, 3 + size - (i - 1));
+    }
+  }
+}
+
 // This test is mostly to exercise some corner case logic, by forcing two
 // keys to have the same hash, and more
 TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
