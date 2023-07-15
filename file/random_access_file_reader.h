@@ -25,8 +25,6 @@ class Statistics;
 class HistogramImpl;
 class SystemClock;
 
-using AlignedBuf = std::unique_ptr<char[]>;
-
 // Align the request r according to alignment and return the aligned result.
 FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 
@@ -108,7 +106,7 @@ class RandomAccessFileReader {
     FileOperationInfo::StartTimePoint fs_start_ts_;
     // Below fields stores the parameters passed by caller in case of direct_io.
     char* user_scratch_;
-    AlignedBuf* user_aligned_buf_;
+    AlignedBuffer* user_aligned_buf_;
     uint64_t user_offset_;
     size_t user_len_;
     Slice user_result_;
@@ -161,15 +159,15 @@ class RandomAccessFileReader {
   // In direct IO mode, an aligned buffer is allocated internally.
   // 1. If aligned_buf is null, then results are copied to the buffer
   // starting from scratch;
-  // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
-  // the internally allocated buffer on return, and the result refers to a
-  // region in aligned_buf.
+  // 2. Otherwise, scratch is not used and can be null. The aligned_buf may be
+  // nonempty but must have an aligned CurrentSize(). The result refers to a
+  // region in aligned_buf after the pre-existing data.
   //
   // `rate_limiter_priority` is used to charge the internal rate limiter when
   // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
   // rate limiter.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_buf,
+                char* scratch, AlignedBuffer* res_buf,
                 Env::IOPriority rate_limiter_priority) const;
 
   // REQUIRES:
@@ -182,7 +180,7 @@ class RandomAccessFileReader {
   // It is not yet supported so the client must provide the special value
   // `Env::IO_TOTAL` to bypass the rate limiter.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf,
+                     size_t num_reqs, AlignedBuffer* aligned_buf,
                      Env::IOPriority rate_limiter_priority) const;
 
   IOStatus Prefetch(uint64_t offset, size_t n,
@@ -203,7 +201,7 @@ class RandomAccessFileReader {
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     AlignedBuf* aligned_buf);
+                     AlignedBuffer* aligned_buf);
 
   void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
 };

@@ -32,11 +32,10 @@ class AsyncFileReader {
 
   ~AsyncFileReader() {}
 
-  ReadOperation<ReadAwaiter> MultiReadAsync(RandomAccessFileReader* file,
-                                            const IOOptions& opts,
-                                            FSReadRequest* read_reqs,
-                                            size_t num_reqs,
-                                            AlignedBuf* aligned_buf) noexcept {
+  ReadOperation<ReadAwaiter> MultiReadAsync(
+      RandomAccessFileReader* file, const IOOptions& opts,
+      FSReadRequest* read_reqs, size_t num_reqs,
+      AlignedBuffer* aligned_buf) noexcept {
     return ReadOperation<ReadAwaiter>{*this,     file,     opts,
                                       read_reqs, num_reqs, aligned_buf};
   }
@@ -49,7 +48,8 @@ class AsyncFileReader {
    public:
     explicit ReadAwaiter(AsyncFileReader& reader, RandomAccessFileReader* file,
                          const IOOptions& opts, FSReadRequest* read_reqs,
-                         size_t num_reqs, AlignedBuf* /*aligned_buf*/) noexcept
+                         size_t num_reqs,
+                         AlignedBuffer* /*aligned_buf*/) noexcept
         : reader_(reader),
           file_(file),
           opts_(opts),
@@ -101,7 +101,7 @@ class AsyncFileReader {
     explicit ReadOperation(AsyncFileReader& reader,
                            RandomAccessFileReader* file, const IOOptions& opts,
                            FSReadRequest* read_reqs, size_t num_reqs,
-                           AlignedBuf* aligned_buf) noexcept
+                           AlignedBuffer* aligned_buf) noexcept
         : reader_(reader),
           file_(file),
           opts_(opts),
@@ -121,7 +121,7 @@ class AsyncFileReader {
     const IOOptions& opts_;
     FSReadRequest* read_reqs_;
     size_t num_reqs_;
-    AlignedBuf* aligned_buf_;
+    AlignedBuffer* aligned_buf_;
   };
 
   // This function does the actual work when this awaitable starts execution

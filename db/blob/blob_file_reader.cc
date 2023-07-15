@@ -146,7 +146,7 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
 
   Slice header_slice;
   Buffer buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer aligned_buf;
 
   {
     TEST_SYNC_POINT("BlobFileReader::ReadHeader:ReadFromFile");
@@ -199,7 +199,7 @@ Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
 
   Slice footer_slice;
   Buffer buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer aligned_buf;
 
   {
     TEST_SYNC_POINT("BlobFileReader::ReadFooter:ReadFromFile");
@@ -242,7 +242,7 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                                     const ReadOptions& read_options,
                                     uint64_t read_offset, size_t read_size,
                                     Statistics* statistics, Slice* slice,
-                                    Buffer* buf, AlignedBuf* aligned_buf,
+                                    Buffer* buf, AlignedBuffer* aligned_buf,
                                     Env::IOPriority rate_limiter_priority) {
   assert(slice);
   assert(buf);
@@ -267,7 +267,7 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                           aligned_buf, rate_limiter_priority);
   } else {
     buf->reset(new char[read_size]);
-    constexpr AlignedBuf* aligned_scratch = nullptr;
+    constexpr AlignedBuffer* aligned_scratch = nullptr;
 
     s = file_reader->Read(io_options, read_offset, read_size, slice, buf->get(),
                           aligned_scratch, rate_limiter_priority);
@@ -330,7 +330,7 @@ Status BlobFileReader::GetBlob(
 
   Slice record_slice;
   Buffer buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer aligned_buf;
 
   bool prefetched = false;
 
@@ -449,7 +449,7 @@ void BlobFileReader::MultiGetBlob(
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
   Buffer buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer aligned_buf;
 
   Status s;
   bool direct_io = file_reader_->use_direct_io();

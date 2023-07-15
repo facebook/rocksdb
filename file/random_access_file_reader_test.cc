@@ -81,8 +81,8 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   size_t offset = page_size / 2;
   size_t len = page_size / 3;
   Slice result;
-  AlignedBuf buf;
   for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
+    AlignedBuffer buf;
     ASSERT_OK(r->Read(IOOptions(), offset, len, &result, nullptr, &buf,
                       rate_limiter_priority));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
@@ -145,7 +145,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuf aligned_buf;
+    AlignedBuffer aligned_buf;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
                            Env::IO_TOTAL /*rate_limiter_priority*/));
 
@@ -190,7 +190,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuf aligned_buf;
+    AlignedBuffer aligned_buf;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
                            Env::IO_TOTAL /*rate_limiter_priority*/));
 
@@ -235,7 +235,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuf aligned_buf;
+    AlignedBuffer aligned_buf;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
                            Env::IO_TOTAL /*rate_limiter_priority*/));
 
@@ -272,7 +272,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuf aligned_buf;
+    AlignedBuffer aligned_buf;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
                            Env::IO_TOTAL /*rate_limiter_priority*/));
 
