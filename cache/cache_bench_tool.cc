@@ -77,6 +77,10 @@ DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
             "operations.");
 
+DEFINE_bool(early_exit, false,
+            "Exit before deallocating most memory. Good for malloc stats, e.g."
+            "MALLOC_CONF=\"stats_print:true\"");
+
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
@@ -592,6 +596,10 @@ class CacheBench {
         assert(random_op >= kHundredthUint64 * 100U);
       }
       thread->latency_ns_hist.Add(timer.ElapsedNanos());
+    }
+    if (FLAGS_early_exit) {
+      MutexLock l(thread->shared->GetMutex());
+      exit(0);
     }
     if (handle) {
       cache_->Release(handle);

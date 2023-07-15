@@ -549,7 +549,12 @@ class HyperClockTable : public BaseClockTable {
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
 
 #ifndef NDEBUG
-  void TEST_ReleaseN(HandleImpl* h, size_t n);
+  size_t& TEST_MutableOccupancyLimit() const {
+    return const_cast<size_t&>(occupancy_limit_);
+  }
+
+  // Release N references
+  void TEST_ReleaseN(HandleImpl* handle, size_t n);
 #endif
 
  private:  // functions
@@ -558,22 +563,18 @@ class HyperClockTable : public BaseClockTable {
     return static_cast<size_t>(x) & length_bits_mask_;
   }
 
-  // Returns the first slot in the probe sequence, starting from the given
-  // probe number, with a handle e such that match(e) is true. At every
-  // step, the function first tests whether match(e) holds. If this is false,
-  // it evaluates abort(e) to decide whether the search should be aborted,
-  // and in the affirmative returns -1. For every handle e probed except
-  // the last one, the function runs update(e).
-  // The probe parameter is modified as follows. We say a probe to a handle
-  // e is aborting if match(e) is false and abort(e) is true. Then the final
-  // value of probe is one more than the last non-aborting probe during the
-  // call. This is so that that the variable can be used to keep track of
-  // progress across consecutive calls to FindSlot.
-  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key,
-                              std::function<bool(HandleImpl*)> match,
-                              std::function<bool(HandleImpl*)> stop,
-                              std::function<void(HandleImpl*)> update,
-                              size_t& probe);
+  // Returns the first slot in the probe sequence with a handle e such that
+  // match_fn(e) is true. At every step, the function first tests whether
+  // match_fn(e) holds. If this is false, it evaluates abort_fn(e) to decide
+  // whether the search should be aborted, and if so, FindSlot immediately
+  // returns nullptr. For every handle e that is not a match and not aborted,
+  // FindSlot runs update_fn(e, is_last) where is_last is set to true iff that
+  // slot will be the last probed because the next would cycle back to the first
+  // slot probed. This function uses templates instead of std::function to
+  // minimize the risk of heap-allocated closures being created.
+  template <typename MatchFn, typename AbortFn, typename UpdateFn>
+  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key, MatchFn match_fn,
+                              AbortFn abort_fn, UpdateFn update_fn);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
@@ -704,9 +705,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return Lookup(key, hashed_key);
   }
 
+#ifndef NDEBUG
+  size_t& TEST_MutableOccupancyLimit() const {
+    return table_.TEST_MutableOccupancyLimit();
+  }
   // Acquire/release N references
   void TEST_RefN(HandleImpl* handle, size_t n);
   void TEST_ReleaseN(HandleImpl* handle, size_t n);
+#endif
 
  private:  // data
   Table table_;
