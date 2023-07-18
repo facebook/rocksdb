@@ -712,12 +712,12 @@ std::shared_ptr<Cache> LRUCacheOptions::MakeSharedCache() const {
   return cache;
 }
 
-std::shared_ptr<GeneralCache> LRUCacheOptions::MakeSharedGeneralCache() const {
+std::shared_ptr<RowCache> LRUCacheOptions::MakeSharedRowCache() const {
   if (secondary_cache) {
-    // Not allowed for a GeneralCache
+    // Not allowed for a RowCache
     return nullptr;
   }
-  // Works while GeneralCache is an alias for Cache
+  // Works while RowCache is an alias for Cache
   return MakeSharedCache();
 }
 }  // namespace ROCKSDB_NAMESPACE

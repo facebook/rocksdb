@@ -6902,16 +6902,16 @@ TEST_F(DBTest, RowCache) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   LRUCacheOptions cache_options;
   cache_options.capacity = 8192;
-  options.row_cache = cache_options.MakeSharedGeneralCache();
+  options.row_cache = cache_options.MakeSharedRowCache();
   // BEGIN check that Cache classes as aliases of each other.
-  // Currently, GeneralCache and BlockCache are aliases for Cache.
+  // Currently, RowCache and BlockCache are aliases for Cache.
   // This is expected to change (carefully, intentionally)
-  std::shared_ptr<GeneralCache> general_cache = options.row_cache;
-  std::shared_ptr<Cache> cache = general_cache;
-  std::shared_ptr<BlockCache> block_cache = general_cache;
-  general_cache = cache;
+  std::shared_ptr<RowCache> row_cache = options.row_cache;
+  std::shared_ptr<Cache> cache = row_cache;
+  std::shared_ptr<BlockCache> block_cache = row_cache;
+  row_cache = cache;
   block_cache = cache;
-  general_cache = block_cache;
+  row_cache = block_cache;
   cache = block_cache;
   // END check that Cache classes as aliases of each other.
   DestroyAndReopen(options);
