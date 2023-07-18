@@ -371,8 +371,8 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
   // TODO: make these coundown values tuning parameters for eviction?
 
-  // See above
-  std::atomic<uint64_t> meta{};
+  // See above. Mutable for read reference counting.
+  mutable std::atomic<uint64_t> meta{};
 
   // Whether this is a "deteched" handle that is independently allocated
   // with `new` (so must be deleted with `delete`).
@@ -397,41 +397,11 @@ class BaseClockTable {
         eviction_callback_(*eviction_callback),
         hash_seed_(*hash_seed) {}
 
-  // Creates a "standalone" handle for returning from an Insert operation that
-  // cannot be completed by actually inserting into the table.
-  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
-  template <class HandleImpl>
-  HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
-
   template <class Table>
   typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
                                                size_t capacity,
                                                bool strict_capacity_limit,
                                                bool allow_uncharged);
-
-  // Helper for updating `usage_` for new entry with given `total_charge`
-  // and evicting if needed under strict_capacity_limit=true rules. This
-  // means the operation might fail with Status::MemoryLimit. If
-  // `need_evict_for_occupancy`, then eviction of at least one entry is
-  // required, and the operation should fail if not possible.
-  // NOTE: Otherwise, occupancy_ is not managed in this function
-  template <class Table>
-  Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
-                                     bool need_evict_for_occupancy,
-                                     typename Table::InsertState& state);
-
-  // Helper for updating `usage_` for new entry with given `total_charge`
-  // and evicting if needed under strict_capacity_limit=false rules. This
-  // means that updating `usage_` always succeeds even if forced to exceed
-  // capacity. If `need_evict_for_occupancy`, then eviction of at least one
-  // entry is required, and the operation should return false if such eviction
-  // is not possible. `usage_` is not updated in that case. Otherwise, returns
-  // true, indicating success.
-  // NOTE: occupancy_ is not managed in this function
-  template <class Table>
-  bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
-                                      bool need_evict_for_occupancy,
-                                      typename Table::InsertState& state);
 
   template <class Table>
   Status Insert(const ClockHandleBasicData& proto,
@@ -459,7 +429,38 @@ class BaseClockTable {
   void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
 #endif
 
- protected:
+ private:  // fns
+  // Creates a "standalone" handle for returning from an Insert operation that
+  // cannot be completed by actually inserting into the table.
+  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
+  template <class HandleImpl>
+  HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=true rules. This
+  // means the operation might fail with Status::MemoryLimit. If
+  // `need_evict_for_occupancy`, then eviction of at least one entry is
+  // required, and the operation should fail if not possible.
+  // NOTE: Otherwise, occupancy_ is not managed in this function
+  template <class Table>
+  Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
+                                     bool need_evict_for_occupancy,
+                                     typename Table::InsertState& state);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=false rules. This
+  // means that updating `usage_` always succeeds even if forced to exceed
+  // capacity. If `need_evict_for_occupancy`, then eviction of at least one
+  // entry is required, and the operation should return false if such eviction
+  // is not possible. `usage_` is not updated in that case. Otherwise, returns
+  // true, indicating success.
+  // NOTE: occupancy_ is not managed in this function
+  template <class Table>
+  bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
+                                      bool need_evict_for_occupancy,
+                                      typename Table::InsertState& state);
+
+ protected:  // data
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
   // operations in ClockCacheShard.
@@ -536,17 +537,13 @@ class HyperClockTable : public BaseClockTable {
 
   void Erase(const UniqueId64x2& hashed_key);
 
-  void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
-                                size_t index_begin, size_t index_end,
-                                bool apply_if_will_be_deleted) const;
-
   void EraseUnRefEntries();
 
   size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
-  int GetLengthBits() const { return length_bits_; }
-
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
+
+  const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
 #ifndef NDEBUG
   size_t& TEST_MutableOccupancyLimit() const {
