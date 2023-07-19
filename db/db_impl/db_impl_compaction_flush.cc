@@ -852,8 +852,8 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     }
   }
   mutex_.Lock();
-// no need to signal bg_cv_ as it will be signaled at the end of the
-// flush process.
+  // no need to signal bg_cv_ as it will be signaled at the end of the
+  // flush process.
 }
 
 void DBImpl::NotifyOnFlushCompleted(
@@ -2775,7 +2775,7 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 
 DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
-  FlushRequest flush_req = flush_queue_.front();
+  FlushRequest flush_req = std::move(flush_queue_.front());
   flush_queue_.pop_front();
   if (!immutable_db_options_.atomic_flush) {
     assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
@@ -2970,14 +2970,12 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   autovector<ColumnFamilyData*> column_families_not_to_flush;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
-    const FlushRequest& flush_req = PopFirstFromFlushQueue();
-    FlushReason flush_reason = flush_req.flush_reason;
+    auto [flush_reason, cfd_to_max_mem_id_to_persist] =
+        PopFirstFromFlushQueue();
     superversion_contexts.clear();
-    superversion_contexts.reserve(
-        flush_req.cfd_to_max_mem_id_to_persist.size());
+    superversion_contexts.reserve(cfd_to_max_mem_id_to_persist.size());
 
-    for (const auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
-      ColumnFamilyData* cfd = iter.first;
+    for (const auto& [cfd, max_memtable_id] : cfd_to_max_mem_id_to_persist) {
       if (cfd->GetMempurgeUsed()) {
         // If imm() contains silent memtables (e.g.: because
         // MemPurge was activated), requesting a flush will
@@ -2991,7 +2989,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         continue;
       }
       superversion_contexts.emplace_back(SuperVersionContext(true));
-      bg_flush_args.emplace_back(cfd, iter.second,
+      bg_flush_args.emplace_back(cfd, max_memtable_id,
                                  &(superversion_contexts.back()), flush_reason);
     }
     if (!bg_flush_args.empty()) {
