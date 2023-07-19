@@ -252,6 +252,42 @@ class ReplicationTest : public testing::Test {
     }
   }
 
+  std::vector<std::string> getAllKeys(DB* db, ColumnFamilyHandle* cf) {
+      auto itr = std::unique_ptr<Iterator>(
+          db->NewIterator(ReadOptions(), cf));
+        
+      itr->SeekToFirst();
+      std::vector<std::string> keys;
+      while (itr->Valid()) {
+        keys.push_back(itr->key().ToString());
+        itr->Next();
+      }
+      return keys;
+  }
+
+  void verifyEqual() {
+    ASSERT_EQ(leader_cfs_.size(), follower_cfs_.size());
+    auto leader = leader_db_.get(), follower = follower_db_.get();
+    for (auto& [name, cf1]: leader_cfs_) {
+      auto cf2 = followerCF(name);
+      verifyNextLogNumAndReplSeqConsistency(name);
+
+      auto itrLeader = std::unique_ptr<Iterator>(
+          leader->NewIterator(ReadOptions(), cf1.get()));
+      auto itrFollower = std::unique_ptr<Iterator>(
+          follower->NewIterator(ReadOptions(), cf2));
+      itrLeader->SeekToFirst();
+      itrFollower->SeekToFirst();
+      while (itrLeader->Valid() && itrFollower->Valid()) {
+        ASSERT_EQ(itrLeader->key(), itrFollower->key());
+        ASSERT_EQ(itrLeader->value(), itrFollower->value());
+        itrLeader->Next();
+        itrFollower->Next();
+      }
+      ASSERT_TRUE(!itrLeader->Valid() && !itrFollower->Valid());
+    }
+  }
+
 protected:
   std::shared_ptr<Logger> info_log_;
   void resetFollowerSequence(int new_seq) {
@@ -1065,7 +1101,7 @@ TEST_F(ReplicationTest, EvictObsoleteFiles) {
 TEST_F(ReplicationTest, Stress) {
   std::string val;
   auto leader = openLeader();
-  auto follower = openFollower();
+  openFollower();
 
   auto cf = [](int i) { return "cf" + std::to_string(i); };
 
@@ -1092,27 +1128,6 @@ TEST_F(ReplicationTest, Stress) {
     }
   };
 
-  auto verify_equal = [&]() {
-    for (int i = 0; i < kColumnFamilyCount; ++i) {
-      // check that next log number is the same between leader and follower
-      verifyNextLogNumAndReplSeqConsistency(cf(i));
-
-      auto itrLeader = std::unique_ptr<Iterator>(
-          leader->NewIterator(ReadOptions(), leaderCF(cf(i))));
-      auto itrFollower = std::unique_ptr<Iterator>(
-          follower->NewIterator(ReadOptions(), followerCF(cf(i))));
-      itrLeader->SeekToFirst();
-      itrFollower->SeekToFirst();
-      while (itrLeader->Valid() && itrFollower->Valid()) {
-        ASSERT_EQ(itrLeader->key(), itrFollower->key());
-        ASSERT_EQ(itrLeader->value(), itrFollower->value());
-        itrLeader->Next();
-        itrFollower->Next();
-      }
-      ASSERT_TRUE(!itrLeader->Valid() && !itrFollower->Valid());
-    }
-  };
-
   std::vector<std::thread> threads;
   for (size_t i = 0; i < kThreadCount; ++i) {
     threads.emplace_back([&]() { do_writes(kWritesPerThread); });
@@ -1125,21 +1140,65 @@ TEST_F(ReplicationTest, Stress) {
 
   catchUpFollower();
 
-  verify_equal();
+  verifyEqual();
 
   // Reopen leader
   closeLeader();
   leader = openLeader();
   ASSERT_OK(leader->Flush(FlushOptions()));
 
-  verify_equal();
+  verifyEqual();
 
   // Reopen follower
   closeFollower();
-  follower = openFollower();
+  openFollower();
   catchUpFollower();
 
-  verify_equal();
+  verifyEqual();
+}
+
+TEST_F(ReplicationTest, DeleteRange) {
+  auto leader = openLeader();
+  openFollower();
+  auto cf = [](int i) { return "cf" + std::to_string(i); };
+  constexpr auto kColumnFamilyCount = 2;
+  constexpr auto kNumKeys = 100;
+  for (int i = 0; i < kColumnFamilyCount; ++i) {
+    createColumnFamily(cf(i));
+  }
+
+  auto writeKey = [&](const std::string& key) {
+    rocksdb::WriteBatch wb;
+    for (int j = 0; j < kColumnFamilyCount; j++) {
+      wb.Put(leaderCF(cf(j)), key, key);
+    }
+    ASSERT_OK(leader->Write(wo(), &wb));
+  };
+
+  for (int i = 0; i < kNumKeys / 2; i++) {
+    writeKey(std::to_string(i));
+  }
+
+
+  leader->Flush({});
+
+  for (int i = kNumKeys / 2; i < kNumKeys; i++) {
+    writeKey(std::to_string(i));
+  }
+
+  ASSERT_OK(leader->DeleteRange(wo(), leaderCF(cf(0)), "2", "3"));
+  ASSERT_OK(leader->DeleteRange(wo(), leaderCF(cf(0)), "5", "6"));
+
+  catchUpFollower();
+
+  EXPECT_EQ(getAllKeys(leader, leaderCF(cf(0))).size(), 78);
+  verifyEqual();
+
+  leader->Flush({});
+  catchUpFollower();
+
+  EXPECT_EQ(getAllKeys(leader, leaderCF(cf(0))).size(), 78);
+  verifyEqual();
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

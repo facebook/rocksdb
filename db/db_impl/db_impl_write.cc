@@ -2141,6 +2141,10 @@ Status DBImpl::SwitchMemtableWithoutCreatingWAL(
                  "[%s] New memtable created with log file: #%" PRIu64
                  ". Immutable memtables: %d.\n",
                  cfd->GetName().c_str(), next_log_num, num_imm_unflushed);
+  // There should be no concurrent write as the thread is at the front of
+  // writer queue
+  cfd->mem()->ConstructFragmentedRangeTombstones();
+
   log_write_mutex_.Lock();
   logfile_number_ = next_log_num;
   // alive_log_files_ and logs_ size should be 1, so updating front is exactly the same as
