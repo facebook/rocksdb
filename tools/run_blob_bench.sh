@@ -19,6 +19,7 @@
 
 # Exit Codes
 EXIT_INVALID_ARGS=1
+EXIT_INVALID_PATH=2
 
 # Size constants
 K=1024
@@ -72,6 +73,11 @@ if [ $# -ge 1 ]; then
   else
     exit $EXIT_INVALID_ARGS
   fi
+fi
+
+if [ ! -f tools/benchmark.sh ]; then
+  echo "tools/benchmark.sh not found"
+  exit $EXIT_INVALID_PATH
 fi
 
 # shellcheck disable=SC2153
