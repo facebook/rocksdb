@@ -2126,7 +2126,11 @@ struct WaitForCompactOptions {
   // A boolean to flush all column families before starting to wait.
   bool flush = false;
 
-  // A boolean to close db after waiting is done.
+  // A boolean to call Close() after waiting is done. By the time Close() is
+  // called here, there should be no background jobs in progress and periodic
+  // tasks should all be canceled. DB may not have been closed if Close()
+  // returned Aborted status due to unreleased snapshots in the system. See
+  // comments in DB::Close() for details.
   bool close_db = false;
 };
 

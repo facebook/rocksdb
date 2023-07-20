@@ -4096,6 +4096,9 @@ Status DBImpl::WaitForCompact(
       return s;
     }
   }
+  if (wait_for_compact_options.close_db) {
+    DBImpl::CancelPeriodicTaskSchedulers();
+  }
   TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
@@ -4110,12 +4113,8 @@ Status DBImpl::WaitForCompact(
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
     } else if (wait_for_compact_options.close_db) {
-      Status s = DBImpl::PrepareShutdown(true /* wait */);
-      if (!s.ok()) {
-        return s;
-      }
       mutex_.Unlock();
-      s = Close();
+      Status s = Close();
       mutex_.Lock();
       return s;
     } else {

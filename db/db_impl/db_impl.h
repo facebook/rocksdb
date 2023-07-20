@@ -850,11 +850,6 @@ class DBImpl : public DB {
     return immutable_db_options_;
   }
 
-  // Prepare shutdown by flushing all CFs (in case of unpersisted_data) and
-  // setting the shutting_down_ = true. If `wait` == true, wait for background
-  // jobs to finish.
-  Status PrepareShutdown(bool wait);
-
   // Cancel all background jobs, including flush, compaction, background
   // purging, stats dumping threads, etc. If `wait` = true, wait for the
   // running jobs to abort or finish before returning. Otherwise, only

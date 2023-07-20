@@ -3549,12 +3549,12 @@ TEST_P(DBCompactionWaitForCompactTest,
   ASSERT_EQ(expected_flush_count, flush_finished);
 
   if (!close_db_) {
-    // During PrepareShutdown(), a flush can be initiated due to unpersisted
-    // data (data that's still in the memtable when WAL is off). This results in
-    // an additional L0 file which can trigger a compaction. However, the
-    // compaction may not complete if the background thread's execution is slow
-    // enough for the front thread to set the 'shutting_down_' flag to true
-    // before the compaction job even starts.
+    // During CancelAllBackgroundWork(), a flush can be initiated due to
+    // unpersisted data (data that's still in the memtable when WAL is off).
+    // This results in an additional L0 file which can trigger a compaction.
+    // However, the compaction may not complete if the background thread's
+    // execution is slow enough for the front thread to set the 'shutting_down_'
+    // flag to true before the compaction job even starts.
     ASSERT_EQ(expected_flush_count, compaction_finished);
     Close();
   }
