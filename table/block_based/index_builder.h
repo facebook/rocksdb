@@ -129,7 +129,7 @@ class IndexBuilder {
 //     substitute key that serves the same function.
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit ShortenedIndexBuilder(
+  ShortenedIndexBuilder(
       const InternalKeyComparator* comparator,
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
@@ -302,13 +302,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
 // data copy or small heap allocations for prefixes.
 class HashIndexBuilder : public IndexBuilder {
  public:
-  explicit HashIndexBuilder(
-      const InternalKeyComparator* comparator,
-      const SliceTransform* hash_key_extractor,
-      int index_block_restart_interval, int format_version,
-      bool use_value_delta_encoding,
-      BlockBasedTableOptions::IndexShorteningMode shortening_mode, size_t ts_sz,
-      const bool persist_user_defined_timestamps)
+  HashIndexBuilder(const InternalKeyComparator* comparator,
+                   const SliceTransform* hash_key_extractor,
+                   int index_block_restart_interval, int format_version,
+                   bool use_value_delta_encoding,
+                   BlockBasedTableOptions::IndexShorteningMode shortening_mode,
+                   size_t ts_sz, const bool persist_user_defined_timestamps)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
@@ -419,10 +418,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
       size_t ts_sz, bool persist_user_defined_timestamps);
 
-  explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
-                                   const BlockBasedTableOptions& table_opt,
-                                   bool use_value_delta_encoding, size_t ts_sz,
-                                   bool persist_user_defined_timestamps);
+  PartitionedIndexBuilder(const InternalKeyComparator* comparator,
+                          const BlockBasedTableOptions& table_opt,
+                          bool use_value_delta_encoding, size_t ts_sz,
+                          bool persist_user_defined_timestamps);
 
   ~PartitionedIndexBuilder() override;
 
