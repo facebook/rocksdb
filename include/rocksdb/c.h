@@ -2457,6 +2457,12 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value(
 extern ROCKSDB_LIBRARY_API int rocksdb_transactiondb_property_int(
     rocksdb_transactiondb_t* db, const char* propname, uint64_t* out_val);
 
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_transactiondb_get_base_db(
+    rocksdb_transactiondb_t* txn_db);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_close_base_db(
+    rocksdb_t* base_db);
+
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
     const rocksdb_writeoptions_t* write_options,

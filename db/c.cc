@@ -5623,6 +5623,23 @@ int rocksdb_transactiondb_property_int(rocksdb_transactiondb_t* db,
   }
 }
 
+rocksdb_t* rocksdb_transactiondb_get_base_db(
+    rocksdb_transactiondb_t* txn_db) {
+  DB* base_db = txn_db->rep->GetBaseDB();
+
+  if (base_db != nullptr) {
+    rocksdb_t* result = new rocksdb_t;
+    result->rep = base_db;
+    return result;
+  }
+
+  return nullptr;
+}
+
+void rocksdb_transactiondb_close_base_db(rocksdb_t* base_db) {
+  delete base_db;
+}
+
 rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
     const rocksdb_writeoptions_t* write_options,
