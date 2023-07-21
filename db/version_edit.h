@@ -9,6 +9,7 @@
 
 #pragma once
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -90,6 +91,8 @@ enum NewFileCustomTag : uint32_t {
   kUniqueId = 12,
   kEpochNumber = 13,
   kCompensatedRangeDeletionSize = 14,
+  kTailSize = 15,
+  kUserDefinedTimestampsPersisted = 16,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -238,6 +241,15 @@ struct FileMetaData {
   // SST unique id
   UniqueId64x2 unique_id{};
 
+  // Size of the "tail" part of a SST file
+  // "Tail" refers to all blocks after data blocks till the end of the SST file
+  uint64_t tail_size = 0;
+
+  // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+  // flag when the file is created. Default to true, only when this flag is
+  // false, it's explicitly written to Manifest.
+  bool user_defined_timestamps_persisted = true;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -249,7 +261,8 @@ struct FileMetaData {
                uint64_t _epoch_number, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
-               const uint64_t _compensated_range_deletion_size)
+               const uint64_t _compensated_range_deletion_size,
+               uint64_t _tail_size, bool _user_defined_timestamps_persisted)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -262,7 +275,9 @@ struct FileMetaData {
         epoch_number(_epoch_number),
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
-        unique_id(std::move(_unique_id)) {
+        unique_id(std::move(_unique_id)),
+        tail_size(_tail_size),
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -446,7 +461,8 @@ class VersionEdit {
                uint64_t epoch_number, const std::string& file_checksum,
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
-               const uint64_t compensated_range_deletion_size) {
+               const uint64_t compensated_range_deletion_size,
+               uint64_t tail_size, bool user_defined_timestamps_persisted) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -455,7 +471,8 @@ class VersionEdit {
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, epoch_number, file_checksum,
                      file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size));
+                     compensated_range_deletion_size, tail_size,
+                     user_defined_timestamps_persisted));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }
@@ -472,6 +489,8 @@ class VersionEdit {
   // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
+
+  NewFiles& GetMutableNewFiles() { return new_files_; }
 
   // Retrieve all the compact cursors
   using CompactCursors = std::vector<std::pair<int, InternalKey>>;
@@ -623,7 +642,17 @@ class VersionEdit {
   }
 
   // return true on success.
-  bool EncodeTo(std::string* dst) const;
+  // `ts_sz` is the size in bytes for the user-defined timestamp contained in
+  // a user key. This argument is optional because it's only required for
+  // encoding a `VersionEdit` with new SST files to add. It's used to handle the
+  // file boundaries: `smallest`, `largest` when
+  // `FileMetaData.user_defined_timestamps_persisted` is false. When reading
+  // the Manifest file, a mirroring change needed to handle
+  // file boundaries are not added to the `VersionEdit.DecodeFrom` function
+  // because timestamp size is not available at `VersionEdit` decoding time,
+  // it's instead added to `VersionEditHandler::OnNonCfOperation`.
+  bool EncodeTo(std::string* dst,
+                std::optional<size_t> ts_sz = std::nullopt) const;
   Status DecodeFrom(const Slice& src);
 
   std::string DebugString(bool hex_key = false) const;
@@ -643,6 +672,12 @@ class VersionEdit {
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   const char* DecodeNewFile4From(Slice* input);
+
+  // Encode file boundaries `FileMetaData.smallest` and `FileMetaData.largest`.
+  // User-defined timestamps in the user key will be stripped if they shouldn't
+  // be persisted.
+  void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
+                            size_t ts_sz) const;
 
   int max_level_ = 0;
   std::string db_id_;

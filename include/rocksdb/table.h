@@ -259,7 +259,7 @@ struct BlockBasedTableOptions {
   bool no_block_cache = false;
 
   // If non-NULL use the specified cache for blocks.
-  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
+  // If NULL, rocksdb will automatically create and use a 32MB internal cache.
   std::shared_ptr<Cache> block_cache = nullptr;
 
   // If non-NULL use the specified cache for pages read from device

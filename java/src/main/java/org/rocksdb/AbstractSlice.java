@@ -8,7 +8,7 @@ package org.rocksdb;
 /**
  * Slices are used by RocksDB to provide
  * efficient access to keys and values.
- *
+ * <p>
  * This class is package private, implementers
  * should extend either of the public abstract classes:
  *   @see org.rocksdb.Slice
@@ -147,7 +147,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   @Override
   public boolean equals(final Object other) {
-    if (other != null && other instanceof AbstractSlice) {
+    if (other instanceof AbstractSlice) {
       return compare((AbstractSlice<?>)other) == 0;
     } else {
       return false;
@@ -172,7 +172,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
     }
   }
 
-  protected native static long createNewSliceFromString(final String str);
+  protected static native long createNewSliceFromString(final String str);
   private native int size0(long handle);
   private native boolean empty0(long handle);
   private native String toString0(long handle, boolean hex);
@@ -183,7 +183,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    * Deletes underlying C++ slice pointer.
    * Note that this function should be called only after all
    * RocksDB instances referencing the slice are closed.
-   * Otherwise an undefined behavior will occur.
+   * Otherwise, an undefined behavior will occur.
    */
   @Override
   protected final native void disposeInternal(final long handle);

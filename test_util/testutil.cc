@@ -72,11 +72,27 @@ std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   return result;
 }
 
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes() {
+  static std::vector<UserDefinedTimestampTestMode> udt_test_modes = {
+      UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+      UserDefinedTimestampTestMode::kNormal,
+      UserDefinedTimestampTestMode::kNone};
+  return udt_test_modes;
+}
+
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kNone;
+}
+
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
+}
+
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data = rnd->RandomString(raw);
+  std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -629,7 +645,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // After number of inserts >= `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}

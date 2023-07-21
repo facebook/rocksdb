@@ -165,10 +165,19 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
-  auto t_opt =
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor, soptions_,
-                         internal_comparator_, false /* skip_filters */,
-                         false /* imortal */, true /* force_direct_prefetch */);
+  // TODO(yuzhangyu): full support in sst_dump for SST files generated when
+  // `user_defined_timestamps_persisted` is false.
+  auto t_opt = TableReaderOptions(
+      ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
+      0 /* block_protection_bytes_per_key */, false /* skip_filters */,
+      false /* immortal */, true /* force_direct_prefetch */, -1 /* level */,
+      nullptr /* block_cache_tracer */, 0 /* max_file_size_for_l0_meta_pin */,
+      "" /* cur_db_session_id */, 0 /* cur_file_num */, {} /* unique_id */,
+      0 /* largest_seqno */, 0 /* tail_size */,
+      table_properties_ == nullptr
+          ? true
+          : static_cast<bool>(
+                table_properties_->user_defined_timestamps_persisted));
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 
@@ -187,6 +196,7 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
+  assert(read_options_.verify_checksums);
   // We could pass specific readahead setting into read options if needed.
   return table_reader_->VerifyChecksum(read_options_,
                                        TableReaderCaller::kSSTDumpTool);
@@ -315,7 +325,8 @@ Status SstFileDumper::ShowCompressionSize(
   const uint64_t compressed_blocks =
       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
   const uint64_t not_compressed_blocks =
-      opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+      opts.statistics->getAndResetTickerCount(
+          NUMBER_BLOCK_COMPRESSION_REJECTED);
   // When the option enable_index_compression is true,
   // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
   if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
@@ -355,8 +366,11 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties_,
+      file, file_size, table_magic_number, ioptions_, read_options,
+      &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {
     if (!silent_) {
@@ -514,4 +528,3 @@ Status SstFileDumper::ReadTableProperties(
   return init_result_;
 }
 }  // namespace ROCKSDB_NAMESPACE
-

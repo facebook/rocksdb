@@ -96,7 +96,6 @@ class PlainTableBuilder : public TableBuilder {
     return ret;
   }
 
-
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
   // Get file checksum

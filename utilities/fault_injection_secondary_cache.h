@@ -37,7 +37,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& is_in_sec_cache) override;
+      bool& kept_in_sec_cache) override;
 
   bool SupportForceErase() const override { return base_->SupportForceErase(); }
 

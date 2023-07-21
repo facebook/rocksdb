@@ -635,6 +635,17 @@ TEST_F(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, TtlFiftenYears) {
+  MakeKVMap(kSampleSize_);
+  // 15 year will lead int32_t overflow from now
+  const int kFifteenYearSeconds = 86400 * 365 * 15;
+  OpenTtl(kFifteenYearSeconds);
+  PutValues(0, kSampleSize_, true);
+  // trigger the compaction
+  SleepCompactCheck(1, 0, kSampleSize_);
+  CloseTtl();
+}
+
 TEST_F(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;

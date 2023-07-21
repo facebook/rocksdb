@@ -51,7 +51,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     files_.push_back(f);
   }
 
@@ -163,7 +164,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kNullUniqueId64x2, compensated_range_deletion_size);
+        kNullUniqueId64x2, compensated_range_deletion_size, 0,
+        /* user_defined_timestamps_persisted */ true);
     vstorage_.AddFile(level, f);
   }
 
@@ -452,6 +454,37 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ASSERT_EQ(3, vstorage_.CompactionScoreLevel(0));
   ASSERT_EQ(2, vstorage_.CompactionScoreLevel(1));
   ASSERT_EQ(4, vstorage_.CompactionScoreLevel(2));
+}
+
+TEST_F(VersionStorageInfoTest, DrainUnnecessaryLevel) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
+  // Create a few unnecessary levels.
+  // See if score is calculated correctly.
+  Add(5, 1U, "1", "2", 2000U);  // target size 1010000
+  Add(4, 2U, "1", "2", 200U);   // target size 101000
+  // Unnecessary levels
+  Add(3, 3U, "1", "2", 100U);  // target size 10100
+  // Level 2: target size 1010
+  Add(1, 4U, "1", "2",
+      10U);  // target size 1000 = max(base_bytes_min + 1, base_bytes_max)
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1, vstorage_.base_level());
+  ASSERT_EQ(1000, vstorage_.MaxBytesForLevel(1));
+  ASSERT_EQ(10100, vstorage_.MaxBytesForLevel(3));
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+
+  // Tests that levels 1 and 3 are eligible for compaction.
+  // Levels 1 and 3 are much smaller than target size,
+  // so size does not contribute to a high compaction score.
+  ASSERT_EQ(1, vstorage_.CompactionScoreLevel(0));
+  ASSERT_GT(vstorage_.CompactionScore(0), 10);
+  ASSERT_EQ(3, vstorage_.CompactionScoreLevel(1));
+  ASSERT_GT(vstorage_.CompactionScore(1), 10);
 }
 
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
@@ -1276,9 +1309,9 @@ class VersionSetTestBase {
 
   Status LogAndApplyToDefaultCF(VersionEdit& edit) {
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1290,9 +1323,9 @@ class VersionSetTestBase {
       vedits.push_back(e.get());
     }
     mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, vedits, &mutex_, nullptr);
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1304,7 +1337,7 @@ class VersionSetTestBase {
     VersionEdit dummy;
     ASSERT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        &dummy, &mutex_, db_directory, new_descriptor_log));
+        read_options_, &dummy, &mutex_, db_directory, new_descriptor_log));
     mutex_.Unlock();
   }
 
@@ -1319,7 +1352,8 @@ class VersionSetTestBase {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
-                               MutableCFOptions(cf_options), &new_cf, &mutex_,
+                               MutableCFOptions(cf_options), read_options_,
+                               &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
     mutex_.Unlock();
@@ -1341,6 +1375,7 @@ class VersionSetTestBase {
   ColumnFamilyOptions cf_options_;
   ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
+  const ReadOptions read_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -1364,6 +1399,8 @@ class VersionSetTest : public VersionSetTestBase, public testing::Test {
 TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   NewDB();
   const int kGroupSize = 5;
+  const ReadOptions read_options;
+
   autovector<VersionEdit> edits;
   for (int i = 0; i != kGroupSize; ++i) {
     edits.emplace_back(VersionEdit());
@@ -1390,8 +1427,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
-                                    &mutex_, nullptr);
+  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
+                                    edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1591,9 +1628,9 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   edit.AddBlobFileGarbage(blob_file_number, total_blob_count, total_blob_bytes);
 
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(
+      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+      read_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -2211,7 +2248,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               edits_, &mutex_, nullptr);
+                               read_options_, edits_, &mutex_, nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -2221,6 +2258,9 @@ class VersionSetWithTimestampTest : public VersionSetTest {
   ColumnFamilyData* cfd_{nullptr};
   // edits_ must contain and own pointers to heap-alloc VersionEdit objects.
   autovector<VersionEdit*> edits_;
+
+ private:
+  const ReadOptions read_options_;
 };
 
 const std::string VersionSetWithTimestampTest::kNewCfName("new_cf");
@@ -2649,6 +2689,8 @@ class VersionSetTestDropOneCF : public VersionSetTestBase,
 //  Repeat the test for i = 1, 2, 3 to simulate dropping the first, middle and
 //  last column family in an atomic group.
 TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
+  const ReadOptions read_options;
+
   std::vector<ColumnFamilyDescriptor> column_families;
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
@@ -2678,7 +2720,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
                              *cfd_to_drop->GetLatestMutableCFOptions(),
-                             &drop_cf_edit, &mutex_, nullptr);
+                             read_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -2727,8 +2769,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
-                             nullptr);
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, read_options,
+                             edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
@@ -3252,11 +3294,11 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
-                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
-                               0, info.epoch_number, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-                               0);
+      file_metas->emplace_back(
+          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
+          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+          0, 0, /* user_defined_timestamps_persisted */ true);
     }
   }
 
@@ -3278,7 +3320,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ++last_seqno_;
     assert(log_writer_.get() != nullptr);
     std::string record;
-    ASSERT_TRUE(edit.EncodeTo(&record));
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
     Status s = log_writer_->AddRecord(record);
     ASSERT_OK(s);
   }
@@ -3313,7 +3355,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3374,7 +3417,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3507,6 +3551,7 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   BlockBasedTableOptions table_options;
   CacheEntryRoleOptions::Decision charge_file_metadata = GetParam();
   table_options.cache_usage_options.options_overrides.insert(

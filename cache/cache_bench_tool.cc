@@ -77,6 +77,10 @@ DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
             "operations.");
 
+DEFINE_bool(early_exit, false,
+            "Exit before deallocating most memory. Good for malloc stats, e.g."
+            "MALLOC_CONF=\"stats_print:true\"");
+
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
@@ -255,12 +259,15 @@ void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
   delete[] static_cast<char*>(value);
 }
 
+Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
 Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper1_wos);
+Cache::CacheItemHelper helper2_wos(CacheEntryRole::kIndexBlock, DeleteFn);
 Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper2_wos);
+Cache::CacheItemHelper helper3_wos(CacheEntryRole::kFilterBlock, DeleteFn);
 Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper3_wos);
 }  // namespace
 
 class CacheBench {
@@ -544,7 +551,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
@@ -573,7 +580,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
@@ -589,6 +596,10 @@ class CacheBench {
         assert(random_op >= kHundredthUint64 * 100U);
       }
       thread->latency_ns_hist.Add(timer.ElapsedNanos());
+    }
+    if (FLAGS_early_exit) {
+      MutexLock l(thread->shared->GetMutex());
+      exit(0);
     }
     if (handle) {
       cache_->Release(handle);

@@ -15,7 +15,7 @@
 #include <string>
 
 #include "file/readahead_file_info.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -54,6 +54,11 @@ struct BufferInfo {
   uint32_t pos_ = 0;
 };
 
+enum class FilePrefetchBufferUsage {
+  kTableOpenPrefetchTail,
+  kUnknown,
+};
+
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
 class FilePrefetchBuffer {
  public:
@@ -78,13 +83,13 @@ class FilePrefetchBuffer {
   // and max_readahead_size are passed in.
   // A user can construct a FilePrefetchBuffer without any arguments, but use
   // `Prefetch` to load data into the buffer.
-  FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
-                     bool enable = true, bool track_min_offset = false,
-                     bool implicit_auto_readahead = false,
-                     uint64_t num_file_reads = 0,
-                     uint64_t num_file_reads_for_auto_readahead = 0,
-                     FileSystem* fs = nullptr, SystemClock* clock = nullptr,
-                     Statistics* stats = nullptr)
+  FilePrefetchBuffer(
+      size_t readahead_size = 0, size_t max_readahead_size = 0,
+      bool enable = true, bool track_min_offset = false,
+      bool implicit_auto_readahead = false, uint64_t num_file_reads = 0,
+      uint64_t num_file_reads_for_auto_readahead = 0, FileSystem* fs = nullptr,
+      SystemClock* clock = nullptr, Statistics* stats = nullptr,
+      FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
@@ -100,7 +105,8 @@ class FilePrefetchBuffer {
         explicit_prefetch_submitted_(false),
         fs_(fs),
         clock_(clock),
-        stats_(stats) {
+        stats_(stats),
+        usage_(usage) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
     // If ReadOptions.async_io is enabled, data is asynchronously filled in
@@ -174,6 +180,8 @@ class FilePrefetchBuffer {
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
   }
 
+  bool Enabled() const { return enable_; }
+
   // Load data into the buffer from a file.
   // reader                : the file reader.
   // offset                : the file offset to start reading from.
@@ -225,6 +233,8 @@ class FilePrefetchBuffer {
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
+
+  size_t GetPrefetchOffset() const { return bufs_[curr_].offset_; }
 
   // Called in case of implicit auto prefetching.
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
@@ -403,6 +413,19 @@ class FilePrefetchBuffer {
                                bool& copy_to_third_buffer, uint64_t& tmp_offset,
                                size_t& tmp_length);
 
+  bool TryReadFromCacheUntracked(const IOOptions& opts,
+                                 RandomAccessFileReader* reader,
+                                 uint64_t offset, size_t n, Slice* result,
+                                 Status* s,
+                                 Env::IOPriority rate_limiter_priority,
+                                 bool for_compaction = false);
+
+  bool TryReadFromCacheAsyncUntracked(const IOOptions& opts,
+                                      RandomAccessFileReader* reader,
+                                      uint64_t offset, size_t n, Slice* result,
+                                      Status* status,
+                                      Env::IOPriority rate_limiter_priority);
+
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
@@ -442,5 +465,7 @@ class FilePrefetchBuffer {
   FileSystem* fs_;
   SystemClock* clock_;
   Statistics* stats_;
+
+  FilePrefetchBufferUsage usage_;
 };
 }  // namespace ROCKSDB_NAMESPACE

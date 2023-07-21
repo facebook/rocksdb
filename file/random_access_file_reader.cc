@@ -19,10 +19,15 @@
 #include "table/format.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
+    kReadHistograms{{
+        FILE_READ_FLUSH_MICROS,
+        FILE_READ_COMPACTION_MICROS,
+        FILE_READ_DB_OPEN_MICROS,
+    }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
@@ -92,14 +97,25 @@ IOStatus RandomAccessFileReader::Read(
 
   IOStatus io_s;
   uint64_t elapsed = 0;
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = false;
+  if (scratch != nullptr) {
+    // Check if offset, length and buffer are aligned.
+    is_aligned = (offset & (alignment - 1)) == 0 &&
+                 (n & (alignment - 1)) == 0 &&
+                 (uintptr_t(scratch) & (alignment - 1)) == 0;
+  }
+
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-      size_t alignment = file_->GetRequiredBufferAlignment();
+    if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
@@ -174,9 +190,9 @@ IOStatus RandomAccessFileReader::Read(
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
-          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
-                                                rate_limiter_priority, stats_,
-                                                RateLimiter::OpType::kRead);
+          allowed = rate_limiter_->RequestToken(
+              n - pos, (use_direct_io() ? alignment : 0), rate_limiter_priority,
+              stats_, RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
@@ -288,6 +304,9 @@ IOStatus RandomAccessFileReader::MultiRead(
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -303,14 +322,14 @@ IOStatus RandomAccessFileReader::MultiRead(
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       for (size_t i = 0; i < num_reqs; i++) {
-        const auto& r = Align(read_reqs[i], alignment);
+        FSReadRequest r = Align(read_reqs[i], alignment);
         if (i == 0) {
           // head
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else if (!TryMerge(&aligned_reqs.back(), r)) {
           // head + n
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else {
           // unused
@@ -425,7 +444,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 }
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
-                                                  IOOptions& opts) {
+                                                  IOOptions& opts) const {
   if (clock_ != nullptr) {
     return PrepareIOFromReadOptions(ro, clock_, opts);
   } else {
@@ -476,13 +495,17 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
     assert(read_async_info->buf_.CurrentSize() == 0);
 
-    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
-                 true /*overwrite*/, true /*delay_enabled*/);
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
-    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
-                 true /*overwrite*/, true /*delay_enabled*/);
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                          io_handle, del_fn, nullptr /*dbg*/);
   }

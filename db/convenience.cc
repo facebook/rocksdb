@@ -33,7 +33,9 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const std::string& file_path) {
-  return VerifySstFileChecksum(options, env_options, ReadOptions(), file_path);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  return VerifySstFileChecksum(options, env_options, read_options, file_path);
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
@@ -56,13 +58,14 @@ Status VerifySstFileChecksum(const Options& options,
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
           std::move(file), file_path, ioptions.clock, nullptr /* io_tracer */,
-          nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
-          ioptions.rate_limiter.get()));
+          ioptions.stats /* stats */,
+          Histograms::SST_READ_MICROS /* hist_type */,
+          nullptr /* file_read_hist */, ioptions.rate_limiter.get()));
   const bool kImmortal = true;
   auto reader_options = TableReaderOptions(
       ioptions, options.prefix_extractor, env_options, internal_comparator,
-      false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
-      -1 /* level */);
+      options.block_protection_bytes_per_key, false /* skip_filters */,
+      !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
   s = ioptions.table_factory->NewTableReader(
       reader_options, std::move(file_reader), file_size, &table_reader,
@@ -76,4 +79,3 @@ Status VerifySstFileChecksum(const Options& options,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -337,8 +337,8 @@ ifneq ($(MACHINE), arm64)
 # linking with jemalloc (as it won't be arm64-compatible) and remove some other options
 # set during platform detection
 DISABLE_JEMALLOC=1
-PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CFLAGS))
-PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CXXFLAGS))
+PLATFORM_CCFLAGS := $(filter-out -march=native, $(PLATFORM_CCFLAGS))
+PLATFORM_CXXFLAGS := $(filter-out -march=native, $(PLATFORM_CXXFLAGS))
 endif
 endif
 endif
@@ -539,7 +539,7 @@ endif
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
-	WARNING_FLAGS += -Wshift-sign-overflow
+	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator
 endif
 
 ifeq ($(PLATFORM), OS_OPENBSD)
@@ -1417,6 +1417,9 @@ thread_local_test: $(OBJ_DIR)/util/thread_local_test.o $(TEST_LIBRARY) $(LIBRARY
 work_queue_test: $(OBJ_DIR)/util/work_queue_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+udt_util_test: $(OBJ_DIR)/util/udt_util_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 corruption_test: $(OBJ_DIR)/db/corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1478,6 +1481,9 @@ db_compaction_filter_test: $(OBJ_DIR)/db/db_compaction_filter_test.o $(TEST_LIBR
 	$(AM_LINK)
 
 db_compaction_test: $(OBJ_DIR)/db/db_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_clip_test: $(OBJ_DIR)/db/db_clip_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_dynamic_level_test: $(OBJ_DIR)/db/db_dynamic_level_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2435,6 +2441,8 @@ checkout_folly:
 	@# NOTE: this hack is required for gcc in some cases
 	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
 
+CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
+
 build_folly:
 	FOLLY_INST_PATH=`cd third-party/folly; $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
 	if [ "$$FOLLY_INST_PATH" ]; then \
@@ -2445,8 +2453,8 @@ build_folly:
 	fi
 	# Restore the original version of Invoke.h with boost dependency
 	cd third-party/folly && ${GIT_COMMAND} checkout folly/functional/Invoke.h
-	cd third-party/folly && MAYBE_AVX2=`echo $(CXXFLAGS) | grep -o -- -DHAVE_AVX2 | sed 's/-DHAVE_AVX2/-mavx2/g' || true` && \
-		CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
+	cd third-party/folly && \
+		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing

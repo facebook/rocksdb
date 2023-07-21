@@ -30,6 +30,8 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       icmp_(icmp),
       smallest_ikey_(smallest),
       largest_ikey_(largest) {
+  // Set up bounds such that range tombstones from this iterator are
+  // truncated to range [smallest_, largest_).
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
@@ -64,6 +66,8 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       //
       // Therefore, we will never truncate a range tombstone at largest, so we
       // can leave it unchanged.
+      // TODO: maybe use kMaxValid here to ensure range tombstone having
+      //  distinct key from point keys.
     } else {
       // The same user key may straddle two sstable boundaries. To ensure that
       // the truncated end key can cover the largest key in this sstable, reduce
@@ -100,6 +104,24 @@ void TruncatedRangeDelIterator::Seek(const Slice& target) {
     return;
   }
   iter_->Seek(target);
+}
+
+void TruncatedRangeDelIterator::SeekInternalKey(const Slice& target) {
+  if (largest_ && icmp_->Compare(*largest_, target) <= 0) {
+    iter_->Invalidate();
+    return;
+  }
+  if (smallest_ && icmp_->Compare(target, *smallest_) < 0) {
+    // Since target < smallest, target < largest_.
+    // This seek must land on a range tombstone where end_key() > target,
+    // so there is no need to check again.
+    iter_->Seek(smallest_->user_key);
+  } else {
+    iter_->Seek(ExtractUserKey(target));
+    while (Valid() && icmp_->Compare(end_key(), target) <= 0) {
+      Next();
+    }
+  }
 }
 
 // NOTE: target is a user key, with timestamp if enabled.

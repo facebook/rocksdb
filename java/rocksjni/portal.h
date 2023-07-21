@@ -5125,6 +5125,12 @@ class TickerTypeJni {
         return -0x38;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS:
         return -0x39;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS:
+        return -0x3A;
+      case ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT:
+        return -0x3B;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
+        return -0x3C;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5482,6 +5488,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS;
       case -0x39:
         return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS;
+      case -0x3A:
+        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_MISS;
+      case -0x3B:
+        return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
+      case -0x3C:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5609,6 +5621,14 @@ class HistogramTypeJni {
         return 0x37;
       case ASYNC_PREFETCH_ABORT_MICROS:
         return 0x38;
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
+        return 0x39;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS:
+        return 0x3A;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS:
+        return 0x3B;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS:
+        return 0x3C;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5725,6 +5745,15 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET;
       case 0x38:
         return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
+      case 0x39:
+        return ROCKSDB_NAMESPACE::Histograms::
+            TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
+      case 0x3A:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_FLUSH_MICROS;
+      case 0x3B:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
+      case 0x3C:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -6764,6 +6793,8 @@ class OperationTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH:
         return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN:
+        return 0x3;
       default:
         return 0x7F;  // undefined
     }
@@ -6780,6 +6811,8 @@ class OperationTypeJni {
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION;
       case 0x2:
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;
@@ -8669,5 +8702,28 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+class CompactRangeOptionsTimestampJni : public JavaClass {
+ public:
+  static jobject fromCppTimestamp(JNIEnv* env, const uint64_t start,
+                                  const uint64_t range) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(start),
+                          static_cast<jlong>(range));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+                                "org/rocksdb/CompactRangeOptions$Timestamp");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(JJ)V");
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

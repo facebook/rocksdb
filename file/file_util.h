@@ -80,10 +80,22 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
   }
 
   opts.rate_limiter_priority = ro.rate_limiter_priority;
+  opts.io_activity = ro.io_activity;
+
   return IOStatus::OK();
 }
 
 // Test method to delete the input directory and all of its contents.
 // This method is destructive and is meant for use only in tests!!!
 Status DestroyDir(Env* env, const std::string& dir);
+
+inline bool CheckFSFeatureSupport(FileSystem* fs, FSSupportedOps feat) {
+  int64_t supported_ops = 0;
+  fs->SupportedOps(supported_ops);
+  if (supported_ops & (1ULL << feat)) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

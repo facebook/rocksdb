@@ -122,7 +122,8 @@ class RandomAccessFileReader {
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
-      Statistics* stats = nullptr, uint32_t hist_type = 0,
+      Statistics* stats = nullptr,
+      uint32_t hist_type = Histograms::HISTOGRAM_ENUM_MAX,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
@@ -197,7 +198,7 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
+  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts) const;
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(const FSReadRequest&, void*)> cb,

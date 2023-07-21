@@ -742,7 +742,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   ASSERT_TRUE(filter->compaction_filter_created());
 }
 
-// Compaction filters aplies to all records, regardless snapshots.
+// Compaction filters applies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = std::to_string(5);
   Options options = CurrentOptions();

@@ -38,7 +38,8 @@ struct OperationInfo {
 static OperationInfo global_operation_table[] = {
     {ThreadStatus::OP_UNKNOWN, ""},
     {ThreadStatus::OP_COMPACTION, "Compaction"},
-    {ThreadStatus::OP_FLUSH, "Flush"}};
+    {ThreadStatus::OP_FLUSH, "Flush"},
+    {ThreadStatus::OP_DBOPEN, "DBOpen"}};
 
 struct OperationStageInfo {
   const ThreadStatus::OperationStage stage;

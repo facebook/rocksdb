@@ -168,39 +168,57 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
 EntryType GetEntryType(ValueType value_type);
 
 // Append the serialization of "key" to *result.
-extern void AppendInternalKey(std::string* result,
-                              const ParsedInternalKey& key);
+void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 
 // Append the serialization of "key" to *result, replacing the original
 // timestamp with argument ts.
-extern void AppendInternalKeyWithDifferentTimestamp(
-    std::string* result, const ParsedInternalKey& key, const Slice& ts);
+void AppendInternalKeyWithDifferentTimestamp(std::string* result,
+                                             const ParsedInternalKey& key,
+                                             const Slice& ts);
 
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
 // contains the user key at the end.
-extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
-                                    ValueType t);
+void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
+                             ValueType t);
 
 // Append the key and a minimal timestamp to *result
-extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
-                                      size_t ts_sz);
+void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz);
 
 // Append the key and a maximal timestamp to *result
-extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
-                                      size_t ts_sz);
+void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz);
 
 // `key` is a user key with timestamp. Append the user key without timestamp
 // and the maximal timestamp to *result.
-extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
-                                          size_t ts_sz);
+void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz);
+
+// `key` is an internal key containing a user key without timestamp. Create a
+// new key in *result by padding a min timestamp of size `ts_sz` to the user key
+// and copying the remaining internal key bytes.
+void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                    size_t ts_sz);
+
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result by stripping the timestamp from
+// the user key and copying the remaining internal key bytes.
+void StripTimestampFromInternalKey(std::string* result, const Slice& key,
+                                   size_t ts_sz);
+
+// `key` is an internal key containing a user key with timestamp of size
+// `ts_sz`. Create a new internal key in *result while replace the original
+// timestamp with min timestamp.
+void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                        size_t ts_sz);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
 // On error, returns false, leaves "*result" in an undefined state.
-extern Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result, bool log_err_key);
+Status ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result,
+                        bool log_err_key);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -504,6 +522,62 @@ class IterKey {
     key_size_ = total_size;
   }
 
+  // A version of `TrimAppend` assuming the last bytes of length `ts_sz` in the
+  // user key part of `key_` is not counted towards shared bytes. And the
+  // decoded key needed a min timestamp of length `ts_sz` pad to the user key.
+  void TrimAppendWithTimestamp(const size_t shared_len,
+                               const char* non_shared_data,
+                               const size_t non_shared_len,
+                               const size_t ts_sz) {
+    std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
+    std::string key_with_ts;
+    std::vector<Slice> key_parts_with_ts;
+    if (IsUserKey()) {
+      key_parts_with_ts = {Slice(key_, shared_len),
+                           Slice(non_shared_data, non_shared_len),
+                           Slice(kTsMin)};
+    } else {
+      assert(shared_len + non_shared_len >= kNumInternalBytes);
+      // Invaraint: shared_user_key_len + shared_internal_bytes_len = shared_len
+      // In naming below `*_len` variables, keyword `user_key` refers to the
+      // user key part of the existing key in `key_` as apposed to the new key.
+      // Similary, `internal_bytes` refers to the footer part of the existing
+      // key. These bytes potentially will move between user key part and the
+      // footer part in the new key.
+      const size_t user_key_len = key_size_ - kNumInternalBytes;
+      const size_t sharable_user_key_len = user_key_len - ts_sz;
+      const size_t shared_user_key_len =
+          std::min(shared_len, sharable_user_key_len);
+      const size_t shared_internal_bytes_len = shared_len - shared_user_key_len;
+
+      // One Slice among the three Slices will get split into two Slices, plus
+      // a timestamp slice.
+      key_parts_with_ts.reserve(5);
+      bool ts_added = false;
+      // Add slice parts and find the right location to add the min timestamp.
+      MaybeAddKeyPartsWithTimestamp(
+          key_, shared_user_key_len,
+          shared_internal_bytes_len + non_shared_len < kNumInternalBytes,
+          shared_len + non_shared_len - kNumInternalBytes, kTsMin,
+          key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(
+          key_ + user_key_len, shared_internal_bytes_len,
+          non_shared_len < kNumInternalBytes,
+          shared_internal_bytes_len + non_shared_len - kNumInternalBytes,
+          kTsMin, key_parts_with_ts, &ts_added);
+      MaybeAddKeyPartsWithTimestamp(non_shared_data, non_shared_len,
+                                    non_shared_len >= kNumInternalBytes,
+                                    non_shared_len - kNumInternalBytes, kTsMin,
+                                    key_parts_with_ts, &ts_added);
+      assert(ts_added);
+    }
+
+    Slice new_key(SliceParts(&key_parts_with_ts.front(),
+                             static_cast<int>(key_parts_with_ts.size())),
+                  &key_with_ts);
+    SetKey(new_key);
+  }
+
   Slice SetKey(const Slice& key, bool copy = true) {
     // is_user_key_ expected to be set already via SetIsUserKey
     return SetKeyImpl(key, copy);
@@ -620,7 +694,7 @@ class IterKey {
   const char* key_;
   size_t key_size_;
   size_t buf_size_;
-  char space_[32];  // Avoid allocation for short keys
+  char space_[39];  // Avoid allocation for short keys
   bool is_user_key_;
 
   Slice SetKeyImpl(const Slice& key, bool copy) {
@@ -661,6 +735,23 @@ class IterKey {
   }
 
   void EnlargeBuffer(size_t key_size);
+
+  void MaybeAddKeyPartsWithTimestamp(const char* slice_data,
+                                     const size_t slice_sz, bool add_timestamp,
+                                     const size_t left_sz,
+                                     const std::string& min_timestamp,
+                                     std::vector<Slice>& key_parts,
+                                     bool* ts_added) {
+    if (add_timestamp && !*ts_added) {
+      assert(slice_sz >= left_sz);
+      key_parts.emplace_back(slice_data, left_sz);
+      key_parts.emplace_back(min_timestamp);
+      key_parts.emplace_back(slice_data + left_sz, slice_sz - left_sz);
+      *ts_added = true;
+    } else {
+      key_parts.emplace_back(slice_data, slice_sz);
+    }
+  }
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
@@ -698,8 +789,7 @@ class InternalKeySliceTransform : public SliceTransform {
 // Read the key of a record from a write batch.
 // if this record represent the default column family then cf_record
 // must be passed as false, otherwise it must be passed as true.
-extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
-                                       bool cf_record);
+bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record);
 
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
@@ -708,9 +798,9 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 // input will be advanced to after the record.
 // If user-defined timestamp is enabled for a column family, then the `key`
 // resulting from this call will include timestamp.
-extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
-                                       uint32_t* column_family, Slice* key,
-                                       Slice* value, Slice* blob, Slice* xid);
+Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                uint32_t* column_family, Slice* key,
+                                Slice* value, Slice* blob, Slice* xid);
 
 // When user call DeleteRange() to delete a range of keys,
 // we will store a serialized RangeTombstone in MemTable and SST.

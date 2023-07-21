@@ -192,8 +192,8 @@ CompactionJob::CompactionJob(
   assert(log_buffer_ != nullptr);
 
   const auto* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
+  ThreadStatusUtil::SetColumnFamily(cfd);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
 }
@@ -204,10 +204,6 @@ CompactionJob::~CompactionJob() {
 }
 
 void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
-  const auto* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    db_options_.enable_thread_tracking);
-
   ThreadStatusUtil::SetThreadOperationProperty(ThreadStatus::COMPACTION_JOB_ID,
                                                job_id_);
 
@@ -264,7 +260,7 @@ void CompactionJob::Prepare() {
     StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
     GenSubcompactionBoundaries();
   }
-  if (boundaries_.size() > 1) {
+  if (boundaries_.size() >= 1) {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       compact_->sub_compact_states.emplace_back(
           c, (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
@@ -291,12 +287,14 @@ void CompactionJob::Prepare() {
                c->immutable_options()->preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
     // setup seqno_time_mapping_
     seqno_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
-        Status s = cfd->current()->GetTableProperties(&tp, fmd, nullptr);
+        Status s =
+            cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
         if (s.ok()) {
           seqno_time_mapping_.Add(tp->seqno_to_time_mapping)
               .PermitUncheckedError();
@@ -472,7 +470,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // overlap with N-1 other ranges. Since we requested a relatively large number
   // (128) of ranges from each input files, even N range overlapping would
   // cause relatively small inaccuracy.
-
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   auto* c = compact_->compaction;
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
@@ -506,7 +504,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            ReadOptions(), icomp, *f, my_anchors);
+            read_options, icomp, *f,
+            c->mutable_cf_options()->block_protection_bytes_per_key,
+            my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -722,11 +722,12 @@ Status CompactionJob::Run() {
         // use_direct_io_for_flush_and_compaction is true, we will regard this
         // verification as user reads since the goal is to cache it here for
         // further user reads
-        ReadOptions read_options;
+        const ReadOptions verify_table_read_options(
+            Env::IOActivity::kCompaction);
         InternalIterator* iter = cfd->table_cache()->NewIterator(
-            read_options, file_options_, cfd->internal_comparator(),
-            files_output[file_idx]->meta, /*range_del_agg=*/nullptr,
-            prefix_extractor,
+            verify_table_read_options, file_options_,
+            cfd->internal_comparator(), files_output[file_idx]->meta,
+            /*range_del_agg=*/nullptr, prefix_extractor,
             /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
@@ -736,7 +737,9 @@ Status CompactionJob::Run() {
                 *compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
             /*largest_compaction_key=*/nullptr,
-            /*allow_unprepared_value=*/false);
+            /*allow_unprepared_value=*/false,
+            compact_->compaction->mutable_cf_options()
+                ->block_protection_bytes_per_key);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
@@ -805,8 +808,8 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
-
   compact_->status = status;
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():EndStatusSet", &status);
   return status;
 }
 
@@ -1032,7 +1035,6 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
-
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1083,6 +1085,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
   read_options.rate_limiter_priority = GetRateLimiterPriority();
+  read_options.io_activity = Env::IOActivity::kCompaction;
   // Compaction iterators shouldn't be confined to a single prefix.
   // Compactions use Seek() for
   // (a) concurrent compactions,
@@ -1093,17 +1096,17 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // GenSubcompactionBoundaries doesn't strip away the timestamp.
   size_t ts_sz = cfd->user_comparator()->timestamp_size();
   if (start.has_value()) {
-    read_options.iterate_lower_bound = &start.value();
+    read_options.iterate_lower_bound = &(*start);
     if (ts_sz > 0) {
-      start_without_ts = StripTimestampFromUserKey(start.value(), ts_sz);
-      read_options.iterate_lower_bound = &start_without_ts.value();
+      start_without_ts = StripTimestampFromUserKey(*start, ts_sz);
+      read_options.iterate_lower_bound = &(*start_without_ts);
     }
   }
   if (end.has_value()) {
-    read_options.iterate_upper_bound = &end.value();
+    read_options.iterate_upper_bound = &(*end);
     if (ts_sz > 0) {
-      end_without_ts = StripTimestampFromUserKey(end.value(), ts_sz);
-      read_options.iterate_upper_bound = &end_without_ts.value();
+      end_without_ts = StripTimestampFromUserKey(*end, ts_sz);
+      read_options.iterate_upper_bound = &(*end_without_ts);
     }
   }
 
@@ -1135,8 +1138,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   if (start.has_value()) {
-    start_ikey.SetInternalKey(start.value(), kMaxSequenceNumber,
-                              kValueTypeForSeek);
+    start_ikey.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
     if (ts_sz > 0) {
       start_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
                                    &ts_slice);
@@ -1145,7 +1147,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     start_user_key = start_ikey.GetUserKey();
   }
   if (end.has_value()) {
-    end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+    end_ikey.SetInternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
     if (ts_sz > 0) {
       end_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
                                  &ts_slice);
@@ -1286,8 +1288,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-    assert(!end.has_value() || cfd->user_comparator()->Compare(
-                                   c_iter->user_key(), end.value()) < 0);
+    assert(!end.has_value() ||
+           cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
 
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {
@@ -1640,6 +1642,7 @@ Status CompactionJob::InstallCompactionResults(
 
   db_mutex_->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   auto* compaction = compact_->compaction;
   assert(compaction);
 
@@ -1717,8 +1720,8 @@ Status CompactionJob::InstallCompactionResults(
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, edit, db_mutex_,
-                                db_directory_);
+                                mutable_cf_options, read_options, edit,
+                                db_mutex_, db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -1814,10 +1817,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
   InternalKey tmp_start, tmp_end;
   if (sub_compact->start.has_value()) {
-    tmp_start.SetMinPossibleForUserKey(sub_compact->start.value());
+    tmp_start.SetMinPossibleForUserKey(*(sub_compact->start));
   }
   if (sub_compact->end.has_value()) {
-    tmp_end.SetMinPossibleForUserKey(sub_compact->end.value());
+    tmp_end.SetMinPossibleForUserKey(*(sub_compact->end));
   }
   uint64_t oldest_ancester_time =
       sub_compact->compaction->MinInputFileOldestAncesterTime(

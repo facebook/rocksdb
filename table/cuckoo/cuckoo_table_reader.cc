@@ -59,8 +59,11 @@ CuckooTableReader::CuckooTableReader(
   }
   {
     std::unique_ptr<TableProperties> props;
-    status_ = ReadTableProperties(file_.get(), file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props);
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+    status_ =
+        ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
+                            ioptions, read_options, &props);
     if (!status_.ok()) {
       return;
     }

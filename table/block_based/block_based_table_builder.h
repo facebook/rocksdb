@@ -53,7 +53,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   ~BlockBasedTableBuilder();
 
   // Add key,value to the table being constructed.
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
+  //           previously added non-kTypeRangeDeletion key according to
+  //           comparator.
   // REQUIRES: Finish(), Abandon() have not been called
   void Add(const Slice& key, const Slice& value) override;
 
@@ -88,6 +90,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // FileSize() cannot estimate final SST size, e.g. parallel compression
   // is enabled.
   uint64_t EstimatedFileSize() const override;
+
+  // Get the size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t GetTailSize() const override;
 
   bool NeedCompact() const override;
 

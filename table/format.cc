@@ -14,9 +14,9 @@
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -530,8 +530,8 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
-                        out_contents->data.size());
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM, size);
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_TO, out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
   TEST_SYNC_POINT_CALLBACK("UncompressBlockData:TamperWithReturnValue",

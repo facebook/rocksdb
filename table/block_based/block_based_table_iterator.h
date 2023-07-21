@@ -41,7 +41,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
         need_upper_bound_check_(need_upper_bound_check),
-        async_read_in_progress_(false) {}
+        async_read_in_progress_(false),
+        is_last_level_(table->IsLastLevel()) {}
 
   ~BlockBasedTableIterator() {}
 
@@ -87,6 +88,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     // PrepareValue() must have been called.
     assert(!is_at_first_key_from_index_);
     assert(Valid());
+
+    if (seek_stat_state_ & kReportOnUseful) {
+      bool filter_used = (seek_stat_state_ & kFilterUsed) != 0;
+      RecordTick(
+          table_->GetStatistics(),
+          filter_used
+              ? (is_last_level_ ? LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH
+                                : NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH)
+              : (is_last_level_ ? LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER
+                                : NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER));
+      seek_stat_state_ = kDataBlockReadSinceLastSeek;
+    }
 
     return block_iter_.value();
   }
@@ -204,10 +217,22 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // bound.
   // If the boundary key hasn't been checked against the upper bound,
   // kUnknown can be used.
-  enum class BlockUpperBound {
+  enum class BlockUpperBound : uint8_t {
     kUpperBoundInCurBlock,
     kUpperBoundBeyondCurBlock,
     kUnknown,
+  };
+
+  // State bits for collecting stats on seeks and whether they returned useful
+  // results.
+  enum SeekStatState : uint8_t {
+    kNone = 0,
+    // Most recent seek checked prefix filter (or similar future feature)
+    kFilterUsed = 1 << 0,
+    // Already recorded that a data block was accessed since the last seek.
+    kDataBlockReadSinceLastSeek = 1 << 1,
+    // Have not yet recorded that a value() was accessed.
+    kReportOnUseful = 1 << 2,
   };
 
   const BlockBasedTable* table_;
@@ -240,6 +265,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   bool async_read_in_progress_;
 
+  mutable SeekStatState seek_stat_state_ = SeekStatState::kNone;
+  bool is_last_level_;
+
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
 
@@ -257,16 +285,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // we need to check and update data_block_within_upper_bound_ accordingly.
   void CheckDataBlockWithinUpperBound();
 
-  bool CheckPrefixMayMatch(const Slice& ikey, IterDirection direction) {
+  bool CheckPrefixMayMatch(const Slice& ikey, IterDirection direction,
+                           bool* filter_checked) {
     if (need_upper_bound_check_ && direction == IterDirection::kBackward) {
       // Upper bound check isn't sufficient for backward direction to
       // guarantee the same result as total order, so disable prefix
       // check.
       return true;
     }
-    if (check_filter_ && !table_->PrefixRangeMayMatch(
-                             ikey, read_options_, prefix_extractor_,
-                             need_upper_bound_check_, &lookup_context_)) {
+    if (check_filter_ &&
+        !table_->PrefixRangeMayMatch(ikey, read_options_, prefix_extractor_,
+                                     need_upper_bound_check_, &lookup_context_,
+                                     filter_checked)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to

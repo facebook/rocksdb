@@ -669,13 +669,24 @@ DEFINE_uint64(sst_file_manager_bytes_per_truncate, 0,
               "many bytes. By default whole files will be deleted.");
 
 DEFINE_bool(use_txn, false,
-            "Use TransactionDB. Currently the default write policy is "
-            "TxnDBWritePolicy::WRITE_PREPARED");
+            "Use TransactionDB or OptimisticTransactionDB. When "
+            "use_optimistic_txn == false (by default), "
+            "it's (Pessimistic) TransactionDB");
 
 DEFINE_uint64(txn_write_policy, 0,
               "The transaction write policy. Default is "
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
-              "changed accross crashes.");
+              "changed across crashes.");
+
+DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
+DEFINE_uint64(occ_validation_policy, 1,
+              "Optimistic Concurrency Control Validation Policy for "
+              "OptimisticTransactionDB");
+DEFINE_bool(share_occ_lock_buckets, false,
+            "Share a pool of locks across DB instances for buckets");
+DEFINE_uint32(
+    occ_lock_bucket_count, 500,
+    "Bucket Count for shared Optimistic Concurrency Control (OCC) locks");
 
 DEFINE_bool(unordered_write, false,
             "Turn on the unordered_write feature. This options is currently "
@@ -746,6 +757,11 @@ DEFINE_bool(long_running_snapshots, false,
 
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads");
+
+DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
+
+DEFINE_bool(use_multi_get_entity, false,
+            "If set, use the MultiGetEntity API for reads");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
@@ -970,6 +986,11 @@ DEFINE_uint32(
     "specified number of bytes per key. Currently the supported "
     "nonzero values are 1, 2, 4 and 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in blocks at the "
+              "specified number of bytes per key. Currently the supported "
+              "nonzero values are 1, 2, 4 and 8.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
@@ -1045,6 +1066,11 @@ DEFINE_int32(
 DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
+
+DEFINE_bool(enable_thread_tracking,
+            ROCKSDB_NAMESPACE::Options().enable_thread_tracking,
+            "If true, the status of the threads involved in this DB will be "
+            "tracked and available via GetThreadList() API.");
 
 DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
              "If non-zero, when TestIterate() is to be called, there is a "

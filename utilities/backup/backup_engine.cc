@@ -49,7 +49,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"

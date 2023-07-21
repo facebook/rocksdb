@@ -531,8 +531,13 @@ class DBImpl : public DB {
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
       ColumnFamilyHandle** handle) override;
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) override;
 
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_options) override;
@@ -734,13 +739,17 @@ class DBImpl : public DB {
   // max_file_num_to_ignore allows bottom level compaction to filter out newly
   // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
   // disable the filtering
+  // If `final_output_level` is not nullptr, it is set to manual compaction's
+  // output level if returned status is OK, and it may or may not be set to
+  // manual compaction's output level if returned status is not OK.
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level,
                              const CompactRangeOptions& compact_range_options,
                              const Slice* begin, const Slice* end,
                              bool exclusive, bool disallow_trivial_move,
                              uint64_t max_file_num_to_ignore,
-                             const std::string& trim_ts);
+                             const std::string& trim_ts,
+                             int* final_output_level = nullptr);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -801,6 +810,8 @@ class DBImpl : public DB {
   // files pending creation, although it prevents more files than necessary from
   // being deleted.
   uint64_t MinObsoleteSstNumberToKeep();
+
+  uint64_t GetObsoleteSstFilesSize();
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
@@ -1049,10 +1060,8 @@ class DBImpl : public DB {
 
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
-  // Wait for any compaction
-  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
-  // is only for the special test of CancelledCompactions
-  Status WaitForCompact(bool waitUnscheduled = false);
+  Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override;
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
@@ -1081,8 +1090,9 @@ class DBImpl : public DB {
   // is because in certain cases, we can flush column families, wait for the
   // flush to complete, but delete the column family handle before the wait
   // finishes. For example in CompactRange.
-  Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
-                                   const FlushOptions& flush_opts);
+  Status TEST_AtomicFlushMemTables(
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+      const FlushOptions& flush_opts);
 
   // Wait for background threads to complete scheduled work.
   Status TEST_WaitForBackgroundWork();
@@ -1090,10 +1100,9 @@ class DBImpl : public DB {
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
-  // Wait for any compaction
-  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
-  // is only for the special test of CancelledCompactions
-  Status TEST_WaitForCompact(bool waitUnscheduled = false);
+  Status TEST_WaitForCompact();
+  Status TEST_WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options);
 
   // Wait for any background purge
   Status TEST_WaitForPurge();
@@ -1402,6 +1411,9 @@ class DBImpl : public DB {
 
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+
+  Status FlushAllColumnFamilies(const FlushOptions& flush_options,
+                                FlushReason flush_reason);
 
   virtual Status FlushForGetLiveFiles();
 
@@ -1886,16 +1898,27 @@ class DBImpl : public DB {
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
-  void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
+  // Select and output column families qualified for atomic flush in
+  // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used
+  // as candidate CFs to select qualified ones from. Otherwise, all column
+  // families are used as candidate to select from.
+  //
+  // REQUIRES: mutex held
+  void SelectColumnFamiliesForAtomicFlush(
+      autovector<ColumnFamilyData*>* selected_cfds,
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {});
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        FlushReason flush_reason,
                        bool entered_write_thread = false);
 
+  // Atomic-flush memtables from quanlified CFs among `provided_candidate_cfds`
+  // (if non-empty) or amomg all column families and atomically record the
+  // result to the MANIFEST.
   Status AtomicFlushMemTables(
-      const autovector<ColumnFamilyData*>& column_family_datas,
       const FlushOptions& options, FlushReason flush_reason,
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
 
   // Wait until flushing this column family won't stall writes
@@ -2111,7 +2134,7 @@ class DBImpl : public DB {
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
-  Status ApplyWALToManifest(VersionEdit* edit);
+  Status ApplyWALToManifest(const ReadOptions& read_options, VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
@@ -2294,7 +2317,7 @@ class DBImpl : public DB {
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
-  // Note: to avoid dealock, if needed to acquire both log_write_mutex_ and
+  // Note: to avoid deadlock, if needed to acquire both log_write_mutex_ and
   // mutex_, the order should be first mutex_ and then log_write_mutex_.
   InstrumentedMutex log_write_mutex_;
 

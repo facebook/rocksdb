@@ -166,6 +166,11 @@ template <typename TValue>
 inline Status WriteCommittedTxn::GetForUpdateImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, TValue* value, bool exclusive, const bool do_validate) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   column_family =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
   assert(column_family);
@@ -1170,4 +1175,3 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -259,6 +259,7 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
     return Status::OK();
   }
 
+  // TODO: allow user CompressionOptions, including max_compressed_bytes_per_kb
   CompressionOptions opts;
   CompressionContext context(blob_compression_type_);
   constexpr uint64_t sample_for_compression = 0;

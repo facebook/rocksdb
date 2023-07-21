@@ -324,6 +324,12 @@ Options DBTestBase::GetDefaultOptions() const {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  // The original default value for this option is false,
+  // and many unit tests assume this value. It also makes
+  // it easier to create desired LSM shape in unit tests.
+  // Unit tests for this option sets level_compaction_dynamic_level_bytes=true
+  // explicitly.
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   if (!env_->skip_fsync_) {
     options.track_and_verify_wals_in_manifest = true;
@@ -569,6 +575,8 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  options.level_compaction_dynamic_level_bytes =
+      options_override.level_compaction_dynamic_level_bytes;
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
@@ -1070,6 +1078,24 @@ size_t DBTestBase::TotalLiveFiles(int cf) {
   size_t num_files = 0;
   for (auto& level : cf_meta.levels) {
     num_files += level.files.size();
+  }
+  return num_files;
+}
+
+size_t DBTestBase::TotalLiveFilesAtPath(int cf, const std::string& path) {
+  ColumnFamilyMetaData cf_meta;
+  if (cf == 0) {
+    db_->GetColumnFamilyMetaData(&cf_meta);
+  } else {
+    db_->GetColumnFamilyMetaData(handles_[cf], &cf_meta);
+  }
+  size_t num_files = 0;
+  for (auto& level : cf_meta.levels) {
+    for (auto& f : level.files) {
+      if (f.directory == path) {
+        num_files++;
+      }
+    }
   }
   return num_files;
 }

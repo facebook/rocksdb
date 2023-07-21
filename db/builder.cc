@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -56,8 +57,8 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
-    const FileOptions& file_options, TableCache* table_cache,
-    InternalIterator* iter,
+    const FileOptions& file_options, const ReadOptions& read_options,
+    TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
@@ -205,21 +206,38 @@ Status BuildTable(
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
+    const size_t ts_sz = ucmp->timestamp_size();
+    const bool strip_timestamp =
+        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
+
+    std::string key_after_flush_buf;
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      // Generate a rolling 64-bit hash of the key and values
-      // Note :
-      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key, value);
+      Slice key_after_flush = key;
+      // If user defined timestamps will be stripped from user key after flush,
+      // the in memory version of the key act logically the same as one with a
+      // minimum timestamp. We update the timestamp here so file boundary and
+      // output validator, block builder all see the effect of the stripping.
+      if (strip_timestamp) {
+        key_after_flush_buf.clear();
+        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
+        key_after_flush = key_after_flush_buf;
+      }
+
+      //  Generate a rolling 64-bit hash of the key and values
+      //  Note :
+      //  Here "key" integrates 'sequence_number'+'kType'+'user key'.
+      s = output_validator.Add(key_after_flush, value);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key, value);
+      builder->Add(key_after_flush, value);
 
-      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      s = meta->UpdateBoundaries(key_after_flush, value, ikey.sequence,
+                                 ikey.type);
       if (!s.ok()) {
         break;
       }
@@ -244,6 +262,7 @@ Status BuildTable(
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
         auto kv = tombstone.Serialize();
+        // TODO(yuzhangyu): handle range deletion for UDT in memtables only.
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
@@ -255,8 +274,8 @@ Status BuildTable(
             SizeApproximationOptions approx_opts;
             approx_opts.files_size_error_margin = 0.1;
             meta->compensated_range_deletion_size += versions->ApproximateSize(
-                approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-                0 /* start_level */, -1 /* end_level */,
+                approx_opts, read_options, version, kv.first.Encode(),
+                tombstone_end.Encode(), 0 /* start_level */, -1 /* end_level */,
                 TableReaderCaller::kFlush);
           }
           last_tombstone_start_user_key = range_del_it->start_key();
@@ -291,7 +310,10 @@ Status BuildTable(
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
       meta->fd.file_size = file_size;
+      meta->tail_size = builder->GetTailSize();
       meta->marked_for_compaction = builder->NeedCompact();
+      meta->user_defined_timestamps_persisted =
+          ioptions.persist_user_defined_timestamps;
       assert(meta->fd.GetFileSize() > 0);
       tp = builder
                ->GetTableProperties();  // refresh now that builder is finished
@@ -351,6 +373,8 @@ Status BuildTable(
       s = *io_status;
     }
 
+    // TODO(yuzhangyu): handle the key copy in the blob when ts should be
+    // stripped.
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();
@@ -369,7 +393,6 @@ Status BuildTable(
       // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // the goal is to cache it here for further user reads.
-      ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,
           nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
@@ -381,7 +404,8 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false));
+          /*allow_unprepared_value*/ false,
+          mutable_cf_options.block_protection_bytes_per_key));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,

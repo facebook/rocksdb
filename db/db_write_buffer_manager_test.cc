@@ -846,6 +846,73 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   delete shared_wbm_db;
 }
 
+TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
+  constexpr int kBigValue = 10000;
+
+  Options options = CurrentOptions();
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(1, nullptr /* cache */, true /* allow_stall */));
+  DestroyAndReopen(options);
+
+  // Pause flush thread so that
+  // (a) the only way to exist write stall below is to change the `allow_stall`
+  // (b) the write stall is "stable" without being interfered by flushes so that
+  // we can check it without flakiness
+  std::unique_ptr<test::SleepingBackgroundTask> sleeping_task(
+      new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Test 1: test setting `allow_stall` from true to false
+  //
+  // Assert existence of a write stall
+  WriteOptions wo_no_slowdown;
+  wo_no_slowdown.no_slowdown = true;
+  Status s = Put(Key(0), DummyString(kBigValue), wo_no_slowdown);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WBMStallInterface::BlockDB",
+        "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+        "ChangeParameter"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Test `SetAllowStall()`
+  port::Thread thread1([&] { ASSERT_OK(Put(Key(0), DummyString(kBigValue))); });
+  port::Thread thread2([&] {
+    TEST_SYNC_POINT(
+        "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+        "ChangeParameter");
+    options.write_buffer_manager->SetAllowStall(false);
+  });
+
+  // Verify `allow_stall` is successfully set to false in thread2.
+  // Othwerwise, thread1's write will be stalled and this test will hang
+  // forever.
+  thread1.join();
+  thread2.join();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Test 2: test setting `allow_stall` from false to true
+  //
+  // Assert no write stall
+  ASSERT_OK(Put(Key(0), DummyString(kBigValue), wo_no_slowdown));
+
+  // Test `SetAllowStall()`
+  options.write_buffer_manager->SetAllowStall(true);
+
+  // Verify `allow_stall` is successfully set to true.
+  // Otherwise the following write will not be stalled and therefore succeed.
+  s = Put(Key(0), DummyString(kBigValue), wo_no_slowdown);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+  sleeping_task->WakeUp();
+}
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());

@@ -467,6 +467,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+
   // Flush was successful
   // Record the status on the memtable object. Either this call or a call by a
   // concurrent flush thread will read the status and write it to manifest.
@@ -578,8 +580,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
       };
       if (write_edits) {
         // this can release and reacquire the mutex.
-        s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                              db_directory, /*new_descriptor_log=*/false,
+        s = vset->LogAndApply(cfd, mutable_cf_options, read_options, edit_list,
+                              mu, db_directory, /*new_descriptor_log=*/false,
                               /*column_family_options=*/nullptr,
                               manifest_write_cb);
       } else {
@@ -798,6 +800,8 @@ Status InstallMemtableAtomicFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+
   size_t num = mems_list.size();
   assert(cfds.size() == num);
   if (imm_lists != nullptr) {
@@ -875,8 +879,8 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                        db_directory);
+  s = vset->LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
+                        mu, db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

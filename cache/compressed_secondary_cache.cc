@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/compression.h"
 #include "util/string_util.h"
@@ -17,33 +17,24 @@
 namespace ROCKSDB_NAMESPACE {
 
 CompressedSecondaryCache::CompressedSecondaryCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio, double low_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge,
-    const CacheEntryRoleSet& do_not_compress_roles)
-    : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
-                     use_adaptive_mutex, metadata_charge_policy,
-                     compression_type, compress_format_version,
-                     enable_custom_split_merge, do_not_compress_roles) {
-  cache_ =
-      NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                  high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                  metadata_charge_policy, low_pri_pool_ratio);
-}
+    const CompressedSecondaryCacheOptions& opts)
+    : cache_(opts.LRUCacheOptions::MakeSharedCache()),
+      cache_options_(opts),
+      cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
+          std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
+              cache_))) {}
 
-CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
+CompressedSecondaryCache::~CompressedSecondaryCache() {
+  assert(cache_res_mgr_->GetTotalReservedCacheSize() == 0);
+}
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CacheItemHelper* helper,
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
-    bool& is_in_sec_cache) {
+    bool& kept_in_sec_cache) {
   assert(helper);
   std::unique_ptr<SecondaryCacheResultHandle> handle;
-  is_in_sec_cache = false;
+  kept_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
     return nullptr;
@@ -109,7 +100,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                  /*charge=*/0)
         .PermitUncheckedError();
   } else {
-    is_in_sec_cache = true;
+    kept_in_sec_cache = true;
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
@@ -311,31 +302,17 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
   }
 }
 
-std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio, double low_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge,
-    const CacheEntryRoleSet& do_not_compress_roles) {
-  return std::make_shared<CompressedSecondaryCache>(
-      capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-      metadata_charge_policy, compression_type, compress_format_version,
-      enable_custom_split_merge, do_not_compress_roles);
+std::shared_ptr<SecondaryCache>
+CompressedSecondaryCacheOptions::MakeSharedSecondaryCache() const {
+  return std::make_shared<CompressedSecondaryCache>(*this);
 }
 
-std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
-    const CompressedSecondaryCacheOptions& opts) {
-  // The secondary_cache is disabled for this LRUCache instance.
-  assert(opts.secondary_cache == nullptr);
-  return NewCompressedSecondaryCache(
-      opts.capacity, opts.num_shard_bits, opts.strict_capacity_limit,
-      opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
-      opts.use_adaptive_mutex, opts.metadata_charge_policy,
-      opts.compression_type, opts.compress_format_version,
-      opts.enable_custom_split_merge, opts.do_not_compress_roles);
+Status CompressedSecondaryCache::Deflate(size_t decrease) {
+  return cache_res_mgr_->UpdateCacheReservation(decrease, /*increase=*/true);
+}
+
+Status CompressedSecondaryCache::Inflate(size_t increase) {
+  return cache_res_mgr_->UpdateCacheReservation(increase, /*increase=*/false);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

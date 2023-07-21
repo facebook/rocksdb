@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+class OptimisticTransactionDB;
 struct TransactionDBOptions;
 
 class StressTest {
@@ -93,6 +94,15 @@ class StressTest {
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) = 0;
+
+  virtual void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                             const std::vector<int>& rand_column_families,
+                             const std::vector<int64_t>& rand_keys) = 0;
+
+  virtual void TestMultiGetEntity(ThreadState* thread,
+                                  const ReadOptions& read_opts,
+                                  const std::vector<int>& rand_column_families,
+                                  const std::vector<int64_t>& rand_keys) = 0;
 
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
@@ -221,11 +231,10 @@ class StressTest {
                          Slice value_from_expected) const;
 
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
-                         const Slice& value, const WideColumns& columns,
-                         const WideColumns& expected_columns) const;
+                         const Slice& value, const WideColumns& columns) const;
 
-  static std::string DebugString(const Slice& value, const WideColumns& columns,
-                                 const WideColumns& expected_columns);
+  static std::string DebugString(const Slice& value,
+                                 const WideColumns& columns);
 
   void PrintEnv() const;
 
@@ -253,6 +262,7 @@ class StressTest {
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   TransactionDB* txn_db_;
+  OptimisticTransactionDB* optimistic_txn_db_;
 
   // Currently only used in MultiOpsTxnsStressTest
   std::atomic<DB*> db_aptr_;

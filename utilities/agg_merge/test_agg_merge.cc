@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "util/coding.h"
-#include "utilities/agg_merge/agg_merge.h"
+#include "utilities/agg_merge/agg_merge_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 

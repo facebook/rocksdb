@@ -1201,23 +1201,24 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
 void CompactionIterator::DecideOutputLevel() {
   assert(compaction_->SupportsPerKeyPlacement());
-#ifndef NDEBUG
-  // Could be overridden by unittest
-  PerKeyPlacementContext context(level_, ikey_.user_key, value_,
-                                 ikey_.sequence);
-  TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
-                           &context);
-  output_to_penultimate_level_ = context.output_to_penultimate_level;
-#else
   output_to_penultimate_level_ = false;
-#endif  // NDEBUG
-
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
   if (ikey_.sequence > preclude_last_level_min_seqno_ ||
       ikey_.sequence > earliest_snapshot_) {
     output_to_penultimate_level_ = true;
   }
+
+#ifndef NDEBUG
+  // Could be overridden by unittest
+  PerKeyPlacementContext context(level_, ikey_.user_key, value_, ikey_.sequence,
+                                 output_to_penultimate_level_);
+  TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
+                           &context);
+  if (ikey_.sequence > earliest_snapshot_) {
+    output_to_penultimate_level_ = true;
+  }
+#endif  // NDEBUG
 
   if (output_to_penultimate_level_) {
     // If it's decided to output to the penultimate level, but unsafe to do so,
@@ -1411,6 +1412,7 @@ std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
   }
 
   ReadOptions read_options;
+  read_options.io_activity = Env::IOActivity::kCompaction;
   read_options.fill_cache = false;
 
   return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, read_options));

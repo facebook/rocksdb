@@ -380,12 +380,12 @@ public class TableProperties {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableProperties that = (TableProperties) o;
+    final TableProperties that = (TableProperties) o;
     return dataSize == that.dataSize && indexSize == that.indexSize
         && indexPartitions == that.indexPartitions && topLevelIndexSize == that.topLevelIndexSize
         && indexKeyIsUserKey == that.indexKeyIsUserKey

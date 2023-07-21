@@ -11,7 +11,7 @@ import java.util.*;
 /**
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
- *
+ * <p>
  * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
@@ -24,7 +24,7 @@ public class DBOptions extends RocksObject
 
   /**
    * Construct DBOptions.
-   *
+   * <p>
    * This constructor will create (by allocating a block of memory)
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
@@ -36,13 +36,13 @@ public class DBOptions extends RocksObject
 
   /**
    * Copy constructor for DBOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means env, rate_limiter, sst_file_manager,
    * info_log and other pointers will be cloned!
    *
    * @param other The DBOptions to copy.
    */
-  public DBOptions(DBOptions other) {
+  public DBOptions(final DBOptions other) {
     super(copyDBOptions(other.nativeHandle_));
     this.env_ = other.env_;
     this.numShardBits_ = other.numShardBits_;

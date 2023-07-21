@@ -27,6 +27,20 @@ void ThreadStatusUtil::TEST_StateDelay(const ThreadStatus::StateType state) {
   }
 }
 
+Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
+    ThreadStatus::OperationType thread_op) {
+  switch (thread_op) {
+    case ThreadStatus::OperationType::OP_FLUSH:
+      return Env::IOActivity::kFlush;
+    case ThreadStatus::OperationType::OP_COMPACTION:
+      return Env::IOActivity::kCompaction;
+    case ThreadStatus::OperationType::OP_DBOPEN:
+      return Env::IOActivity::kDBOpen;
+    default:
+      return Env::IOActivity::kUnknown;
+  }
+}
+
 #endif  // !NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE

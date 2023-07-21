@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
@@ -104,7 +105,11 @@ int db_stress_tool(int argc, char** argv) {
     // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
     // from failing when IO uring is disabled. The EnvWrapper
     // has a default implementation of ReadAsync that redirects to Read.
-    env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
+    legacy_env_wrapper_guard = std::make_shared<EnvWrapper>(raw_env);
+    env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
+        legacy_env_wrapper_guard,
+        std::make_shared<DbStressFSWrapper>(
+            legacy_env_wrapper_guard->GetFileSystem()));
   }
   db_stress_env = env_wrapper_guard.get();
 
@@ -269,6 +274,14 @@ int db_stress_tool(int argc, char** argv) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
 
+  if (!FLAGS_use_txn && FLAGS_use_optimistic_txn) {
+    fprintf(
+        stderr,
+        "You cannot set use_optimistic_txn true while use_txn is false. Please "
+        "set use_txn true if you want to use OptimisticTransactionDB\n");
+    exit(1);
+  }
+
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
     if (!FLAGS_use_txn) {
       fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
@@ -286,8 +299,8 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
-      FLAGS_txn_write_policy != 0) {
+  if (FLAGS_use_txn && !FLAGS_use_optimistic_txn &&
+      FLAGS_sync_fault_injection && FLAGS_txn_write_policy != 0) {
     fprintf(stderr,
             "For TransactionDB, correctness testing with unsync data loss is "
             "currently compatible with only write committed policy\n");

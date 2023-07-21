@@ -178,6 +178,22 @@ class StackableDB : public DB {
                                              import_options, metadata, handle);
   }
 
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadatas, handle);
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) override {
+    return db_->ClipColumnFamily(column_family, begin_key, end_key);
+  }
+
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_opts) override {
     return db_->VerifyFileChecksums(read_opts);
@@ -338,6 +354,11 @@ class StackableDB : public DB {
   }
   virtual void DisableManualCompaction() override {
     return db_->DisableManualCompaction();
+  }
+
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override {
+    return db_->WaitForCompact(wait_for_compact_options);
   }
 
   using DB::NumberLevels;

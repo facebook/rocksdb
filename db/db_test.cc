@@ -66,7 +66,7 @@
 #include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -353,7 +353,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
@@ -424,7 +424,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
@@ -583,7 +583,7 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
         TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
     // For FIFO to pick a compaction
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
-    ASSERT_OK(dbfull()->TEST_WaitForCompact(false));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     for (int g = 0; g < kKeyCount; ++g) {
       std::string get_key = std::string(1, char('a' + g));
       int status_index = i / kKeyCount;
@@ -3097,13 +3097,20 @@ class ModelDB : public DB {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not implemented.");
   }
 
   using DB::VerifyChecksum;
   Status VerifyChecksum(const ReadOptions&) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -3256,6 +3263,11 @@ class ModelDB : public DB {
   void EnableManualCompaction() override { return; }
 
   void DisableManualCompaction() override { return; }
+
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) override {
+    return Status::OK();
+  }
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
@@ -3460,6 +3472,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  (void)count;
   delete miter;
   delete dbiter;
   return ok;
@@ -4936,7 +4949,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -5023,7 +5036,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -5259,6 +5272,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   const uint64_t k1MB = 1 << 20;
   const uint64_t k4KB = 1 << 12;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -6886,7 +6900,20 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+  // BEGIN check that Cache classes as aliases of each other.
+  // Currently, RowCache and BlockCache are aliases for Cache.
+  // This is expected to change (carefully, intentionally)
+  std::shared_ptr<RowCache> row_cache = options.row_cache;
+  std::shared_ptr<Cache> cache = row_cache;
+  std::shared_ptr<BlockCache> block_cache = row_cache;
+  row_cache = cache;
+  block_cache = cache;
+  row_cache = block_cache;
+  cache = block_cache;
+  // END check that Cache classes as aliases of each other.
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar"));

@@ -464,6 +464,16 @@ Status ExternalSstFileIngestionJob::Run() {
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
+    uint64_t tail_size = 0;
+    bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
+                                  (f.table_properties.num_entries ==
+                                   f.table_properties.num_range_deletions);
+    if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
+      uint64_t file_size = f.fd.GetFileSize();
+      assert(f.table_properties.tail_start_offset <= file_size);
+      tail_size = file_size - f.table_properties.tail_start_offset;
+    }
+
     FileMetaData f_metadata(
         f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
         f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
@@ -472,7 +482,9 @@ Status ExternalSstFileIngestionJob::Run() {
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
-        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0);
+        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
+        static_cast<bool>(
+            f.table_properties.user_defined_timestamps_persisted));
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -674,10 +686,14 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support external sst file
+  //  ingestion. Pass in the correct `user_defined_timestamps_persisted` flag
+  //  for creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
+          sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
@@ -692,13 +708,14 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // If customized readahead size is needed, we can pass a user option
     // all the way to here. Right now we just rely on the default readahead
     // to keep things simple.
+    // TODO: plumb Env::IOActivity
     ReadOptions ro;
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
-  }
-  if (!status.ok()) {
-    return status;
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   // Get the external file properties
@@ -745,13 +762,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_range_deletions = props->num_range_deletions;
 
   ParsedInternalKey key;
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
-  // During reading the external file we can cache blocks that we read into
-  // the block cache, if we later change the global seqno of this file, we will
-  // have block in cache that will include keys with wrong seqno.
-  // We need to disable fill_cache so that we read from the file without
-  // updating the block cache.
-  ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
@@ -861,6 +873,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
   bool overlap_with_db = false;
   Arena arena;
+  // TODO: plumb Env::IOActivity
   ReadOptions ro;
   ro.total_order_seek = true;
   int target_level = 0;
@@ -1094,4 +1107,3 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

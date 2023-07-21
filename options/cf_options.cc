@@ -147,6 +147,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"strategy",
          {offsetof(struct CompressionOptions, strategy), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"max_compressed_bytes_per_kb",
+         {offsetof(struct CompressionOptions, max_compressed_bytes_per_kb),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"max_dict_bytes",
          {offsetof(struct CompressionOptions, max_dict_bytes), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
@@ -172,6 +176,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
+    file_temperature_age_type_info = {
+        {"temperature",
+         {offsetof(struct FileTemperatureAge, temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"age",
+         {offsetof(struct FileTemperatureAge, age), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
     fifo_compaction_options_type_info = {
         {"max_table_files_size",
          {offsetof(struct CompactionOptionsFIFO, max_table_files_size),
@@ -188,7 +203,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionOptionsFIFO, allow_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-};
+        {"file_temperature_age_thresholds",
+         OptionTypeInfo::Vector<struct FileTemperatureAge>(
+             offsetof(struct CompactionOptionsFIFO,
+                      file_temperature_age_thresholds),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             OptionTypeInfo::Struct("file_temperature_age_thresholds",
+                                    &file_temperature_age_type_info, 0,
+                                    OptionVerificationType::kNormal,
+                                    OptionTypeFlags::kMutable))}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {
@@ -484,6 +507,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_protection_bytes_per_key),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"block_protection_bytes_per_key",
+         {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
@@ -775,6 +802,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"persist_user_defined_timestamps",
+         {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareLoose}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -918,7 +949,9 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
-      blob_cache(cf_options.blob_cache) {}
+      blob_cache(cf_options.blob_cache),
+      persist_user_defined_timestamps(
+          cf_options.persist_user_defined_timestamps) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 

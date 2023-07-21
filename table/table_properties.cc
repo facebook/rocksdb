@@ -303,6 +303,10 @@ const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
 const std::string TablePropertiesNames::kSequenceNumberTimeMapping =
     "rocksdb.seqno.time.map";
+const std::string TablePropertiesNames::kTailStartOffset =
+    "rocksdb.tail.start.offset";
+const std::string TablePropertiesNames::kUserDefinedTimestampsPersisted =
+    "rocksdb.user.defined.timestamps.persisted";
 
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of

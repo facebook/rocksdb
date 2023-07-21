@@ -29,7 +29,7 @@
 #include "db/dbformat.h"
 #include "index_builder.h"
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -70,7 +70,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
-    PartitionedIndexBuilder* const p_index_builder) {
+    PartitionedIndexBuilder* const p_index_builder, size_t ts_sz,
+    const bool persist_user_defined_timestamps) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
 
@@ -95,7 +96,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size);
+          use_delta_encoding_for_index_values, p_index_builder, partition_size,
+          ts_sz, persist_user_defined_timestamps);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -104,9 +106,12 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   }
 }
 
-bool GoodCompressionRatio(size_t compressed_size, size_t uncomp_size) {
-  // Check to see if compressed less than 12.5%
-  return compressed_size < uncomp_size - (uncomp_size / 8u);
+bool GoodCompressionRatio(size_t compressed_size, size_t uncomp_size,
+                          int max_compressed_bytes_per_kb) {
+  // For efficiency, avoid floating point and division
+  return compressed_size <=
+         (static_cast<uint64_t>(max_compressed_bytes_per_kb) * uncomp_size) >>
+         10;
 }
 
 }  // namespace
@@ -114,7 +119,7 @@ bool GoodCompressionRatio(size_t compressed_size, size_t uncomp_size) {
 // format_version is the block format as defined in include/rocksdb/table.h
 Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
-                    bool do_sample, std::string* compressed_output,
+                    bool allow_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow) {
   assert(type);
@@ -126,7 +131,7 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
   // The users can use these stats to decide if it is worthwhile
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
-  if (do_sample && info.SampleForCompression() &&
+  if (allow_sample && info.SampleForCompression() &&
       Random::GetTLSInstance()->OneIn(
           static_cast<int>(info.SampleForCompression()))) {
     // Sampling with a fast compression algorithm
@@ -159,7 +164,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     }
   }
 
-  if (info.type() == kNoCompression) {
+  int max_compressed_bytes_per_kb = info.options().max_compressed_bytes_per_kb;
+  if (info.type() == kNoCompression || max_compressed_bytes_per_kb <= 0) {
     *type = kNoCompression;
     return uncompressed_data;
   }
@@ -175,8 +181,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
 
   // Check the compression ratio; if it's not good enough, just fall back to
   // uncompressed
-  if (!GoodCompressionRatio(compressed_output->size(),
-                            uncompressed_data.size())) {
+  if (!GoodCompressionRatio(compressed_output->size(), uncompressed_data.size(),
+                            max_compressed_bytes_per_kb)) {
     *type = kNoCompression;
     return uncompressed_data;
   }
@@ -260,6 +266,20 @@ struct BlockBasedTableBuilder::Rep {
   const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
+  // Size in bytes for the user-defined timestamps.
+  size_t ts_sz;
+  // When `ts_sz` > 0 and this flag is false, the user-defined timestamp in the
+  // user key will be stripped when creating the block based table. This
+  // stripping happens for all user keys, including the keys in data block,
+  // index block for data block, index block for index block (if index type is
+  // `kTwoLevelIndexSearch`), index for filter blocks (if using partitioned
+  // filters), the `first_internal_key` in `IndexValue`, the `end_key` for range
+  // deletion entries.
+  // As long as the user keys are sorted when added via `Add` API, their logic
+  // ordering won't change after timestamps are stripped. However, for each user
+  // key to be logically equivalent before and after timestamp is stripped, the
+  // user key should contain the minimum timestamp.
+  bool persist_user_defined_timestamps;
   WritableFileWriter* file;
   std::atomic<uint64_t> offset;
   size_t alignment;
@@ -337,6 +357,10 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   BlockCreateContext create_context;
 
+  // The size of the "tail" part of a SST file. "Tail" refers to
+  // all blocks after data blocks till the end of the SST file.
+  uint64_t tail_size;
+
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
 
@@ -408,6 +432,9 @@ struct BlockBasedTableBuilder::Rep {
         moptions(tbo.moptions),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
+        ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
+        persist_user_defined_timestamps(
+            tbo.ioptions.persist_user_defined_timestamps),
         file(f),
         offset(0),
         alignment(table_options.block_align
@@ -421,8 +448,14 @@ struct BlockBasedTableBuilder::Rep {
                            ->CanKeysWithDifferentByteContentsBeEqual()
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
-                   table_options.data_block_hash_table_util_ratio),
-        range_del_block(1 /* block_restart_interval */),
+                   table_options.data_block_hash_table_util_ratio, ts_sz,
+                   persist_user_defined_timestamps),
+        range_del_block(
+            1 /* block_restart_interval */, true /* use_delta_encoding */,
+            false /* use_value_delta_encoding */,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps),
         internal_prefix_transform(tbo.moptions.prefix_extractor.get()),
         compression_type(tbo.compression_type),
         sample_for_compression(tbo.moptions.sample_for_compression),
@@ -446,7 +479,13 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         create_context(&table_options, ioptions.stats,
                        compression_type == kZSTD ||
-                           compression_type == kZSTDNotFinalCompression),
+                           compression_type == kZSTDNotFinalCompression,
+                       tbo.moptions.block_protection_bytes_per_key,
+                       tbo.internal_comparator.user_comparator(),
+                       !use_delta_encoding_for_index_values,
+                       table_opt.index_type ==
+                           BlockBasedTableOptions::kBinarySearchWithFirstKey),
+        tail_size(0),
         status_ok(true),
         io_status_ok(true) {
     if (tbo.target_file_size == 0) {
@@ -482,13 +521,13 @@ struct BlockBasedTableBuilder::Rep {
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options);
+          table_options, ts_sz, persist_user_defined_timestamps);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options));
+          table_options, ts_sz, persist_user_defined_timestamps));
     }
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
@@ -519,7 +558,8 @@ struct BlockBasedTableBuilder::Rep {
 
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, filter_context,
-          use_delta_encoding_for_index_values, p_index_builder_));
+          use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
+          persist_user_defined_timestamps));
     }
 
     assert(tbo.int_tbl_prop_collector_factories);
@@ -534,11 +574,10 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
-    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
+    if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
-          new TimestampTablePropertiesCollector(ucmp));
+          new TimestampTablePropertiesCollector(
+              tbo.internal_comparator.user_comparator()));
     }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
@@ -896,7 +935,9 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     // behavior
     sanitized_table_options.format_version = 1;
   }
-
+  auto ucmp = tbo.internal_comparator.user_comparator();
+  assert(ucmp);
+  (void)ucmp;  // avoids unused variable error.
   rep_ = new Rep(sanitized_table_options, tbo, file);
 
   TEST_SYNC_POINT_CALLBACK(
@@ -980,9 +1021,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         r->pc_rep->curr_block_keys->PushBack(key);
       } else {
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
       }
     }
@@ -1003,6 +1043,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
+    // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
     r->range_del_block.Add(key, value);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
@@ -1014,6 +1055,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
+  if (!r->persist_user_defined_timestamps) {
+    r->props.raw_key_size -= r->ts_sz;
+  }
   r->props.raw_value_size += value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
@@ -1108,25 +1152,17 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     const CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
     std::string* compressed_output, Slice* block_contents,
     CompressionType* type, Status* out_status) {
-  // File format contains a sequence of blocks where each block has:
-  //    block_data: uint8[n]
-  //    type: uint8
-  //    crc: uint32
   Rep* r = rep_;
   bool is_status_ok = ok();
   if (!r->IsParallelCompressionEnabled()) {
     assert(is_status_ok);
   }
 
-  *type = r->compression_type;
-  uint64_t sample_for_compression = r->sample_for_compression;
-  bool abort_compression = false;
-
-  StopWatchNano timer(
-      r->ioptions.clock,
-      ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
-
   if (is_status_ok && uncompressed_block_data.size() < kCompressionSizeLimit) {
+    StopWatchNano timer(
+        r->ioptions.clock,
+        ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
+
     if (is_data_block) {
       r->compressible_input_data_bytes.fetch_add(uncompressed_block_data.size(),
                                                  std::memory_order_relaxed);
@@ -1139,14 +1175,14 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     }
     assert(compression_dict != nullptr);
     CompressionInfo compression_info(r->compression_opts, compression_ctx,
-                                     *compression_dict, *type,
-                                     sample_for_compression);
+                                     *compression_dict, r->compression_type,
+                                     r->sample_for_compression);
 
     std::string sampled_output_fast;
     std::string sampled_output_slow;
     *block_contents = CompressBlock(
         uncompressed_block_data, compression_info, type,
-        r->table_options.format_version, is_data_block /* do_sample */,
+        r->table_options.format_version, is_data_block /* allow_sample */,
         compressed_output, &sampled_output_fast, &sampled_output_slow);
 
     if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
@@ -1179,35 +1215,38 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       BlockContents contents;
       UncompressionInfo uncompression_info(*verify_ctx, *verify_dict,
                                            r->compression_type);
-      Status stat = UncompressBlockData(
+      Status uncompress_status = UncompressBlockData(
           uncompression_info, block_contents->data(), block_contents->size(),
           &contents, r->table_options.format_version, r->ioptions);
 
-      if (stat.ok()) {
-        bool compressed_ok =
-            contents.data.compare(uncompressed_block_data) == 0;
-        if (!compressed_ok) {
+      if (uncompress_status.ok()) {
+        bool data_match = contents.data.compare(uncompressed_block_data) == 0;
+        if (!data_match) {
           // The result of the compression was invalid. abort.
-          abort_compression = true;
           const char* const msg =
               "Decompressed block did not match pre-compression block";
           ROCKS_LOG_ERROR(r->ioptions.logger, "%s", msg);
           *out_status = Status::Corruption(msg);
+          *type = kNoCompression;
         }
       } else {
         // Decompression reported an error. abort.
         *out_status = Status::Corruption(std::string("Could not decompress: ") +
-                                         stat.getState());
-        abort_compression = true;
+                                         uncompress_status.getState());
+        *type = kNoCompression;
       }
     }
+    if (timer.IsStarted()) {
+      RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
+                            timer.ElapsedNanos());
+    }
   } else {
-    // Block is too big to be compressed.
+    // Status is not OK, or block is too big to be compressed.
     if (is_data_block) {
       r->uncompressible_input_data_bytes.fetch_add(
           uncompressed_block_data.size(), std::memory_order_relaxed);
     }
-    abort_compression = true;
+    *type = kNoCompression;
   }
   if (is_data_block) {
     r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
@@ -1216,26 +1255,32 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   // Abort compression if the block is too big, or did not pass
   // verification.
-  if (abort_compression) {
-    RecordTick(r->ioptions.stats, NUMBER_BLOCK_NOT_COMPRESSED);
-    *type = kNoCompression;
+  if (*type == kNoCompression) {
     *block_contents = uncompressed_block_data;
-  } else if (*type != kNoCompression) {
-    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats)) {
-      RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
-                            timer.ElapsedNanos());
-    }
-    RecordInHistogram(r->ioptions.stats, BYTES_COMPRESSED,
-                      uncompressed_block_data.size());
+    bool compression_attempted = !compressed_output->empty();
+    RecordTick(r->ioptions.stats, compression_attempted
+                                      ? NUMBER_BLOCK_COMPRESSION_REJECTED
+                                      : NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    RecordTick(r->ioptions.stats,
+               compression_attempted ? BYTES_COMPRESSION_REJECTED
+                                     : BYTES_COMPRESSION_BYPASSED,
+               uncompressed_block_data.size());
+  } else {
     RecordTick(r->ioptions.stats, NUMBER_BLOCK_COMPRESSED);
-  } else if (*type != r->compression_type) {
-    RecordTick(r->ioptions.stats, NUMBER_BLOCK_NOT_COMPRESSED);
+    RecordTick(r->ioptions.stats, BYTES_COMPRESSED_FROM,
+               uncompressed_block_data.size());
+    RecordTick(r->ioptions.stats, BYTES_COMPRESSED_TO,
+               compressed_output->size());
   }
 }
 
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
-    const Slice& block_contents, CompressionType type, BlockHandle* handle,
+    const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data) {
+  // File format contains a sequence of blocks where each block has:
+  //    block_data: uint8[n]
+  //    compression_type: uint8
+  //    checksum: uint32
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
   // Old, misleading name of this function: WriteRawBlock
@@ -1246,7 +1291,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   assert(io_status().ok());
   if (uncompressed_block_data == nullptr) {
     uncompressed_block_data = &block_contents;
-    assert(type == kNoCompression);
+    assert(comp_type == kNoCompression);
   }
 
   {
@@ -1258,10 +1303,10 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   std::array<char, kBlockTrailerSize> trailer;
-  trailer[0] = type;
+  trailer[0] = comp_type;
   uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
       r->table_options.checksum, block_contents.data(), block_contents.size(),
-      /*last_byte*/ type);
+      /*last_byte*/ comp_type);
 
   if (block_type == BlockType::kFilter) {
     Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
@@ -1352,9 +1397,7 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     for (size_t i = 0; i < block_rep->keys->Size(); i++) {
       auto& key = (*block_rep->keys)[i];
       if (r->filter_builder != nullptr) {
-        size_t ts_sz =
-            r->internal_comparator.user_comparator()->timestamp_size();
-        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
       }
       r->index_builder->OnKeyAdded(key);
     }
@@ -1628,6 +1671,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->compressible_input_data_bytes +
           rep_->uncompressible_input_data_bytes;
     }
+    rep_->props.user_defined_timestamps_persisted =
+        rep_->persist_user_defined_timestamps;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
@@ -1796,7 +1841,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     Block reader{BlockContents{data_block}};
     DataBlockIter* iter = reader.NewDataIterator(
-        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber);
+        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,
+        nullptr /* iter */, nullptr /* stats */,
+        false /*  block_contents_pinned */, r->persist_user_defined_timestamps);
 
     iter->SeekToFirst();
     assert(iter->Valid());
@@ -1842,9 +1889,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
         r->index_builder->OnKeyAdded(key);
       }
@@ -1898,6 +1944,8 @@ Status BlockBasedTableBuilder::Finish() {
     }
   }
 
+  r->props.tail_start_offset = r->offset;
+
   // Write meta blocks, metaindex block and footer in the following order.
   //    1. [meta block: filter]
   //    2. [meta block: index]
@@ -1925,6 +1973,7 @@ Status BlockBasedTableBuilder::Finish() {
   r->SetStatus(r->CopyIOStatus());
   Status ret_status = r->CopyStatus();
   assert(!ret_status.ok() || io_status().ok());
+  r->tail_size = r->offset - r->props.tail_start_offset;
   return ret_status;
 }
 
@@ -1957,6 +2006,8 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
     return FileSize();
   }
 }
+
+uint64_t BlockBasedTableBuilder::GetTailSize() const { return rep_->tail_size; }
 
 bool BlockBasedTableBuilder::NeedCompact() const {
   for (const auto& collector : rep_->table_properties_collectors) {

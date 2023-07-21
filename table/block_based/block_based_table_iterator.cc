@@ -26,9 +26,21 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (target && !CheckPrefixMayMatch(*target, IterDirection::kForward)) {
+  seek_stat_state_ = kNone;
+  bool filter_checked = false;
+  if (target &&
+      !CheckPrefixMayMatch(*target, IterDirection::kForward, &filter_checked)) {
     ResetDataIter();
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTERED
+                                            : NON_LAST_LEVEL_SEEK_FILTERED);
     return;
+  }
+  if (filter_checked) {
+    seek_stat_state_ = kFilterUsed;
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTER_MATCH
+                                            : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
   }
 
   bool need_seek_index = true;
@@ -125,11 +137,22 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
+  seek_stat_state_ = kNone;
+  bool filter_checked = false;
   // For now totally disable prefix seek in auto prefix mode because we don't
   // have logic
-  if (!CheckPrefixMayMatch(target, IterDirection::kBackward)) {
+  if (!CheckPrefixMayMatch(target, IterDirection::kBackward, &filter_checked)) {
     ResetDataIter();
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTERED
+                                            : NON_LAST_LEVEL_SEEK_FILTERED);
     return;
+  }
+  if (filter_checked) {
+    seek_stat_state_ = kFilterUsed;
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTER_MATCH
+                                            : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
   }
 
   SavePrevIndexValue();
@@ -185,6 +208,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 void BlockBasedTableIterator::SeekToLast() {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
+  seek_stat_state_ = kNone;
   SavePrevIndexValue();
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -266,6 +290,14 @@ void BlockBasedTableIterator::InitDataBlock() {
         /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
+    if (!is_for_compaction &&
+        (seek_stat_state_ & kDataBlockReadSinceLastSeek) == 0) {
+      RecordTick(table_->GetStatistics(), is_last_level_
+                                              ? LAST_LEVEL_SEEK_DATA
+                                              : NON_LAST_LEVEL_SEEK_DATA);
+      seek_stat_state_ = static_cast<SeekStatState>(
+          seek_stat_state_ | kDataBlockReadSinceLastSeek | kReportOnUseful);
+    }
   }
 }
 
@@ -320,6 +352,15 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
   }
   block_iter_points_to_real_block_ = true;
   CheckDataBlockWithinUpperBound();
+
+  if (!is_for_compaction &&
+      (seek_stat_state_ & kDataBlockReadSinceLastSeek) == 0) {
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_DATA
+                                            : NON_LAST_LEVEL_SEEK_DATA);
+    seek_stat_state_ = static_cast<SeekStatState>(
+        seek_stat_state_ | kDataBlockReadSinceLastSeek | kReportOnUseful);
+  }
   async_read_in_progress_ = false;
 }
 

@@ -15,7 +15,7 @@
 
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "options/cf_options.h"
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept

@@ -47,6 +47,11 @@ void ArenaWrappedDBIter::Init(
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
   memtable_range_tombstone_iter_ = nullptr;
+
+  if (!CheckFSFeatureSupport(env->GetFileSystem().get(),
+                             FSSupportedOps::kAsyncIO)) {
+    read_options_.async_io = false;
+  }
 }
 
 Status ArenaWrappedDBIter::Refresh() {

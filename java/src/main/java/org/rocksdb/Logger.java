@@ -36,9 +36,8 @@ package org.rocksdb;
  * </p>
  */
 public abstract class Logger extends RocksCallbackObject {
-
-  private final static long WITH_OPTIONS = 0;
-  private final static long WITH_DBOPTIONS = 1;
+  private static final long WITH_OPTIONS = 0;
+  private static final long WITH_DBOPTIONS = 1;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -68,7 +67,7 @@ public abstract class Logger extends RocksCallbackObject {
   }
 
   @Override
-  protected long initializeNative(long... nativeParameterHandles) {
+  protected long initializeNative(final long... nativeParameterHandles) {
     if(nativeParameterHandles[1] == WITH_OPTIONS) {
       return createNewLoggerOptions(nativeParameterHandles[0]);
     } else if(nativeParameterHandles[1] == WITH_DBOPTIONS) {

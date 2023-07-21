@@ -110,47 +110,64 @@ class SstFileWriter {
   Status Open(const std::string& file_path);
 
   // Add a Put key with value to currently opened file (deprecated)
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   ROCKSDB_DEPRECATED_FUNC Status Add(const Slice& user_key, const Slice& value);
 
   // Add a Put key with value to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Put(const Slice& user_key, const Slice& value);
 
   // Add a Put (key with timestamp, value) to the currently opened file
-  // REQUIRES: key is after any previously added key according to the
-  // comparator.
-  // REQUIRES: the timestamp's size is equal to what is expected by
-  // the comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
   Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
   // Add a Merge key with value to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Merge(const Slice& user_key, const Slice& value);
 
   // Add a deletion key to currently opened file
-  // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
   // REQUIRES: comparator is *not* timestamp-aware.
   Status Delete(const Slice& user_key);
 
   // Add a deletion key with timestamp to the currently opened file
-  // REQUIRES: key is after any previously added key according to the
-  // comparator.
-  // REQUIRES: the timestamp's size is equal to what is expected by
-  // the comparator.
+  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
+  //           key according to the comparator.
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
   Status Delete(const Slice& user_key, const Slice& timestamp);
 
-  // Add a range deletion tombstone to currently opened file
+  // Add a range deletion tombstone to currently opened file. Such a range
+  // deletion tombstone does NOT delete point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // Range deletion tombstones may be added in any order, both with respect to
+  // each other and with respect to the point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // REQUIRES: The comparator orders `begin_key` at or before `end_key`
   // REQUIRES: comparator is *not* timestamp-aware.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
-  // Add a range deletion tombstone to currently opened file.
+  // Add a range deletion tombstone to currently opened file. Such a range
+  // deletion tombstone does NOT delete point (Put/Merge/Delete) keys in the
+  // same file.
+  //
+  // Range deletion tombstones may be added in any order, both with respect to
+  // each other and with respect to the point (Put/Merge/Delete) keys in the
+  // same file.
+  //
   // REQUIRES: begin_key and end_key are user keys without timestamp.
-  // REQUIRES: the timestamp's size is equal to what is expected by
-  // the comparator.
+  // REQUIRES: The comparator orders `begin_key` at or before `end_key`
+  // REQUIRES: timestamp's size is equal to what is expected by the comparator.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,
                      const Slice& timestamp);
 

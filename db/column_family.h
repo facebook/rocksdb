@@ -462,12 +462,6 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
-  enum class WriteStallCause {
-    kNone,
-    kMemtableLimit,
-    kL0FileCountLimit,
-    kPendingCompactionBytes,
-  };
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,
@@ -711,6 +705,16 @@ class ColumnFamilySet {
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options);
 
+  const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
+      const {
+    return running_ts_sz_;
+  }
+
+  const UnorderedMap<uint32_t, size_t>&
+  GetColumnFamiliesTimestampSizeForRecord() const {
+    return ts_sz_for_record_;
+  }
+
   iterator begin() { return iterator(dummy_cfd_->next_); }
   iterator end() { return iterator(dummy_cfd_); }
 
@@ -735,6 +739,15 @@ class ColumnFamilySet {
   // 2. accessed from a single-threaded write thread
   UnorderedMap<std::string, uint32_t> column_families_;
   UnorderedMap<uint32_t, ColumnFamilyData*> column_family_data_;
+
+  // Mutating / reading `running_ts_sz_` and `ts_sz_for_record_` follow
+  // the same requirements as `column_families_` and `column_family_data_`.
+  // Mapping from column family id to user-defined timestamp size for all
+  // running column families.
+  UnorderedMap<uint32_t, size_t> running_ts_sz_;
+  // Mapping from column family id to user-defined timestamp size for
+  // column families with non-zero user-defined timestamp size.
+  UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
   uint32_t max_column_family_;
   const FileOptions file_options_;

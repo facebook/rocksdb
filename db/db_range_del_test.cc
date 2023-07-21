@@ -1690,6 +1690,8 @@ TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   ASSERT_EQ("0,1,0,1", FilesPerLevel());
 
   env_->MockSleepForSeconds(20 * 60 * 60);
+  // Prevent range tombstone from being dropped during compaction.
+  const Snapshot* snapshot = db_->GetSnapshot();
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              Key(11), Key(12)));
   ASSERT_OK(Put(Key(0), rnd.RandomString(1 << 10)));
@@ -1703,6 +1705,7 @@ TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   // File 1: (qualified for TTL): Key(5) - Key(10)
   // File 1: DeleteRange [11, 12)
   ASSERT_EQ("0,3,0,1", FilesPerLevel());
+  db_->ReleaseSnapshot(snapshot);
 }
 
 // Test SST partitioner cut after every single key
@@ -3403,6 +3406,73 @@ TEST_F(DBRangeDelTest, AddRangeDelsSingleUserKeyTombstoneOnlyFile) {
   }
   ASSERT_TRUE(iter->status().ok() && !iter->Valid());
   db_->ReleaseSnapshot(snapshot1);
+}
+
+TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
+  // L0: file 1: [DeleteRange[4, 5)], file 2: [3, 6, DeleteRange[8, 9)]
+  // L6 file 1: [2, 3], file 2: [7, 8]
+  // When compacting the two L0 files to L1, the compaction is non-bottommost
+  // since the compaction key range overlaps with L6 file 1. The range tombstone
+  // [4, 5) should be dropped since it does not overlap with any file in lower
+  // levels. The range tombstone [8, 9) should not be dropped.
+  Options opts = CurrentOptions();
+  opts.level_compaction_dynamic_level_bytes = false;
+  opts.num_levels = 7;
+  opts.level0_file_num_compaction_trigger = 3;
+  DestroyAndReopen(opts);
+
+  Random rnd(301);
+  // L6 file 1
+  ASSERT_OK(Put(Key(2), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(3), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  // L6 file 2
+  ASSERT_OK(Put(Key(7), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(8), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  ASSERT_EQ(NumTableFilesAtLevel(6), 2);
+  // L0 file 1
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
+                             Key(5)));
+  ASSERT_OK(Flush());
+  // L0 file 2
+  ASSERT_OK(Put(Key(3), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(6), rnd.RandomString(100)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(8),
+                             Key(9)));
+  ASSERT_OK(Flush());
+  // nothing is dropped during flush
+  std::string property;
+  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  TableProperties output_tp;
+  ParseTablePropertiesString(property, &output_tp);
+  ASSERT_EQ(output_tp.num_range_deletions, 2);
+  // Add one more L0 file to trigger L0->L1 compaction
+  ASSERT_OK(Put(Key(1), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(9), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  ParseTablePropertiesString(property, &output_tp);
+  ASSERT_EQ(output_tp.num_range_deletions, 1);
+
+  // Now create a snapshot protected range tombstone [4, 5), it should not
+  // be dropped.
+  ASSERT_OK(Put(Key(4), rnd.RandomString(100)));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
+                             Key(5)));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // All compacted to L6
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
+  db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+  ParseTablePropertiesString(property, &output_tp);
+  ASSERT_EQ(output_tp.num_range_deletions, 1);
+  db_->ReleaseSnapshot(snapshot);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

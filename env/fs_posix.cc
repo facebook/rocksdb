@@ -1183,6 +1183,16 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
+  void SupportedOps(int64_t& supported_ops) override {
+    supported_ops = 0;
+#if defined(ROCKSDB_IOURING_PRESENT)
+    if (IsIOUringEnabled()) {
+      // Underlying FS supports async_io
+      supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+    }
+#endif
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;

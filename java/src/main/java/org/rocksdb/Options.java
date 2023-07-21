@@ -11,7 +11,7 @@ import java.util.*;
 /**
  * Options to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
- *
+ * <p>
  * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
@@ -33,7 +33,7 @@ public class Options extends RocksObject
     if (properties == null || properties.size() == 0) {
       throw new IllegalArgumentException("Properties value must contain at least one value.");
     }
-    StringBuilder stringBuilder = new StringBuilder();
+    final StringBuilder stringBuilder = new StringBuilder();
     for (final String name : properties.stringPropertyNames()) {
       stringBuilder.append(name);
       stringBuilder.append("=");
@@ -45,7 +45,7 @@ public class Options extends RocksObject
 
   /**
    * Construct options for opening a RocksDB.
-   *
+   * <p>
    * This constructor will create (by allocating a block of memory)
    * an {@code rocksdb::Options} in the c++ side.
    */
@@ -71,13 +71,13 @@ public class Options extends RocksObject
 
   /**
    * Copy constructor for ColumnFamilyOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means comparator, merge_operator
    * and other pointers will be cloned!
    *
    * @param other The Options to copy.
    */
-  public Options(Options other) {
+  public Options(final Options other) {
     super(copyOptions(other.nativeHandle_));
     this.env_ = other.env_;
     this.memTableConfig_ = other.memTableConfig_;
@@ -179,8 +179,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options optimizeForPointLookup(
-      long blockCacheSizeMb) {
+  public Options optimizeForPointLookup(final long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
         blockCacheSizeMb);
     return this;
@@ -194,8 +193,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options optimizeLevelStyleCompaction(
-      long memtableMemoryBudget) {
+  public Options optimizeLevelStyleCompaction(final long memtableMemoryBudget) {
     optimizeLevelStyleCompaction(nativeHandle_,
         memtableMemoryBudget);
     return this;
@@ -388,8 +386,8 @@ public class Options extends RocksObject
     assert(isOwningHandle());
 
     final int len = dbPaths.size();
-    final String paths[] = new String[len];
-    final long targetSizes[] = new long[len];
+    final String[] paths = new String[len];
+    final long[] targetSizes = new long[len];
 
     int i = 0;
     for(final DbPath dbPath : dbPaths) {
@@ -407,8 +405,8 @@ public class Options extends RocksObject
     if(len == 0) {
       return Collections.emptyList();
     } else {
-      final String paths[] = new String[len];
-      final long targetSizes[] = new long[len];
+      final String[] paths = new String[len];
+      final long[] targetSizes = new long[len];
 
       dbPaths(nativeHandle_, paths, targetSizes);
 
@@ -651,7 +649,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxWriteBatchGroupSizeBytes(long maxWriteBatchGroupSizeBytes) {
+  public Options setMaxWriteBatchGroupSizeBytes(final long maxWriteBatchGroupSizeBytes) {
     setMaxWriteBatchGroupSizeBytes(nativeHandle_, maxWriteBatchGroupSizeBytes);
     return this;
   }
@@ -1066,7 +1064,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setSkipCheckingSstFileSizesOnDbOpen(boolean skipCheckingSstFileSizesOnDbOpen) {
+  public Options setSkipCheckingSstFileSizesOnDbOpen(
+      final boolean skipCheckingSstFileSizesOnDbOpen) {
     setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
     return this;
   }
@@ -1377,11 +1376,10 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setCompressionType(CompressionType compressionType) {
+  public Options setCompressionType(final CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
-
 
   @Override
   public Options setBottommostCompressionType(
@@ -1442,7 +1440,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setNumLevels(int numLevels) {
+  public Options setNumLevels(final int numLevels) {
     setNumLevels(nativeHandle_, numLevels);
     return this;
   }
@@ -1490,7 +1488,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setTargetFileSizeBase(long targetFileSizeBase) {
+  public Options setTargetFileSizeBase(final long targetFileSizeBase) {
     setTargetFileSizeBase(nativeHandle_, targetFileSizeBase);
     return this;
   }
@@ -1501,7 +1499,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setTargetFileSizeMultiplier(int multiplier) {
+  public Options setTargetFileSizeMultiplier(final int multiplier) {
     setTargetFileSizeMultiplier(nativeHandle_, multiplier);
     return this;
   }
@@ -1662,7 +1660,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges) {
+  public Options setMaxSuccessiveMerges(final long maxSuccessiveMerges) {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
@@ -1692,9 +1690,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options
-  setMemtableHugePageSize(
-      long memtableHugePageSize) {
+  public Options setMemtableHugePageSize(final long memtableHugePageSize) {
     setMemtableHugePageSize(nativeHandle_,
         memtableHugePageSize);
     return this;
@@ -1706,7 +1702,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setSoftPendingCompactionBytesLimit(long softPendingCompactionBytesLimit) {
+  public Options setSoftPendingCompactionBytesLimit(final long softPendingCompactionBytesLimit) {
     setSoftPendingCompactionBytesLimit(nativeHandle_,
         softPendingCompactionBytesLimit);
     return this;
@@ -1718,7 +1714,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setHardPendingCompactionBytesLimit(long hardPendingCompactionBytesLimit) {
+  public Options setHardPendingCompactionBytesLimit(final long hardPendingCompactionBytesLimit) {
     setHardPendingCompactionBytesLimit(nativeHandle_, hardPendingCompactionBytesLimit);
     return this;
   }
@@ -1729,7 +1725,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLevel0FileNumCompactionTrigger(int level0FileNumCompactionTrigger) {
+  public Options setLevel0FileNumCompactionTrigger(final int level0FileNumCompactionTrigger) {
     setLevel0FileNumCompactionTrigger(nativeHandle_, level0FileNumCompactionTrigger);
     return this;
   }
@@ -1740,7 +1736,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLevel0SlowdownWritesTrigger(int level0SlowdownWritesTrigger) {
+  public Options setLevel0SlowdownWritesTrigger(final int level0SlowdownWritesTrigger) {
     setLevel0SlowdownWritesTrigger(nativeHandle_, level0SlowdownWritesTrigger);
     return this;
   }
@@ -1751,7 +1747,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
+  public Options setLevel0StopWritesTrigger(final int level0StopWritesTrigger) {
     setLevel0StopWritesTrigger(nativeHandle_, level0StopWritesTrigger);
     return this;
   }
@@ -1762,7 +1758,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBytesForLevelMultiplierAdditional(int[] maxBytesForLevelMultiplierAdditional) {
+  public Options setMaxBytesForLevelMultiplierAdditional(
+      final int[] maxBytesForLevelMultiplierAdditional) {
     setMaxBytesForLevelMultiplierAdditional(nativeHandle_, maxBytesForLevelMultiplierAdditional);
     return this;
   }
@@ -1773,7 +1770,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setParanoidFileChecks(boolean paranoidFileChecks) {
+  public Options setParanoidFileChecks(final boolean paranoidFileChecks) {
     setParanoidFileChecks(nativeHandle_, paranoidFileChecks);
     return this;
   }
@@ -1892,7 +1889,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setAvoidUnnecessaryBlockingIO(boolean avoidUnnecessaryBlockingIO) {
+  public Options setAvoidUnnecessaryBlockingIO(final boolean avoidUnnecessaryBlockingIO) {
     setAvoidUnnecessaryBlockingIO(nativeHandle_, avoidUnnecessaryBlockingIO);
     return this;
   }
@@ -1904,7 +1901,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setPersistStatsToDisk(boolean persistStatsToDisk) {
+  public Options setPersistStatsToDisk(final boolean persistStatsToDisk) {
     setPersistStatsToDisk(nativeHandle_, persistStatsToDisk);
     return this;
   }
@@ -1916,7 +1913,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setWriteDbidToManifest(boolean writeDbidToManifest) {
+  public Options setWriteDbidToManifest(final boolean writeDbidToManifest) {
     setWriteDbidToManifest(nativeHandle_, writeDbidToManifest);
     return this;
   }
@@ -1928,7 +1925,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogReadaheadSize(long logReadaheadSize) {
+  public Options setLogReadaheadSize(final long logReadaheadSize) {
     setLogReadaheadSize(nativeHandle_, logReadaheadSize);
     return this;
   }
@@ -1940,7 +1937,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBestEffortsRecovery(boolean bestEffortsRecovery) {
+  public Options setBestEffortsRecovery(final boolean bestEffortsRecovery) {
     setBestEffortsRecovery(nativeHandle_, bestEffortsRecovery);
     return this;
   }
@@ -1952,7 +1949,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBgErrorResumeCount(int maxBgerrorResumeCount) {
+  public Options setMaxBgErrorResumeCount(final int maxBgerrorResumeCount) {
     setMaxBgErrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
     return this;
   }
@@ -1964,7 +1961,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBgerrorResumeRetryInterval(long bgerrorResumeRetryInterval) {
+  public Options setBgerrorResumeRetryInterval(final long bgerrorResumeRetryInterval) {
     setBgerrorResumeRetryInterval(nativeHandle_, bgerrorResumeRetryInterval);
     return this;
   }
@@ -1976,7 +1973,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
+  public Options setSstPartitionerFactory(final SstPartitionerFactory sstPartitionerFactory) {
     setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
     this.sstPartitionerFactory_ = sstPartitionerFactory;
     return this;
@@ -2038,7 +2035,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBlobCompressionType(CompressionType compressionType) {
+  public Options setBlobCompressionType(final CompressionType compressionType) {
     setBlobCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
@@ -2119,10 +2116,9 @@ public class Options extends RocksObject
   // END options for blobs (integrated BlobDB)
   //
 
-  private native static long newOptions();
-  private native static long newOptions(long dbOptHandle,
-      long cfOptHandle);
-  private native static long copyOptions(long handle);
+  private static native long newOptions();
+  private static native long newOptions(long dbOptHandle, long cfOptHandle);
+  private static native long copyOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
   private native void setEnv(long optHandle, long envHandle);
   private native void prepareForBulkLoad(long handle);

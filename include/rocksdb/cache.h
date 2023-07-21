@@ -25,6 +25,26 @@ class Cache;  // defined in advanced_cache.h
 struct ConfigOptions;
 class SecondaryCache;
 
+// These definitions begin source compatibility for a future change in which
+// a specific class for block cache is split away from general caches, so that
+// the block cache API can continue to become more specialized and
+// customizeable, including in ways incompatible with a general cache. For
+// example, HyperClockCache is not usable as a general cache because it expects
+// only fixed-size block cache keys, but this limitation is not yet reflected
+// in the API function signatures.
+// * Phase 1 (done) - Make both BlockCache and RowCache aliases for Cache,
+// and make a factory function for row caches. Encourage users of row_cache
+// (not common) to switch to the factory function for row caches.
+// * Phase 2 - Split off RowCache as its own class, removing secondary
+// cache support features and more from the API to simplify it. Between Phase 1
+// and Phase 2 users of row_cache will need to update their code. Any time
+// after Phase 2, the block cache and row cache APIs can become more specialized
+// in ways incompatible with general caches.
+// * Phase 3 - Move existing RocksDB uses of Cache to BlockCache, and deprecate
+// (but not yet remove) Cache as an alias for BlockCache.
+using BlockCache = Cache;
+using RowCache = Cache;
+
 // Classifications of block cache entries.
 //
 // Developer notes: Adding a new enum to this class requires corresponding
@@ -135,6 +155,39 @@ struct ShardedCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
+  // A SecondaryCache instance to use the non-volatile tier. For a RowCache
+  // this option must be kept as default empty.
+  std::shared_ptr<SecondaryCache> secondary_cache;
+
+  // See hash_seed comments below
+  static constexpr int32_t kQuasiRandomHashSeed = -1;
+  static constexpr int32_t kHostHashSeed = -2;
+
+  // EXPERT OPTION: Specifies how a hash seed should be determined for the
+  // cache, or specifies a specific seed (only recommended for diagnostics or
+  // testing).
+  //
+  // Background: it could be dangerous to have different cache instances
+  // access the same SST files with the same hash seed, as correlated unlucky
+  // hashing across hosts or restarts could cause a widespread issue, rather
+  // than an isolated one. For example, with smaller block caches, it is
+  // possible for large full Bloom filters in a set of SST files to be randomly
+  // clustered into one cache shard, causing mutex contention or a thrashing
+  // condition as there's little or no space left for other entries assigned to
+  // the shard. If a set of SST files is broadcast and used on many hosts, we
+  // should ensure all have an independent chance of balanced shards.
+  //
+  // Values >= 0 will be treated as fixed hash seeds. Values < 0 are reserved
+  // for methods of dynamically choosing a seed, currently:
+  // * kQuasiRandomHashSeed - Each cache created chooses a seed mostly randomly,
+  //   except that within a process, no seed is repeated until all have been
+  //   issued.
+  // * kHostHashSeed - The seed is determined based on hashing the host name.
+  //   Although this is arguably slightly worse for production reliability, it
+  //   solves the essential problem of cross-host correlation while ensuring
+  //   repeatable behavior on a host, for diagnostic purposes.
+  int32_t hash_seed = kHostHashSeed;
+
   ShardedCacheOptions() {}
   ShardedCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
@@ -146,8 +199,17 @@ struct ShardedCacheOptions {
         strict_capacity_limit(_strict_capacity_limit),
         memory_allocator(std::move(_memory_allocator)),
         metadata_charge_policy(_metadata_charge_policy) {}
+  // Make ShardedCacheOptions polymorphic
+  virtual ~ShardedCacheOptions() = default;
 };
 
+// LRUCache - A cache using LRU eviction to stay at or below a set capacity.
+// The cache is sharded to 2^num_shard_bits shards, by hash of the key.
+// The total capacity is divided and evenly assigned to each shard, and each
+// shard has its own LRU list for evictions. Each shard also has a mutex for
+// exclusive access during operations; even read operations need exclusive
+// access in order to update the LRU list. Mutex contention is usually low
+// with enough shards.
 struct LRUCacheOptions : public ShardedCacheOptions {
   // Ratio of cache reserved for high-priority and low-priority entries,
   // respectively. (See Cache::Priority below more information on the levels.)
@@ -155,7 +217,8 @@ struct LRUCacheOptions : public ShardedCacheOptions {
   // values cannot exceed 1.
   //
   // If high_pri_pool_ratio is greater than zero, a dedicated high-priority LRU
-  // list is maintained by the cache. Similarly, if low_pri_pool_ratio is
+  // list is maintained by the cache. A ratio of 0.5 means non-high-priority
+  // entries will use midpoint insertion. Similarly, if low_pri_pool_ratio is
   // greater than zero, a dedicated low-priority LRU list is maintained.
   // There is also a bottom-priority LRU list, which is always enabled and not
   // explicitly configurable. Entries are spilled over to the next available
@@ -170,9 +233,6 @@ struct LRUCacheOptions : public ShardedCacheOptions {
   // otherwise, they are placed in the bottom-priority pool.) This results
   // in lower-priority entries without hits getting evicted from the cache
   // sooner.
-  //
-  // Default values: high_pri_pool_ratio = 0.5 (which is referred to as
-  // "midpoint insertion"), low_pri_pool_ratio = 0
   double high_pri_pool_ratio = 0.5;
   double low_pri_pool_ratio = 0.0;
 
@@ -181,9 +241,6 @@ struct LRUCacheOptions : public ShardedCacheOptions {
   // effect. The default value is true if RocksDB is compiled with
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
-
-  // A SecondaryCache instance to use a the non-volatile tier.
-  std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
@@ -199,31 +256,40 @@ struct LRUCacheOptions : public ShardedCacheOptions {
         high_pri_pool_ratio(_high_pri_pool_ratio),
         low_pri_pool_ratio(_low_pri_pool_ratio),
         use_adaptive_mutex(_use_adaptive_mutex) {}
+
+  // Construct an instance of LRUCache using these options
+  std::shared_ptr<Cache> MakeSharedCache() const;
+
+  // Construct an instance of LRUCache for use as a row cache, typically for
+  // `DBOptions::row_cache`. Some options are not relevant to row caches.
+  std::shared_ptr<RowCache> MakeSharedRowCache() const;
 };
 
-// Create a new cache with a fixed size capacity. The cache is sharded
-// to 2^num_shard_bits shards, by hash of the key. The total capacity
-// is divided and evenly assigned to each shard. If strict_capacity_limit
-// is set, insert to the cache will fail when cache is full. User can also
-// set percentage of the cache reserves for high priority entries via
-// high_pri_pool_pct.
-// num_shard_bits = -1 means it is automatically determined: every shard
-// will be at least 512KB and number of shard bits will not exceed 6.
-extern std::shared_ptr<Cache> NewLRUCache(
+// DEPRECATED wrapper function
+inline std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
-    double low_pri_pool_ratio = 0.0);
+    double low_pri_pool_ratio = 0.0) {
+  return LRUCacheOptions(capacity, num_shard_bits, strict_capacity_limit,
+                         high_pri_pool_ratio, memory_allocator,
+                         use_adaptive_mutex, metadata_charge_policy,
+                         low_pri_pool_ratio)
+      .MakeSharedCache();
+}
 
-extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
+// DEPRECATED wrapper function
+inline std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
+  return cache_opts.MakeSharedCache();
+}
 
 // EXPERIMENTAL
-// Options structure for configuring a SecondaryCache instance based on
-// LRUCache. The LRUCacheOptions.secondary_cache is not used and
-// should not be set.
+// Options structure for configuring a SecondaryCache instance with in-memory
+// compression. The implementation uses LRUCache so inherits its options,
+// except LRUCacheOptions.secondary_cache is not used and should not be set.
 struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // The compression method (if any) that is used to compress data.
   CompressionType compression_type = CompressionType::kLZ4Compression;
@@ -264,11 +330,16 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
         compress_format_version(_compress_format_version),
         enable_custom_split_merge(_enable_custom_split_merge),
         do_not_compress_roles(_do_not_compress_roles) {}
+
+  // Construct an instance of CompressedSecondaryCache using these options
+  std::shared_ptr<SecondaryCache> MakeSharedSecondaryCache() const;
+
+  // Avoid confusion with LRUCache
+  std::shared_ptr<Cache> MakeSharedCache() const = delete;
 };
 
-// EXPERIMENTAL
-// Create a new Secondary Cache that is implemented on top of LRUCache.
-extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+// DEPRECATED wrapper function
+inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     double low_pri_pool_ratio = 0.0,
@@ -280,10 +351,21 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     uint32_t compress_format_version = 2,
     bool enable_custom_split_merge = false,
     const CacheEntryRoleSet& _do_not_compress_roles = {
-        CacheEntryRole::kFilterBlock});
+        CacheEntryRole::kFilterBlock}) {
+  return CompressedSecondaryCacheOptions(
+             capacity, num_shard_bits, strict_capacity_limit,
+             high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
+             use_adaptive_mutex, metadata_charge_policy, compression_type,
+             compress_format_version, enable_custom_split_merge,
+             _do_not_compress_roles)
+      .MakeSharedSecondaryCache();
+}
 
-extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
-    const CompressedSecondaryCacheOptions& opts);
+// DEPRECATED wrapper function
+inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    const CompressedSecondaryCacheOptions& opts) {
+  return opts.MakeSharedSecondaryCache();
+}
 
 // HyperClockCache - A lock-free Cache alternative for RocksDB block cache
 // that offers much improved CPU efficiency vs. LRUCache under high parallel
@@ -294,7 +376,6 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // * Requires an extra tuning parameter: see estimated_entry_charge below.
 // Similarly, substantially changing the capacity with SetCapacity could
 // harm efficiency.
-// * SecondaryCache is not yet supported.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
 // * Can be worse for small caches, because if almost all of a cache shard is
@@ -360,4 +441,24 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
+enum PrimaryCacheType {
+  kCacheTypeLRU,  // LRU cache type
+  kCacheTypeHCC,  // Hyper Clock Cache type
+  kCacheTypeMax,
+};
+
+// A 2-tier cache with a primary block cache, and a compressed secondary
+// cache. The returned cache instance will internally allocate a primary
+// uncompressed cache of the specified type, and a compressed secondary
+// cache. Any cache memory reservations, such as WriteBufferManager
+// allocations costed to the block cache, will be distributed
+// proportionally across both the primary and secondary.
+struct TieredVolatileCacheOptions {
+  ShardedCacheOptions* cache_opts;
+  PrimaryCacheType cache_type;
+  CompressedSecondaryCacheOptions comp_cache_opts;
+};
+
+extern std::shared_ptr<Cache> NewTieredVolatileCache(
+    TieredVolatileCacheOptions& cache_opts);
 }  // namespace ROCKSDB_NAMESPACE

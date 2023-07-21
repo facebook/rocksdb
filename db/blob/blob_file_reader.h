@@ -29,6 +29,7 @@ class Statistics;
 class BlobFileReader {
  public:
   static Status Create(const ImmutableOptions& immutable_options,
+                       const ReadOptions& read_options,
                        const FileOptions& file_options,
                        uint32_t column_family_id,
                        HistogramImpl* blob_file_read_hist,
@@ -74,15 +75,18 @@ class BlobFileReader {
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,
+                           const ReadOptions& read_options,
                            uint32_t column_family_id, Statistics* statistics,
                            CompressionType* compression_type);
 
   static Status ReadFooter(const RandomAccessFileReader* file_reader,
-                           uint64_t file_size, Statistics* statistics);
+                           const ReadOptions& read_options, uint64_t file_size,
+                           Statistics* statistics);
 
   using Buffer = std::unique_ptr<char[]>;
 
   static Status ReadFromFile(const RandomAccessFileReader* file_reader,
+                             const ReadOptions& read_options,
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
                              AlignedBuf* aligned_buf,

@@ -210,6 +210,14 @@ class MultiOpsTxnsStressTest : public StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) override;
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override;
+
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override;
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override;
@@ -280,7 +288,7 @@ class MultiOpsTxnsStressTest : public StressTest {
     VerifyDb(thread);
   }
 
-  void VerifyPkSkFast(int job_id);
+  void VerifyPkSkFast(const ReadOptions& read_options, int job_id);
 
  protected:
   class Counter {
@@ -416,7 +424,8 @@ class MultiOpsTxnsStressListener : public EventListener {
     (void)db;
 #endif
     assert(info.cf_id == 0);
-    stress_test_->VerifyPkSkFast(info.job_id);
+    const ReadOptions read_options(Env::IOActivity::kFlush);
+    stress_test_->VerifyPkSkFast(read_options, info.job_id);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
@@ -425,7 +434,8 @@ class MultiOpsTxnsStressListener : public EventListener {
     (void)db;
 #endif
     assert(info.cf_id == 0);
-    stress_test_->VerifyPkSkFast(info.job_id);
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
+    stress_test_->VerifyPkSkFast(read_options, info.job_id);
   }
 
  private:

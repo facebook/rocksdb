@@ -15,7 +15,7 @@
 #include "db/wide/wide_column_serialization.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/likely.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"

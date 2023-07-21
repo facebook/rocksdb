@@ -37,6 +37,7 @@ default_params = {
     "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "memtable_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
+    "block_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice(
         [random.randint(0, 19), random.lognormvariate(2.3, 1.3)]
@@ -136,6 +137,8 @@ default_params = {
     "format_version": lambda: random.choice([2, 3, 4, 5, 5]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_get_entity": lambda: random.choice([0] * 7 + [1]),
+    "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -164,7 +167,7 @@ default_params = {
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
-    "level_compaction_dynamic_level_bytes": True,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval": 0,
@@ -198,6 +201,7 @@ default_params = {
         ]
     ),
     "allow_data_in_errors": True,
+    "enable_thread_tracking": lambda: random.choice([0, 1]),
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
     "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
@@ -207,6 +211,8 @@ default_params = {
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
+# If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
+_TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
@@ -229,7 +235,10 @@ def get_dbname(test_name):
             print("Running DB cleanup command - %s\n" % cleanup_cmd)
             # Ignore failure
             os.system(cleanup_cmd)
-        os.mkdir(dbname)
+        try:
+            os.mkdir(dbname)
+        except OSError:
+            pass
     return dbname
 
 
@@ -241,12 +250,18 @@ def setup_expected_values_dir():
     if expected_values_dir is not None:
         return expected_values_dir
     expected_dir_prefix = "rocksdb_crashtest_expected_"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         expected_values_dir = tempfile.mkdtemp(prefix=expected_dir_prefix)
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
+        expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
         if os.path.exists(expected_values_dir):
             shutil.rmtree(expected_values_dir)
         os.mkdir(expected_values_dir)
@@ -261,16 +276,22 @@ def setup_multiops_txn_key_spaces_file():
     if multiops_txn_key_spaces_file is not None:
         return multiops_txn_key_spaces_file
     key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
-    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is None or test_tmpdir == "":
+    test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+
+    # set the value to _TEST_DIR_ENV_VAR if _TEST_EXPECTED_DIR_ENV_VAR is not
+    # specified.
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
+        test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+
+    if test_exp_tmpdir is None or test_exp_tmpdir == "":
         multiops_txn_key_spaces_file = tempfile.mkstemp(prefix=key_spaces_file_prefix)[
             1
         ]
     else:
-        if not os.path.exists(test_tmpdir):
-            os.mkdir(test_tmpdir)
+        if not os.path.exists(test_exp_tmpdir):
+            os.mkdir(test_exp_tmpdir)
         multiops_txn_key_spaces_file = tempfile.mkstemp(
-            prefix=key_spaces_file_prefix, dir=test_tmpdir
+            prefix=key_spaces_file_prefix, dir=test_exp_tmpdir
         )[1]
     return multiops_txn_key_spaces_file
 
@@ -321,7 +342,7 @@ simple_default_params = {
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
-    "level_compaction_dynamic_level_bytes": False,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "verify_iterator_with_expected_state_one_in": 5,  # this locks a range of keys
 }
@@ -348,8 +369,10 @@ cf_consistency_params = {
     "ingest_external_file_one_in": 0,
 }
 
+# For pessimistic transaction db
 txn_params = {
     "use_txn": 1,
+    "use_optimistic_txn": 0,
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
@@ -362,7 +385,18 @@ txn_params = {
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
+}
+
+# For optimistic transaction db
+optimistic_txn_params = {
+    "use_txn": 1,
+    "use_optimistic_txn": 1,
+    "occ_validation_policy": random.randint(0, 1),
+    "share_occ_lock_buckets": random.randint(0, 1),
+    "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in": 0,
 }
 
 best_efforts_recovery_params = {
@@ -404,7 +438,7 @@ ts_params = {
     "use_txn": 0,
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
 }
 
 tiered_params = {
@@ -460,7 +494,9 @@ multiops_txn_default_params = {
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
     # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in" : 0,
+    "use_put_entity_one_in": 0,
+    "use_get_entity": 0,
+    "use_multi_get_entity": 0,
 }
 
 multiops_wc_txn_params = {
@@ -526,12 +562,16 @@ def finalize_and_sanitize(src_params):
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1 or
-        dest_params.get("user_timestamp_size") > 0):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+        or dest_params.get("user_timestamp_size") > 0
+    ):
         dest_params["ingest_external_file_one_in"] = 0
-    if (dest_params.get("test_batches_snapshots") == 1 or
-        dest_params.get("use_txn") == 1):
+    if (
+        dest_params.get("test_batches_snapshots") == 1
+        or dest_params.get("use_txn") == 1
+    ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     if (
@@ -602,9 +642,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
-    if dest_params["secondary_cache_uri"] != "":
-        # Currently the only cache type compatible with a secondary cache is LRUCache
-        dest_params["cache_type"] = "lru_cache"
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
@@ -612,7 +649,7 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
     # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
@@ -642,6 +679,8 @@ def gen_cmd_params(args):
         params.update(cf_consistency_params)
     if args.txn:
         params.update(txn_params)
+    if args.optimistic_txn:
+        params.update(optimistic_txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
     if args.enable_ts:
@@ -687,6 +726,7 @@ def gen_cmd(params, unknown_params):
                 "random_kill_odd",
                 "cf_consistency",
                 "txn",
+                "optimistic_txn",
                 "test_best_efforts_recovery",
                 "enable_ts",
                 "test_multiops_txn",
@@ -694,6 +734,7 @@ def gen_cmd(params, unknown_params):
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
+                "skip_tmpdir_check"
             }
             and v is not None
         ]
@@ -859,9 +900,17 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params["ops_per_thread"],
             }
 
-        cur_compaction_style = additional_opts.get("compaction_style", cmd_params.get("compaction_style", 0))
-        if prev_compaction_style != -1 and prev_compaction_style != cur_compaction_style:
-            print("`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style." + "\n")
+        cur_compaction_style = additional_opts.get(
+            "compaction_style", cmd_params.get("compaction_style", 0)
+        )
+        if (
+            prev_compaction_style != -1
+            and prev_compaction_style != cur_compaction_style
+        ):
+            print(
+                "`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style."
+                + "\n"
+            )
             additional_opts["destroy_db_initially"] = 1
         prev_compaction_style = cur_compaction_style
 
@@ -935,8 +984,11 @@ def whitebox_crash_main(args, unknown_args):
                 if ret != 0:
                     print("TEST FAILED. DB cleanup returned error %d\n" % ret)
                     sys.exit(1)
-            os.mkdir(dbname)
-            if (expected_values_dir is not None):
+            try:
+                os.mkdir(dbname)
+            except OSError:
+                pass
+            if expected_values_dir is not None:
                 shutil.rmtree(expected_values_dir, True)
                 os.mkdir(expected_values_dir)
 
@@ -957,6 +1009,7 @@ def main():
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action="store_true")
     parser.add_argument("--txn", action="store_true")
+    parser.add_argument("--optimistic_txn", action="store_true")
     parser.add_argument("--test_best_efforts_recovery", action="store_true")
     parser.add_argument("--enable_ts", action="store_true")
     parser.add_argument("--test_multiops_txn", action="store_true")
@@ -964,6 +1017,7 @@ def main():
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
+    parser.add_argument("--skip_tmpdir_check", action="store_true")
 
     all_params = dict(
         list(default_params.items())
@@ -981,6 +1035,7 @@ def main():
         + list(cf_consistency_params.items())
         + list(tiered_params.items())
         + list(txn_params.items())
+        + list(optimistic_txn_params.items())
     )
 
     for k, v in all_params.items():
@@ -989,12 +1044,18 @@ def main():
     args, unknown_args = parser.parse_known_args()
 
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
-    if test_tmpdir is not None and not os.path.isdir(test_tmpdir):
-        print(
-            "%s env var is set to a non-existent directory: %s"
-            % (_TEST_DIR_ENV_VAR, test_tmpdir)
-        )
-        sys.exit(1)
+    if test_tmpdir is not None and not args.skip_tmpdir_check:
+        isdir = False
+        try:
+            isdir = os.path.isdir(test_tmpdir)
+            if not isdir:
+                print(
+                    "ERROR: %s env var is set to a non-existent directory: %s. Update it to correct directory path."
+                    % (_TEST_DIR_ENV_VAR, test_tmpdir)
+                )
+                sys.exit(1)
+        except OSError:
+            pass
 
     if args.stress_cmd:
         stress_cmd = args.stress_cmd

@@ -35,7 +35,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
@@ -1236,8 +1236,8 @@ class TestSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,
       Cache::CreateContext* /*create_context*/, bool /*wait*/,
-      bool /*advise_erase*/, bool& is_in_sec_cache) override {
-    is_in_sec_cache = true;
+      bool /*advise_erase*/, bool& kept_in_sec_cache) override {
+    kept_in_sec_cache = true;
     return nullptr;
   }
 

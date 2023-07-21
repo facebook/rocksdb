@@ -1291,7 +1291,7 @@ public class ColumnFamilyOptions extends RocksObject
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
-   * @param prepopulateBlobCache the prepopulate blob cache option
+   * @param prepopulateBlobCache prepopulate the blob cache option
    *
    * @return the reference to the current options.
    */

@@ -40,13 +40,13 @@ public class OptionsUtilTest {
       assertThat(db).isNotNull();
     }
 
-    String fName = OptionsUtil.getLatestOptionsFileName(dbPath, Env.getDefault());
+    final String fName = OptionsUtil.getLatestOptionsFileName(dbPath, Env.getDefault());
     assertThat(fName).isNotNull();
-    assert(fName.startsWith("OPTIONS-") == true);
+    assert (fName.startsWith("OPTIONS-"));
     // System.out.println("latest options fileName: " + fName);
   }
 
-  private void verifyOptions(TestAPI apiType) throws RocksDBException {
+  private void verifyOptions(final TestAPI apiType) throws RocksDBException {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
     final Options options = new Options()
                                 .setCreateIfMissing(true)
@@ -76,8 +76,8 @@ public class OptionsUtilTest {
     }
 
     // Read the options back and verify
-    DBOptions dbOptions = new DBOptions();
-    ConfigOptions configOptions =
+    final DBOptions dbOptions = new DBOptions();
+    final ConfigOptions configOptions =
         new ConfigOptions().setIgnoreUnknownOptions(false).setInputStringsEscaped(true).setEnv(
             Env.getDefault());
     final List<ColumnFamilyDescriptor> cfDescs = new ArrayList<>();
@@ -100,7 +100,7 @@ public class OptionsUtilTest {
     assertThat(cfDescs.get(0).getName()).isEqualTo(RocksDB.DEFAULT_COLUMN_FAMILY);
     assertThat(cfDescs.get(1).getName()).isEqualTo(secondCFName);
 
-    ColumnFamilyOptions defaultCFOpts = cfDescs.get(0).getOptions();
+    final ColumnFamilyOptions defaultCFOpts = cfDescs.get(0).getOptions();
     assertThat(defaultCFOpts.writeBufferSize()).isEqualTo(baseDefaultCFOpts.writeBufferSize());
     assertThat(defaultCFOpts.maxWriteBufferNumber())
         .isEqualTo(baseDefaultCFOpts.maxWriteBufferNumber());
@@ -113,7 +113,7 @@ public class OptionsUtilTest {
     assertThat(defaultCFOpts.bottommostCompressionType())
         .isEqualTo(baseDefaultCFOpts.bottommostCompressionType());
 
-    ColumnFamilyOptions secondCFOpts = cfDescs.get(1).getOptions();
+    final ColumnFamilyOptions secondCFOpts = cfDescs.get(1).getOptions();
     assertThat(secondCFOpts.writeBufferSize()).isEqualTo(baseSecondCFOpts.writeBufferSize());
     assertThat(secondCFOpts.maxWriteBufferNumber())
         .isEqualTo(baseSecondCFOpts.maxWriteBufferNumber());

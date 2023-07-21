@@ -92,18 +92,18 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CacheItemHelper* helper,
                                      Cache::CreateContext* create_context,
                                      bool wait, bool advise_erase,
-                                     bool& is_in_sec_cache) {
+                                     bool& kept_in_sec_cache) {
   ErrorContext* ctx = GetErrorContext();
   if (base_is_compressed_sec_cache_) {
     if (ctx->rand.OneIn(prob_)) {
       return nullptr;
     } else {
       return base_->Lookup(key, helper, create_context, wait, advise_erase,
-                           is_in_sec_cache);
+                           kept_in_sec_cache);
     }
   } else {
     std::unique_ptr<SecondaryCacheResultHandle> hdl = base_->Lookup(
-        key, helper, create_context, wait, advise_erase, is_in_sec_cache);
+        key, helper, create_context, wait, advise_erase, kept_in_sec_cache);
     if (wait && ctx->rand.OneIn(prob_)) {
       hdl.reset();
     }

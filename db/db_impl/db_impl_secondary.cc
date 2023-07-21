@@ -14,6 +14,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/configurable.h"
 #include "util/cast_util.h"
+#include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -197,6 +198,9 @@ Status DBImplSecondary::RecoverLogFiles(
     }
     assert(reader != nullptr);
   }
+
+  const UnorderedMap<uint32_t, size_t>& running_ts_sz =
+      versions_->GetRunningColumnFamiliesTimestampSize();
   for (auto log_number : log_numbers) {
     auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
@@ -221,6 +225,14 @@ Status DBImplSecondary::RecoverLogFiles(
         continue;
       }
       status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        break;
+      }
+      const UnorderedMap<uint32_t, size_t>& record_ts_sz =
+          reader->GetRecordedTimestampSize();
+      status = HandleWriteBatchTimestampSizeDifference(
+          &batch, running_ts_sz, record_ts_sz,
+          TimestampSizeConsistencyMode::kVerifyConsistency);
       if (!status.ok()) {
         break;
       }
@@ -345,6 +357,11 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val,
                                 std::string* timestamp) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
@@ -445,6 +462,11 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Cannot call NewIterator with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`"));
+  }
 
   assert(column_family);
   if (read_options.timestamp) {
@@ -510,6 +532,11 @@ Status DBImplSecondary::NewIterators(
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
+  }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call NewIterators with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
   }
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
