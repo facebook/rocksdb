@@ -199,7 +199,13 @@ class CloudFileSystemImpl : public CloudFileSystem {
   }
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
                                   const DBOptions& db_options) const override {
-    return base_fs_->OptimizeForLogWrite(file_options, db_options);
+    auto fo = base_fs_->OptimizeForLogWrite(file_options, db_options);
+    if (!fo.use_direct_writes) {
+      // RocksDB-Cloud doesn't use WALs, so don't waste memory on allocating
+      // their buffers.
+      fo.writable_file_max_buffer_size = 0;
+    }
+    return fo;
   }
   FileOptions OptimizeForManifestWrite(
       const FileOptions& file_options) const override {
