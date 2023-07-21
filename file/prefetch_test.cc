@@ -128,7 +128,14 @@ std::string BuildKey(int num, std::string postfix = "") {
   return "my_key_" + std::to_string(num) + postfix;
 }
 
-// This test verifies the basic functionality of prefetching.
+// This test verifies the following basic functionalities of prefetching:
+// (1) If underline file system supports prefetch, and directIO is not enabled
+// make sure prefetch() is called and FilePrefetchBuffer is not used.
+// (2) If underline file system doesn't support prefetch, or directIO is
+// enabled, make sure prefetch() is not called and FilePrefetchBuffer is
+// used.
+// (3) Measure read bytes, hit and miss of SST's tail prefetching during table
+// open.
 TEST_P(PrefetchTest, Basic) {
   // First param is if the mockFS support_prefetch or not
   bool support_prefetch =
@@ -165,6 +172,7 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_OK(batch.Put(BuildKey(i), "value for range 1 key"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // create second key range
   batch.Clear();
@@ -172,6 +180,7 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_OK(batch.Put(BuildKey(i, "key2"), "value for range 2 key"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // delete second key range
   batch.Clear();
@@ -179,6 +188,20 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_OK(batch.Delete(BuildKey(i, "key2")));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // To verify SST file tail prefetch (once per file) during flush output
+  // verification
+  if (support_prefetch && !use_direct_io) {
+    ASSERT_TRUE(fs->IsPrefetchCalled());
+    ASSERT_EQ(3, fs->GetPrefetchCount());
+    ASSERT_EQ(0, buff_prefetch_count);
+    fs->ClearPrefetchCount();
+  } else {
+    ASSERT_FALSE(fs->IsPrefetchCalled());
+    ASSERT_EQ(buff_prefetch_count, 3);
+    buff_prefetch_count = 0;
+  }
 
   // compact database
   std::string start_key = BuildKey(0);
@@ -205,25 +228,34 @@ TEST_P(PrefetchTest, Basic) {
   const uint64_t cur_table_open_prefetch_tail_hit =
       options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
 
+  // To verify prefetch during compaction input read
   if (support_prefetch && !use_direct_io) {
-    // If underline file system supports prefetch, and directIO is not enabled
-    // make sure prefetch() is called and FilePrefetchBuffer is not used.
     ASSERT_TRUE(fs->IsPrefetchCalled());
-    fs->ClearPrefetchCount();
+    // To rule out false positive by the SST file tail prefetch during
+    // compaction output verification
+    ASSERT_GT(fs->GetPrefetchCount(), 1);
     ASSERT_EQ(0, buff_prefetch_count);
+    fs->ClearPrefetchCount();
   } else {
-    // If underline file system doesn't support prefetch, or directIO is
-    // enabled, make sure prefetch() is not called and FilePrefetchBuffer is
-    // used.
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    ASSERT_GT(buff_prefetch_count, 0);
+    if (use_direct_io) {
+      // To rule out false positive by the SST file tail prefetch during
+      // compaction output verification
+      ASSERT_GT(buff_prefetch_count, 1);
+    } else {
+      // In buffered IO, compaction readahead size is 0, leading to no prefetch
+      // during compaction input read
+      ASSERT_EQ(buff_prefetch_count, 1);
+    }
+
+    buff_prefetch_count = 0;
+
     ASSERT_GT(cur_table_open_prefetch_tail_read.count,
               prev_table_open_prefetch_tail_read.count);
     ASSERT_GT(cur_table_open_prefetch_tail_hit,
               prev_table_open_prefetch_tail_hit);
     ASSERT_GE(cur_table_open_prefetch_tail_miss,
               prev_table_open_prefetch_tail_miss);
-    buff_prefetch_count = 0;
   }
 
   // count the keys
@@ -236,7 +268,7 @@ TEST_P(PrefetchTest, Basic) {
     (void)num_keys;
   }
 
-  // Make sure prefetch is called only if file system support prefetch.
+  // To verify prefetch during user scan
   if (support_prefetch && !use_direct_io) {
     ASSERT_TRUE(fs->IsPrefetchCalled());
     fs->ClearPrefetchCount();
