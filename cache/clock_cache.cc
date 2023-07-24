@@ -73,6 +73,16 @@ inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
   MarkEmpty(h);
 }
 
+// Called to undo the effect of referencing an entry for internal purposes,
+// so it should not be marked as having been used.
+inline void Unref(const ClockHandle& h, uint64_t count = 1) {
+  // Pretend we never took the reference
+  // WART: there's a tiny chance we release last ref to invisible
+  // entry here. If that happens, we let eviction take care of it.
+  h.meta.fetch_sub(ClockHandle::kAcquireIncrement * count,
+                   std::memory_order_release);
+}
+
 inline bool ClockUpdate(ClockHandle& h) {
   uint64_t meta = h.meta.load(std::memory_order_relaxed);
 
@@ -231,25 +241,18 @@ inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
       *already_matches = true;
       return false;
     } else {
-      // Mismatch. Pretend we never took the reference
-      old_meta =
-          h.meta.fetch_sub(ClockHandle::kAcquireIncrement * initial_countdown,
-                           std::memory_order_acq_rel);
+      // Mismatch.
+      Unref(h, initial_countdown);
     }
   } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
                       ClockHandle::kStateInvisible)) {
     // Pretend we never took the reference
-    // WART/FIXME?: there's a tiny chance we release last ref to invisible
-    // entry here. If that happens, we let eviction take care of it.
-    old_meta =
-        h.meta.fetch_sub(ClockHandle::kAcquireIncrement * initial_countdown,
-                         std::memory_order_acq_rel);
+    Unref(h, initial_countdown);
   } else {
     // For other states, incrementing the acquire counter has no effect
     // so we don't need to undo it.
     // Slot not usable / touchable now.
   }
-  (void)old_meta;
   return false;
 }
 
@@ -289,9 +292,10 @@ bool TryInsert(const ClockHandleBasicData& proto, ClockHandle& h,
   return b;
 }
 
+// Func must be const HandleImpl& -> void callable
 template <class HandleImpl, class Func>
-void ConstApplyToEntriesRange(Func /*const HandleImpl& -> void*/ func,
-                              const HandleImpl* begin, const HandleImpl* end,
+void ConstApplyToEntriesRange(const Func& func, const HandleImpl* begin,
+                              const HandleImpl* end,
                               bool apply_if_will_be_deleted) {
   uint64_t check_state_mask = ClockHandle::kStateShareableBit;
   if (!apply_if_will_be_deleted) {
@@ -316,8 +320,7 @@ void ConstApplyToEntriesRange(Func /*const HandleImpl& -> void*/ func,
           func(*h);
         }
         // Pretend we never took the reference
-        h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                          std::memory_order_release);
+        Unref(*h);
         // No net change, so don't need to check for overflow
       } else {
         // For other states, incrementing the acquire counter has no effect
@@ -419,22 +422,20 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
     request_evict_charge = 1;
   }
   if (request_evict_charge > 0) {
-    size_t evicted_charge = 0;
-    size_t evicted_count = 0;
-    static_cast<Table*>(this)->Evict(request_evict_charge, &evicted_charge,
-                                     &evicted_count, state);
-    occupancy_.fetch_sub(evicted_count, std::memory_order_release);
-    if (LIKELY(evicted_charge > need_evict_charge)) {
-      assert(evicted_count > 0);
+    EvictionData data;
+    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data);
+    occupancy_.fetch_sub(data.freed_count, std::memory_order_release);
+    if (LIKELY(data.freed_charge > need_evict_charge)) {
+      assert(data.freed_count > 0);
       // Evicted more than enough
-      usage_.fetch_sub(evicted_charge - need_evict_charge,
+      usage_.fetch_sub(data.freed_charge - need_evict_charge,
                        std::memory_order_relaxed);
-    } else if (evicted_charge < need_evict_charge ||
-               (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0)) {
+    } else if (data.freed_charge < need_evict_charge ||
+               (UNLIKELY(need_evict_for_occupancy) && data.freed_count == 0)) {
       // Roll back to old usage minus evicted
-      usage_.fetch_sub(evicted_charge + (new_usage - old_usage),
+      usage_.fetch_sub(data.freed_charge + (new_usage - old_usage),
                        std::memory_order_relaxed);
-      if (evicted_charge < need_evict_charge) {
+      if (data.freed_charge < need_evict_charge) {
         return Status::MemoryLimit(
             "Insert failed because unable to evict entries to stay within "
             "capacity limit.");
@@ -446,7 +447,7 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
     }
     // If we needed to evict something and we are proceeding, we must have
     // evicted something.
-    assert(evicted_count > 0);
+    assert(data.freed_count > 0);
   }
   return Status::OK();
 }
@@ -488,27 +489,45 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
     // deal with occupancy
     need_evict_charge = 1;
   }
-  size_t evicted_charge = 0;
-  size_t evicted_count = 0;
+  EvictionData data;
   if (need_evict_charge > 0) {
-    static_cast<Table*>(this)->Evict(need_evict_charge, &evicted_charge,
-                                     &evicted_count, state);
+    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data);
     // Deal with potential occupancy deficit
-    if (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0) {
-      assert(evicted_charge == 0);
+    if (UNLIKELY(need_evict_for_occupancy) && data.freed_count == 0) {
+      assert(data.freed_charge == 0);
       // Can't meet occupancy requirement
       return false;
     } else {
       // Update occupancy for evictions
-      occupancy_.fetch_sub(evicted_count, std::memory_order_release);
+      occupancy_.fetch_sub(data.freed_count, std::memory_order_release);
     }
   }
   // Track new usage even if we weren't able to evict enough
-  usage_.fetch_add(total_charge - evicted_charge, std::memory_order_relaxed);
+  usage_.fetch_add(total_charge - data.freed_charge, std::memory_order_relaxed);
   // No underflow
   assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
   // Success
   return true;
+}
+
+void BaseClockTable::TrackAndReleaseEvictedEntry(
+    ClockHandle* h, BaseClockTable::EvictionData* data) {
+  data->freed_charge += h->GetTotalCharge();
+  data->freed_count += 1;
+
+  bool took_value_ownership = false;
+  if (eviction_callback_) {
+    // For key reconstructed from hash
+    UniqueId64x2 unhashed;
+    took_value_ownership =
+        eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
+                               h->GetHash(), &unhashed, hash_seed_),
+                           reinterpret_cast<Cache::Handle*>(h));
+  }
+  if (!took_value_ownership) {
+    h->FreeData(allocator_);
+  }
+  MarkEmpty(*h);
 }
 
 template <class Table>
@@ -800,23 +819,18 @@ HyperClockTable::HandleImpl* HyperClockTable::Lookup(
             return true;
           } else {
             // Mismatch. Pretend we never took the reference
-            old_meta = h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                                         std::memory_order_release);
+            Unref(*h);
           }
         } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
                             ClockHandle::kStateInvisible)) {
           // Pretend we never took the reference
-          // WART: there's a tiny chance we release last ref to invisible
-          // entry here. If that happens, we let eviction take care of it.
-          old_meta = h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                                       std::memory_order_release);
+          Unref(*h);
         } else {
           // For other states, incrementing the acquire counter has no effect
           // so we don't need to undo it. Furthermore, we cannot safely undo
           // it because we did not acquire a read reference to lock the
           // entry in a Shareable state.
         }
-        (void)old_meta;
         return false;
       },
       [&](HandleImpl* h) {
@@ -941,8 +955,7 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
               if (refcount > 1) {
                 // Not last ref at some point in time during this Erase call
                 // Pretend we never took the reference
-                h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                                  std::memory_order_release);
+                Unref(*h);
                 break;
               } else if (h->meta.compare_exchange_weak(
                              old_meta,
@@ -962,16 +975,12 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
             }
           } else {
             // Mismatch. Pretend we never took the reference
-            h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                              std::memory_order_release);
+            Unref(*h);
           }
         } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
                             ClockHandle::kStateInvisible)) {
           // Pretend we never took the reference
-          // WART: there's a tiny chance we release last ref to invisible
-          // entry here. If that happens, we let eviction take care of it.
-          h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                            std::memory_order_release);
+          Unref(*h);
         } else {
           // For other states, incrementing the acquire counter has no effect
           // so we don't need to undo it.
@@ -1007,8 +1016,8 @@ void HyperClockTable::EraseUnRefEntries() {
 
 template <typename MatchFn, typename AbortFn, typename UpdateFn>
 inline HyperClockTable::HandleImpl* HyperClockTable::FindSlot(
-    const UniqueId64x2& hashed_key, MatchFn match_fn, AbortFn abort_fn,
-    UpdateFn update_fn) {
+    const UniqueId64x2& hashed_key, const MatchFn& match_fn,
+    const AbortFn& abort_fn, const UpdateFn& update_fn) {
   // NOTE: upper 32 bits of hashed_key[0] is used for sharding
   //
   // We use double-hashing probing. Every probe in the sequence is a
@@ -1062,9 +1071,8 @@ inline void HyperClockTable::ReclaimEntryUsage(size_t total_charge) {
   assert(old_usage >= total_charge);
 }
 
-inline void HyperClockTable::Evict(size_t requested_charge,
-                                   size_t* freed_charge, size_t* freed_count,
-                                   InsertState&) {
+inline void HyperClockTable::Evict(size_t requested_charge, InsertState&,
+                                   EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -1083,33 +1091,18 @@ inline void HyperClockTable::Evict(size_t requested_charge,
   uint64_t max_clock_pointer =
       old_clock_pointer + (ClockHandle::kMaxCountdown << length_bits_);
 
-  // For key reconstructed from hash
-  UniqueId64x2 unhashed;
-
   for (;;) {
     for (size_t i = 0; i < step_size; i++) {
       HandleImpl& h = array_[ModTableSize(Lower32of64(old_clock_pointer + i))];
       bool evicting = ClockUpdate(h);
       if (evicting) {
         Rollback(h.hashed_key, &h);
-        *freed_charge += h.GetTotalCharge();
-        *freed_count += 1;
-        bool took_ownership = false;
-        if (eviction_callback_) {
-          took_ownership =
-              eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
-                                     h.GetHash(), &unhashed, hash_seed_),
-                                 reinterpret_cast<Cache::Handle*>(&h));
-        }
-        if (!took_ownership) {
-          h.FreeData(allocator_);
-        }
-        MarkEmpty(h);
+        TrackAndReleaseEvictedEntry(&h, data);
       }
     }
 
     // Loop exit condition
-    if (*freed_charge >= requested_charge) {
+    if (data->freed_charge >= requested_charge) {
       return;
     }
     if (old_clock_pointer >= max_clock_pointer) {

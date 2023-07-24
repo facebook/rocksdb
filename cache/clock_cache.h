@@ -422,6 +422,13 @@ class BaseClockTable {
 
   uint32_t GetHashSeed() const { return hash_seed_; }
 
+  struct EvictionData {
+    size_t freed_charge = 0;
+    size_t freed_count = 0;
+  };
+
+  void TrackAndReleaseEvictedEntry(ClockHandle* h, EvictionData* data);
+
 #ifndef NDEBUG
   // Acquire N references
   void TEST_RefN(ClockHandle& handle, size_t n);
@@ -528,8 +535,7 @@ class HyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, size_t* freed_charge, size_t* freed_count,
-             InsertState& state);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -570,8 +576,9 @@ class HyperClockTable : public BaseClockTable {
   // slot probed. This function uses templates instead of std::function to
   // minimize the risk of heap-allocated closures being created.
   template <typename MatchFn, typename AbortFn, typename UpdateFn>
-  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key, MatchFn match_fn,
-                              AbortFn abort_fn, UpdateFn update_fn);
+  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key,
+                              const MatchFn& match_fn, const AbortFn& abort_fn,
+                              const UpdateFn& update_fn);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
