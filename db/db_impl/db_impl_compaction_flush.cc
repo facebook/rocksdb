@@ -92,11 +92,15 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   // Write stall entered because of the accumulation of write buffers can be
   // alleviated if we continue with the flush instead of postponing it.
   const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
-  const auto* vstorage = cfd->current()->storage_info();
+
+  int mem_to_flush = cfd->mem()->ApproximateMemoryUsage() >=
+                             mutable_cf_options.write_buffer_size * 0.5
+                         ? 1
+                         : 0;
   WriteStallCondition write_stall =
       ColumnFamilyData::GetWriteStallConditionAndCause(
-          cfd->imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
-          vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
+          cfd->imm()->NumNotFlushed() + mem_to_flush, /*num_l0_files=*/0,
+          /*num_compaction_needed_bytes=*/0, mutable_cf_options,
           *cfd->ioptions())
           .first;
   if (write_stall != WriteStallCondition::kNormal) {
@@ -2238,9 +2242,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
-        FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
-        if (flush_options.wait &&
-            ShouldRescheduleFlushRequestToRetainUDT(req)) {
+        if (flush_options.wait && !cfd->IsDropped() &&
+            cfd->ShouldPostponeFlushToRetainUDT(flush_memtable_id)) {
           std::ostringstream oss;
           oss << "Flush cannot continue until all contained user-defined "
                  "timestamps are above full_history_ts_low. Increase"
@@ -2255,6 +2258,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           }
           return Status::TryAgain(oss.str());
         }
+        FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
       }
@@ -3026,7 +3030,9 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
       ColumnFamilyData* cfd =
           flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
-      cfd->UnrefAndTryDelete();
+      if (cfd->UnrefAndTryDelete()) {
+        return Status::OK();
+      }
       ROCKS_LOG_BUFFER(log_buffer,
                        "FlushRequest for column family %s is re-scheduled to "
                        "retain user-defined timestamps.",

@@ -3482,34 +3482,6 @@ TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredUserTryAgain) {
   Close();
 }
 
-TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredContinueFlush) {
-  Open();
-  std::string write_ts;
-  uint64_t cutoff_ts = 2;
-  PutFixed64(&write_ts, cutoff_ts);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  std::string full_history_ts_low;
-  PutFixed64(&full_history_ts_low, 1);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], full_history_ts_low));
-  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
-  ASSERT_OK(db_->SetOptions(cfh, {{"max_write_buffer_number", "1"}}));
-  // Although some user-defined timestamps haven't expired w.r.t
-  // full_history_ts_low, flush is continued to avoid write stall because
-  // max_write_buffer_number is 1.
-  ASSERT_OK(Flush(0));
-
-  std::string effective_full_history_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-  std::string expected_new_full_history_ts_low;
-  // The effective new full_history_ts_low should
-  // be the newest UDT in the flushed Memtables, plus 1 (the next immediately
-  // larger) udt.
-  PutFixed64(&expected_new_full_history_ts_low, cutoff_ts + 1);
-  ASSERT_EQ(expected_new_full_history_ts_low, effective_full_history_ts_low);
-  Close();
-}
-
 TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
   Open();
   std::string write_ts;

@@ -1389,7 +1389,8 @@ Status ColumnFamilyData::ValidateOptions(
     size_t name_size = strlen(comparator_name);
     const char* suffix = ".u64ts";
     size_t suffix_size = strlen(suffix);
-    if (strcmp(comparator_name + name_size - suffix_size, suffix) != 0) {
+    if (name_size <= suffix_size ||
+        strcmp(comparator_name + name_size - suffix_size, suffix) != 0) {
       return Status::NotSupported(
           "Not persisting user-defined timestamps"
           "feature only support user-defined timestamps formatted as "
