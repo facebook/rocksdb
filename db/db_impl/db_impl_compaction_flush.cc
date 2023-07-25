@@ -93,8 +93,10 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
   // alleviated if we continue with the flush instead of postponing it.
   const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
 
-  int mem_to_flush = cfd->mem()->ApproximateMemoryUsage() >=
-                             mutable_cf_options.write_buffer_size * 0.5
+  // Taking the status of the active Memtable into consideration so that we are
+  // not just checking if DB is currently already in write stall mode.
+  int mem_to_flush = cfd->mem()->ApproximateMemoryUsageFast() >=
+                             cfd->mem()->write_buffer_size() / 2
                          ? 1
                          : 0;
   WriteStallCondition write_stall =
@@ -2242,22 +2244,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
-        if (flush_options.wait && !cfd->IsDropped() &&
-            cfd->ShouldPostponeFlushToRetainUDT(flush_memtable_id)) {
-          std::ostringstream oss;
-          oss << "Flush cannot continue until all contained user-defined "
-                 "timestamps are above full_history_ts_low. Increase"
-                 "full_history_ts_low and try again. Or set FlushOptions.wait"
-                 "to false and let background flush jobs automatically"
-                 "continue when it detects full_history_ts_low increase.";
-          if (needs_to_join_write_thread) {
-            write_thread_.ExitUnbatched(&w);
-            if (two_write_queues_) {
-              nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-            }
-          }
-          return Status::TryAgain(oss.str());
-        }
         FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
@@ -3046,7 +3032,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       // queue while the db mutex is held, so there should be no other
       // FlushRequest for the same column family with higher `max_memtable_id`
       // in the queue to block the reschedule from succeeding.
-#ifndef  NDEBUG
+#ifndef NDEBUG
       flush_req.reschedule_count += 1;
 #endif /* !NDEBUG */
       SchedulePendingFlush(flush_req);
@@ -3055,9 +3041,11 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       return Status::TryAgain();
     }
     superversion_contexts.clear();
-    superversion_contexts.reserve(flush_req.cfd_to_max_mem_id_to_persist.size());
+    superversion_contexts.reserve(
+        flush_req.cfd_to_max_mem_id_to_persist.size());
 
-    for (const auto& [cfd, max_memtable_id] : flush_req.cfd_to_max_mem_id_to_persist) {
+    for (const auto& [cfd, max_memtable_id] :
+         flush_req.cfd_to_max_mem_id_to_persist) {
       if (cfd->GetMempurgeUsed()) {
         // If imm() contains silent memtables (e.g.: because
         // MemPurge was activated), requesting a flush will
@@ -3079,6 +3067,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     // `unscheduled_flushes_`. So it's sufficient to make each `BackgroundFlush`
     // handle one `FlushRequest` and each have a Status returned.
     if (!bg_flush_args.empty() || !column_families_not_to_flush.empty()) {
+      TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundFlush:CheckFlushRequest:cb",
+                               const_cast<int*>(&flush_req.reschedule_count));
       break;
     }
   }
@@ -3147,6 +3137,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     if (s.IsTryAgain() && flush_rescheduled_to_retain_udt) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
+      TEST_SYNC_POINT_CALLBACK("DBImpl::AfterRetainUDTReschedule:cb", nullptr);
       immutable_db_options_.clock->SleepForMicroseconds(
           100000);  // prevent hot loop
       mutex_.Lock();

@@ -1048,6 +1048,7 @@ TEST_F(MemTableListWithTimestampTest, GetTableNewestUDT) {
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
+  options.persist_user_defined_timestamps = false;
   ImmutableOptions ioptions(options);
   const Comparator* ucmp = test::BytewiseComparatorWithU64TsWrapper();
   InternalKeyComparator cmp(ucmp);

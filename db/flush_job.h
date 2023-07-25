@@ -137,7 +137,7 @@ class FlushJob {
   // removed because of flush, and use it to increase `full_history_ts_low` if
   // the effective cutoff timestamp is newer. See
   // `MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT` for details.
-  void PopulateEffectiveCutoffUDTForPickedMemTables();
+  void GetEffectiveCutoffUDTForPickedMemTables();
 
   Status MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
 

@@ -191,7 +191,7 @@ void FlushJob::PickMemTable() {
 
   // Track effective cutoff user-defined timestamp during flush if
   // user-defined timestamps can be stripped.
-  PopulateEffectiveCutoffUDTForPickedMemTables();
+  GetEffectiveCutoffUDTForPickedMemTables();
 
   ReportFlushInputSize(mems_);
 
@@ -1105,7 +1105,7 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   return info;
 }
 
-void FlushJob::PopulateEffectiveCutoffUDTForPickedMemTables() {
+void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
   const auto* ucmp = cfd_->internal_comparator().user_comparator();

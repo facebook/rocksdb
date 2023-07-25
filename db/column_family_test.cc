@@ -3440,85 +3440,140 @@ TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
 }
 
 TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
   Open();
   std::string write_ts;
   PutFixed64(&write_ts, 1);
   ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  // Flush() defaults to wait, so OK status indicates flushing success.
+  // No `full_history_ts_low` explicitly set by user, flush is continued
+  // without checking if its UDTs expired.
   ASSERT_OK(Flush(0));
+
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 2);
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
   Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
-  Open();
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  std::string cutoff_ts;
-  PutFixed64(&cutoff_ts, 2);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  // Flush() defaults to wait, so OK status indicates success flushing.
-  ASSERT_OK(Flush(0));
-  Close();
-}
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
 
-TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredUserTryAgain) {
+  SyncPoint::GetInstance()->EnableProcessing();
   Open();
   std::string write_ts;
   PutFixed64(&write_ts, 1);
   ASSERT_OK(Put(0, "foo", write_ts, "v1"));
   std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // All keys expired w.r.t the configured `full_history_ts_low`, flush continue
+  // without the need for a re-schedule.
+  ASSERT_OK(Flush(0));
+
+  // `full_history_ts_low` stays unchanged after flush.
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string cutoff_ts;
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
   PutFixed64(&cutoff_ts, 1);
   ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  // Flush() defaults to wait, wait cannot succeed because `full_history_ts_low`
-  // treats the Memtable as still worth postponing its flush to retain UDT.
-  ASSERT_TRUE(Flush(0).IsTryAgain());
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"max_write_buffer_number", "1"}}));
+  // Not all keys expired, but flush is continued without a re-schedule because
+  // of risk of write stall.
+  ASSERT_OK(Flush(0));
 
-  // Try flush again after increasing full_history_ts_low succeeds.
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+
   cutoff_ts.clear();
   PutFixed64(&cutoff_ts, 2);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  ASSERT_OK(Flush(0));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
   Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
+  std::string cutoff_ts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AfterRetainUDTReschedule:cb", [&](void* /*arg*/) {
+        // Increasing full_history_ts_low so all keys expired after the initial
+        // FlushRequest is rescheduled
+        cutoff_ts.clear();
+        PutFixed64(&cutoff_ts, 3);
+        ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(2, reschedule_count);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   Open();
   std::string write_ts;
   PutFixed64(&write_ts, 1);
   ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  std::string cutoff_ts;
   PutFixed64(&cutoff_ts, 1);
   ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  FlushOptions flush_options;
-  // Setting wait to false, to test the FlushRequest reschedule code path, which
-  // is shared between manual flush and automatic flush.
-  flush_options.wait = false;
-  ASSERT_OK(db_->Flush(flush_options, handles_[0]));
-
-  // No sst files created because flush is rescheduled and won't continue
-  // until full_history_ts_low has a value that marks all user-defined
-  // timestamps in the Memtable as expired.
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
-  ASSERT_GE(metadata.size(), 0);
-
-  // Increase full_history_ts_low so that the rescheduled flush can continue
-  // with the actual flushing now.
-  cutoff_ts.clear();
-  PutFixed64(&cutoff_ts, 2);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  WaitForFlush(0);
-  db_->GetLiveFilesMetaData(&metadata);
-  ASSERT_GE(metadata.size(), 1);
+  // Not all keys expired, and there is no risk of write stall. Flush is
+  // rescheduled. The actual flush happens after `full_history_ts_low` is
+  // increased to mark all keys expired.
+  ASSERT_OK(Flush(0));
 
   std::string effective_full_history_ts_low;
   ASSERT_OK(
       db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-  // Original flush request rescheduled to respect full_histor_ts_low, as a
-  // result, full_history_ts_low stays unchanged.
+  // `full_history_ts_low` stays unchanged.
   ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
   Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

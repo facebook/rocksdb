@@ -2063,6 +2063,10 @@ class DBImpl : public DB {
     // flush is considered complete.
     std::unordered_map<ColumnFamilyData*, uint64_t>
         cfd_to_max_mem_id_to_persist;
+
+#ifndef NDEBUG
+    int reschedule_count = 1;
+#endif /* !NDEBUG */
   };
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
