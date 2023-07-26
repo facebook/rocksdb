@@ -1155,10 +1155,20 @@ struct AdvancedColumnFamilyOptions {
   // while set this flag to be `false`: user keys in the newly generated SST
   // files are of the same format as the existing SST files.
   //
+  // Currently only user comparator that formats user-defined timesamps as
+  // uint64_t via using one of the RocksDB provided comparator
+  // `ComparatorWithU64TsImpl` are supported.
+  //
   // When setting this flag to `false`, users should also call
   // `DB::IncreaseFullHistoryTsLow` to set a cutoff timestamp for flush. RocksDB
   // refrains from flushing a memtable with data still above
-  // the cutoff timestamp with best effort. Users can do user-defined
+  // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
+  // flushing continues normally.
+  // NOTE: in order for the cutoff timestamp to work properly, users of this
+  // feature need to ensure to write to a column family with globally
+  // non-decreasing user-defined timestamps.
+  //
+  // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read
   // below the cutoff timestamp, an error will be returned.
   //
@@ -1168,6 +1178,10 @@ struct AdvancedColumnFamilyOptions {
   // should flush all memtables so there is no active WAL files before doing a
   // downgrade or toggling on / off the user-defined timestamp feature on a
   // column family.
+  //
+  // Note that setting this flag to false is not supported in combination with
+  // atomic flush, or concurrent memtable write enabled by
+  // `allow_concurrent_memtable_write`.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and

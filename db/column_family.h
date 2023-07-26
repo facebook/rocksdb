@@ -506,6 +506,12 @@ class ColumnFamilyData {
     return full_history_ts_low_;
   }
 
+  // REQUIRES: DB mutex held.
+  // Return true if flushing up to MemTables with ID `max_memtable_id`
+  // should be postponed to retain user-defined timestamps according to the
+  // user's setting. Called by background flush job.
+  bool ShouldPostponeFlushToRetainUDT(uint64_t max_memtable_id);
+
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
   std::shared_ptr<CacheReservationManager>

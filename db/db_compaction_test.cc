@@ -5231,6 +5231,12 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
     }
 
     auto manual_compaction_thread = port::Thread([this]() {
+      // Write something to make the current Memtable non-empty, so an extra
+      // immutable Memtable will be created upon manual flush requested by
+      // CompactRange, triggering a write stall mode to be entered because of
+      // accumulation of write buffers due to manual flush.
+      Random compact_rnd(301);
+      ASSERT_OK(Put(Key(0), compact_rnd.RandomString(1024)));
       CompactRangeOptions cro;
       cro.allow_write_stall = false;
       ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));

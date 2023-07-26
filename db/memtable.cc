@@ -143,6 +143,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                                                            new_cache.get()),
         std::memory_order_relaxed);
   }
+  const Comparator* ucmp = cmp.user_comparator();
+  assert(ucmp);
+  ts_sz_ = ucmp->timestamp_size();
+  persist_user_defined_timestamps_ = ioptions.persist_user_defined_timestamps;
 }
 
 MemTable::~MemTable() {
@@ -357,7 +361,8 @@ class MemTableIterator : public InternalIterator {
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
         protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
         status_(Status::OK()),
-        logger_(mem.moptions_.info_log) {
+        logger_(mem.moptions_.info_log),
+        ts_sz_(mem.ts_sz_) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
@@ -400,8 +405,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
-      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
         if (!bloom_->MayContain(
                 prefix_extractor_->Transform(user_k_without_ts))) {
@@ -421,8 +425,7 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
-      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
         if (!bloom_->MayContain(
                 prefix_extractor_->Transform(user_k_without_ts))) {
@@ -512,6 +515,7 @@ class MemTableIterator : public InternalIterator {
   uint32_t protection_bytes_per_key_;
   Status status_;
   Logger* logger_;
+  size_t ts_sz_;
 
   void VerifyEntryChecksum() {
     if (protection_bytes_per_key_ > 0 && Valid()) {
@@ -625,8 +629,7 @@ Status MemTable::VerifyEncodedEntry(Slice encoded,
   if (!GetVarint32(&encoded, &ikey_len)) {
     return Status::Corruption("Unable to parse internal key length");
   }
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  if (ikey_len < 8 + ts_sz) {
+  if (ikey_len < 8 + ts_sz_) {
     return Status::Corruption("Internal key length too short");
   }
   if (ikey_len > encoded.size()) {
@@ -725,8 +728,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
 
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
+  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz_);
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -776,6 +778,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
     assert(post_process_info == nullptr);
+    // TODO(yuzhangyu): support updating newest UDT for when `allow_concurrent`
+    // is true.
+    MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
     bool res = (hint == nullptr)
@@ -1286,8 +1291,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
+  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz_);
   bool bloom_checked = false;
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
@@ -1670,6 +1674,24 @@ void MemTable::RefLogContainingPrepSection(uint64_t log) {
 
 uint64_t MemTable::GetMinLogContainingPrepSection() {
   return min_prep_log_referenced_.load();
+}
+
+void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
+  if (ts_sz_ == 0 || persist_user_defined_timestamps_) {
+    return;
+  }
+  const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
+  Slice udt = ExtractTimestampFromUserKey(user_key, ts_sz_);
+  if (newest_udt_.empty() || ucmp->CompareTimestamp(udt, newest_udt_) > 0) {
+    newest_udt_ = udt;
+  }
+}
+
+const Slice& MemTable::GetNewestUDT() const {
+  // This path should not be invoked for MemTables that does not enable the UDT
+  // in Memtable only feature.
+  assert(ts_sz_ > 0 && !persist_user_defined_timestamps_);
+  return newest_udt_;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

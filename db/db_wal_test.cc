@@ -324,10 +324,14 @@ class DBWALTestWithTimestamp
   }
 
   Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
-                                     const Options& options,
+                                     Options& ts_options,
                                      bool avoid_flush_during_recovery = false) {
-    CreateColumnFamilies(cfs, options);
-    return ReopenColumnFamiliesWithTs(cfs, options,
+    Options default_options = CurrentOptions();
+    default_options.allow_concurrent_memtable_write =
+        persist_udt_ ? true : false;
+    DestroyAndReopen(default_options);
+    CreateColumnFamilies(cfs, ts_options);
+    return ReopenColumnFamiliesWithTs(cfs, ts_options,
                                       avoid_flush_during_recovery);
   }
 
@@ -336,6 +340,8 @@ class DBWALTestWithTimestamp
                                     bool avoid_flush_during_recovery = false) {
     Options default_options = CurrentOptions();
     default_options.create_if_missing = false;
+    default_options.allow_concurrent_memtable_write =
+        persist_udt_ ? true : false;
     default_options.avoid_flush_during_recovery = avoid_flush_during_recovery;
     ts_options.create_if_missing = false;
 
@@ -370,12 +376,11 @@ class DBWALTestWithTimestamp
 
 TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
   // Set up the option that enables user defined timestmp size.
-  std::string ts1 = Timestamp(1, 0);
-  const size_t kTimestampSize = ts1.size();
-  TestComparator test_cmp(kTimestampSize);
+  std::string ts1;
+  PutFixed64(&ts1, 1);
   Options ts_options;
   ts_options.create_if_missing = true;
-  ts_options.comparator = &test_cmp;
+  ts_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   // Test that user-defined timestamps are recovered from WAL regardless of
   // the value of this flag because UDTs are saved in WAL nonetheless.
   // We however need to explicitly disable flush during recovery by setting
@@ -405,14 +410,16 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
 
     // Write more value versions for key "foo" and "bar" before and after second
     // reopen.
-    std::string ts2 = Timestamp(2, 0);
+    std::string ts2;
+    PutFixed64(&ts2, 2);
     ASSERT_OK(Put(1, "bar", ts2, "v2"));
     ASSERT_OK(Put(1, "foo", ts2, "v3"));
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options,
                                          avoid_flush_during_recovery));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
-    std::string ts3 = Timestamp(3, 0);
+    std::string ts3;
+    PutFixed64(&ts3, 3);
     ASSERT_OK(Put(1, "foo", ts3, "v4"));
 
     // Do a timestamped read with ts1 after third reopen.
@@ -435,11 +442,26 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
   } while (ChangeWalOptions());
 }
 
+class TestTsSzComparator : public Comparator {
+ public:
+  explicit TestTsSzComparator(size_t ts_sz) : Comparator(ts_sz) {}
+
+  int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
+              const ROCKSDB_NAMESPACE::Slice& /*b*/) const override {
+    return 0;
+  }
+  const char* Name() const override { return "TestTsSzComparator.u64ts"; }
+  void FindShortestSeparator(
+      std::string* /*start*/,
+      const ROCKSDB_NAMESPACE::Slice& /*limit*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
 TEST_P(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
   // Set up the option that enables user defined timestmp size.
-  std::string ts = Timestamp(1, 0);
-  const size_t kTimestampSize = ts.size();
-  TestComparator test_cmp(kTimestampSize);
+  std::string ts;
+  PutFixed16(&ts, 1);
+  TestTsSzComparator test_cmp(2);
   Options ts_options;
   ts_options.create_if_missing = true;
   ts_options.comparator = &test_cmp;
@@ -452,11 +474,11 @@ TEST_P(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
   // In real use cases, switching to a different user comparator is prohibited
   // by a sanity check during DB open that does a user comparator name
   // comparison. This test mocked and bypassed that sanity check because the
-  // before and after user comparator are both named "TestComparator". This is
-  // to test the user-defined timestamp recovery logic for WAL files have
-  // the intended consistency check.
+  // before and after user comparator are both named "TestTsSzComparator.u64ts".
+  // This is to test the user-defined timestamp recovery logic for WAL files
+  // have the intended consistency check.
   // `HandleWriteBatchTimestampSizeDifference` in udt_util.h has more details.
-  TestComparator diff_test_cmp(kTimestampSize + 1);
+  TestTsSzComparator diff_test_cmp(3);
   ts_options.comparator = &diff_test_cmp;
   ASSERT_TRUE(
       ReopenColumnFamiliesWithTs({"pikachu"}, ts_options).IsInvalidArgument());
@@ -464,13 +486,13 @@ TEST_P(DBWALTestWithTimestamp, RecoverInconsistentTimestamp) {
 
 TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
   // Set up the option that enables user defined timestamp size.
-  std::string min_ts = Timestamp(0, 0);
-  std::string write_ts = Timestamp(1, 0);
-  const size_t kTimestampSize = write_ts.size();
-  TestComparator test_cmp(kTimestampSize);
+  std::string min_ts;
+  std::string write_ts;
+  PutFixed64(&min_ts, 0);
+  PutFixed64(&write_ts, 1);
   Options ts_options;
   ts_options.create_if_missing = true;
-  ts_options.comparator = &test_cmp;
+  ts_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   ts_options.persist_user_defined_timestamps = persist_udt_;
 
   std::string smallest_ukey_without_ts = "baz";
