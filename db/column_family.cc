@@ -1385,6 +1385,11 @@ Status ColumnFamilyData::ValidateOptions(
           "Not persisting user-defined timestamps feature is not supported"
           "in combination with atomic flush.");
     }
+    if (db_options.allow_concurrent_memtable_write) {
+      return Status::NotSupported(
+          "Not persisting user-defined timestamps feature is not supported"
+          " in combination with concurrent memtable write.");
+    }
     const char* comparator_name = cf_options.comparator->Name();
     size_t name_size = strlen(comparator_name);
     const char* suffix = ".u64ts";

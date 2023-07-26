@@ -1180,7 +1180,8 @@ struct AdvancedColumnFamilyOptions {
   // column family.
   //
   // Note that setting this flag to false is not supported in combination with
-  // atomic flush.
+  // atomic flush, or concurrent memtable write enabled by
+  // `allow_concurrent_memtable_write`.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and

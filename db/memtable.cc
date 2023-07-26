@@ -728,7 +728,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
 
-  MaybeUpdateNewestUDT(key_slice);
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz_);
 
   if (!allow_concurrent) {
@@ -779,6 +778,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
     assert(post_process_info == nullptr);
+    // TODO(yuzhangyu): support updating newest UDT for when `allow_concurrent`
+    // is true.
+    MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
     bool res = (hint == nullptr)

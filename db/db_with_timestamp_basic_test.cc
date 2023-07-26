@@ -3298,6 +3298,9 @@ TEST_P(HandleFileBoundariesTest, ConfigurePersistUdt) {
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   bool persist_udt = test::ShouldPersistUDT(GetParam());
   options.persist_user_defined_timestamps = persist_udt;
+  if (!persist_udt) {
+    options.allow_concurrent_memtable_write = false;
+  }
   DestroyAndReopen(options);
 
   ASSERT_OK(

@@ -3391,6 +3391,7 @@ class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
   ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
 
   void SetUp() override {
+    db_options_.allow_concurrent_memtable_write = false;
     column_family_options_.comparator =
         test::BytewiseComparatorWithU64TsWrapper();
     column_family_options_.persist_user_defined_timestamps = false;
@@ -3435,6 +3436,12 @@ TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
   // Not persisting user-defined timestamps feature doesn't work in combination
   // with atomic flush.
   db_options_.atomic_flush = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with concurrent memtable write.
+  db_options_.atomic_flush = false;
+  db_options_.allow_concurrent_memtable_write = true;
   ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
   Close();
 }

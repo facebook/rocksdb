@@ -371,6 +371,9 @@ TEST_P(RepairTestWithTimestamp, UnflushedSst) {
   PutFixed64(&write_ts, 1);
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.persist_user_defined_timestamps = persist_udt;
+  if (!persist_udt) {
+    options.allow_concurrent_memtable_write = false;
+  }
   options.paranoid_file_checks = paranoid_file_checks;
 
   ColumnFamilyOptions cf_options(options);

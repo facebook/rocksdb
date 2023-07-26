@@ -324,10 +324,14 @@ class DBWALTestWithTimestamp
   }
 
   Status CreateAndReopenWithCFWithTs(const std::vector<std::string>& cfs,
-                                     const Options& options,
+                                     Options& ts_options,
                                      bool avoid_flush_during_recovery = false) {
-    CreateColumnFamilies(cfs, options);
-    return ReopenColumnFamiliesWithTs(cfs, options,
+    Options default_options = CurrentOptions();
+    default_options.allow_concurrent_memtable_write =
+        persist_udt_ ? true : false;
+    DestroyAndReopen(default_options);
+    CreateColumnFamilies(cfs, ts_options);
+    return ReopenColumnFamiliesWithTs(cfs, ts_options,
                                       avoid_flush_during_recovery);
   }
 
@@ -336,6 +340,8 @@ class DBWALTestWithTimestamp
                                     bool avoid_flush_during_recovery = false) {
     Options default_options = CurrentOptions();
     default_options.create_if_missing = false;
+    default_options.allow_concurrent_memtable_write =
+        persist_udt_ ? true : false;
     default_options.avoid_flush_during_recovery = avoid_flush_during_recovery;
     ts_options.create_if_missing = false;
 
@@ -438,7 +444,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
 
 class TestTsSzComparator : public Comparator {
  public:
-  TestTsSzComparator(size_t ts_sz) : Comparator(ts_sz) {}
+  explicit TestTsSzComparator(size_t ts_sz) : Comparator(ts_sz) {}
 
   int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
               const ROCKSDB_NAMESPACE::Slice& /*b*/) const override {
