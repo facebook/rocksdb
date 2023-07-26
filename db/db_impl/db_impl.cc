@@ -517,6 +517,7 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
+  atomic_flush_install_cv_.SignalAll();
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();

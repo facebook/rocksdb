@@ -3150,6 +3150,137 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Test fix for this bug:
+// A chain of events in a closing scenario would make Close() call hang when
+// atomic_flush = true.
+// The factors to reproduce the hang:
+// 1) An earlier flush job encounters a retryable error, as a result, fails to
+//    install flush result, and at the same time, spawns a recovery thread.
+// 2) A concurrently running flush job only flushing newer memtables
+//    successfully finish flushing and waiting to install results.
+// 3) Shutting down DB, the recovery thread hangs because of this logic:
+//    Close() -> EndAutoRecovery() -> WaitForBackgroundWork() waits for
+//    background flush thread in 2).
+TEST_P(DBAtomicFlushTest, BgRecoveryThreadNoWaitDuringShutdown) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  options.env = fault_injection_env.get();
+  // Set a larger value than default so that RocksDB can schedule concurrent
+  // background flush threads.
+  options.max_background_jobs = 8;
+  options.max_write_buffer_number = 8;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  assert(2 == handles_.size());
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+
+  // Force events in this order for the test:
+  // Main thread,   Bg Flush thread 1,    Bg Flush thread 2,
+  // Flush(wait)
+  //                Start
+  //                Pick mem 0
+  //                Flush(no_wait)
+  //                                      Start
+  //                                      Pick mem 1
+  //                                      WaitToCommit_0
+  //                Retryable IO
+  //                Spawn recovery
+  //                thread
+  //                Finish/Notify
+  //                                      WaitToCommit_1
+  //
+  // Close()
+  //                                      WaitToCommit_2
+  ASSERT_OK(Put(0, "a", "v_0_a", write_opts));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBAtomicFlushTest::BgThr2::Start",
+       "DBAtomicFlushTest::BgThr1::ProceedAfterPickMemtables"},
+      {"DBAtomicFlushTest::BgThr2::WaitToInstallResults",
+       "DBAtomicFlushTest::MainThr::BeforeClose"},
+  });
+
+  std::thread::id bg_flush_thr1, bg_flush_thr2;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void*) {
+        if (bg_flush_thr1 == std::thread::id()) {
+          bg_flush_thr1 = std::this_thread::get_id();
+        } else if (bg_flush_thr2 == std::thread::id()) {
+          TEST_SYNC_POINT("DBAtomicFlushTest::BgThr2::Start");
+          bg_flush_thr2 = std::this_thread::get_id();
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:AfterPickMemTables",
+      [&](void*) {
+        if (std::this_thread::get_id() != bg_flush_thr1) {
+          return;
+        }
+        ASSERT_OK(Put(0, "a", "v_1_a", write_opts));
+
+        // Kick off flush job2 within the background flush thread1 to
+        // make sure the newer flush job only picks mem1
+        FlushOptions flush_opts;
+        flush_opts.wait = false;
+        dbfull()->TEST_UnlockMutex();
+        ASSERT_OK(dbfull()->Flush(flush_opts, handles_));
+        TEST_SYNC_POINT("DBAtomicFlushTest::BgThr1::ProceedAfterPickMemtables");
+        dbfull()->TEST_LockMutex();
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table::AfterFileSync", [&](void* arg) {
+        if (std::this_thread::get_id() == bg_flush_thr1) {
+          auto* ptr = reinterpret_cast<Status*>(arg);
+          assert(ptr);
+          IOStatus io_status = IOStatus::IOError("Injected retryable failure");
+          io_status.SetRetryable(true);
+          *ptr = io_status;
+        }
+      });
+
+  int called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void* arg) {
+        if (std::this_thread::get_id() == bg_flush_thr2) {
+          const auto* ptr = reinterpret_cast<std::pair<Status, bool>*>(arg);
+          assert(ptr);
+          if (0 == called) {
+            ASSERT_OK(ptr->first);
+            ASSERT_TRUE(ptr->second);
+          } else if (1 == called) {
+            TEST_SYNC_POINT("DBAtomicFlushTest::BgThr2::WaitToInstallResults");
+          } else {
+            ASSERT_TRUE(ptr->first.IsShutdownInProgress());
+            ASSERT_FALSE(ptr->second);
+          }
+          ++called;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Kick off flush job 1 to flush mem0. This flush job encounters the injected
+  // retryable IO error, finishes with IO error, and spawns a recovery thread.
+  ASSERT_TRUE(dbfull()->Flush(FlushOptions(), handles_).IsIOError());
+
+  TEST_SYNC_POINT("DBAtomicFlushTest::MainThr::BeforeClose");
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBAtomicFlushTest, NoWaitWhenWritesStopped) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;

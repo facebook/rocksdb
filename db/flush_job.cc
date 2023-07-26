@@ -1019,6 +1019,7 @@ Status FlushJob::WriteLevel0Table() {
           DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
+    TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table::AfterFileSync", &s);
     db_mutex_->Lock();
   }
   base_->Unref();

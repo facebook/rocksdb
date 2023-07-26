@@ -579,7 +579,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       pick_status[i] = true;
     }
   }
-
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::AtomicFlushMemTablesToOutputFiles:AfterPickMemTables", nullptr);
   if (s.ok()) {
     assert(switched_to_mempurge.size() ==
            static_cast<long unsigned int>(num_cfs));
@@ -663,7 +664,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         // Something went wrong elsewhere, we cannot count on waiting for our
         // turn to write/sync to MANIFEST or CURRENT. Just return.
         return std::make_pair(versions_->io_status(), false);
-      } else if (shutting_down_.load(std::memory_order_acquire)) {
+      } else if (shutdown_initiated_.load(std::memory_order_acquire) ||
+                 shutting_down_.load(std::memory_order_acquire)) {
         return std::make_pair(Status::ShutdownInProgress(), false);
       }
       bool ready = true;
@@ -3209,6 +3211,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
     atomic_flush_install_cv_.SignalAll();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may

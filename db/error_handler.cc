@@ -672,6 +672,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
+    recovery_in_prog_ = false;
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
                                            Status::ShutdownInProgress(),
                                            db_mutex_);
@@ -684,6 +685,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   // Recover from the retryable error. Create a separate thread to do it.
   while (resume_count > 0) {
     if (end_recovery_) {
+      recovery_in_prog_ = false;
       EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
                                              Status::ShutdownInProgress(),
                                              db_mutex_);
