@@ -869,6 +869,15 @@ struct AdvancedColumnFamilyOptions {
   // FIFO: Files with all keys older than TTL will be deleted. TTL is only
   //    supported if option max_open_files is set to -1.
   //
+  // Universal: users should only set the option `periodic_compaction_seconds`
+  //    below instead. For backward compatibility, this option has the same
+  //    meaning as `periodic_compaction_seconds`. See more in comments for
+  //    `periodic_compaction_seconds` on the interaction between these two
+  //    options.
+  //
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // 0 means disabling.
   // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
@@ -877,10 +886,32 @@ struct AdvancedColumnFamilyOptions {
   // Default: 30 days if using block based table. 0 (disable) otherwise.
   //
   // Dynamically changeable through SetOptions() API
+  // Note that dynamically changing this option only works for leveled and FIFO
+  // compaction. For universal compaction, dynamically changing this option has
+  // no effect, users should dynamically change `periodic_compaction_seconds`
+  // instead.
   uint64_t ttl = 0xfffffffffffffffe;
 
-  // Files older than this value will be picked up for compaction, and
-  // re-written to the same level as they were before.
+  // This option has different meanings for different compaction styles:
+  //
+  // Leveled: files older than `periodic_compaction_seconds` will be picked up
+  //    for compaction and will be re-written to the same level as they were
+  //    before.
+  //
+  // FIFO: not supported. Setting this option has no effect for FIFO compaction.
+  //
+  // Universal: when there are files older than `periodic_compaction_seconds`,
+  //    rocksdb will try to do as large a compaction as possible including the
+  //    last level. Such compaction is only skipped if only last level is to
+  //    be compacted and no file in last level is older than
+  //    `periodic_compaction_seconds`. See more in
+  //    UniversalCompactionBuilder::PickPeriodicCompaction().
+  //    For backward compatibility, the effective value of this option takes
+  //    into account the value of option `ttl`. The logic is as follows:
+  //    - both options are set to 30 days if they have the default value.
+  //    - if both options are zero, zero is picked. Otherwise, we take the min
+  //    value among non-zero options values (i.e. takes the stricter limit).
+  //
   // One main use of the feature is to make sure a file goes through compaction
   // filters periodically. Users can also use the feature to clear up SST
   // files using old format.
@@ -890,19 +921,19 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Supported in leveled and universal compaction.
-  // In Universal compaction, rocksdb will try to do a full compaction when
-  // possible, see more in UniversalCompactionBuilder::PickPeriodicCompaction().
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   //
   // Values:
   // 0: Turn off Periodic compactions.
-  // UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
-  //     as needed. For now, RocksDB will change this value to 30 days
-  //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
-  //     process at least once every 30 days if not compacted sooner.
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
+  // pick default.
   //
-  // Default: UINT64_MAX - 1 (allow RocksDB to auto-tune)
+  // Default: 30 days if using block based table format + compaction filter +
+  //  leveled compaction or block based table format + universal compaction.
+  //  0 (disabled) otherwise.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;

@@ -2145,7 +2145,19 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {
   options.ttl = 60 * 24 * 60 * 60;
   options.compaction_filter = nullptr;
   Reopen(options);
-  ASSERT_EQ(60 * 24 * 60 * 60,
+  ASSERT_EQ(30 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  options.periodic_compaction_seconds = 45 * 24 * 60 * 60;
+  options.ttl = 50 * 24 * 60 * 60;
+  Reopen(options);
+  ASSERT_EQ(45 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  options.periodic_compaction_seconds = 0;
+  options.ttl = 50 * 24 * 60 * 60;
+  Reopen(options);
+  ASSERT_EQ(50 * 24 * 60 * 60,
             dbfull()->GetOptions().periodic_compaction_seconds);
 }
 
