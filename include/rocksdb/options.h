@@ -1071,7 +1071,7 @@ struct DBOptions {
   //
   // By default, i.e., when it is false, rocksdb does not advance the sequence
   // number for new snapshots unless all the writes with lower sequence numbers
-  // are already finished. This provides the immutability that we except from
+  // are already finished. This provides the immutability that we expect from
   // snapshots. Moreover, since Iterator and MultiGet internally depend on
   // snapshots, the snapshot immutability results into Iterator and MultiGet
   // offering consistent-point-in-time view. If set to true, although
@@ -1157,7 +1157,7 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  std::shared_ptr<GeneralCache> row_cache = nullptr;
+  std::shared_ptr<RowCache> row_cache = nullptr;
 
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log

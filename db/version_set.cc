@@ -6302,8 +6302,9 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   return s;
 }
 
-Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-                                bool verbose, bool hex, bool json) {
+Status VersionSet::DumpManifest(
+    Options& options, std::string& dscname, bool verbose, bool hex, bool json,
+    const std::vector<ColumnFamilyDescriptor>& cf_descs) {
   assert(options.env);
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
@@ -6329,13 +6330,22 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::vector<ColumnFamilyDescriptor> cf_descs;
+  std::map<std::string, const ColumnFamilyDescriptor*> cf_name_to_desc;
+  for (const auto& cf_desc : cf_descs) {
+    cf_name_to_desc[cf_desc.name] = &cf_desc;
+  }
+  std::vector<ColumnFamilyDescriptor> final_cf_descs;
   for (const auto& cf : column_families) {
-    cf_descs.emplace_back(cf, options);
+    const auto iter = cf_name_to_desc.find(cf);
+    if (iter != cf_name_to_desc.cend()) {
+      final_cf_descs.push_back(*iter->second);
+    } else {
+      final_cf_descs.emplace_back(cf, options);
+    }
   }
 
-  DumpManifestHandler handler(cf_descs, this, io_tracer_, read_options, verbose,
-                              hex, json);
+  DumpManifestHandler handler(final_cf_descs, this, io_tracer_, read_options,
+                              verbose, hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;

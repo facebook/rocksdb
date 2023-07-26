@@ -1310,7 +1310,8 @@ void DBLoaderCommand::DoCommand() {
 namespace {
 
 void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
-                      bool json) {
+                      bool json,
+                      const std::vector<ColumnFamilyDescriptor>& cf_descs) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1326,7 +1327,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id*/ "", /*db_session_id*/ "");
-  Status s = versions.DumpManifest(options, file, verbose, hex, json);
+  Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
@@ -1438,7 +1439,8 @@ void ManifestDumpCommand::DoCommand() {
     fprintf(stdout, "Processing Manifest file %s\n", manifestfile.c_str());
   }
 
-  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_);
+  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_,
+                   column_families_);
 
   if (verbose_) {
     fprintf(stdout, "Processing Manifest file %s done\n", manifestfile.c_str());
@@ -2046,7 +2048,7 @@ void DBDumperCommand::DoCommand() {
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
-                         /*  json_ */ false);
+                         /*  json_ */ false, column_families_);
         break;
       case kBlobFile:
         DumpBlobFile(path_, is_key_hex_, is_value_hex_,
@@ -3706,7 +3708,8 @@ void DBFileDumperCommand::DoCommand() {
   manifest_filepath = NormalizePath(manifest_filepath);
 
   std::cout << manifest_filepath << std::endl;
-  DumpManifestFile(options_, manifest_filepath, false, false, false);
+  DumpManifestFile(options_, manifest_filepath, false, false, false,
+                   column_families_);
   std::cout << std::endl;
 
   std::vector<ColumnFamilyMetaData> column_families;

@@ -371,8 +371,8 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
   // TODO: make these coundown values tuning parameters for eviction?
 
-  // See above
-  std::atomic<uint64_t> meta{};
+  // See above. Mutable for read reference counting.
+  mutable std::atomic<uint64_t> meta{};
 
   // Whether this is a "deteched" handle that is independently allocated
   // with `new` (so must be deleted with `delete`).
@@ -397,17 +397,51 @@ class BaseClockTable {
         eviction_callback_(*eviction_callback),
         hash_seed_(*hash_seed) {}
 
-  // Creates a "standalone" handle for returning from an Insert operation that
-  // cannot be completed by actually inserting into the table.
-  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
-  template <class HandleImpl>
-  HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
-
   template <class Table>
   typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
                                                size_t capacity,
                                                bool strict_capacity_limit,
                                                bool allow_uncharged);
+
+  template <class Table>
+  Status Insert(const ClockHandleBasicData& proto,
+                typename Table::HandleImpl** handle, Cache::Priority priority,
+                size_t capacity, bool strict_capacity_limit);
+
+  void Ref(ClockHandle& handle);
+
+  size_t GetOccupancy() const {
+    return occupancy_.load(std::memory_order_relaxed);
+  }
+
+  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
+
+  size_t GetStandaloneUsage() const {
+    return standalone_usage_.load(std::memory_order_relaxed);
+  }
+
+  uint32_t GetHashSeed() const { return hash_seed_; }
+
+  struct EvictionData {
+    size_t freed_charge = 0;
+    size_t freed_count = 0;
+  };
+
+  void TrackAndReleaseEvictedEntry(ClockHandle* h, EvictionData* data);
+
+#ifndef NDEBUG
+  // Acquire N references
+  void TEST_RefN(ClockHandle& handle, size_t n);
+  // Helper for TEST_ReleaseN
+  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
+#endif
+
+ private:  // fns
+  // Creates a "standalone" handle for returning from an Insert operation that
+  // cannot be completed by actually inserting into the table.
+  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
+  template <class HandleImpl>
+  HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
 
   // Helper for updating `usage_` for new entry with given `total_charge`
   // and evicting if needed under strict_capacity_limit=true rules. This
@@ -433,33 +467,7 @@ class BaseClockTable {
                                       bool need_evict_for_occupancy,
                                       typename Table::InsertState& state);
 
-  template <class Table>
-  Status Insert(const ClockHandleBasicData& proto,
-                typename Table::HandleImpl** handle, Cache::Priority priority,
-                size_t capacity, bool strict_capacity_limit);
-
-  void Ref(ClockHandle& handle);
-
-  size_t GetOccupancy() const {
-    return occupancy_.load(std::memory_order_relaxed);
-  }
-
-  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
-
-  size_t GetStandaloneUsage() const {
-    return standalone_usage_.load(std::memory_order_relaxed);
-  }
-
-  uint32_t GetHashSeed() const { return hash_seed_; }
-
-#ifndef NDEBUG
-  // Acquire N references
-  void TEST_RefN(ClockHandle& handle, size_t n);
-  // Helper for TEST_ReleaseN
-  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
-#endif
-
- protected:
+ protected:  // data
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
   // operations in ClockCacheShard.
@@ -527,8 +535,7 @@ class HyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, size_t* freed_charge, size_t* freed_count,
-             InsertState& state);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -536,17 +543,13 @@ class HyperClockTable : public BaseClockTable {
 
   void Erase(const UniqueId64x2& hashed_key);
 
-  void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
-                                size_t index_begin, size_t index_end,
-                                bool apply_if_will_be_deleted) const;
-
   void EraseUnRefEntries();
 
   size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
-  int GetLengthBits() const { return length_bits_; }
-
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
+
+  const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
 #ifndef NDEBUG
   size_t& TEST_MutableOccupancyLimit() const {
@@ -573,8 +576,9 @@ class HyperClockTable : public BaseClockTable {
   // slot probed. This function uses templates instead of std::function to
   // minimize the risk of heap-allocated closures being created.
   template <typename MatchFn, typename AbortFn, typename UpdateFn>
-  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key, MatchFn match_fn,
-                              AbortFn abort_fn, UpdateFn update_fn);
+  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key,
+                              const MatchFn& match_fn, const AbortFn& abort_fn,
+                              const UpdateFn& update_fn);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
