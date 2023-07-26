@@ -206,7 +206,6 @@ bool Compaction::IsFullCompaction(
 
 const TablePropertiesCollection& Compaction::GetTableProperties() {
   if (!input_table_properties_initialized_) {
-    // Initialize
     const ReadOptions read_options(Env::IOActivity::kCompaction);
     for (size_t i = 0; i < num_input_levels(); ++i) {
       for (const FileMetaData* fmd : *(this->inputs(i))) {

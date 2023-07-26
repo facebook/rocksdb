@@ -501,8 +501,10 @@ struct DBOptions {
   // If true, during compaction, RocksDB will count the number of entries
   // read and compare it against the number of entries in the compaction
   // input files. This is intended to add protection against corruption
-  // during compaction. Note that this verification is not done for compactions
-  // during which a compaction filter returns kRemoveAndSkipUntil.
+  // during compaction. Note that
+  // - this verification is not done for compactions during which a compaction
+  // filter returns kRemoveAndSkipUntil, and
+  // - the number of range deletions is not verified.
   //
   // The option is here to turn the feature off in case this new validation
   // feature has a bug. The option may be removed in the future once the

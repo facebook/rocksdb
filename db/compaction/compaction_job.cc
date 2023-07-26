@@ -813,6 +813,7 @@ Status CompactionJob::Run() {
     if (!(ts_sz > 0 && !trim_ts_.empty()) &&
         db_options_.compaction_verify_record_count) {
       assert(compaction_stats_.stats.num_input_records > 0);
+      // TODO: verify the number of range deletion entries.
       uint64_t expected =
           compaction_stats_.stats.num_input_records - num_input_range_del;
       uint64_t actual = compaction_job_stats_->num_input_records;
