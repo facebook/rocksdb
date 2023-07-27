@@ -356,8 +356,9 @@ TEST(ValidateUserDefinedTimestampsOptionsTest,
 
 TEST(ValidateUserDefinedTimestampsOptionsTest, DisableUserDefinedTimestamps) {
   bool mark_sst_files = false;
-  const Comparator* new_comparator = BytewiseComparator();
-  const Comparator* old_comparator = test::BytewiseComparatorWithU64TsWrapper();
+  const Comparator* new_comparator = ReverseBytewiseComparator();
+  const Comparator* old_comparator =
+      test::ReverseBytewiseComparatorWithU64TsWrapper();
   ASSERT_OK(ValidateUserDefinedTimestampsOptions(
       new_comparator, std::string(old_comparator->Name()),
       false /*new_persist_udt*/, false /*old_persist_udt*/, &mark_sst_files));

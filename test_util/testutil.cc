@@ -150,6 +150,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   return user_comparator;
 }
 
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;
