@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.*;
+
 /**
  * Provides Checkpoint functionality. Checkpoints
  * provide persistent snapshots of RocksDB databases.
@@ -50,6 +52,11 @@ public class Checkpoint extends RocksObject {
     createCheckpoint(nativeHandle_, checkpointPath);
   }
 
+  public ExportImportFilesMetaData exportColumnFamily(final ColumnFamilyHandle columnFamilyHandle,
+      final String exportPath) throws RocksDBException {
+    return exportColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_, exportPath);
+  }
+
   private Checkpoint(final RocksDB db) {
     super(newCheckpoint(db.nativeHandle_));
   }
@@ -59,4 +66,7 @@ public class Checkpoint extends RocksObject {
 
   private native void createCheckpoint(long handle, String checkpointPath)
       throws RocksDBException;
+
+  private native ExportImportFilesMetaData exportColumnFamily(
+      long handle, long columnFamilyHandle, String exportPath) throws RocksDBException;
 }

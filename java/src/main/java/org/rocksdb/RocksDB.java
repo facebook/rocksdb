@@ -750,6 +750,58 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Creates a new column family with the name columnFamilyName and
+   * import external SST files specified in `metadata` allocates a
+   * ColumnFamilyHandle within an internal structure.
+   * The ColumnFamilyHandle is automatically disposed with DB disposal.
+   *
+   * @param columnFamilyDescriptor column family to be created.
+   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  /**
+   * Creates a new column family with the name columnFamilyName and
+   * import external SST files specified in `metadata` allocates a
+   * ColumnFamilyHandle within an internal structure.
+   * The ColumnFamilyHandle is automatically disposed with DB disposal.
+   *
+   * @param columnFamilyDescriptor column family to be created.
+   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public ColumnFamilyHandle createColumnFamilyWithImport(
+      final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final ImportColumnFamilyOptions importColumnFamilyOptions,
+      final ExportImportFilesMetaData metadata) throws RocksDBException {
+    List<ExportImportFilesMetaData> metadatas = new ArrayList<>();
+    metadatas.add(metadata);
+    return createColumnFamilyWithImport(
+        columnFamilyDescriptor, importColumnFamilyOptions, metadatas);
+  }
+
+  public ColumnFamilyHandle createColumnFamilyWithImport(
+      final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final ImportColumnFamilyOptions importColumnFamilyOptions,
+      final List<ExportImportFilesMetaData> metadatas) throws RocksDBException {
+    final int metadataNum = metadatas.size();
+    final long[] metadataHandeList = new long[metadataNum];
+    for (int i = 0; i < metadataNum; i++) {
+      metadataHandeList[i] = metadatas.get(i).newExportImportFilesMetaDataHandle();
+    }
+    final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
+        createColumnFamilyWithImport(nativeHandle_, columnFamilyDescriptor.getName(),
+            columnFamilyDescriptor.getName().length,
+            columnFamilyDescriptor.getOptions().nativeHandle_,
+            importColumnFamilyOptions.nativeHandle_, metadataHandeList));
+    ownedColumnFamilyHandles.add(columnFamilyHandle);
+    return columnFamilyHandle;
+  }
+
+  /**
    * Drops the column family specified by {@code columnFamilyHandle}. This call
    * only records a drop record in the manifest and prevents the column
    * family from flushing and compacting.
@@ -4394,6 +4446,9 @@ public class RocksDB extends RocksObject {
   private native long[] createColumnFamilies(
       final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
       throws RocksDBException;
+  private native long createColumnFamilyWithImport(final long handle, final byte[] columnFamilyName,
+      final int columnFamilyNamelen, final long columnFamilyOptions,
+      final long importColumnFamilyOptions, final long[] metadataHandeList) throws RocksDBException;
   private native void dropColumnFamily(
       final long handle, final long cfHandle) throws RocksDBException;
   private native void dropColumnFamilies(final long handle,

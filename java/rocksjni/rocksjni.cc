@@ -491,6 +491,63 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    createColumnFamilyWithImport
+ * Signature: (J[BIJJ[J)J
+ */
+jlong Java_org_rocksdb_RocksDB_createColumnFamilyWithImport(
+    JNIEnv* env, jobject, jlong jdb_handle, jbyteArray jcf_name,
+    jint jcf_name_len, jlong j_cf_options, jlong j_cf_import_options,
+    jlongArray j_metadata_handle_array) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  jboolean has_exception = JNI_FALSE;
+  const std::string cf_name =
+      ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
+          env, jcf_name, jcf_name_len,
+          [](const char* str, const size_t len) {
+            return std::string(str, len);
+          },
+          &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return 0;
+  }
+  auto* cf_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(j_cf_options);
+
+  auto* cf_import_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(
+          j_cf_import_options);
+
+  std::vector<const ROCKSDB_NAMESPACE::ExportImportFilesMetaData*> metadatas;
+  jlong* ptr_metadata_handle_array =
+      env->GetLongArrayElements(j_metadata_handle_array, nullptr);
+  if (j_metadata_handle_array == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+  const jsize array_size = env->GetArrayLength(j_metadata_handle_array);
+  for (jsize i = 0; i < array_size; ++i) {
+    const ROCKSDB_NAMESPACE::ExportImportFilesMetaData* metadata_ptr =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(
+            ptr_metadata_handle_array[i]);
+    metadatas.push_back(metadata_ptr);
+  }
+  env->ReleaseLongArrayElements(j_metadata_handle_array,
+                                ptr_metadata_handle_array, JNI_ABORT);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle = nullptr;
+  ROCKSDB_NAMESPACE::Status s = db->CreateColumnFamilyWithImport(
+      *cf_options, cf_name, *cf_import_options, metadatas, &cf_handle);
+  if (!s.ok()) {
+    // error occurred
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return 0;
+  }
+  return GET_CPLUSPLUS_POINTER(cf_handle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    dropColumnFamily
  * Signature: (JJ)V;
  */

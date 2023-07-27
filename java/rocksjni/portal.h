@@ -7573,6 +7573,84 @@ class LevelMetaDataJni : public JavaClass {
   }
 };
 
+class ExportImportFilesMetaDataJni : public JavaClass {
+ public:
+  /**
+   * Create a new Java org.rocksdb.ExportImportFilesMetaData object.
+   *
+   * @param env A pointer to the Java environment
+   * @param export_import_files_meta_data A Cpp export import files meta data
+   * object
+   *
+   * @return A reference to a Java org.rocksdb.ExportImportFilesMetaData object,
+   * or nullptr if an an exception occurs
+   */
+  static jobject fromCppExportImportFilesMetaData(
+      JNIEnv* env, ROCKSDB_NAMESPACE::ExportImportFilesMetaData*
+                       export_import_files_meta_data) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>",
+                                     "([B[Lorg/rocksdb/LiveFileMetaData;)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jbyteArray jdb_comparator_name = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, export_import_files_meta_data->db_comparator_name);
+    if (jdb_comparator_name == nullptr) {
+      // exception occurred creating java byte array
+      return nullptr;
+    }
+
+    const jsize jlen =
+        static_cast<jsize>(export_import_files_meta_data->files.size());
+    jobjectArray jfiles =
+        env->NewObjectArray(jlen, LiveFileMetaDataJni::getJClass(env), nullptr);
+    if (jfiles == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    jsize i = 0;
+    for (auto it = export_import_files_meta_data->files.begin();
+         it != export_import_files_meta_data->files.end(); ++it) {
+      jobject jfile = LiveFileMetaDataJni::fromCppLiveFileMetaData(env, &(*it));
+      if (jfile == nullptr) {
+        // exception occurred
+        env->DeleteLocalRef(jdb_comparator_name);
+        env->DeleteLocalRef(jfiles);
+        return nullptr;
+      }
+      env->SetObjectArrayElement(jfiles, i++, jfile);
+    }
+
+    jobject jexport_import_files_meta_data =
+        env->NewObject(jclazz, mid, jdb_comparator_name, jfiles);
+
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_comparator_name);
+      env->DeleteLocalRef(jfiles);
+      return nullptr;
+    }
+
+    // cleanup
+    env->DeleteLocalRef(jdb_comparator_name);
+    env->DeleteLocalRef(jfiles);
+
+    return jexport_import_files_meta_data;
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/ExportImportFilesMetaData");
+  }
+};
+
 class ColumnFamilyMetaDataJni : public JavaClass {
  public:
   /**
