@@ -1133,16 +1133,17 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 }
 #endif
 
-class TestEnv : public EnvWrapper {
+class TestFS : public FileSystemWrapper {
  public:
-  explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
-  static const char* kClassName() { return "TestEnv"; }
+  explicit TestFS(const std::shared_ptr<FileSystem> base_fs)
+      : FileSystemWrapper(base_fs), close_count(0) {}
+  static const char* kClassName() { return "TestFS"; }
   const char* Name() const override { return kClassName(); }
 
   class TestLogger : public Logger {
    public:
     using Logger::Logv;
-    explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+    explicit TestLogger(TestFS* fs_ptr) : Logger() { fs = fs_ptr; }
     ~TestLogger() override {
       if (!closed_) {
         CloseHelper().PermitUncheckedError();
@@ -1155,21 +1156,22 @@ class TestEnv : public EnvWrapper {
 
    private:
     Status CloseHelper() {
-      env->CloseCountInc();
+      fs->CloseCountInc();
       ;
       return Status::IOError();
     }
-    TestEnv* env;
+    TestFS* fs;
   };
 
   void CloseCountInc() { close_count++; }
 
   int GetCloseCount() { return close_count; }
 
-  Status NewLogger(const std::string& /*fname*/,
-                   std::shared_ptr<Logger>* result) override {
+  IOStatus NewLogger(const std::string& /*fname*/, const IOOptions& /*opts*/,
+                     std::shared_ptr<Logger>* result,
+                     IODebugContext* /*dbg*/) override {
     result->reset(new TestLogger(this));
-    return Status::OK();
+    return IOStatus::OK();
   }
 
  private:
@@ -1182,30 +1184,30 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv* env = new TestEnv(env_);
-  std::unique_ptr<TestEnv> local_env_guard(env);
+  std::shared_ptr<TestFS> fs = std::make_shared<TestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> local_env_guard = NewCompositeEnv(fs);
   options.create_if_missing = true;
-  options.env = env;
+  options.env = local_env_guard.get();
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
   s = db->Close();
-  ASSERT_EQ(env->GetCloseCount(), 1);
+  ASSERT_EQ(fs->GetCloseCount(), 1);
   ASSERT_EQ(s, Status::IOError());
 
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 1);
+  ASSERT_EQ(fs->GetCloseCount(), 1);
 
   // Do not call DB::Close() and ensure our logger Close() still gets called
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
+  ASSERT_EQ(fs->GetCloseCount(), 2);
 
   // Provide our own logger and ensure DB::Close() does not close it
-  options.info_log.reset(new TestEnv::TestLogger(env));
+  options.info_log.reset(new TestFS::TestLogger(fs.get()));
   options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
@@ -1214,9 +1216,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
+  ASSERT_EQ(fs->GetCloseCount(), 2);
   options.info_log.reset();
-  ASSERT_EQ(env->GetCloseCount(), 3);
+  ASSERT_EQ(fs->GetCloseCount(), 3);
 }
 
 TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
@@ -3796,23 +3798,24 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 }
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
-  class FakeDirectIOEnv : public EnvWrapper {
-    class FakeDirectIOSequentialFile;
+  class FakeDirectIOFS : public FileSystemWrapper {
     class FakeDirectIORandomAccessFile;
 
    public:
-    FakeDirectIOEnv(Env* env) : EnvWrapper(env) {}
-    static const char* kClassName() { return "FakeDirectIOEnv"; }
+    explicit FakeDirectIOFS(const std::shared_ptr<FileSystem>& fs)
+        : FileSystemWrapper(fs) {}
+    static const char* kClassName() { return "FakeDirectIOFS"; }
     const char* Name() const override { return kClassName(); }
 
-    Status NewRandomAccessFile(const std::string& fname,
-                               std::unique_ptr<RandomAccessFile>* result,
-                               const EnvOptions& options) override {
-      std::unique_ptr<RandomAccessFile> file;
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& options,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* ctx) override {
+      std::unique_ptr<FSRandomAccessFile> file;
       assert(options.use_direct_reads);
-      EnvOptions opts = options;
+      FileOptions opts = options;
       opts.use_direct_reads = false;
-      Status s = target()->NewRandomAccessFile(fname, &file, opts);
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, ctx);
       if (!s.ok()) {
         return s;
       }
@@ -3821,34 +3824,22 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
     }
 
    private:
-    class FakeDirectIOSequentialFile : public SequentialFileWrapper {
+    class FakeDirectIORandomAccessFile : public FSRandomAccessFileWrapper {
      public:
-      FakeDirectIOSequentialFile(std::unique_ptr<SequentialFile>&& file)
-          : SequentialFileWrapper(file.get()), file_(std::move(file)) {}
-      ~FakeDirectIOSequentialFile() {}
-
-      bool use_direct_io() const override { return true; }
-      size_t GetRequiredBufferAlignment() const override { return 1; }
-
-     private:
-      std::unique_ptr<SequentialFile> file_;
-    };
-
-    class FakeDirectIORandomAccessFile : public RandomAccessFileWrapper {
-     public:
-      FakeDirectIORandomAccessFile(std::unique_ptr<RandomAccessFile>&& file)
-          : RandomAccessFileWrapper(file.get()), file_(std::move(file)) {}
+      FakeDirectIORandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file)
+          : FSRandomAccessFileWrapper(file.get()), file_(std::move(file)) {}
       ~FakeDirectIORandomAccessFile() {}
 
       bool use_direct_io() const override { return true; }
       size_t GetRequiredBufferAlignment() const override { return 1; }
 
      private:
-      std::unique_ptr<RandomAccessFile> file_;
+      std::unique_ptr<FSRandomAccessFile> file_;
     };
   };
 
-  std::unique_ptr<FakeDirectIOEnv> env(new FakeDirectIOEnv(env_));
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(
+      env_, std::make_shared<FakeDirectIOFS>(env_->GetFileSystem())));
   Options opts = get_options();
   opts.env = env.get();
   opts.use_direct_reads = true;

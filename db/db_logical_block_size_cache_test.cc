@@ -11,10 +11,15 @@
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
-class EnvWithCustomLogicalBlockSizeCache : public EnvWrapper {
+class FSWithCustomLogicalBlockSizeCache : public FileSystemWrapper {
  public:
-  EnvWithCustomLogicalBlockSizeCache(Env* env, LogicalBlockSizeCache* cache)
-      : EnvWrapper(env), cache_(cache) {}
+  FSWithCustomLogicalBlockSizeCache(const std::shared_ptr<FileSystem>& fs,
+                                    LogicalBlockSizeCache* cache)
+      : FileSystemWrapper(fs), cache_(cache) {}
+  static const char* kClassName() {
+    return "FSWithCustomLogicalBlockSizeCache";
+  }
+  const char* Name() const override { return kClassName(); }
 
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return cache_->RefAndCacheLogicalBlockSize(paths);
@@ -44,8 +49,8 @@ class DBLogicalBlockSizeCacheTest : public testing::Test {
     };
     cache_.reset(
         new LogicalBlockSizeCache(get_fd_block_size, get_dir_block_size));
-    env_.reset(
-        new EnvWithCustomLogicalBlockSizeCache(Env::Default(), cache_.get()));
+    env_ = NewCompositeEnv(std::make_shared<FSWithCustomLogicalBlockSizeCache>(
+        FileSystem::Default(), cache_.get()));
   }
 
  protected:
