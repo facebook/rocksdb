@@ -810,6 +810,11 @@ Status CompactionJob::Run() {
     size_t ts_sz = compact_->compaction->column_family_data()
                        ->user_comparator()
                        ->timestamp_size();
+    // When trim_ts_ is non-empty, CompactionIterator takes
+    // HistoryTrimmingIterator as input iterator and sees a trimmed view of
+    // input keys. So the number of keys it processed is not suitable for
+    // verification here.
+    // TODO: support verification when trim_ts_ is non-empty.
     if (!(ts_sz > 0 && !trim_ts_.empty()) &&
         db_options_.compaction_verify_record_count) {
       assert(compaction_stats_.stats.num_input_records > 0);

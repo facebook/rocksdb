@@ -211,7 +211,7 @@ const TablePropertiesCollection& Compaction::GetTableProperties() {
       for (const FileMetaData* fmd : *(this->inputs(i))) {
         std::shared_ptr<const TableProperties> tp;
         std::string file_name =
-            TableFileName(immutable_options()->cf_paths, fmd->fd.GetNumber(),
+            TableFileName(immutable_options_.cf_paths, fmd->fd.GetNumber(),
                           fmd->fd.GetPathId());
         Status s = input_version_->GetTableProperties(read_options, &tp, fmd,
                                                       &file_name);

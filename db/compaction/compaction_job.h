@@ -198,7 +198,7 @@ class CompactionJob {
   // - bytes_read_non_output_levels
   // - bytes_read_output_level
   // - num_input_records
-  // - bytes_read_bob
+  // - bytes_read_blob
   // - num_dropped_records
   //
   // @param num_input_range_del if non-null, will be set to the number of range
