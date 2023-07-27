@@ -3363,6 +3363,7 @@ TEST_F(DBBasicTestWithTimestamp, EnableDisableUDT) {
   // feature for it.
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
   Reopen(options);
 
   std::string value;

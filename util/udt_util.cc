@@ -108,32 +108,27 @@ enum class ToggleUDT {
   kInvalidChange,
 };
 
-bool IsPrefix(const char* str, const char* prefix) {
-  return strncmp(str, prefix, strlen(prefix)) == 0;
-}
-
 ToggleUDT CompareComparator(const Comparator* new_comparator,
                             const std::string& old_comparator_name) {
   static const char* kUDTSuffix = ".u64ts";
+  static const Slice kSuffixSlice = kUDTSuffix;
   static const size_t kSuffixSize = 6;
   size_t ts_sz = new_comparator->timestamp_size();
   (void)ts_sz;
-  const char* new_comparator_name = new_comparator->Name();
-  size_t new_name_size = strlen(new_comparator_name);
-  size_t old_name_size = old_comparator_name.size();
-  if (new_name_size == old_name_size &&
-      IsPrefix(new_comparator_name, old_comparator_name.data())) {
+  Slice new_ucmp_name(new_comparator->Name());
+  Slice old_ucmp_name(old_comparator_name);
+  if (new_ucmp_name.compare(old_ucmp_name) == 0) {
     return ToggleUDT::kUnchanged;
   }
-  if (new_name_size == old_name_size + kSuffixSize &&
-      IsPrefix(new_comparator_name, old_comparator_name.data()) &&
-      IsPrefix(new_comparator_name + old_name_size, kUDTSuffix)) {
+  if (new_ucmp_name.size() == old_ucmp_name.size() + kSuffixSize &&
+      new_ucmp_name.starts_with(old_ucmp_name) &&
+      new_ucmp_name.ends_with(kSuffixSlice)) {
     assert(ts_sz == 8);
     return ToggleUDT::kEnableUDT;
   }
-  if (new_name_size + kSuffixSize == old_name_size &&
-      IsPrefix(old_comparator_name.data(), new_comparator_name) &&
-      IsPrefix(old_comparator_name.data() + new_name_size, kUDTSuffix)) {
+  if (old_ucmp_name.size() == new_ucmp_name.size() + kSuffixSize &&
+      old_ucmp_name.starts_with(new_ucmp_name) &&
+      old_ucmp_name.ends_with(kSuffixSlice)) {
     assert(ts_sz == 0);
     return ToggleUDT::kDisableUDT;
   }
@@ -276,7 +271,7 @@ Status HandleWriteBatchTimestampSizeDifference(
     const UnorderedMap<uint32_t, size_t>& running_ts_sz,
     const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>* new_batch, bool* batch_updated) {
+    std::unique_ptr<WriteBatch>* new_batch) {
   // Quick path to bypass checking the WriteBatch.
   if (AllRunningColumnFamiliesConsistent(running_ts_sz, record_ts_sz)) {
     return Status::OK();
@@ -288,7 +283,6 @@ Status HandleWriteBatchTimestampSizeDifference(
     return status;
   } else if (need_recovery) {
     assert(new_batch);
-    assert(batch_updated);
     SequenceNumber sequence = WriteBatchInternal::Sequence(batch);
     TimestampRecoveryHandler recovery_handler(running_ts_sz, record_ts_sz);
     status = batch->Iterate(&recovery_handler);
@@ -297,7 +291,6 @@ Status HandleWriteBatchTimestampSizeDifference(
     } else {
       *new_batch = recovery_handler.TransferNewBatch();
       WriteBatchInternal::SetSequence(new_batch->get(), sequence);
-      *batch_updated = true;
     }
   }
   return Status::OK();

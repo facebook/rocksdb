@@ -214,8 +214,7 @@ Status HandleWriteBatchTimestampSizeDifference(
     const UnorderedMap<uint32_t, size_t>& running_ts_sz,
     const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>* new_batch = nullptr,
-    bool* batch_updated = nullptr);
+    std::unique_ptr<WriteBatch>* new_batch = nullptr);
 
 // This util function is used when opening an existing column family and
 // processing its VersionEdit. It does a sanity check for the column family's
