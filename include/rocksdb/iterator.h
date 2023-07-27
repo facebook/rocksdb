@@ -127,6 +127,11 @@ class Iterator : public Cleanable {
   // Property "rocksdb.iterator.internal-key":
   //   Get the user-key portion of the internal key at which the iteration
   //   stopped.
+  // Property "rocksdb.iterator.write-time":
+  //   Get the unix time of the best estimate of the write time of the entry.
+  //   Returned as 64-bit little endian raw value (8 bytes). The accuracy of
+  //   the write time depends on settings like preserve_internal_time_seconds.
+  //   TBD: do we err toward reporting older than actual or newer than actual?
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
   virtual Slice timestamp() const {
