@@ -70,6 +70,7 @@ class FlushJobTestBase : public testing::Test {
       new_cf.AddColumnFamily(column_family_names_[i]);
       new_cf.SetColumnFamily(cf_id++);
       new_cf.SetComparatorName(ucmp_->Name());
+      new_cf.SetPersistUserDefinedTimestamps(persist_udt_);
       new_cf.SetLogNumber(0);
       new_cf.SetNextFile(2);
       new_cf.SetLastSequence(last_seq++);

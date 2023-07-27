@@ -1349,6 +1349,8 @@ class VersionSetTestBase {
     new_cf.SetColumnFamily(new_id);
     new_cf.SetLogNumber(0);
     new_cf.SetComparatorName(cf_options.comparator->Name());
+    new_cf.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
