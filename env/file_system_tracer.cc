@@ -340,7 +340,7 @@ IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
 
 IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   // Create a callback and populate info.
   auto read_async_callback =
@@ -361,8 +361,8 @@ IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
   return s;
 }
 
-void FSRandomAccessFileTracingWrapper::ReadAsyncCallback(
-    const FSReadRequest& req, void* cb_arg) {
+void FSRandomAccessFileTracingWrapper::ReadAsyncCallback(FSReadRequest& req,
+                                                         void* cb_arg) {
   ReadAsyncCallbackInfo* read_async_cb_info =
       static_cast<ReadAsyncCallbackInfo*>(cb_arg);
   assert(read_async_cb_info);

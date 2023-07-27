@@ -857,7 +857,7 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 
 IOStatus PosixRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& /*opts*/,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   if (use_direct_io()) {
     assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
