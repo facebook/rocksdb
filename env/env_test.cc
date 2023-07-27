@@ -3054,7 +3054,7 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
   VerifyRfcUuids(t.ids);
 }
 
-// Test the atomic, linear generation of GenerateRawUuid
+// Test the atomic, linear generation of GenerateRawUniqueId
 TEST_F(EnvTest, GenerateRawUniqueId) {
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {

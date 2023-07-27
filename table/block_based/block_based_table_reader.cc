@@ -2542,6 +2542,15 @@ Status BlockBasedTable::CreateIndexReader(
     InternalIterator* meta_iter, bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
+  if (FormatVersionUsesIndexHandleInFooter(rep_->footer.format_version())) {
+    rep_->index_handle = rep_->footer.index_handle();
+  } else {
+    Status s = FindMetaBlock(meta_iter, kIndexBlockName, &rep_->index_handle);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   switch (rep_->index_type) {
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       return PartitionIndexReader::Create(this, ro, prefetch_buffer, use_cache,
@@ -2709,7 +2718,7 @@ bool BlockBasedTable::TEST_FilterBlockInCache() const {
 bool BlockBasedTable::TEST_IndexBlockInCache() const {
   assert(rep_ != nullptr);
 
-  return TEST_BlockInCache(rep_->footer.index_handle());
+  return TEST_BlockInCache(rep_->index_handle);
 }
 
 Status BlockBasedTable::GetKVPairsFromDataBlocks(
