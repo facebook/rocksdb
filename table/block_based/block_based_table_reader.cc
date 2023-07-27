@@ -771,6 +771,7 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+  rep->verify_checksum_set_on_open = ro.verify_checksums;
   s = new_table->PrefetchIndexAndFilterBlocks(
       ro, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
       prefetch_all, table_options, level, file_size,
@@ -2478,6 +2479,9 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
     BlockHandle handle;
     Slice input = index_iter->value();
     s = handle.DecodeFrom(&input);
+    if (!s.ok()) {
+      break;
+    }
     BlockContents contents;
     const Slice meta_block_name = index_iter->key();
     if (meta_block_name == kPropertiesBlockName) {
@@ -2488,7 +2492,13 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
                                     nullptr /* prefetch_buffer */, rep_->footer,
                                     rep_->ioptions, &table_properties,
                                     nullptr /* memory_allocator */);
+    } else if (rep_->verify_checksum_set_on_open &&
+               meta_block_name == kIndexBlockName) {
+      // WART: For now, to maintain similar I/O behavior as before
+      // format_version=6, we skip verifying index block checksum--but only
+      // if it was checked on open.
     } else {
+      // FIXME? Need to verify checksums of index and filter partitions?
       s = BlockFetcher(
               rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
               read_options, handle, &contents, rep_->ioptions,
