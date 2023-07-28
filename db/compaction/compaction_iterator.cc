@@ -31,7 +31,8 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    const Compaction* compaction, const CompactionFilter* compaction_filter,
+    bool must_count_input_entries, const Compaction* compaction,
+    const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
@@ -45,8 +46,9 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, info_log, full_history_ts_low,
-          preserve_time_min_seqno, preclude_last_level_min_seqno) {}
+          must_count_input_entries, compaction_filter, shutting_down, info_log,
+          full_history_ts_low, preserve_time_min_seqno,
+          preclude_last_level_min_seqno) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -58,15 +60,14 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    std::unique_ptr<CompactionProxy> compaction,
+    std::unique_ptr<CompactionProxy> compaction, bool must_count_input_entries,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
     const SequenceNumber preserve_time_min_seqno,
     const SequenceNumber preclude_last_level_min_seqno)
-    : input_(input, cmp,
-             !compaction || compaction->DoesInputReferenceBlobFiles()),
+    : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),

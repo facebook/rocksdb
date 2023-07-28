@@ -60,6 +60,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.paranoid_checks = immutable_db_options.paranoid_checks;
   options.flush_verify_memtable_count =
       immutable_db_options.flush_verify_memtable_count;
+  options.compaction_verify_record_count =
+      immutable_db_options.compaction_verify_record_count;
   options.track_and_verify_wals_in_manifest =
       immutable_db_options.track_and_verify_wals_in_manifest;
   options.verify_sst_unique_id_in_manifest =
