@@ -6,7 +6,7 @@
 * Add FSReadRequest::fs_scratch which is a data buffer allocated and provided by underlying FileSystem to RocksDB during reads, when FS wants to provide its own buffer with data instead of using RocksDB provided FSReadRequest::scratch. This can help in cpu optimization by avoiding copy from file system's buffer to RocksDB buffer. More details on how to use/enable it in file_system.h. Right now its supported only for MultiReads(async + sync) with non direct io.
 * Start logging non-zero user-defined timestamp sizes in WAL to signal user key format in subsequent records and use it during recovery. This change will break recovery from WAL files written by early versions that contain user-defined timestamps. The workaround is to ensure there are no WAL files to recover (i.e. by flushing before close) before upgrade.
 * Added new property "rocksdb.obsolete-sst-files-size-property" that reports the size of SST files that have become obsolete but have not yet been deleted or scheduled for deletion
-* Start to record the value of the flag `AdvancedColumnFamilyOptions.persist_user_defined_timestamps` in the Manifest and table properties for a SST file when it is created. And use the recorded flag when creating a table reader for the SST file. This flag is only explicitly record if it's false. 
+* Start to record the value of the flag `AdvancedColumnFamilyOptions.persist_user_defined_timestamps` in the Manifest and table properties for a SST file when it is created. And use the recorded flag when creating a table reader for the SST file. This flag is only explicitly record if it's false.
 * Add a new option OptimisticTransactionDBOptions::shared_lock_buckets that enables sharing mutexes for validating transactions between DB instances, for better balancing memory efficiency and validation contention across DB instances. Different column families and DBs also now use different hash seeds in this validation, so that the same set of key names will not contend across DBs or column families.
 * Add a new ticker `rocksdb.files.marked.trash.deleted` to track the number of trash files deleted by background thread from the trash queue.
 * Add an API NewTieredVolatileCache() in include/rocksdb/cache.h to allocate an instance of a block cache with a primary block cache tier and a compressed secondary cache tier. A cache of this type distributes memory reservations against the block cache, such as WriteBufferManager, table reader memory etc., proportionally across both the primary and compressed secondary cache.
@@ -30,7 +30,7 @@ For Leveled Compaction users, `CompactRange()` with `bottommost_level_compaction
 ### Bug Fixes
 * Reduced cases of illegally using Env::Default() during static destruction by never destroying the internal PosixEnv itself (except for builds checking for memory leaks). (#11538)
 * Fix extra prefetching during seek in async_io when BlockBasedTableOptions.num_file_reads_for_auto_readahead is 1 leading to extra reads than required.
-* Fix a bug where compactions that are qualified to be run as 2 subcompactions were only run as one subcompaction. 
+* Fix a bug where compactions that are qualified to be run as 2 subcompactions were only run as one subcompaction.
 * Fix a use-after-move bug in block.cc.
 
 ## 8.3.0 (05/19/2023)
