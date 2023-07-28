@@ -3128,12 +3128,12 @@ int main(int argc, char** argv) {
     CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
     CheckTxnDBPinGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
 
-
-    //memory usage
+    // memory usage
     rocksdb_t* base_db = rocksdb_transactiondb_get_base_db(txn_db);
     rocksdb_memory_consumers_t* consumers = rocksdb_memory_consumers_create();
     rocksdb_memory_consumers_add_db(consumers, base_db);
-    rocksdb_memory_usage_t* usage = rocksdb_approximate_memory_usage_create(consumers, &err);
+    rocksdb_memory_usage_t* usage =
+        rocksdb_approximate_memory_usage_create(consumers, &err);
     CheckNoError(err);
     rocksdb_approximate_memory_usage_destroy(usage);
     rocksdb_memory_consumers_destroy(consumers);
@@ -3666,7 +3666,15 @@ int main(int argc, char** argv) {
     CheckCondition(0 != rocksdb_options_statistics_get_ticker_count(
                             options, BYTES_WRITTEN_TICKER));
     rocksdb_options_statistics_get_histogram_data(options, DB_WRITE_HIST, hist);
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_median(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_p95(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_p99(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_average(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_std_dev(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_max(hist));
+    CheckCondition(0 != rocksdb_statistics_histogram_data_get_count(hist));
     CheckCondition(0 != rocksdb_statistics_histogram_data_get_sum(hist));
+    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_min(hist));
 
     rocksdb_statistics_histogram_data_destroy(hist);
   }

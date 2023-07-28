@@ -1256,14 +1256,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
 
 enum {
-  rocksdb_statistics_level_disable_all,
+  rocksdb_statistics_level_disable_all = 0,
   rocksdb_statistics_level_except_tickers =
       rocksdb_statistics_level_disable_all,
-  rocksdb_statistics_level_except_histogram_or_timers,
-  rocksdb_statistics_level_except_timers,
-  rocksdb_statistics_level_except_detailed_timers,
-  rocksdb_statistics_level_except_time_for_mutex,
-  rocksdb_statistics_level_all,
+  rocksdb_statistics_level_except_histogram_or_timers = 1,
+  rocksdb_statistics_level_except_timers = 2,
+  rocksdb_statistics_level_except_detailed_timers = 3,
+  rocksdb_statistics_level_except_time_for_mutex = 4,
+  rocksdb_statistics_level_all = 5,
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_statistics_level(
@@ -1350,7 +1350,7 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_options_statistics_get_ticker_count(
     rocksdb_options_t* opt, uint32_t ticker_type);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_statistics_get_histogram_data(
     rocksdb_options_t* opt, uint32_t histogram_type,
-    rocksdb_statistics_histogram_data_t* data);
+    rocksdb_statistics_histogram_data_t* const data);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_write_buffer_number(
     rocksdb_options_t*, int);

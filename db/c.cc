@@ -280,11 +280,7 @@ struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
 };
 
-struct rocksdb_statistics_histogram_data_t {
-  rocksdb_statistics_histogram_data_t() : rep() {}
-
-  HistogramData rep;
-};
+struct rocksdb_statistics_histogram_data_t : public HistogramData {};
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
@@ -3893,20 +3889,20 @@ char* rocksdb_options_statistics_get_string(rocksdb_options_t* opt) {
 }
 
 uint64_t rocksdb_options_statistics_get_ticker_count(rocksdb_options_t* opt,
-                                                     uint32_t type) {
+                                                     uint32_t ticker_type) {
   ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
   if (statistics) {
-    return statistics->getTickerCount(type);
+    return statistics->getTickerCount(ticker_type);
   }
   return 0;
 }
 
 void rocksdb_options_statistics_get_histogram_data(
     rocksdb_options_t* opt, uint32_t type,
-    rocksdb_statistics_histogram_data_t* data) {
+    rocksdb_statistics_histogram_data_t* const data) {
   ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
   if (statistics) {
-    statistics->histogramData(type, &data->rep);
+    statistics->histogramData(type, data);
   } else {
     *data = rocksdb_statistics_histogram_data_t{};
   }
@@ -5674,8 +5670,7 @@ int rocksdb_transactiondb_property_int(rocksdb_transactiondb_t* db,
   }
 }
 
-rocksdb_t* rocksdb_transactiondb_get_base_db(
-    rocksdb_transactiondb_t* txn_db) {
+rocksdb_t* rocksdb_transactiondb_get_base_db(rocksdb_transactiondb_t* txn_db) {
   DB* base_db = txn_db->rep->GetBaseDB();
 
   if (base_db != nullptr) {
@@ -5687,9 +5682,7 @@ rocksdb_t* rocksdb_transactiondb_get_base_db(
   return nullptr;
 }
 
-void rocksdb_transactiondb_close_base_db(rocksdb_t* base_db) {
-  delete base_db;
-}
+void rocksdb_transactiondb_close_base_db(rocksdb_t* base_db) { delete base_db; }
 
 rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
@@ -6670,7 +6663,7 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 
 rocksdb_statistics_histogram_data_t*
 rocksdb_statistics_histogram_data_create() {
-  return new rocksdb_statistics_histogram_data_t;
+  return new rocksdb_statistics_histogram_data_t{};
 }
 
 void rocksdb_statistics_histogram_data_destroy(
@@ -6680,47 +6673,47 @@ void rocksdb_statistics_histogram_data_destroy(
 
 double rocksdb_statistics_histogram_data_get_median(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.median;
+  return data->median;
 }
 
 double rocksdb_statistics_histogram_data_get_p95(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.percentile95;
+  return data->percentile95;
 }
 
 double rocksdb_statistics_histogram_data_get_p99(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.percentile99;
+  return data->percentile99;
 }
 
 double rocksdb_statistics_histogram_data_get_average(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.average;
+  return data->average;
 }
 
 double rocksdb_statistics_histogram_data_get_std_dev(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.standard_deviation;
+  return data->standard_deviation;
 }
 
 double rocksdb_statistics_histogram_data_get_max(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.max;
+  return data->max;
 }
 
 uint64_t rocksdb_statistics_histogram_data_get_count(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.count;
+  return data->count;
 }
 
 uint64_t rocksdb_statistics_histogram_data_get_sum(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.sum;
+  return data->sum;
 }
 
 double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->rep.min;
+  return data->min;
 }
 
 }  // end extern "C"
