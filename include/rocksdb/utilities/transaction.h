@@ -140,6 +140,9 @@ class Transaction {
   Transaction(const Transaction&) = delete;
   void operator=(const Transaction&) = delete;
 
+  // The transaction is safely discarded on destruction, though must be
+  // discarded before the DB is closed or destroyed. (Calling Rollback()
+  // is not necessary before destruction.)
   virtual ~Transaction() {}
 
   // If a transaction has a snapshot set, the transaction will ensure that
@@ -227,7 +230,8 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_size_to_maintain).
+  // (see max_write_buffer_size_to_maintain). In either case, a Rollback()
+  // or new transaction is required to expect a different result.
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
