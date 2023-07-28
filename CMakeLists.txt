@@ -49,7 +49,7 @@ set(FETCHCONTENT_QUIET false)
 FetchContent_Declare(
         photon
         GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-        GIT_TAG v0.5.3
+        GIT_TAG v0.6.3
 )
 set(ENABLE_URING ON CACHE INTERNAL "Enable iouring")
 FetchContent_MakeAvailable(photon)

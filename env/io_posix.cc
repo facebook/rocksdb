@@ -201,7 +201,7 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = photon::iouring_pread(fd_, ptr, left, offset, -1);
+    r = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
     if (r <= 0) {
       break;
     }
@@ -332,7 +332,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = photon::iouring_pread(fd_, ptr, left, offset, -1);
+    r = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
     if (r <= 0) {
       break;
     }
@@ -998,7 +998,7 @@ Status PosixRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    ssize_t done = photon::iouring_pread(fd_, ptr, left, offset, -1);
+    ssize_t done = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
     if (done < 0) {
       // error while reading from file
       return IOError("While reading random read/write file offset " +
