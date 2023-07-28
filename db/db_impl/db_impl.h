@@ -2200,7 +2200,7 @@ class DBImpl : public DB {
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
-                              const int job_id, const Version* current,
+                              const int job_id,
                               CompactionJobInfo* compaction_job_info) const;
   // Reserve the next 'num' file numbers for to-be-ingested external SST files,
   // and return the current file_number in 'next_file_number'.

@@ -193,7 +193,8 @@ struct FileMetaData {
   uint64_t compensated_file_size = 0;
   // These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
-  uint64_t num_entries = 0;     // the number of entries.
+  uint64_t num_entries =
+      0;  // The number of entries, including deletions and range deletions.
   // The number of deletion entries, including range deletions.
   uint64_t num_deletions = 0;
   uint64_t raw_key_size = 0;    // total uncompressed key size.
