@@ -1,0 +1,1 @@
+Mark `Options::access_hint_on_compaction_start` related APIs as deprecated. See #11631 for alternative behavior.
