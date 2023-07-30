@@ -114,4 +114,3 @@ class WritePreparedTxn : public PessimisticTransaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

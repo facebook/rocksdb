@@ -140,9 +140,6 @@ class Transaction {
   Transaction(const Transaction&) = delete;
   void operator=(const Transaction&) = delete;
 
-  // The transaction is safely discarded on destruction, though must be
-  // discarded before the DB is closed or destroyed. (Calling Rollback()
-  // is not necessary before destruction.)
   virtual ~Transaction() {}
 
   // If a transaction has a snapshot set, the transaction will ensure that
@@ -263,6 +260,7 @@ class Transaction {
       std::shared_ptr<const Snapshot>* snapshot = nullptr);
 
   // Discard all batched writes in this transaction.
+  // FIXME: what happens if this isn't called before destruction?
   virtual Status Rollback() = 0;
 
   // Records the state of the transaction for future calls to
