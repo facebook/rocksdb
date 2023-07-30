@@ -3,6 +3,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <utility>
+
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include "db/write_batch_internal.h"
@@ -306,7 +308,8 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
+DBWithTTLImpl::DBWithTTLImpl(DB* db, bool strict, std::unordered_map<std::string, int32_t>&& ttls, SystemClock* clock) :
+  DBWithTTL(db), closed_(false), strict_(strict), ttls_(ttls), clock_(clock) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
@@ -335,7 +338,7 @@ void DBWithTTLImpl::RegisterTtlClasses() {
 }
 
 Status DBWithTTL::Open(const Options& options, const std::string& dbname,
-                       DBWithTTL** dbptr, int32_t ttl, bool read_only) {
+                       DBWithTTL** dbptr, int32_t ttl, bool read_only, bool strict) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -343,7 +346,7 @@ Status DBWithTTL::Open(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBWithTTL::Open(db_options, dbname, column_families, &handles,
-                             dbptr, {ttl}, read_only);
+                             dbptr, {ttl}, read_only, strict);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
@@ -357,7 +360,7 @@ Status DBWithTTL::Open(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBWithTTL** dbptr,
-    const std::vector<int32_t>& ttls, bool read_only) {
+    const std::vector<int32_t>& ttls, bool read_only, bool strict) {
   DBWithTTLImpl::RegisterTtlClasses();
   if (ttls.size() != column_families.size()) {
     return Status::InvalidArgument(
@@ -370,9 +373,15 @@ Status DBWithTTL::Open(
 
   std::vector<ColumnFamilyDescriptor> column_families_sanitized =
       column_families;
+
+  std::unordered_map<std::string, int32_t> _ttls;
   for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
-    DBWithTTLImpl::SanitizeOptions(
-        ttls[i], &column_families_sanitized[i].options, clock);
+    int32_t ttl = ttls[i];
+    auto& cf = column_families_sanitized[i];
+    DBWithTTLImpl::SanitizeOptions(ttl, &cf.options, clock);
+    if (strict) {
+      _ttls.insert({cf.name, ttl});
+    }
   }
   DB* db;
 
@@ -384,7 +393,7 @@ Status DBWithTTL::Open(
     st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBWithTTLImpl(db);
+    *dbptr = new DBWithTTLImpl(db, strict, std::move(_ttls), clock);
   } else {
     *dbptr = nullptr;
   }
@@ -502,6 +511,12 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
   if (!st.ok()) {
     return st;
   }
+  if (strict_) {
+    int32_t ttl = ttls_[column_family->GetName()];
+    if (IsStale(*reinterpret_cast<Slice*>(value), ttl, clock_)) {
+      return Status::NotFound();
+    }
+  }
   return StripTS(value);
 }
 
@@ -510,13 +525,22 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   auto statuses = db_->MultiGet(options, column_family, keys, values);
+  std::string value;
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = SanityCheckTimestamp((*values)[i]);
+    value = (*values)[i];
+    statuses[i] = SanityCheckTimestamp(value);
     if (!statuses[i].ok()) {
       continue;
+    }
+    if (strict_) {
+      int32_t ttl = ttls_[column_family[i]->GetName()];
+      if (IsStale(value, ttl, clock_)) {
+        statuses[i] = Status::NotFound();
+        continue;
+      }
     }
     statuses[i] = StripTS(&(*values)[i]);
   }
@@ -531,6 +555,9 @@ bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
     if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
       return false;
+    } else if (strict_) {
+      int32_t ttl = ttls_[column_family->GetName()];
+      return !IsStale(*value, ttl, clock_);
     }
   }
   return ret;
@@ -596,12 +623,7 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
 Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
-  if (opts.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
-  }
-  return new TtlIterator(db_->NewIterator(opts, column_family));
+  return new TtlIterator(db_->NewIterator(opts, column_family), strict_, ttls_[column_family->GetName()], clock_);
 }
 
 void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {

@@ -8,6 +8,7 @@
 #include <deque>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/compaction_filter.h"
@@ -32,7 +33,7 @@ class DBWithTTLImpl : public DBWithTTL {
                               SystemClock* clock);
 
   static void RegisterTtlClasses();
-  explicit DBWithTTLImpl(DB* db);
+  explicit DBWithTTLImpl(DB* db, bool strict, std::unordered_map<std::string, int32_t>&& ttls, SystemClock* clock);
 
   virtual ~DBWithTTLImpl();
 
@@ -107,15 +108,27 @@ class DBWithTTLImpl : public DBWithTTL {
  private:
   // remember whether the Close completes or not
   bool closed_;
+  bool strict_;
+  std::unordered_map<std::string, int32_t> ttls_;
+  SystemClock* clock_;
 };
 
 class TtlIterator : public Iterator {
  public:
-  explicit TtlIterator(Iterator* iter) : iter_(iter) { assert(iter_); }
+  explicit TtlIterator(Iterator* iter, bool strict, int32_t ttl, SystemClock* clock) :
+    iter_(iter), strict_(strict), ttl_(ttl), clock_(clock) { assert(iter_); }
 
   ~TtlIterator() { delete iter_; }
 
-  bool Valid() const override { return iter_->Valid(); }
+  bool Valid() const override {
+    if (!iter_->Valid()) {
+      return false;
+    }
+    if (strict_) {
+      return !DBWithTTLImpl::IsStale(iter_->value(), ttl_, clock_);
+    }
+    return true;
+  }
 
   void SeekToFirst() override { iter_->SeekToFirst(); }
 
@@ -148,6 +161,9 @@ class TtlIterator : public Iterator {
 
  private:
   Iterator* iter_;
+  bool strict_;
+  int32_t ttl_;
+  SystemClock* clock_;
 };
 
 class TtlCompactionFilter : public LayeredCompactionFilterBase {
