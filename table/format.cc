@@ -10,6 +10,7 @@
 #include "table/format.h"
 
 #include <cinttypes>
+#include <cstdint>
 #include <string>
 
 #include "block_fetcher.h"
@@ -18,12 +19,14 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
+#include "unique_id_impl.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -195,25 +198,41 @@ inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
 //   -> format_version >= 1
 //      checksum type (char, 1 byte)
 // * Part2
+//   -> format_version <= 5
 //      metaindex handle (varint64 offset, varint64 size)
 //      index handle     (varint64 offset, varint64 size)
 //      <zero padding> for part2 size = 2 * BlockHandle::kMaxEncodedLength = 40
+//        - This padding is unchecked/ignored
+//   -> format_version >= 6
+//      extended magic number (4 bytes) = 0x3e 0x00 0x7a 0x00
+//        - Also surely invalid (size 0) handles if interpreted as older version
+//        - (Helps ensure a corrupted format_version doesn't get us far with no
+//           footer checksum.)
+//      footer_checksum (uint32LE, 4 bytes)
+//        - Checksum of above checksum type of whole footer, with this field
+//          set to all zeros.
+//      base_context_checksum (uint32LE, 4 bytes)
+//      metaindex block size (uint32LE, 4 bytes)
+//        - Assumed to be immediately before footer, < 4GB
+//      <zero padding> (24 bytes, reserved for future use)
+//        - Brings part2 size also to 40 bytes
+//        - Checked that last eight bytes == 0, so reserved for a future
+//          incompatible feature (but under format_version=6)
 // * Part3
 //   -> format_version == 0 (inferred from legacy magic number)
 //      legacy magic number (8 bytes)
 //   -> format_version >= 1 (inferred from NOT legacy magic number)
 //      format_version (uint32LE, 4 bytes), also called "footer version"
 //      newer magic number (8 bytes)
-
+const std::array<char, 4> kExtendedMagic{{0x3e, 0x00, 0x7a, 0x00}};
 constexpr size_t kFooterPart2Size = 2 * BlockHandle::kMaxEncodedLength;
 }  // namespace
 
-void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
-                          uint64_t footer_offset, ChecksumType checksum_type,
-                          const BlockHandle& metaindex_handle,
-                          const BlockHandle& index_handle) {
-  (void)footer_offset;  // Future use
-
+Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
+                            uint64_t footer_offset, ChecksumType checksum_type,
+                            const BlockHandle& metaindex_handle,
+                            const BlockHandle& index_handle,
+                            uint32_t base_context_checksum) {
   assert(magic_number != Footer::kNullTableMagicNumber);
   assert(IsSupportedFormatVersion(format_version));
 
@@ -249,19 +268,71 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     assert(cur + 8 == slice_.data() + slice_.size());
   }
 
-  {
+  if (format_version >= 6) {
+    if (BlockTrailerSizeForMagicNumber(magic_number) != 0) {
+      // base context checksum required for table formats with block checksums
+      assert(base_context_checksum != 0);
+      assert(ChecksumModifierForContext(base_context_checksum, 0) != 0);
+    } else {
+      // base context checksum not used
+      assert(base_context_checksum == 0);
+      assert(ChecksumModifierForContext(base_context_checksum, 0) == 0);
+    }
+
+    // Start populating Part 2
+    char* cur = data_.data() + /* part 1 size */ 1;
+    // Set extended magic of part2
+    std::copy(kExtendedMagic.begin(), kExtendedMagic.end(), cur);
+    cur += kExtendedMagic.size();
+    // Fill checksum data with zeros (for later computing checksum)
+    char* checksum_data = cur;
+    EncodeFixed32(cur, 0);
+    cur += 4;
+    // Save base context checksum
+    EncodeFixed32(cur, base_context_checksum);
+    cur += 4;
+    // Compute and save metaindex size
+    uint32_t metaindex_size = static_cast<uint32_t>(metaindex_handle.size());
+    if (metaindex_size != metaindex_handle.size()) {
+      return Status::NotSupported("Metaindex block size > 4GB");
+    }
+    // Metaindex must be adjacent to footer
+    assert(metaindex_size == 0 ||
+           metaindex_handle.offset() + metaindex_handle.size() ==
+               footer_offset - BlockTrailerSizeForMagicNumber(magic_number));
+    EncodeFixed32(cur, metaindex_size);
+    cur += 4;
+
+    // Zero pad remainder (for future use)
+    std::fill_n(cur, 24U, char{0});
+    assert(cur + 24 == part3);
+
+    // Compute checksum, add context
+    uint32_t checksum = ComputeBuiltinChecksum(
+        checksum_type, data_.data(), Footer::kNewVersionsEncodedLength);
+    checksum +=
+        ChecksumModifierForContext(base_context_checksum, footer_offset);
+    // Store it
+    EncodeFixed32(checksum_data, checksum);
+  } else {
+    // Base context checksum not used
+    assert(!FormatVersionUsesContextChecksum(format_version));
+    // Should be left empty
+    assert(base_context_checksum == 0);
+    assert(ChecksumModifierForContext(base_context_checksum, 0) == 0);
+
+    // Populate all of part 2
     char* cur = part2;
     cur = metaindex_handle.EncodeTo(cur);
     cur = index_handle.EncodeTo(cur);
     // Zero pad remainder
     std::fill(cur, part3, char{0});
   }
+  return Status::OK();
 }
 
 Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
                           uint64_t enforce_table_magic_number) {
-  (void)input_offset;  // Future use
-
   // Only decode to unused Footer
   assert(table_magic_number_ == kNullTableMagicNumber);
   assert(input != nullptr);
@@ -284,6 +355,9 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   block_trailer_size_ = BlockTrailerSizeForMagicNumber(magic);
 
   // Parse Part3
+  const char* part3_ptr = magic_ptr;
+  uint32_t computed_checksum = 0;
+  uint64_t footer_offset = 0;
   if (legacy) {
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
@@ -291,37 +365,101 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
     format_version_ = 0 /* legacy */;
     checksum_type_ = kCRC32c;
   } else {
-    const char* part3_ptr = magic_ptr - 4;
+    part3_ptr = magic_ptr - 4;
     format_version_ = DecodeFixed32(part3_ptr);
-    if (!IsSupportedFormatVersion(format_version_)) {
+    if (UNLIKELY(!IsSupportedFormatVersion(format_version_))) {
       return Status::Corruption("Corrupt or unsupported format_version: " +
                                 std::to_string(format_version_));
     }
     // All known format versions >= 1 occupy exactly this many bytes.
-    if (input.size() < kNewVersionsEncodedLength) {
+    if (UNLIKELY(input.size() < kNewVersionsEncodedLength)) {
       return Status::Corruption("Input is too short to be an SST file");
     }
     uint64_t adjustment = input.size() - kNewVersionsEncodedLength;
     input.remove_prefix(adjustment);
+    footer_offset = input_offset + adjustment;
 
     // Parse Part1
     char chksum = input.data()[0];
     checksum_type_ = lossless_cast<ChecksumType>(chksum);
-    if (!IsSupportedChecksumType(checksum_type())) {
+    if (UNLIKELY(!IsSupportedChecksumType(checksum_type()))) {
       return Status::Corruption("Corrupt or unsupported checksum type: " +
                                 std::to_string(lossless_cast<uint8_t>(chksum)));
+    }
+    // This is the most convenient place to compute the checksum
+    if (checksum_type_ != kNoChecksum && format_version_ >= 6) {
+      std::array<char, kNewVersionsEncodedLength> copy_without_checksum;
+      std::copy_n(input.data(), kNewVersionsEncodedLength,
+                  &copy_without_checksum[0]);
+      EncodeFixed32(&copy_without_checksum[5], 0);  // Clear embedded checksum
+      computed_checksum =
+          ComputeBuiltinChecksum(checksum_type(), copy_without_checksum.data(),
+                                 kNewVersionsEncodedLength);
     }
     // Consume checksum type field
     input.remove_prefix(1);
   }
 
   // Parse Part2
-  Status result = metaindex_handle_.DecodeFrom(&input);
-  if (result.ok()) {
-    result = index_handle_.DecodeFrom(&input);
+  if (format_version_ >= 6) {
+    Slice ext_magic(input.data(), 4);
+    if (UNLIKELY(ext_magic.compare(Slice(kExtendedMagic.data(),
+                                         kExtendedMagic.size())) != 0)) {
+      return Status::Corruption("Bad extended magic number: 0x" +
+                                ext_magic.ToString(/*hex*/ true));
+    }
+    input.remove_prefix(4);
+    uint32_t stored_checksum = 0, metaindex_size = 0;
+    bool success;
+    success = GetFixed32(&input, &stored_checksum);
+    assert(success);
+    success = GetFixed32(&input, &base_context_checksum_);
+    assert(success);
+    if (UNLIKELY(ChecksumModifierForContext(base_context_checksum_, 0) == 0)) {
+      return Status::Corruption("Invalid base context checksum");
+    }
+    computed_checksum +=
+        ChecksumModifierForContext(base_context_checksum_, footer_offset);
+    if (UNLIKELY(computed_checksum != stored_checksum)) {
+      return Status::Corruption("Footer at " + std::to_string(footer_offset) +
+                                " checksum mismatch");
+    }
+    success = GetFixed32(&input, &metaindex_size);
+    assert(success);
+    (void)success;
+    uint64_t metaindex_end = footer_offset - GetBlockTrailerSize();
+    metaindex_handle_ =
+        BlockHandle(metaindex_end - metaindex_size, metaindex_size);
+
+    // Mark unpopulated
+    index_handle_ = BlockHandle::NullBlockHandle();
+
+    // 16 bytes of unchecked reserved padding
+    input.remove_prefix(16U);
+
+    // 8 bytes of checked reserved padding (expected to be zero unless using a
+    // future feature).
+    uint64_t reserved = 0;
+    success = GetFixed64(&input, &reserved);
+    assert(success);
+    if (UNLIKELY(reserved != 0)) {
+      return Status::NotSupported(
+          "File uses a future feature not supported in this version");
+    }
+    // End of part 2
+    assert(input.data() == part3_ptr);
+  } else {
+    // format_version_ < 6
+    Status result = metaindex_handle_.DecodeFrom(&input);
+    if (result.ok()) {
+      result = index_handle_.DecodeFrom(&input);
+    }
+    if (!result.ok()) {
+      return result;
+    }
+    // Padding in part2 is ignored
   }
-  return result;
-  // Padding in part2 is ignored
+  return Status::OK();
 }
 
 std::string Footer::ToString() const {
