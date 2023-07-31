@@ -865,6 +865,9 @@ class NonBatchedOpsStressTest : public StressTest {
     if (readoptionscopy.snapshot) {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
+    if (use_txn) {
+      txn->Rollback().PermitUncheckedError();
+    }
     return statuses;
   }
 
