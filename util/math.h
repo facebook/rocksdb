@@ -9,6 +9,9 @@
 #ifdef _MSC_VER
 #include <intrin.h>
 #endif
+#ifdef __BMI2__
+#include <immintrin.h>
+#endif
 
 #include <cstdint>
 #include <type_traits>
@@ -19,6 +22,26 @@
 ASSERT_FEATURE_COMPAT_HEADER();
 
 namespace ROCKSDB_NAMESPACE {
+
+// Fast implementation of extracting the bottom n bits of an integer.
+// To ensure fast implementation, undefined if n bits is full width or more.
+template <typename T>
+inline T BottomNBits(T v, int nbits) {
+  static_assert(std::is_integral<T>::value, "non-integral type");
+  assert(nbits >= 0);
+  assert(nbits < int{8 * sizeof(T)});
+#ifdef __BMI2__
+  if constexpr (sizeof(T) <= 4) {
+    return static_cast<T>(_bzhi_u32(static_cast<uint32_t>(v), nbits));
+  }
+  if constexpr (sizeof(T) <= 8) {
+    return static_cast<T>(_bzhi_u64(static_cast<uint64_t>(v), nbits));
+  }
+#endif
+  // Newer compilers compile this down to bzhi on x86, but some older
+  // ones don't, thus the need for the intrinsic above.
+  return static_cast<T>(v & ((T{1} << nbits) - 1));
+}
 
 // Fast implementation of floor(log2(v)). Undefined for 0 or negative
 // numbers (in case of signed type).
@@ -294,6 +317,24 @@ inline T DownwardInvolution(T v) {
   r ^= (r & 0xccccccccccccccccU) >> 2;
   r ^= (r & 0xaaaaaaaaaaaaaaaaU) >> 1;
   return static_cast<T>(r);
+}
+
+// Bitwise-And with typing that allows you to avoid writing an explicit cast
+// to the smaller type, or the type of the right parameter if same size.
+template <typename A, typename B>
+inline std::conditional_t<
+    sizeof(std::remove_reference_t<A>) < sizeof(std::remove_reference_t<B>),
+    std::remove_reference_t<A>, std::remove_reference_t<B>>
+BitwiseAnd(A a, B b) {
+  using AValue = std::remove_reference_t<A>;
+  using BValue = std::remove_reference_t<B>;
+  static_assert(std::is_integral<AValue>::value || std::is_enum<AValue>::value,
+                "Only works on integral types");
+  static_assert(std::is_integral<BValue>::value || std::is_enum<BValue>::value,
+                "Only works on integral types");
+  using Smaller =
+      std::conditional_t<sizeof(AValue) < sizeof(BValue), AValue, BValue>;
+  return static_cast<Smaller>(a & b);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
