@@ -208,6 +208,7 @@ default_params = {
     "num_file_reads_for_auto_readahead": lambda: random.choice([0, 1, 2]),
     "min_write_buffer_number_to_merge": lambda: random.choice([1, 2]),
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
+    "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
