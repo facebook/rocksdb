@@ -836,8 +836,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
     size_t size = cached_range_tombstone_.Size();
     if (allow_concurrent) {
-      range_del_mutex_.lock();
       post_process_info->num_range_deletes++;
+      range_del_mutex_.lock();
     }
     for (size_t i = 0; i < size; ++i) {
       std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =

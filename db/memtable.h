@@ -334,9 +334,8 @@ class MemTable {
                              std::memory_order_relaxed);
     }
     if (update_counters.num_range_deletes > 0) {
-      uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) +
-                     update_counters.num_range_deletes;
-      num_range_deletes_.store(val, std::memory_order_relaxed);
+      num_range_deletes_.fetch_add(update_counters.num_range_deletes,
+                                   std::memory_order_relaxed);
     }
     UpdateFlushState();
   }
