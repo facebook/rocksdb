@@ -296,4 +296,22 @@ inline T DownwardInvolution(T v) {
   return static_cast<T>(r);
 }
 
+// Bitwise-And with typing that allows you to avoid writing an explicit cast
+// to the smaller type, or the type of the right parameter if same size.
+template <typename A, typename B>
+inline std::conditional_t<
+    sizeof(std::remove_reference_t<A>) < sizeof(std::remove_reference_t<B>),
+    std::remove_reference_t<A>, std::remove_reference_t<B>>
+BitwiseAnd(A a, B b) {
+  using AValue = std::remove_reference_t<A>;
+  using BValue = std::remove_reference_t<B>;
+  static_assert(std::is_integral<AValue>::value || std::is_enum<AValue>::value,
+                "Only works on integral types");
+  static_assert(std::is_integral<BValue>::value || std::is_enum<BValue>::value,
+                "Only works on integral types");
+  using Smaller =
+      std::conditional_t<sizeof(AValue) < sizeof(BValue), AValue, BValue>;
+  return static_cast<Smaller>(a & b);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
