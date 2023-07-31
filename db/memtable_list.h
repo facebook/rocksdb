@@ -111,15 +111,13 @@ class MemTableListVersion {
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
                                     RangeDelAggregator* range_del_agg);
 
-  Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
-                                    MergeIteratorBuilder& builder);
-
   void AddIterators(const ReadOptions& options,
                     std::vector<InternalIterator*>* iterator_list,
                     Arena* arena);
 
   void AddIterators(const ReadOptions& options,
-                    MergeIteratorBuilder* merge_iter_builder);
+                    MergeIteratorBuilder* merge_iter_builder,
+                    bool add_range_tombstone_iter);
 
   uint64_t GetTotalNumEntries() const;
 
@@ -382,6 +380,25 @@ class MemTableList {
       return 0;
     }
     return memlist.front()->GetID();
+  }
+
+  // DB mutex held.
+  // Gets the newest user-defined timestamp for the Memtables in ascending ID
+  // order, up to the `max_memtable_id`. Used by background flush job
+  // to check Memtables' eligibility for flush w.r.t retaining UDTs.
+  std::vector<Slice> GetTablesNewestUDT(uint64_t max_memtable_id) {
+    std::vector<Slice> newest_udts;
+    auto& memlist = current_->memlist_;
+    // Iterating through the memlist starting at the end, the vector<MemTable*>
+    // ret is filled with memtables already sorted in increasing MemTable ID.
+    for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+      MemTable* m = *it;
+      if (m->GetID() > max_memtable_id) {
+        break;
+      }
+      newest_udts.push_back(m->GetNewestUDT());
+    }
+    return newest_udts;
   }
 
   void AssignAtomicFlushSeq(const SequenceNumber& seq) {

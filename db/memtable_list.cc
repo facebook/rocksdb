@@ -210,30 +210,6 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
   return Status::OK();
 }
 
-Status MemTableListVersion::AddRangeTombstoneIterators(
-    const ReadOptions& read_opts, Arena* /*arena*/,
-    MergeIteratorBuilder& builder) {
-  // Except for snapshot read, using kMaxSequenceNumber is OK because these
-  // are immutable memtables.
-  SequenceNumber read_seq = read_opts.snapshot != nullptr
-                                ? read_opts.snapshot->GetSequenceNumber()
-                                : kMaxSequenceNumber;
-  for (auto& m : memlist_) {
-    auto range_del_iter = m->NewRangeTombstoneIterator(
-        read_opts, read_seq, true /* immutale_memtable */);
-    if (range_del_iter == nullptr || range_del_iter->empty()) {
-      delete range_del_iter;
-      builder.AddRangeTombstoneIterator(nullptr);
-    } else {
-      builder.AddRangeTombstoneIterator(new TruncatedRangeDelIterator(
-          std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-          &m->GetInternalKeyComparator(), nullptr /* smallest */,
-          nullptr /* largest */));
-    }
-  }
-  return Status::OK();
-}
-
 void MemTableListVersion::AddIterators(
     const ReadOptions& options, std::vector<InternalIterator*>* iterator_list,
     Arena* arena) {
@@ -242,11 +218,33 @@ void MemTableListVersion::AddIterators(
   }
 }
 
-void MemTableListVersion::AddIterators(
-    const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
+void MemTableListVersion::AddIterators(const ReadOptions& options,
+                                       MergeIteratorBuilder* merge_iter_builder,
+                                       bool add_range_tombstone_iter) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(
-        m->NewIterator(options, merge_iter_builder->GetArena()));
+    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    if (!add_range_tombstone_iter || options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(mem_iter);
+    } else {
+      // Except for snapshot read, using kMaxSequenceNumber is OK because these
+      // are immutable memtables.
+      SequenceNumber read_seq = options.snapshot != nullptr
+                                    ? options.snapshot->GetSequenceNumber()
+                                    : kMaxSequenceNumber;
+      TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+      auto range_del_iter = m->NewRangeTombstoneIterator(
+          options, read_seq, true /* immutale_memtable */);
+      if (range_del_iter == nullptr || range_del_iter->empty()) {
+        delete range_del_iter;
+      } else {
+        mem_tombstone_iter = new TruncatedRangeDelIterator(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+            &m->GetInternalKeyComparator(), nullptr /* smallest */,
+            nullptr /* largest */);
+      }
+      merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
+                                                       mem_tombstone_iter);
+    }
   }
 }
 
@@ -421,6 +419,13 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
             std::max(m->GetNextLogNumber(), *max_next_log_number);
       }
       ret->push_back(m);
+    } else if (!ret->empty()) {
+      // This `break` is necessary to prevent picking non-consecutive memtables
+      // in case `memlist` has one or more entries with
+      // `flush_in_progress_ == true` sandwiched between entries with
+      // `flush_in_progress_ == false`. This could happen after parallel flushes
+      // are picked and the one flushing older memtables is rolled back.
+      break;
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
@@ -461,6 +466,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
+
+  const ReadOptions read_options(Env::IOActivity::kFlush);
 
   // Flush was successful
   // Record the status on the memtable object. Either this call or a call by a
@@ -524,14 +531,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
-#ifndef ROCKSDB_LITE
         std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
           committed_flush_jobs_info->push_back(std::move(info));
         }
-#else
-        (void)committed_flush_jobs_info;
-#endif  // !ROCKSDB_LITE
       }
       batch_count++;
     }
@@ -577,8 +580,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
       };
       if (write_edits) {
         // this can release and reacquire the mutex.
-        s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                              db_directory, /*new_descriptor_log=*/false,
+        s = vset->LogAndApply(cfd, mutable_cf_options, read_options, edit_list,
+                              mu, db_directory, /*new_descriptor_log=*/false,
                               /*column_family_options=*/nullptr,
                               manifest_write_cb);
       } else {
@@ -797,6 +800,8 @@ Status InstallMemtableAtomicFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kFlush);
+
   size_t num = mems_list.size();
   assert(cfds.size() == num);
   if (imm_lists != nullptr) {
@@ -820,7 +825,6 @@ Status InstallMemtableAtomicFlushResults(
       (*mems_list[k])[i]->SetFlushCompleted(true);
       (*mems_list[k])[i]->SetFileNumber(file_metas[k]->fd.GetNumber());
     }
-#ifndef ROCKSDB_LITE
     if (committed_flush_jobs_info[k]) {
       assert(!mems_list[k]->empty());
       assert((*mems_list[k])[0]);
@@ -828,9 +832,6 @@ Status InstallMemtableAtomicFlushResults(
           (*mems_list[k])[0]->ReleaseFlushJobInfo();
       committed_flush_jobs_info[k]->push_back(std::move(flush_job_info));
     }
-#else   //! ROCKSDB_LITE
-    (void)committed_flush_jobs_info;
-#endif  // ROCKSDB_LITE
   }
 
   Status s;
@@ -878,8 +879,8 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                        db_directory);
+  s = vset->LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
+                        mu, db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

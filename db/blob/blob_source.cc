@@ -13,7 +13,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
@@ -30,76 +30,71 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache),
       lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
-#ifndef ROCKSDB_LITE
   auto bbto =
       immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
   if (bbto &&
       bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
               .charged == CacheEntryRoleOptions::Decision::kEnabled) {
-    blob_cache_ = std::make_shared<ChargedCache>(immutable_options->blob_cache,
-                                                 bbto->block_cache);
+    blob_cache_ = SharedCacheInterface{std::make_shared<ChargedCache>(
+        immutable_options->blob_cache, bbto->block_cache)};
   }
-#endif  // ROCKSDB_LITE
 }
 
 BlobSource::~BlobSource() = default;
 
 Status BlobSource::GetBlobFromCache(
-    const Slice& cache_key, CacheHandleGuard<BlobContents>* blob) const {
-  assert(blob);
-  assert(blob->IsEmpty());
+    const Slice& cache_key, CacheHandleGuard<BlobContents>* cached_blob) const {
   assert(blob_cache_);
   assert(!cache_key.empty());
+  assert(cached_blob);
+  assert(cached_blob->IsEmpty());
 
   Cache::Handle* cache_handle = nullptr;
   cache_handle = GetEntryFromCache(cache_key);
   if (cache_handle != nullptr) {
-    *blob = CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
+    *cached_blob =
+        CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
+
+    assert(cached_blob->GetValue());
 
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
     RecordTick(statistics_, BLOB_DB_CACHE_HIT);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ, blob->GetValue()->size());
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
+               cached_blob->GetValue()->size());
 
     return Status::OK();
   }
-
-  assert(blob->IsEmpty());
 
   RecordTick(statistics_, BLOB_DB_CACHE_MISS);
 
   return Status::NotFound("Blob not found in cache");
 }
 
-Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
-                                    CacheHandleGuard<BlobContents>* cached_blob,
-                                    PinnableSlice* blob) const {
-  assert(blob);
-  assert(!cache_key.empty());
+Status BlobSource::PutBlobIntoCache(
+    const Slice& cache_key, std::unique_ptr<BlobContents>* blob,
+    CacheHandleGuard<BlobContents>* cached_blob) const {
   assert(blob_cache_);
+  assert(!cache_key.empty());
+  assert(blob);
+  assert(*blob);
+  assert(cached_blob);
+  assert(cached_blob->IsEmpty());
 
-  Status s;
-  const Cache::Priority priority = Cache::Priority::BOTTOM;
-
-  // Objects to be put into the cache have to be heap-allocated and
-  // self-contained, i.e. own their contents. The Cache has to be able to take
-  // unique ownership of them.
-  // TODO: support custom allocators
-  CacheAllocationPtr allocation(new char[blob->size()]);
-  memcpy(allocation.get(), blob->data(), blob->size());
-  std::unique_ptr<BlobContents> buf =
-      BlobContents::Create(std::move(allocation), blob->size());
-
-  Cache::Handle* cache_handle = nullptr;
-  s = InsertEntryIntoCache(cache_key, buf.get(), buf->ApproximateMemoryUsage(),
-                           &cache_handle, priority);
+  TypedHandle* cache_handle = nullptr;
+  const Status s = InsertEntryIntoCache(cache_key, blob->get(),
+                                        &cache_handle, Cache::Priority::BOTTOM);
   if (s.ok()) {
-    buf.release();
+    blob->release();
+
     assert(cache_handle != nullptr);
     *cached_blob =
         CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
 
+    assert(cached_blob->GetValue());
+
     RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, blob->size());
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
+               cached_blob->GetValue()->size());
 
   } else {
     RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
@@ -108,18 +103,10 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   return s;
 }
 
-Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
-  Cache::Handle* cache_handle = nullptr;
-
-  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    cache_handle = blob_cache_->Lookup(
-        key, BlobContents::GetCacheItemHelper(), &BlobContents::CreateCallback,
-        Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
-  } else {
-    cache_handle = blob_cache_->Lookup(key, statistics_);
-  }
-
-  return cache_handle;
+BlobSource::TypedHandle* BlobSource::GetEntryFromCache(const Slice& key) const {
+  return blob_cache_.LookupFull(key, nullptr /* context */,
+                                Cache::Priority::BOTTOM, statistics_,
+                                lowest_used_cache_tier_);
 }
 
 void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
@@ -141,25 +128,30 @@ void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
   cached_blob->TransferTo(value);
 }
 
+void BlobSource::PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
+                              PinnableSlice* value) {
+  assert(owned_blob);
+  assert(*owned_blob);
+  assert(value);
+
+  BlobContents* const blob = owned_blob->release();
+  assert(blob);
+
+  value->Reset();
+  value->PinSlice(
+      blob->data(),
+      [](void* arg1, void* /* arg2 */) {
+        delete static_cast<BlobContents*>(arg1);
+      },
+      blob, nullptr);
+}
+
 Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
-                                        size_t charge,
-                                        Cache::Handle** cache_handle,
+                                        TypedHandle** cache_handle,
                                         Cache::Priority priority) const {
-  Status s;
-
-  Cache::CacheItemHelper* const cache_item_helper =
-      BlobContents::GetCacheItemHelper();
-  assert(cache_item_helper);
-
-  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, cache_item_helper, charge, cache_handle,
-                            priority);
-  } else {
-    s = blob_cache_->Insert(key, value, charge, cache_item_helper->del_cb,
-                            cache_handle, priority);
-  }
-
-  return s;
+  return blob_cache_.InsertFull(key, value, value->ApproximateMemoryUsage(),
+                                cache_handle, priority,
+                                lowest_used_cache_tier_);
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
@@ -183,7 +175,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   if (blob_cache_) {
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_handle);
-    if (s.ok() && blob_handle.GetValue()) {
+    if (s.ok()) {
       PinCachedBlob(&blob_handle, value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
@@ -213,9 +205,12 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   // Can't find the blob from the cache. Since I/O is allowed, read from the
   // file.
+  std::unique_ptr<BlobContents> blob_contents;
+
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -226,10 +221,15 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
+    MemoryAllocator* const allocator =
+        (blob_cache_ && read_options.fill_cache)
+            ? blob_cache_.get()->memory_allocator()
+            : nullptr;
+
     uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, value, &read_size);
+        prefetch_buffer, allocator, &blob_contents, &read_size);
     if (!s.ok()) {
       return s;
     }
@@ -242,12 +242,14 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(key, &blob_handle, value);
+    s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
     if (!s.ok()) {
       return s;
     }
 
     PinCachedBlob(&blob_handle, value);
+  } else {
+    PinOwnedBlob(&blob_contents, value);
   }
 
   assert(s.ok());
@@ -313,7 +315,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
       const Status s = GetBlobFromCache(key, &blob_handle);
 
-      if (s.ok() && blob_handle.GetValue()) {
+      if (s.ok()) {
         assert(req.status);
         *req.status = s;
 
@@ -348,8 +350,10 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   if (no_io) {
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        assert(blob_reqs[i].status);
-        *blob_reqs[i].status =
+        BlobReadRequest& req = blob_reqs[i];
+        assert(req.status);
+
+        *req.status =
             Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
       }
     }
@@ -358,47 +362,64 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
   {
     // Find the rest of blobs from the file since I/O is allowed.
-    autovector<BlobReadRequest*> _blob_reqs;
+    autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+        _blob_reqs;
     uint64_t _bytes_read = 0;
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        _blob_reqs.push_back(&blob_reqs[i]);
+        _blob_reqs.emplace_back(&blob_reqs[i], std::unique_ptr<BlobContents>());
       }
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s =
-        blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                                   &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
-        assert(_blob_reqs[i]->status);
-        *_blob_reqs[i]->status = s;
+        BlobReadRequest* const req = _blob_reqs[i].first;
+        assert(req);
+        assert(req->status);
+
+        *req->status = s;
       }
       return;
     }
 
     assert(blob_file_reader.GetValue());
 
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, _blob_reqs,
-                                              &_bytes_read);
+    MemoryAllocator* const allocator =
+        (blob_cache_ && read_options.fill_cache)
+            ? blob_cache_.get()->memory_allocator()
+            : nullptr;
+
+    blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
+                                              _blob_reqs, &_bytes_read);
 
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
-      for (BlobReadRequest* req : _blob_reqs) {
+      for (auto& [req, blob_contents] : _blob_reqs) {
         assert(req);
 
         if (req->status->ok()) {
           CacheHandleGuard<BlobContents> blob_handle;
           const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_handle, req->result);
+          s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
           if (!s.ok()) {
             *req->status = s;
           } else {
             PinCachedBlob(&blob_handle, req->result);
           }
+        }
+      }
+    } else {
+      for (auto& [req, blob_contents] : _blob_reqs) {
+        assert(req);
+
+        if (req->status->ok()) {
+          PinOwnedBlob(&blob_contents, req->result);
         }
       }
     }

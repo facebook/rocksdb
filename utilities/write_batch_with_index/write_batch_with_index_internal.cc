@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
@@ -664,22 +663,34 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       Statistics* statistics = immutable_db_options.statistics.get();
       Logger* logger = immutable_db_options.info_log.get();
       SystemClock* clock = immutable_db_options.clock;
-      return MergeHelper::TimedFullMerge(merge_operator, key, value,
-                                         context.GetOperands(), result, logger,
-                                         statistics, clock);
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, context.GetOperands(), result, logger,
+          statistics, clock, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
       Logger* logger = db_options_->info_log.get();
       SystemClock* clock = env->GetSystemClock().get();
-      return MergeHelper::TimedFullMerge(merge_operator, key, value,
-                                         context.GetOperands(), result, logger,
-                                         statistics, clock);
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, context.GetOperands(), result, logger,
+          statistics, clock, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result,
-          cf_opts->logger, cf_opts->stats, cf_opts->clock);
+          cf_opts->logger, cf_opts->stats, cf_opts->clock,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");
@@ -729,4 +740,3 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

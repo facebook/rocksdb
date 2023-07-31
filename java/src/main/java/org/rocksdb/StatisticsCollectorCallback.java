@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * Callback interface provided to StatisticsCollector.
- *
+ * <p>
  * Thread safety:
  * StatisticsCollector doesn't make any guarantees about thread safety.
  * If the same reference of StatisticsCollectorCallback is passed to multiple

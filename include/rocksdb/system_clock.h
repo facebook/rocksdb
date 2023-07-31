@@ -27,7 +27,7 @@ struct ConfigOptions;
 // operating system time-related functionality.
 class SystemClock : public Customizable {
  public:
-  virtual ~SystemClock() {}
+  ~SystemClock() override {}
 
   static const char* Type() { return "SystemClock"; }
   static Status CreateFromString(const ConfigOptions& options,
@@ -103,10 +103,8 @@ class SystemClockWrapper : public SystemClock {
   }
 
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
   const Customizable* Inner() const override { return target_.get(); }
 
  protected:

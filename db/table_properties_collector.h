@@ -29,7 +29,7 @@ class IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) = 0;
 
-  virtual void BlockAdd(uint64_t block_raw_bytes,
+  virtual void BlockAdd(uint64_t block_uncomp_bytes,
                         uint64_t block_compressed_bytes_fast,
                         uint64_t block_compressed_bytes_slow) = 0;
 
@@ -69,7 +69,7 @@ class UserKeyTablePropertiesCollector : public IntTblPropCollector {
   virtual Status InternalAdd(const Slice& key, const Slice& value,
                              uint64_t file_size) override;
 
-  virtual void BlockAdd(uint64_t block_raw_bytes,
+  virtual void BlockAdd(uint64_t block_uncomp_bytes,
                         uint64_t block_compressed_bytes_fast,
                         uint64_t block_compressed_bytes_slow) override;
 
@@ -143,15 +143,17 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* block_raw_bytes */,
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
                 uint64_t /* block_compressed_bytes_fast */,
                 uint64_t /* block_compressed_bytes_slow */) override {
     return;
   }
 
   Status Finish(UserCollectedProperties* properties) override {
+    // timestamp is empty is table is empty
     assert(timestamp_min_.size() == timestamp_max_.size() &&
-           timestamp_max_.size() == cmp_->timestamp_size());
+           (timestamp_min_.empty() ||
+            timestamp_max_.size() == cmp_->timestamp_size()));
     properties->insert({"rocksdb.timestamp_min", timestamp_min_});
     properties->insert({"rocksdb.timestamp_max", timestamp_max_});
     return Status::OK();

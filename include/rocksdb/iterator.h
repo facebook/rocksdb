@@ -19,9 +19,11 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -73,16 +75,32 @@ class Iterator : public Cleanable {
   virtual void Prev() = 0;
 
   // Return the key for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // the returned slice is valid only until the next modification of the
+  // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
+  // operation).
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
-  // Return the value for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // Return the value for the current entry.  If the entry is a plain key-value,
+  // return the value as-is; if it is a wide-column entity, return the value of
+  // the default anonymous column (see kDefaultWideColumnName) if any, or an
+  // empty value otherwise.  The underlying storage for the returned slice is
+  // valid only until the next modification of the iterator (i.e. the next
+  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
+
+  // Return the wide columns for the current entry.  If the entry is a
+  // wide-column entity, return it as-is; if it is a plain key-value, return it
+  // as an entity with a single anonymous column (see kDefaultWideColumnName)
+  // which contains the value.  The underlying storage for the returned
+  // structure is valid only until the next modification of the iterator (i.e.
+  // the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
+  // REQUIRES: Valid()
+  virtual const WideColumns& columns() const {
+    assert(false);
+    return kNoWideColumns;
+  }
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be

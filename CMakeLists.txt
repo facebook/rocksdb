@@ -74,6 +74,7 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 if ($ENV{CIRCLECI})
   message(STATUS "Build for CircieCI env, a few tests may be disabled")
@@ -244,39 +245,40 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
   endif(HAS_S390X_MARCH_NATIVE)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
 
-option(PORTABLE "build a portable binary" OFF)
-option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
-option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
-option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
-if(PORTABLE)
-  # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
-  # is available, it is available by default.
-  if(FORCE_SSE42 AND NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
-  endif()
-  if(MSVC)
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
-    endif()
-    # MSVC automatically enables BMI / lzcnt with AVX2.
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    endif()
-  else()
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
-    endif()
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
-    endif()
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+  CHECK_C_COMPILER_FLAG("-march=loongarch64" HAS_LOONGARCH64)
+  if(HAS_LOONGARCH64)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+  endif(HAS_LOONGARCH64)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+
+set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
+if(PORTABLE STREQUAL 1)
+  # Usually nothing to do; compiler default is typically the most general
+  if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^loongarch64")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
+    endif()
+  endif()
+elseif(PORTABLE MATCHES [^0]+)
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 else()
   if(MSVC)
+    # NOTE: No auto-detection of current CPU, but instead assume some useful
+    # level of optimization is supported
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
+    # Require instruction set from current CPU (with some legacy or opt-out
+    # exceptions)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
@@ -289,27 +291,6 @@ include(CheckCXXSourceCompiles)
 set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
-endif()
-
-if (NOT PORTABLE OR FORCE_SSE42)
-  CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" HAVE_SSE42)
-  if(HAVE_SSE42)
-    add_definitions(-DHAVE_SSE42)
-    add_definitions(-DHAVE_PCLMUL)
-  elseif(FORCE_SSE42)
-    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
-  endif()
 endif()
 
 # Check if -latomic is required or not
@@ -484,12 +465,6 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-memcmp")
 endif()
 
-option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
-if(ROCKSDB_LITE)
-  add_definitions(-DROCKSDB_LITE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Os")
-endif()
-
 if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
@@ -572,7 +547,7 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
-check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+check_cxx_symbol_exists(getauxval "sys/auxv.h" HAVE_AUXV_GETAUXVAL)
 if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
@@ -584,10 +559,61 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
+
+if(USE_COROUTINES)
+  if(USE_FOLLY OR USE_FOLLY_LITE)
+    message(FATAL_ERROR "Please specify exactly one of USE_COROUTINES,"
+    " USE_FOLLY, and USE_FOLLY_LITE")
+  endif()
+  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -Wno-maybe-uninitialized")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-redundant-move")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-memory-model")
+  add_compile_definitions(USE_COROUTINES)
+  set(USE_FOLLY 1)
+endif()
+
 if(USE_FOLLY)
-  include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
-  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  list(APPEND THIRDPARTY_LIBS glog)
+  if(USE_FOLLY_LITE)
+    message(FATAL_ERROR "Please specify one of USE_FOLLY or USE_FOLLY_LITE")
+  endif()
+  if(ROCKSDB_BUILD_SHARED)
+    message(FATAL_ERROR "Cannot build RocksDB shared library with folly")
+  endif()
+  set(ROCKSDB_BUILD_SHARED OFF)
+  set(GFLAGS_SHARED FALSE)
+  find_package(folly)
+  # If cmake could not find the folly-config.cmake file, fall back
+  # to looking in third-party/folly for folly and its dependencies
+  if(NOT FOLLY_LIBRARIES)
+    exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+    build/fbcode_builder/getdeps.py show-inst-dir OUTPUT_VARIABLE
+    FOLLY_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../boost* OUTPUT_VARIABLE
+    BOOST_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../fmt* OUTPUT_VARIABLE
+    FMT_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
+    GFLAGS_INST_PATH)
+    set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.78.0)
+    if(EXISTS ${FMT_INST_PATH}/lib64)
+      set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
+    else()
+      set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
+    endif()
+    set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+
+    exec_program(sed ARGS -i 's/gflags_shared//g'
+    ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
+
+    include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
+  endif()
+
+  add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
+  list(APPEND THIRDPARTY_LIBS Folly::folly)
+  set(FOLLY_LIBS Folly::folly)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries")
 endif()
 find_package(Threads REQUIRED)
 
@@ -597,12 +623,14 @@ set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
         cache/cache_key.cc
+        cache/cache_helpers.cc
         cache/cache_reservation_manager.cc
         cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
-        cache/fast_lru_cache.cc
         cache/lru_cache.cc
+        cache/secondary_cache.cc
+        cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
@@ -689,6 +717,7 @@ set(SOURCES
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
+        db/write_stall_stats.cc
         db/write_thread.cc
         env/composite_env.cc
         env/env.cc
@@ -744,6 +773,7 @@ set(SOURCES
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
+        port/mmap.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
@@ -753,6 +783,7 @@ set(SOURCES
         table/block_based/block_based_table_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
+        table/block_based/block_cache.cc
         table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
         table/block_based/data_block_hash_index.cc
@@ -778,6 +809,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -819,6 +851,7 @@ set(SOURCES
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
+        util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
         util/murmurhash.cc
@@ -832,6 +865,8 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/udt_util.cc
+        util/write_batch_util.cc
         util/xxhash.cc
         utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
@@ -926,6 +961,12 @@ if ( ROCKSDB_PLUGINS )
         plugin/${plugin}/${src}
         PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
     endforeach()
+    foreach (test ${${plugin}_TESTS})
+      list(APPEND PLUGIN_TESTS plugin/${plugin}/${test})
+      set_source_files_properties(
+        plugin/${plugin}/${test}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
     foreach (path ${${plugin}_INCLUDE_PATHS})
       include_directories(${path})
     endforeach()
@@ -938,12 +979,6 @@ if ( ROCKSDB_PLUGINS )
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
   endforeach()
-endif()
-
-if(HAVE_SSE42 AND NOT MSVC)
-  set_source_files_properties(
-    util/crc32c.cc
-    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
@@ -983,7 +1018,7 @@ else()
     env/io_posix.cc)
 endif()
 
-if(USE_FOLLY)
+if(USE_FOLLY_LITE)
   list(APPEND SOURCES
     third-party/folly/folly/container/detail/F14Table.cpp
     third-party/folly/folly/detail/Futex.cpp
@@ -993,12 +1028,13 @@ if(USE_FOLLY)
     third-party/folly/folly/synchronization/AtomicNotification.cpp
     third-party/folly/folly/synchronization/DistributedMutex.cpp
     third-party/folly/folly/synchronization/ParkingLot.cpp)
+  include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
+  list(APPEND THIRDPARTY_LIBS glog)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
-
-option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 
 if(WIN32)
@@ -1012,28 +1048,34 @@ set(ROCKSDB_PLUGIN_BUILTINS "")
 message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
 foreach(PLUGIN IN LISTS PLUGINS)
   set(PLUGIN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/plugin/${PLUGIN}/")
-  message("including rocksb plugin ${PLUGIN_ROOT}")
+  message(STATUS "PLUGIN ${PLUGIN} including rocksb plugin ${PLUGIN_ROOT}")
   set(PLUGINMKFILE "${PLUGIN_ROOT}${PLUGIN}.mk")
   if (NOT EXISTS ${PLUGINMKFILE})
-    message(FATAL_ERROR "Missing plugin makefile: ${PLUGINMKFILE}")
+    message(FATAL_ERROR "PLUGIN ${PLUGIN} Missing plugin makefile: ${PLUGINMKFILE}")
   endif()
   file(READ ${PLUGINMKFILE} PLUGINMK)
+
   string(REGEX MATCH "SOURCES = ([^\n]*)" FOO ${PLUGINMK})
   set(MK_SOURCES ${CMAKE_MATCH_1})
   separate_arguments(MK_SOURCES)
   foreach(MK_FILE IN LISTS MK_SOURCES)
     list(APPEND SOURCES "${PLUGIN_ROOT}${MK_FILE}")
+    message(STATUS "PLUGIN ${PLUGIN} Appending ${PLUGIN_ROOT}${MK_FILE} to SOURCES")
   endforeach()
+
   string(REGEX MATCH "_FUNC = ([^\n]*)" FOO ${PLUGINMK})
   if (NOT ${CMAKE_MATCH_1} STREQUAL "")
     string(APPEND ROCKSDB_PLUGIN_BUILTINS "{\"${PLUGIN}\", " ${CMAKE_MATCH_1} "},")
     string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::ObjectLibrary&, const std::string&); ")
   endif()
+
   string(REGEX MATCH "_LIBS = ([^\n]*)" FOO ${PLUGINMK})
-  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
-    list(APPEND THIRDPARTY_LIBS "${CMAKE_MATCH_1}")
-  endif()
-  message("THIRDPARTY_LIBS=${THIRDPARTY_LIBS}")
+  separate_arguments(CMAKE_MATCH_1)
+  foreach(MK_LIB IN LISTS CMAKE_MATCH_1)
+    list(APPEND THIRDPARTY_LIBS "${MK_LIB}")
+  endforeach()
+  message(STATUS "PLUGIN ${PLUGIN} THIRDPARTY_LIBS=${THIRDPARTY_LIBS}")
+
   #TODO: We need to set any compile/link-time flags and add any link libraries
 endforeach()
 
@@ -1204,6 +1246,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
@@ -1249,6 +1292,7 @@ if(WITH_TESTS)
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
+        db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc
         db/db_flush_test.cc
@@ -1379,6 +1423,7 @@ if(WITH_TESTS)
         util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
+        util/udt_util_test.cc
         util/work_queue_test.cc
         utilities/agg_merge/agg_merge_test.cc
         utilities/backup/backup_engine_test.cc
@@ -1410,6 +1455,7 @@ if(WITH_TESTS)
         utilities/ttl/ttl_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
+	${PLUGIN_TESTS}
     )
   endif()
 
@@ -1425,7 +1471,7 @@ if(WITH_TESTS)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
+  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
   if(MSVC)
     set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
   endif()
@@ -1483,45 +1529,45 @@ if(WITH_BENCHMARK_TOOLS)
     cache/cache_bench.cc
     cache/cache_bench_tool.cc)
   target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
   target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)
 if(WITH_TRACE_TOOLS)
-  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+  add_executable(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
     tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
-  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+  target_link_libraries(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(trace_analyzer${ARTIFACT_SUFFIX}
     tools/trace_analyzer.cc)
   target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
 endif()
 
@@ -1546,3 +1592,6 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)

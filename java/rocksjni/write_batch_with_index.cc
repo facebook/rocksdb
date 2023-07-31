@@ -947,6 +947,7 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(JNIEnv* env,
  * Signature: (J)V
  */
 void Java_org_rocksdb_WBWIRocksIterator_refresh0(JNIEnv* env) {
-  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::Status::NotSupported("Refresh() is not supported");
+  ROCKSDB_NAMESPACE::Status s =
+      ROCKSDB_NAMESPACE::Status::NotSupported("Refresh() is not supported");
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }

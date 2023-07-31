@@ -18,7 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
  public:
   explicit DBSecondaryTestBase(const std::string& dbname)
@@ -499,7 +498,7 @@ class TraceFileEnv : public EnvWrapper {
  private:
   std::atomic<int> files_closed_{0};
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   Options options;
@@ -1682,7 +1681,6 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
 
   Close();
 }
-#endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -16,7 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
@@ -41,8 +40,14 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* pinnable_val,
                            std::string* timestamp) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   assert(pinnable_val != nullptr);
-  // TODO: stopwatch DB_GET needed?, perf timer needed?
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(column_family);
@@ -113,6 +118,11 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Cannot call NewIterator with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`"));
+  }
   assert(column_family);
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(
@@ -321,21 +331,5 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   return s;
 }
 
-#else   // !ROCKSDB_LITE
-
-Status DB::OpenForReadOnly(const Options& /*options*/,
-                           const std::string& /*dbname*/, DB** /*dbptr*/,
-                           bool /*error_if_wal_file_exists*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-
-Status DB::OpenForReadOnly(
-    const DBOptions& /*db_options*/, const std::string& /*dbname*/,
-    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
-    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/,
-    bool /*error_if_wal_file_exists*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

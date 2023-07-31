@@ -19,10 +19,15 @@
 #include "table/format.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
+    kReadHistograms{{
+        FILE_READ_FLUSH_MICROS,
+        FILE_READ_COMPACTION_MICROS,
+        FILE_READ_DB_OPEN_MICROS,
+    }};
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
@@ -92,15 +97,25 @@ IOStatus RandomAccessFileReader::Read(
 
   IOStatus io_s;
   uint64_t elapsed = 0;
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = false;
+  if (scratch != nullptr) {
+    // Check if offset, length and buffer are aligned.
+    is_aligned = (offset & (alignment - 1)) == 0 &&
+                 (n & (alignment - 1)) == 0 &&
+                 (uintptr_t(scratch) & (alignment - 1)) == 0;
+  }
+
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-#ifndef ROCKSDB_LITE
-      size_t alignment = file_->GetRequiredBufferAlignment();
+    if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
@@ -165,7 +180,6 @@ IOStatus RandomAccessFileReader::Read(
         }
       }
       *result = Slice(scratch, res_len);
-#endif  // !ROCKSDB_LITE
     } else {
       size_t pos = 0;
       const char* res_scratch = nullptr;
@@ -176,9 +190,9 @@ IOStatus RandomAccessFileReader::Read(
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
-          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
-                                                rate_limiter_priority, stats_,
-                                                RateLimiter::OpType::kRead);
+          allowed = rate_limiter_->RequestToken(
+              n - pos, (use_direct_io() ? alignment : 0), rate_limiter_priority,
+              stats_, RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
@@ -187,12 +201,10 @@ IOStatus RandomAccessFileReader::Read(
         }
         Slice tmp_result;
 
-#ifndef ROCKSDB_LITE
         FileOperationInfo::StartTimePoint start_ts;
         if (ShouldNotifyListeners()) {
           start_ts = FileOperationInfo::StartNow();
         }
-#endif
 
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
@@ -204,7 +216,6 @@ IOStatus RandomAccessFileReader::Read(
           io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
                              scratch + pos, nullptr);
         }
-#ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
@@ -215,7 +226,6 @@ IOStatus RandomAccessFileReader::Read(
                             tmp_result.size(), offset + pos);
           }
         }
-#endif
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
           // data in a different buffer.
@@ -248,7 +258,7 @@ size_t End(const FSReadRequest& r) {
 FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   FSReadRequest req;
   req.offset = static_cast<uint64_t>(
-    TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
+      TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
   req.len = Roundup(End(r), alignment) - req.offset;
   req.scratch = nullptr;
   return req;
@@ -294,6 +304,9 @@ IOStatus RandomAccessFileReader::MultiRead(
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
+                 (opts.io_activity != Env::IOActivity::kUnknown)
+                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
+                     : Histograms::HISTOGRAM_ENUM_MAX,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -301,7 +314,6 @@ IOStatus RandomAccessFileReader::MultiRead(
 
     FSReadRequest* fs_reqs = read_reqs;
     size_t num_fs_reqs = num_reqs;
-#ifndef ROCKSDB_LITE
     std::vector<FSReadRequest> aligned_reqs;
     if (use_direct_io()) {
       // num_reqs is the max possible size,
@@ -310,14 +322,14 @@ IOStatus RandomAccessFileReader::MultiRead(
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       for (size_t i = 0; i < num_reqs; i++) {
-        const auto& r = Align(read_reqs[i], alignment);
+        FSReadRequest r = Align(read_reqs[i], alignment);
         if (i == 0) {
           // head
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else if (!TryMerge(&aligned_reqs.back(), r)) {
           // head + n
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else {
           // unused
@@ -345,14 +357,11 @@ IOStatus RandomAccessFileReader::MultiRead(
       fs_reqs = aligned_reqs.data();
       num_fs_reqs = aligned_reqs.size();
     }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = FileOperationInfo::StartNow();
     }
-#endif  // ROCKSDB_LITE
 
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
@@ -384,7 +393,6 @@ IOStatus RandomAccessFileReader::MultiRead(
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
-#ifndef ROCKSDB_LITE
     if (use_direct_io()) {
       // Populate results in the unaligned read requests.
       size_t aligned_i = 0;
@@ -410,10 +418,8 @@ IOStatus RandomAccessFileReader::MultiRead(
         }
       }
     }
-#endif  // ROCKSDB_LITE
 
     for (size_t i = 0; i < num_reqs; ++i) {
-#ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
@@ -425,7 +431,6 @@ IOStatus RandomAccessFileReader::MultiRead(
                         read_reqs[i].offset);
       }
 
-#endif  // ROCKSDB_LITE
       RecordIOStats(stats_, file_temperature_, is_last_level_,
                     read_reqs[i].result.size());
     }
@@ -439,7 +444,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 }
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
-                                                  IOOptions& opts) {
+                                                  IOOptions& opts) const {
   if (clock_ != nullptr) {
     return PrepareIOFromReadOptions(ro, clock_, opts);
   } else {
@@ -459,11 +464,9 @@ IOStatus RandomAccessFileReader::ReadAsync(
   ReadAsyncInfo* read_async_info =
       new ReadAsyncInfo(cb, cb_arg, clock_->NowMicros());
 
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     read_async_info->fs_start_ts_ = FileOperationInfo::StartNow();
   }
-#endif
 
   size_t alignment = file_->GetRequiredBufferAlignment();
   bool is_aligned = (req.offset & (alignment - 1)) == 0 &&
@@ -471,8 +474,10 @@ IOStatus RandomAccessFileReader::ReadAsync(
                     (uintptr_t(req.scratch) & (alignment - 1)) == 0;
   read_async_info->is_aligned_ = is_aligned;
 
+  uint64_t elapsed = 0;
   if (use_direct_io() && is_aligned == false) {
     FSReadRequest aligned_req = Align(req, alignment);
+    aligned_req.status.PermitUncheckedError();
 
     // Allocate aligned buffer.
     read_async_info->buf_.Alignment(alignment);
@@ -490,12 +495,21 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
     assert(read_async_info->buf_.CurrentSize() == 0);
 
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
+    StopWatch sw(clock_, nullptr /*stats*/,
+                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
+                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+                 true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                          io_handle, del_fn, nullptr /*dbg*/);
   }
+  RecordTick(stats_, READ_ASYNC_MICROS, elapsed);
 
 // Suppress false positive clang analyzer warnings.
 // Memory is not released if file_->ReadAsync returns !s.ok(), because
@@ -574,8 +588,9 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   }
   if (req.status.ok()) {
     RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  } else if (!req.status.IsAborted()) {
+    RecordTick(stats_, ASYNC_READ_ERROR_COUNT, 1);
   }
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = FileOperationInfo::FinishNow();
     NotifyOnFileReadFinish(req.offset, req.result.size(),
@@ -586,7 +601,6 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
     NotifyOnIOError(req.status, FileOperationType::kRead, file_name(),
                     req.result.size(), req.offset);
   }
-#endif
   RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
   delete read_async_info;
 }

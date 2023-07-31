@@ -19,11 +19,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
     stringappend2_merge_type_info = {
-#ifndef ROCKSDB_LITE
         {"delimiter",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 

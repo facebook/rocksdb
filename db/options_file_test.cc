@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include <string>
 
 #include "db/db_impl/db_impl.h"
@@ -59,7 +58,7 @@ void VerifyOptionsFileName(
     }
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(OptionsFileTest, NumberOfOptionsFiles) {
   const int kReopenCount = 20;
@@ -102,18 +101,10 @@ TEST_F(OptionsFileTest, OptionsFileName) {
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
   return 0;
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 }
-#else
-
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  printf("Skipped as Options file is not supported in RocksDBLite.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

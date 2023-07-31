@@ -15,7 +15,7 @@ public class WriteBufferManager extends RocksObject {
 
   /**
    * Construct a new instance of WriteBufferManager.
-   *
+   * <p>
    * Check <a href="https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager">
    *     https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager</a>
    * for more details on when to use it
@@ -40,11 +40,11 @@ public class WriteBufferManager extends RocksObject {
     return allowStall_;
   }
 
-  private native static long newWriteBufferManager(
+  private static native long newWriteBufferManager(
       final long bufferSizeBytes, final long cacheHandle, final boolean allowStall);
 
   @Override
   protected native void disposeInternal(final long handle);
 
-  private boolean allowStall_;
+  private final boolean allowStall_;
 }

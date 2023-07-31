@@ -3,7 +3,6 @@
 //    COPYING file in the root directory) and Apache 2.0 License
 //    (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 #include "tools/io_tracer_parser_tool.h"
 
@@ -141,4 +140,3 @@ int io_tracer_parser(int argc, char** argv) {
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
-#endif  // ROCKSDB_LITE

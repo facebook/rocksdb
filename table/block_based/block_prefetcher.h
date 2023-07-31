@@ -58,11 +58,12 @@ class BlockPrefetcher {
   // lookup_context_.caller = kCompaction.
   size_t compaction_readahead_size_;
 
-  // readahead_size_ is used if underlying FS supports prefetching.
+  // readahead_size_ is used in non-compaction read if underlying FS supports
+  // prefetching.
   size_t readahead_size_;
   size_t readahead_limit_ = 0;
-  // initial_auto_readahead_size_ is used if RocksDB uses internal prefetch
-  // buffer.
+  // initial_auto_readahead_size_ is used in non-compaction read if RocksDB uses
+  // internal prefetch buffer.
   uint64_t initial_auto_readahead_size_;
   uint64_t num_file_reads_ = 0;
   uint64_t prev_offset_ = 0;

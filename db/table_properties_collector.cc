@@ -27,7 +27,7 @@ uint64_t GetUint64Property(const UserCollectedProperties& props,
   return GetVarint64(&raw, &val) ? val : 0;
 }
 
-}  // namespace
+}  // anonymous namespace
 
 Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,
@@ -43,9 +43,9 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
 }
 
 void UserKeyTablePropertiesCollector::BlockAdd(
-    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_uncomp_bytes, uint64_t block_compressed_bytes_fast,
     uint64_t block_compressed_bytes_slow) {
-  return collector_->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+  return collector_->BlockAdd(block_uncomp_bytes, block_compressed_bytes_fast,
                               block_compressed_bytes_slow);
 }
 
@@ -54,13 +54,12 @@ Status UserKeyTablePropertiesCollector::Finish(
   return collector_->Finish(properties);
 }
 
-UserCollectedProperties
-UserKeyTablePropertiesCollector::GetReadableProperties() const {
+UserCollectedProperties UserKeyTablePropertiesCollector::GetReadableProperties()
+    const {
   return collector_->GetReadableProperties();
 }
 
-uint64_t GetDeletedKeys(
-    const UserCollectedProperties& props) {
+uint64_t GetDeletedKeys(const UserCollectedProperties& props) {
   bool property_present_ignored;
   return GetUint64Property(props, TablePropertiesNames::kDeletedKeys,
                            &property_present_ignored);
@@ -68,8 +67,8 @@ uint64_t GetDeletedKeys(
 
 uint64_t GetMergeOperands(const UserCollectedProperties& props,
                           bool* property_present) {
-  return GetUint64Property(
-      props, TablePropertiesNames::kMergeOperands, property_present);
+  return GetUint64Property(props, TablePropertiesNames::kMergeOperands,
+                           property_present);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

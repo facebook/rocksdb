@@ -4,57 +4,59 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-'''Run benchmark_compare.sh on the most recent build, for CI
-'''
+"""Run benchmark_compare.sh on the most recent build, for CI
+"""
 
 import argparse
 import glob
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
-import logging
 
 logging.basicConfig(level=logging.INFO)
 
 
 class Config:
     def __init__(self, args):
-        self.version_file = './include/rocksdb/version.h'
+        self.version_file = "./include/rocksdb/version.h"
         self.data_dir = os.path.expanduser(f"{args.db_dir}")
         self.results_dir = os.path.expanduser(f"{args.output_dir}")
         self.benchmark_script = f"{os.getcwd()}/tools/benchmark_compare.sh"
         self.benchmark_cwd = f"{os.getcwd()}/tools"
 
-    benchmark_env_keys = ['LD_LIBRARY_PATH',
-                          'NUM_KEYS',
-                          'KEY_SIZE',
-                          'VALUE_SIZE',
-                          'CACHE_SIZE_MB',
-                          'DURATION_RW',
-                          'DURATION_RO',
-                          'MB_WRITE_PER_SEC',
-                          'NUM_THREADS',
-                          'COMPRESSION_TYPE',
-                          'MIN_LEVEL_TO_COMPRESS',
-                          'WRITE_BUFFER_SIZE_MB',
-                          'TARGET_FILE_SIZE_BASE_MB',
-                          'MAX_BYTES_FOR_LEVEL_BASE_MB',
-                          'MAX_BACKGROUND_JOBS',
-                          'CACHE_INDEX_AND_FILTER_BLOCKS',
-                          'USE_O_DIRECT',
-                          'STATS_INTERVAL_SECONDS',
-                          'SUBCOMPACTIONS',
-                          'COMPACTION_STYLE',
-                          'CI_TESTS_ONLY']
+    benchmark_env_keys = [
+        "LD_LIBRARY_PATH",
+        "NUM_KEYS",
+        "KEY_SIZE",
+        "VALUE_SIZE",
+        "CACHE_SIZE_MB",
+        "DURATION_RW",
+        "DURATION_RO",
+        "MB_WRITE_PER_SEC",
+        "NUM_THREADS",
+        "COMPRESSION_TYPE",
+        "MIN_LEVEL_TO_COMPRESS",
+        "WRITE_BUFFER_SIZE_MB",
+        "TARGET_FILE_SIZE_BASE_MB",
+        "MAX_BYTES_FOR_LEVEL_BASE_MB",
+        "MAX_BACKGROUND_JOBS",
+        "CACHE_INDEX_AND_FILTER_BLOCKS",
+        "USE_O_DIRECT",
+        "STATS_INTERVAL_SECONDS",
+        "SUBCOMPACTIONS",
+        "COMPACTION_STYLE",
+        "CI_TESTS_ONLY",
+    ]
 
 
 def read_version(config):
-    majorRegex = re.compile(r'#define ROCKSDB_MAJOR\s([0-9]+)')
-    minorRegex = re.compile(r'#define ROCKSDB_MINOR\s([0-9]+)')
-    patchRegex = re.compile(r'#define ROCKSDB_PATCH\s([0-9]+)')
-    with open(config.version_file, 'r') as reader:
+    majorRegex = re.compile(r"#define ROCKSDB_MAJOR\s([0-9]+)")
+    minorRegex = re.compile(r"#define ROCKSDB_MINOR\s([0-9]+)")
+    patchRegex = re.compile(r"#define ROCKSDB_PATCH\s([0-9]+)")
+    with open(config.version_file, "r") as reader:
         major = None
         minor = None
         patch = None
@@ -77,8 +79,7 @@ def read_version(config):
 
 
 def prepare(version_str, config):
-    old_files = glob.glob(f"{config.results_dir}/{version_str}/**",
-                          recursive=True)
+    old_files = glob.glob(f"{config.results_dir}/{version_str}/**", recursive=True)
     for f in old_files:
         if os.path.isfile(f):
             logging.debug(f"remove file {f}")
@@ -96,8 +97,10 @@ def prepare(version_str, config):
 
 def results(version_str, config):
     # Copy the report TSV file back to the top level of results
-    shutil.copyfile(f"{config.results_dir}/{version_str}/report.tsv",
-                    f"{config.results_dir}/report.tsv")
+    shutil.copyfile(
+        f"{config.results_dir}/{version_str}/report.tsv",
+        f"{config.results_dir}/report.tsv",
+    )
 
 
 def cleanup(version_str, config):
@@ -116,32 +119,41 @@ def get_benchmark_env():
 
 
 def main():
-    '''Tool for running benchmark_compare.sh on the most recent build, for CI
+    """Tool for running benchmark_compare.sh on the most recent build, for CI
     This tool will
 
     (1) Work out the current version of RocksDB
     (2) Run benchmark_compare with that version alone
-    '''
+    """
 
     parser = argparse.ArgumentParser(
-        description='benchmark_compare.sh Python wrapper for CI.')
+        description="benchmark_compare.sh Python wrapper for CI."
+    )
 
     # --tsvfile is the name of the file to read results from
     # --esdocument is the ElasticSearch document to push these results into
     #
-    parser.add_argument('--db_dir', default='~/tmp/rocksdb-benchmark-datadir',
-                        help='Database directory hierarchy to use')
-    parser.add_argument('--output_dir', default='~/tmp/benchmark-results',
-                        help='Benchmark output goes here')
-    parser.add_argument('--num_keys', default='10000',
-                        help='Number of database keys to use in benchmark test(s) (determines size of test job)')
+    parser.add_argument(
+        "--db_dir",
+        default="~/tmp/rocksdb-benchmark-datadir",
+        help="Database directory hierarchy to use",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="~/tmp/benchmark-results",
+        help="Benchmark output goes here",
+    )
+    parser.add_argument(
+        "--num_keys",
+        default="10000",
+        help="Number of database keys to use in benchmark test(s) (determines size of test job)",
+    )
     args = parser.parse_args()
     config = Config(args)
 
     version = read_version(config)
     if version is None:
-        raise Exception(
-            f"Could not read RocksDB version from {config.version_file}")
+        raise Exception(f"Could not read RocksDB version from {config.version_file}")
     version_str = f"{version[0]}.{version[1]}.{version[2]}"
     logging.info(f"Run benchmark_ci with RocksDB version {version_str}")
 
@@ -149,9 +161,13 @@ def main():
 
     try:
         env = get_benchmark_env()
-        env.append(('NUM_KEYS', args.num_keys))
-        cmd = [config.benchmark_script,
-               config.data_dir, config.results_dir, version_str]
+        env.append(("NUM_KEYS", args.num_keys))
+        cmd = [
+            config.benchmark_script,
+            config.data_dir,
+            config.results_dir,
+            version_str,
+        ]
         logging.info(f"Run {cmd} env={env} cwd={config.benchmark_cwd}")
         subprocess.run(cmd, env=dict(env), cwd=config.benchmark_cwd)
 
@@ -162,5 +178,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

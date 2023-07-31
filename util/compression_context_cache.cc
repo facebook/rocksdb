@@ -9,10 +9,10 @@
 
 #include "util/compression_context_cache.h"
 
+#include <atomic>
+
 #include "util/compression.h"
 #include "util/core_local.h"
-
-#include <atomic>
 
 namespace ROCKSDB_NAMESPACE {
 namespace compression_cache {

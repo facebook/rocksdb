@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_base.h"
 
@@ -209,8 +208,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr ||
-      save_points_->empty()) {
+  if (save_points_ == nullptr || save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();
@@ -237,6 +235,11 @@ Status TransactionBaseImpl::PopSavePoint() {
 Status TransactionBaseImpl::Get(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   assert(value != nullptr);
   PinnableSlice pinnable_val(value);
   assert(!pinnable_val.IsPinned());
@@ -264,6 +267,11 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
@@ -290,6 +298,11 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
         "If do_validate is false then GetForUpdate with snapshot is not "
         "defined.");
   }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
@@ -304,6 +317,13 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   size_t num_keys = keys.size();
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    Status s = Status::InvalidArgument(
+        "Cannot call MultiGet with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+    return std::vector<Status>(num_keys, s);
+  }
+
   values->resize(num_keys);
 
   std::vector<Status> stat_list(num_keys);
@@ -319,6 +339,7 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
                                    const bool sorted_input) {
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
@@ -330,6 +351,12 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   // Regardless of whether the MultiGet succeeded, track these keys.
   size_t num_keys = keys.size();
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    Status s = Status::InvalidArgument(
+        "Cannot call MultiGetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+    return std::vector<Status>(num_keys, s);
+  }
   values->resize(num_keys);
 
   // Lock all keys
@@ -728,5 +755,3 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
   return &commit_time_batch_;
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

@@ -128,7 +128,7 @@ class CappedPrefixTransform : public SliceTransform {
 
 class NoopTransform : public SliceTransform {
  public:
-  explicit NoopTransform() { }
+  explicit NoopTransform() {}
 
   static const char* kClassName() { return "rocksdb.Noop"; }
   const char* Name() const override { return kClassName(); }
@@ -156,7 +156,6 @@ const SliceTransform* NewCappedPrefixTransform(size_t cap_len) {
 
 const SliceTransform* NewNoopTransform() { return new NoopTransform; }
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   // For the builtin transforms, the format is typically
@@ -212,17 +211,14 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status SliceTransform::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<const SliceTransform>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinSliceTransform(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
   Status status = Customizable::GetOptionsMap(config_options, result->get(),
@@ -232,39 +228,7 @@ Status SliceTransform::CreateFromString(
   } else if (id.empty() && opt_map.empty()) {
     result->reset();
   } else {
-#ifndef ROCKSDB_LITE
     status = config_options.registry->NewSharedObject(id, result);
-#else
-    auto Matches = [](const std::string& input, size_t size,
-                      const char* pattern, char sep) {
-      auto plen = strlen(pattern);
-      return (size > plen + 2 && input[plen] == sep &&
-              StartsWith(input, pattern));
-    };
-
-    auto size = id.size();
-    if (id == NoopTransform::kClassName()) {
-      result->reset(NewNoopTransform());
-    } else if (Matches(id, size, FixedPrefixTransform::kNickName(), ':')) {
-      auto fixed = strlen(FixedPrefixTransform::kNickName());
-      auto len = ParseSizeT(id.substr(fixed + 1));
-      result->reset(NewFixedPrefixTransform(len));
-    } else if (Matches(id, size, CappedPrefixTransform::kNickName(), ':')) {
-      auto capped = strlen(CappedPrefixTransform::kNickName());
-      auto len = ParseSizeT(id.substr(capped + 1));
-      result->reset(NewCappedPrefixTransform(len));
-    } else if (Matches(id, size, CappedPrefixTransform::kClassName(), '.')) {
-      auto capped = strlen(CappedPrefixTransform::kClassName());
-      auto len = ParseSizeT(id.substr(capped + 1));
-      result->reset(NewCappedPrefixTransform(len));
-    } else if (Matches(id, size, FixedPrefixTransform::kClassName(), '.')) {
-      auto fixed = strlen(FixedPrefixTransform::kClassName());
-      auto len = ParseSizeT(id.substr(fixed + 1));
-      result->reset(NewFixedPrefixTransform(len));
-    } else {
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-    }
-#endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       return Status::OK();
     } else if (status.ok()) {
@@ -277,13 +241,11 @@ Status SliceTransform::CreateFromString(
 }
 
 std::string SliceTransform::AsString() const {
-#ifndef ROCKSDB_LITE
   if (HasRegisteredOptions()) {
     ConfigOptions opts;
     opts.delimiter = ";";
     return ToString(opts);
   }
-#endif  // ROCKSDB_LITE
   return GetId();
 }
 

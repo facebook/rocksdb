@@ -5,7 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 #include <limits>
@@ -138,4 +137,3 @@ class VolatileCacheTier : public PersistentCacheTier {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

@@ -26,7 +26,7 @@
 #include "memory/arena.h"
 #include "memory/memory_usage.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
@@ -76,7 +76,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
-      kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
+      kArenaBlockSize(Arena::OptimizeBlockSize(moptions_.arena_block_size)),
       mem_tracker_(write_buffer_manager),
       arena_(moptions_.arena_block_size,
              (write_buffer_manager != nullptr &&
@@ -127,6 +127,26 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                          6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.logger));
   }
+  // Initialize cached_range_tombstone_ here since it could
+  // be read before it is constructed in MemTable::Add(), which could also lead
+  // to a data race on the global mutex table backing atomic shared_ptr.
+  auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+  size_t size = cached_range_tombstone_.Size();
+  for (size_t i = 0; i < size; ++i) {
+    std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+    auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+    std::atomic_store_explicit(
+        local_cache_ref_ptr,
+        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+                                                           new_cache.get()),
+        std::memory_order_relaxed);
+  }
+  const Comparator* ucmp = cmp.user_comparator();
+  assert(ucmp);
+  ts_sz_ = ucmp->timestamp_size();
+  persist_user_defined_timestamps_ = ioptions.persist_user_defined_timestamps;
 }
 
 MemTable::~MemTable() {
@@ -240,7 +260,7 @@ void MemTable::UpdateOldestKeyTime() {
 }
 
 Status MemTable::VerifyEntryChecksum(const char* entry,
-                                     size_t protection_bytes_per_key,
+                                     uint32_t protection_bytes_per_key,
                                      bool allow_data_in_errors) {
   if (protection_bytes_per_key == 0) {
     return Status::OK();
@@ -269,28 +289,11 @@ Status MemTable::VerifyEntryChecksum(const char* entry,
   Slice value = Slice(value_ptr, value_length);
 
   const char* checksum_ptr = value_ptr + value_length;
-  uint64_t expected = ProtectionInfo64()
-                          .ProtectKVO(user_key, value, type)
-                          .ProtectS(seq)
-                          .GetVal();
-  bool match = true;
-  switch (protection_bytes_per_key) {
-    case 1:
-      match = static_cast<uint8_t>(checksum_ptr[0]) ==
-              static_cast<uint8_t>(expected);
-      break;
-    case 2:
-      match = DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
-      break;
-    case 4:
-      match = DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
-      break;
-    case 8:
-      match = DecodeFixed64(checksum_ptr) == expected;
-      break;
-    default:
-      assert(false);
-  }
+  bool match =
+      ProtectionInfo64()
+          .ProtectKVO(user_key, value, type)
+          .ProtectS(seq)
+          .Verify(static_cast<uint8_t>(protection_bytes_per_key), checksum_ptr);
   if (!match) {
     std::string msg(
         "Corrupted memtable entry, per key-value checksum verification "
@@ -314,20 +317,15 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   return comparator.CompareKeySeq(k1, k2);
 }
 
-int MemTable::KeyComparator::operator()(const char* prefix_len_key,
-                                        const KeyComparator::DecodedType& key)
-    const {
+int MemTable::KeyComparator::operator()(
+    const char* prefix_len_key, const KeyComparator::DecodedType& key) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
   return comparator.CompareKeySeq(a, key);
 }
 
 void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
-#ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
-#else
-  abort();
-#endif
 }
 
 Slice MemTableRep::UserKey(const char* key) const {
@@ -363,7 +361,8 @@ class MemTableIterator : public InternalIterator {
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
         protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
         status_(Status::OK()),
-        logger_(mem.moptions_.info_log) {
+        logger_(mem.moptions_.info_log),
+        ts_sz_(mem.ts_sz_) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
@@ -406,8 +405,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
-      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
         if (!bloom_->MayContain(
                 prefix_extractor_->Transform(user_k_without_ts))) {
@@ -427,8 +425,7 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
-      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
         if (!bloom_->MayContain(
                 prefix_extractor_->Transform(user_k_without_ts))) {
@@ -515,9 +512,10 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
-  size_t protection_bytes_per_key_;
+  uint32_t protection_bytes_per_key_;
   Status status_;
   Logger* logger_;
+  size_t ts_sz_;
 
   void VerifyEntryChecksum() {
     if (protection_bytes_per_key_ > 0 && Valid()) {
@@ -557,18 +555,30 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     assert(IsFragmentedRangeTombstonesConstructed());
     return new FragmentedRangeTombstoneIterator(
         fragmented_range_tombstone_list_.get(), comparator_.comparator,
-        read_seq);
+        read_seq, read_options.timestamp);
   }
 
-  auto* unfragmented_iter = new MemTableIterator(
-      *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
-  auto fragmented_tombstone_list =
-      std::make_shared<FragmentedRangeTombstoneList>(
+  // takes current cache
+  std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
+      std::atomic_load_explicit(cached_range_tombstone_.Access(),
+                                std::memory_order_relaxed);
+  // construct fragmented tombstone list if necessary
+  if (!cache->initialized.load(std::memory_order_acquire)) {
+    cache->reader_mutex.lock();
+    if (!cache->tombstones) {
+      auto* unfragmented_iter =
+          new MemTableIterator(*this, read_options, nullptr /* arena */,
+                               true /* use_range_del_table */);
+      cache->tombstones.reset(new FragmentedRangeTombstoneList(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
-          comparator_.comparator);
+          comparator_.comparator));
+      cache->initialized.store(true, std::memory_order_release);
+    }
+    cache->reader_mutex.unlock();
+  }
 
   auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      fragmented_tombstone_list, comparator_.comparator, read_seq);
+      cache, comparator_.comparator, read_seq, read_options.timestamp);
   return fragmented_iter;
 }
 
@@ -576,6 +586,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   assert(!IsFragmentedRangeTombstonesConstructed(false));
   // There should be no concurrent Construction
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    // TODO: plumb Env::IOActivity
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
@@ -618,8 +629,7 @@ Status MemTable::VerifyEncodedEntry(Slice encoded,
   if (!GetVarint32(&encoded, &ikey_len)) {
     return Status::Corruption("Unable to parse internal key length");
   }
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  if (ikey_len < 8 + ts_sz) {
+  if (ikey_len < 8 + ts_sz_) {
     return Status::Corruption("Internal key length too short");
   }
   if (ikey_len > encoded.size()) {
@@ -660,28 +670,15 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
     return;
   }
 
-  uint64_t checksum = 0;
   if (kv_prot_info == nullptr) {
-    checksum =
-        ProtectionInfo64().ProtectKVO(key, value, type).ProtectS(s).GetVal();
+    ProtectionInfo64()
+        .ProtectKVO(key, value, type)
+        .ProtectS(s)
+        .Encode(static_cast<uint8_t>(moptions_.protection_bytes_per_key),
+                checksum_ptr);
   } else {
-    checksum = kv_prot_info->GetVal();
-  }
-  switch (moptions_.protection_bytes_per_key) {
-    case 1:
-      checksum_ptr[0] = static_cast<uint8_t>(checksum);
-      break;
-    case 2:
-      EncodeFixed16(checksum_ptr, static_cast<uint16_t>(checksum));
-      break;
-    case 4:
-      EncodeFixed32(checksum_ptr, static_cast<uint32_t>(checksum));
-      break;
-    case 8:
-      EncodeFixed64(checksum_ptr, checksum);
-      break;
-    default:
-      assert(false);
+    kv_prot_info->Encode(
+        static_cast<uint8_t>(moptions_.protection_bytes_per_key), checksum_ptr);
   }
 }
 
@@ -731,8 +728,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
 
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
+  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz_);
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -756,7 +752,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
                        std::memory_order_relaxed);
     data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
                      std::memory_order_relaxed);
-    if (type == kTypeDeletion) {
+    if (type == kTypeDeletion || type == kTypeSingleDeletion ||
+        type == kTypeDeletionWithTimestamp) {
       num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
                          std::memory_order_relaxed);
     }
@@ -781,6 +778,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
     assert(post_process_info == nullptr);
+    // TODO(yuzhangyu): support updating newest UDT for when `allow_concurrent`
+    // is true.
+    MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
     bool res = (hint == nullptr)
@@ -815,10 +815,34 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
         earliest_seqno_.load(std::memory_order_relaxed);
     while (
         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
-        !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+        !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
   }
   if (type == kTypeRangeDeletion) {
+    auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+    size_t size = cached_range_tombstone_.Size();
+    if (allow_concurrent) {
+      range_del_mutex_.lock();
+    }
+    for (size_t i = 0; i < size; ++i) {
+      std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+          cached_range_tombstone_.AccessAtCore(i);
+      auto new_local_cache_ref = std::make_shared<
+          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      // It is okay for some reader to load old cache during invalidation as
+      // the new sequence number is not published yet.
+      // Each core will have a shared_ptr to a shared_ptr to the cached
+      // fragmented range tombstones, so that ref count is maintianed locally
+      // per-core using the per-core shared_ptr.
+      std::atomic_store_explicit(
+          local_cache_ref_ptr,
+          std::shared_ptr<FragmentedRangeTombstoneListCache>(
+              new_local_cache_ref, new_cache.get()),
+          std::memory_order_relaxed);
+    }
+    if (allow_concurrent) {
+      range_del_mutex_.unlock();
+    }
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
@@ -853,7 +877,7 @@ struct Saver {
   ReadCallback* callback_;
   bool* is_blob_index;
   bool allow_data_in_errors;
-  size_t protection_bytes_per_key;
+  uint32_t protection_bytes_per_key;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);
@@ -861,7 +885,7 @@ struct Saver {
     return true;
   }
 };
-}  // namespace
+}  // anonymous namespace
 
 static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
@@ -894,6 +918,10 @@ static bool SaveValue(void* arg, const char* entry) {
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
   size_t ts_sz = user_comparator->timestamp_size();
+  if (ts_sz && s->timestamp && max_covering_tombstone_seq > 0) {
+    // timestamp should already be set to range tombstone timestamp
+    assert(s->timestamp->size() == ts_sz);
+  }
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
@@ -906,91 +934,224 @@ static bool SaveValue(void* arg, const char* entry) {
       return true;  // to continue to the next seq
     }
 
-    s->seq = seq;
+    if (s->seq == kMaxSequenceNumber) {
+      s->seq = seq;
+      if (s->seq > max_covering_tombstone_seq) {
+        if (ts_sz && s->timestamp != nullptr) {
+          // `timestamp` was set to range tombstone's timestamp before
+          // `SaveValue` is ever called. This key has a higher sequence number
+          // than range tombstone, and is the key with the highest seqno across
+          // all keys with this user_key, so we update timestamp here.
+          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+          s->timestamp->assign(ts.data(), ts_sz);
+        }
+      } else {
+        s->seq = max_covering_tombstone_seq;
+      }
+    }
+
+    if (ts_sz > 0 && s->timestamp != nullptr) {
+      if (!s->timestamp->empty()) {
+        assert(ts_sz == s->timestamp->size());
+      }
+      // TODO optimize for smaller size ts
+      const std::string kMaxTs(ts_sz, '\xff');
+      if (s->timestamp->empty() ||
+          user_comparator->CompareTimestamp(*(s->timestamp), kMaxTs) == 0) {
+        Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+        s->timestamp->assign(ts.data(), ts_sz);
+      }
+    }
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
-         type == kTypeWideColumnEntity) &&
+         type == kTypeWideColumnEntity || type == kTypeDeletion ||
+         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
-      case kTypeBlobIndex:
-      case kTypeWideColumnEntity:
-        if (*(s->merge_in_progress)) {
-          *(s->status) = Status::NotSupported("Merge operator not supported");
-        } else if (!s->do_merge) {
-          *(s->status) = Status::NotSupported("GetMergeOperands not supported");
-        } else if (type == kTypeBlobIndex) {
-          if (s->is_blob_index == nullptr) {
-            ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
-            *(s->status) = Status::NotSupported(
-                "Encounter unsupported blob value. Please open DB with "
-                "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-          }
-        }
-
-        if (!s->status->ok()) {
+      case kTypeBlobIndex: {
+        if (!s->do_merge) {
+          *(s->status) = Status::NotSupported(
+              "GetMergeOperands not supported by stacked BlobDB");
           *(s->found_final_value) = true;
           return false;
         }
-        FALLTHROUGH_INTENDED;
-      case kTypeValue: {
+
+        if (*(s->merge_in_progress)) {
+          *(s->status) = Status::NotSupported(
+              "Merge operator not supported by stacked BlobDB");
+          *(s->found_final_value) = true;
+          return false;
+        }
+
+        if (s->is_blob_index == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encountered unexpected blob index.");
+          *(s->status) = Status::NotSupported(
+              "Encountered unexpected blob index. Please open DB with "
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB.");
+          *(s->found_final_value) = true;
+          return false;
+        }
+
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
+
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
         *(s->status) = Status::OK();
-        if (*(s->merge_in_progress)) {
-          if (s->do_merge) {
-            if (s->value != nullptr) {
-              *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &v,
-                  merge_context->GetOperands(), s->value, s->logger,
-                  s->statistics, s->clock, nullptr /* result_operand */, true);
-            }
-          } else {
-            // Preserve the value with the goal of returning it as part of
-            // raw merge operands to the user
-            merge_context->PushOperand(
-                v, s->inplace_update_support == false /* operand_pinned */);
-          }
-        } else if (!s->do_merge) {
-          // Preserve the value with the goal of returning it as part of
-          // raw merge operands to the user
-          merge_context->PushOperand(
-              v, s->inplace_update_support == false /* operand_pinned */);
-        } else if (s->value) {
-          if (type != kTypeWideColumnEntity) {
-            assert(type == kTypeValue || type == kTypeBlobIndex);
-            s->value->assign(v.data(), v.size());
-          } else {
-            Slice value;
-            *(s->status) =
-                WideColumnSerialization::GetValueOfDefaultColumn(v, value);
-            if (s->status->ok()) {
-              s->value->assign(value.data(), value.size());
-            }
-          }
+
+        if (s->value) {
+          s->value->assign(v.data(), v.size());
         } else if (s->columns) {
-          if (type != kTypeWideColumnEntity) {
-            s->columns->SetPlainValue(v);
-          } else {
-            *(s->status) = s->columns->SetWideColumnValue(v);
-          }
+          s->columns->SetPlainValue(v);
         }
 
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
+
         *(s->found_final_value) = true;
-        if (s->is_blob_index != nullptr) {
-          *(s->is_blob_index) = (type == kTypeBlobIndex);
+        *(s->is_blob_index) = true;
+
+        return false;
+      }
+      case kTypeValue: {
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadLock();
         }
 
-        if (ts_sz > 0 && s->timestamp != nullptr) {
-          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-          s->timestamp->assign(ts.data(), ts.size());
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        *(s->status) = Status::OK();
+
+        if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+          // TODO(yanqin) update MergeContext so that timestamps information
+          // can also be retained.
+
+          merge_context->PushOperand(
+              v, s->inplace_update_support == false /* operand_pinned */);
+        } else if (*(s->merge_in_progress)) {
+          assert(s->do_merge);
+
+          if (s->value || s->columns) {
+            std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(std::move(result));
+              }
+            }
+          }
+        } else if (s->value) {
+          s->value->assign(v.data(), v.size());
+        } else if (s->columns) {
+          s->columns->SetPlainValue(v);
         }
+
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
+        }
+
+        *(s->found_final_value) = true;
+
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = false;
+        }
+
+        return false;
+      }
+      case kTypeWideColumnEntity: {
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadLock();
+        }
+
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        *(s->status) = Status::OK();
+
+        if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+
+          Slice value_of_default;
+          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+              v, value_of_default);
+
+          if (s->status->ok()) {
+            merge_context->PushOperand(
+                value_of_default,
+                s->inplace_update_support == false /* operand_pinned */);
+          }
+        } else if (*(s->merge_in_progress)) {
+          assert(s->do_merge);
+
+          if (s->value) {
+            Slice value_of_default;
+            *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+                v, value_of_default);
+            if (s->status->ok()) {
+              // `op_failure_scope` (an output parameter) is not provided (set
+              // to nullptr) since a failure must be propagated regardless of
+              // its value.
+              *(s->status) = MergeHelper::TimedFullMerge(
+                  merge_operator, s->key->user_key(), &value_of_default,
+                  merge_context->GetOperands(), s->value, s->logger,
+                  s->statistics, s->clock, /* result_operand */ nullptr,
+                  /* update_num_ops_stats */ true,
+                  /* op_failure_scope */ nullptr);
+            }
+          } else if (s->columns) {
+            std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
+            *(s->status) = MergeHelper::TimedFullMergeWithEntity(
+                merge_operator, s->key->user_key(), v,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
+
+            if (s->status->ok()) {
+              *(s->status) = s->columns->SetWideColumnValue(std::move(result));
+            }
+          }
+        } else if (s->value) {
+          Slice value_of_default;
+          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+              v, value_of_default);
+          if (s->status->ok()) {
+            s->value->assign(value_of_default.data(), value_of_default.size());
+          }
+        } else if (s->columns) {
+          *(s->status) = s->columns->SetWideColumnValue(v);
+        }
+
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
+        }
+
+        *(s->found_final_value) = true;
+
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = false;
+        }
+
         return false;
       }
       case kTypeDeletion:
@@ -998,18 +1159,34 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          if (s->value != nullptr) {
+          if (s->value || s->columns) {
+            std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(std::move(result));
+              }
+            }
+          } else {
+            // We have found a final value (a base deletion) and have newer
+            // merge operands that we do not intend to merge. Nothing remains
+            // to be done so assign status to OK.
+            *(s->status) = Status::OK();
           }
         } else {
           *(s->status) = Status::NotFound();
-          if (ts_sz > 0 && s->timestamp != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-            s->timestamp->assign(ts.data(), ts.size());
-          }
         }
         *(s->found_final_value) = true;
         return false;
@@ -1029,12 +1206,32 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
+        PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
+
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->clock, nullptr /* result_operand */, true);
+          if (s->value || s->columns) {
+            std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(std::move(result));
+              }
+            }
+          }
+
           *(s->found_final_value) = true;
           return false;
         }
@@ -1078,16 +1275,23 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                                 GetInternalKeySeqno(key.internal_key()),
                                 immutable_memtable));
   if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    SequenceNumber covering_seq =
+        range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key());
+    if (covering_seq > *max_covering_tombstone_seq) {
+      *max_covering_tombstone_seq = covering_seq;
+      if (timestamp) {
+        // Will be overwritten in SaveValue() if there is a point key with
+        // a higher seqno.
+        timestamp->assign(range_del_iter->timestamp().data(),
+                          range_del_iter->timestamp().size());
+      }
+    }
   }
 
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
+  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz_);
   bool bloom_checked = false;
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
@@ -1211,24 +1415,38 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           NewRangeTombstoneIteratorInternal(
               read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
               immutable_memtable));
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      SequenceNumber covering_seq =
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
+      if (covering_seq > iter->max_covering_tombstone_seq) {
+        iter->max_covering_tombstone_seq = covering_seq;
+        if (iter->timestamp) {
+          // Will be overwritten in SaveValue() if there is a point key with
+          // a higher seqno.
+          iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                  range_del_iter->timestamp().size());
+        }
+      }
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 /*columns=*/nullptr, iter->timestamp, iter->s,
-                 &(iter->merge_context), &dummy_seq, &found_final_value,
-                 &merge_in_progress);
+                 callback, &iter->is_blob_index,
+                 iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
+                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
+                 &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
       *(iter->s) = Status::MergeInProgress();
     }
 
     if (found_final_value) {
-      iter->value->PinSelf();
-      range->AddValueSize(iter->value->size());
+      if (iter->value) {
+        iter->value->PinSelf();
+        range->AddValueSize(iter->value->size());
+      } else {
+        assert(iter->columns);
+        range->AddValueSize(iter->columns->serialized_size());
+      }
+
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {
@@ -1456,6 +1674,24 @@ void MemTable::RefLogContainingPrepSection(uint64_t log) {
 
 uint64_t MemTable::GetMinLogContainingPrepSection() {
   return min_prep_log_referenced_.load();
+}
+
+void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
+  if (ts_sz_ == 0 || persist_user_defined_timestamps_) {
+    return;
+  }
+  const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
+  Slice udt = ExtractTimestampFromUserKey(user_key, ts_sz_);
+  if (newest_udt_.empty() || ucmp->CompareTimestamp(udt, newest_udt_) > 0) {
+    newest_udt_ = udt;
+  }
+}
+
+const Slice& MemTable::GetNewestUDT() const {
+  // This path should not be invoked for MemTables that does not enable the UDT
+  // in Memtable only feature.
+  assert(ts_sz_ > 0 && !persist_user_defined_timestamps_);
+  return newest_udt_;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

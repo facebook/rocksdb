@@ -14,7 +14,7 @@
 #include <string>
 
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -33,10 +33,14 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
     if (read_options_.verify_checksums) {
-      io_status_ = status_to_io_status(VerifyBlockChecksum(
-          footer_.checksum_type(), slice_.data(), block_size_,
-          file_->file_name(), handle_.offset()));
+      io_status_ = status_to_io_status(
+          VerifyBlockChecksum(footer_, slice_.data(), block_size_,
+                              file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+      if (!io_status_.ok()) {
+        assert(io_status_.IsCorruption());
+        RecordTick(ioptions_.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+      }
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -49,7 +53,7 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
 inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
-    Status status = PersistentCacheHelper::LookupUncompressedPage(
+    Status status = PersistentCacheHelper::LookupUncompressed(
         cache_options_, handle_, contents_);
     if (status.ok()) {
       // uncompressed page is found for the block handle
@@ -99,15 +103,14 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   return got_from_prefetch_buffer_;
 }
 
-inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
+inline bool BlockFetcher::TryGetSerializedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
-    // lookup uncompressed cache mode p-cache
-    std::unique_ptr<char[]> raw_data;
-    io_status_ = status_to_io_status(PersistentCacheHelper::LookupRawPage(
-        cache_options_, handle_, &raw_data, block_size_with_trailer_));
+    std::unique_ptr<char[]> buf;
+    io_status_ = status_to_io_status(PersistentCacheHelper::LookupSerialized(
+        cache_options_, handle_, &buf, block_size_with_trailer_));
     if (io_status_.ok()) {
-      heap_buf_ = CacheAllocationPtr(raw_data.release());
+      heap_buf_ = CacheAllocationPtr(buf.release());
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       ProcessTrailerIfPresent();
@@ -148,12 +151,11 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
     // file reader that does not implement mmap reads properly.
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
-    compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                    memory_allocator_compressed_);
+    compressed_buf_ =
+        AllocateBlock(block_size_with_trailer_, memory_allocator_compressed_);
     used_buf_ = compressed_buf_.get();
   } else {
-    heap_buf_ =
-        AllocateBlock(block_size_with_trailer_, memory_allocator_);
+    heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -162,9 +164,8 @@ inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   if (io_status_.ok() && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
-    // insert to raw cache
-    PersistentCacheHelper::InsertRawPage(cache_options_, handle_, used_buf_,
-                                         block_size_with_trailer_);
+    PersistentCacheHelper::InsertSerialized(cache_options_, handle_, used_buf_,
+                                            block_size_with_trailer_);
   }
 }
 
@@ -173,8 +174,8 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
       read_options_.fill_cache && cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
     // insert to uncompressed cache
-    PersistentCacheHelper::InsertUncompressedPage(cache_options_, handle_,
-                                                  *contents_);
+    PersistentCacheHelper::InsertUncompressed(cache_options_, handle_,
+                                              *contents_);
   }
 }
 
@@ -189,8 +190,8 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
   assert(used_buf_ != compressed_buf_.get());
-  compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                  memory_allocator_compressed_);
+  compressed_buf_ =
+      AllocateBlock(block_size_with_trailer_, memory_allocator_compressed_);
   memcpy(compressed_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_compressed_buf_memcpy_++;
@@ -234,7 +235,7 @@ inline void BlockFetcher::GetBlockContents() {
     *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
 #ifndef NDEBUG
-  contents_->is_raw_block = true;
+  contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif
 }
 
@@ -242,7 +243,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
-    contents_->is_raw_block = true;
+    contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif  // NDEBUG
     return IOStatus::OK();
   }
@@ -250,13 +251,14 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (!io_status_.ok()) {
       return io_status_;
     }
-  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+  } else if (!TryGetSerializedBlockFromPersistentCache()) {
     IOOptions opts;
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
     // Actual file read
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(
             opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
             &direct_io_buf_, read_options_.rate_limiter_priority);
@@ -265,6 +267,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(opts, handle_.offset(),
                                  block_size_with_trailer_, &slice_, used_buf_,
                                  nullptr, read_options_.rate_limiter_priority);
@@ -327,7 +330,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
-    io_status_ = status_to_io_status(UncompressBlockContents(
+    io_status_ = status_to_io_status(UncompressSerializedBlock(
         info, slice_.data(), block_size_, contents_, footer_.format_version(),
         ioptions_, memory_allocator_));
 #ifndef NDEBUG
@@ -347,10 +350,10 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
-    contents_->is_raw_block = true;
+    contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif  // NDEBUG
     return IOStatus::OK();
-  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+  } else if (!TryGetSerializedBlockFromPersistentCache()) {
     assert(prefetch_buffer_ != nullptr);
     if (!for_compaction_) {
       IOOptions opts;
@@ -378,7 +381,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           UncompressionContext context(compression_type_);
           UncompressionInfo info(context, uncompression_dict_,
                                  compression_type_);
-          io_status_ = status_to_io_status(UncompressBlockContents(
+          io_status_ = status_to_io_status(UncompressSerializedBlock(
               info, slice_.data(), block_size_, contents_,
               footer_.format_version(), ioptions_, memory_allocator_));
 #ifndef NDEBUG

@@ -12,13 +12,12 @@ import java.util.Map;
  * records or modify their processing on recovery.
  */
 public interface WalFilter {
-
   /**
    * Provide ColumnFamily-&gt;LogNumber map to filter
    * so that filter can determine whether a log number applies to a given
    * column family (i.e. that log hasn't been flushed to SST already for the
    * column family).
-   *
+   * <p>
    * We also pass in name&gt;id map as only name is known during
    * recovery (as handles are opened post-recovery).
    * while write batch callbacks happen in terms of column family id.

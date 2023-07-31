@@ -18,9 +18,9 @@ public class PersistentCache extends RocksObject {
         logger.nativeHandle_, optimizedForNvm));
   }
 
-  private native static long newPersistentCache(final long envHandle,
-    final String path, final long size, final long loggerHandle,
-    final boolean optimizedForNvm) throws RocksDBException;
+  private static native long newPersistentCache(final long envHandle, final String path,
+      final long size, final long loggerHandle, final boolean optimizedForNvm)
+      throws RocksDBException;
 
   @Override protected final native void disposeInternal(final long handle);
 }

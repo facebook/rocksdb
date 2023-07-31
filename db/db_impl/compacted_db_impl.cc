@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/db_impl/compacted_db_impl.h"
 
 #include "db/db_impl/db_impl.h"
@@ -26,16 +25,16 @@ CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
       version_(nullptr),
       user_comparator_(nullptr) {}
 
-CompactedDBImpl::~CompactedDBImpl() {
-}
+CompactedDBImpl::~CompactedDBImpl() {}
 
 size_t CompactedDBImpl::FindFile(const Slice& key) {
   size_t right = files_.num_files - 1;
   auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
     return user_comparator_->Compare(ExtractUserKey(f.largest_key), k) < 0;
   };
-  return static_cast<size_t>(std::lower_bound(files_.files,
-                            files_.files + right, key, cmp) - files_.files);
+  return static_cast<size_t>(
+      std::lower_bound(files_.files, files_.files + right, key, cmp) -
+      files_.files);
 }
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
@@ -47,6 +46,11 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value,
                             std::string* timestamp) {
+  if (options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   assert(user_comparator_);
   if (options.timestamp) {
     const Status s = FailIfTsMismatchCf(
@@ -228,8 +232,8 @@ Status CompactedDBImpl::Init(const Options& options) {
   return Status::NotSupported("no file exists");
 }
 
-Status CompactedDBImpl::Open(const Options& options,
-                             const std::string& dbname, DB** dbptr) {
+Status CompactedDBImpl::Open(const Options& options, const std::string& dbname,
+                             DB** dbptr) {
   *dbptr = nullptr;
 
   if (options.max_open_files != -1) {
@@ -254,4 +258,3 @@ Status CompactedDBImpl::Open(const Options& options,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

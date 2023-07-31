@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <unordered_map>
 
@@ -12,11 +11,11 @@
 #include "file/writable_file_writer.h"
 #include "rocksdb/utilities/cache_dump_load.h"
 #include "table/block_based/block.h"
-#include "table/block_based/block_like_traits.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "table/block_based/reader_common.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -75,7 +74,7 @@ struct DumpUnit {
   // Pointer to the block. Note that, in the dump process, it points to a memory
   // buffer copied from cache block. The buffer is freed when we process the
   // next block. In the load process, we use an std::string to store the
-  // serilized dump_unit read from the reader. So it points to the memory
+  // serialized dump_unit read from the reader. So it points to the memory
   // address of the begin of the block in this string.
   void* value;
 
@@ -103,23 +102,18 @@ class CacheDumperImpl : public CacheDumper {
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
-  IOStatus WriteRawBlock(uint64_t timestamp, CacheDumpUnitType type,
-                         const Slice& key, void* value, size_t len,
-                         uint32_t checksum);
-
+  IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
+                      const Slice& value);
   IOStatus WriteHeader();
-
-  IOStatus WriteCacheBlock(const CacheDumpUnitType type, const Slice& key,
-                           void* value, size_t len);
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
-  std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
-  DumpOneBlockCallBack();
+  std::function<void(const Slice&, Cache::ObjectPtr, size_t,
+                     const Cache::CacheItemHelper*)>
+  DumpOneBlockCallBack(std::string& buf);
 
   CacheDumpOptions options_;
   std::shared_ptr<Cache> cache_;
   std::unique_ptr<CacheDumpWriter> writer_;
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
   SystemClock* clock_;
   uint32_t sequence_num_;
   // The cache key prefix filter. Currently, we use db_session_id as the prefix,
@@ -133,11 +127,10 @@ class CacheDumperImpl : public CacheDumper {
 class CacheDumpedLoaderImpl : public CacheDumpedLoader {
  public:
   CacheDumpedLoaderImpl(const CacheDumpOptions& dump_options,
-                        const BlockBasedTableOptions& toptions,
+                        const BlockBasedTableOptions& /*toptions*/,
                         const std::shared_ptr<SecondaryCache>& secondary_cache,
                         std::unique_ptr<CacheDumpReader>&& reader)
       : options_(dump_options),
-        toptions_(toptions),
         secondary_cache_(secondary_cache),
         reader_(std::move(reader)) {}
   ~CacheDumpedLoaderImpl() {}
@@ -150,10 +143,8 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   IOStatus ReadCacheBlock(std::string* data, DumpUnit* dump_unit);
 
   CacheDumpOptions options_;
-  const BlockBasedTableOptions& toptions_;
   std::shared_ptr<SecondaryCache> secondary_cache_;
   std::unique_ptr<CacheDumpReader> reader_;
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
 };
 
 // The default implementation of CacheDumpWriter. We write the blocks to a file
@@ -166,7 +157,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
 
   ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
 
-  // Write the serilized metadata to the file
+  // Write the serialized metadata to the file
   virtual IOStatus WriteMetadata(const Slice& metadata) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
@@ -179,7 +170,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
     return io_s;
   }
 
-  // Write the serilized data to the file
+  // Write the serialized data to the file
   virtual IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
@@ -284,7 +275,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 // The cache dump and load helper class
 class CacheDumperHelper {
  public:
-  // serilize the dump_unit_meta to a string, it is fixed 16 bytes size.
+  // serialize the dump_unit_meta to a string, it is fixed 16 bytes size.
   static void EncodeDumpUnitMeta(const DumpUnitMeta& meta, std::string* data) {
     assert(data);
     PutFixed32(data, static_cast<uint32_t>(meta.sequence_num));
@@ -292,7 +283,7 @@ class CacheDumperHelper {
     PutFixed64(data, meta.dump_unit_size);
   }
 
-  // Serilize the dump_unit to a string.
+  // Serialize the dump_unit to a string.
   static void EncodeDumpUnit(const DumpUnit& dump_unit, std::string* data) {
     assert(data);
     PutFixed64(data, dump_unit.timestamp);
@@ -304,7 +295,7 @@ class CacheDumperHelper {
                            Slice((char*)dump_unit.value, dump_unit.value_len));
   }
 
-  // Deserilize the dump_unit_meta from a string
+  // Deserialize the dump_unit_meta from a string
   static Status DecodeDumpUnitMeta(const std::string& encoded_data,
                                    DumpUnitMeta* unit_meta) {
     assert(unit_meta != nullptr);
@@ -323,7 +314,7 @@ class CacheDumperHelper {
     return Status::OK();
   }
 
-  // Deserilize the dump_unit from a string.
+  // Deserialize the dump_unit from a string.
   static Status DecodeDumpUnit(const std::string& encoded_data,
                                DumpUnit* dump_unit) {
     assert(dump_unit != nullptr);
@@ -363,4 +354,3 @@ class CacheDumperHelper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

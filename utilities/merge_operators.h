@@ -4,12 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "rocksdb/merge_operator.h"
-
 #include <stdio.h>
 
 #include <memory>
 #include <string>
+
+#include "rocksdb/merge_operator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -19,7 +19,8 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreateDeprecatedPutOperator();
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
-  static std::shared_ptr<MergeOperator> CreateStringAppendOperator(char delim_char);
+  static std::shared_ptr<MergeOperator> CreateStringAppendOperator(
+      char delim_char);
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator(
       const std::string& delim);
   static std::shared_ptr<MergeOperator> CreateStringAppendTESTOperator();

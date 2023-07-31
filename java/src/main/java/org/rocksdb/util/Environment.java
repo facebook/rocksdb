@@ -1,21 +1,20 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
+import java.io.File;
 import java.io.IOException;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static boolean MUSL_LIBC;
+  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
-  static {
-    try {
-      final Process p = new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
-      MUSL_LIBC = p.waitFor() == 0;
-    } catch (final IOException | InterruptedException e) {
-      MUSL_LIBC = false;
-    }
-  }
+  /**
+   * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static
+   * initialisation. The lazy initialisation prevents Windows from reporting suspicious behaviour of
+   * the JVM attempting IO on Unix paths.
+   */
+  private static Boolean MUSL_LIBC = null;
 
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
@@ -50,8 +49,78 @@ public class Environment {
         OS.contains("nux");
   }
 
+  /**
+   * Determine if the environment has a musl libc.
+   *
+   * @return true if the environment has a musl libc, false otherwise.
+   */
   public static boolean isMuslLibc() {
+    if (MUSL_LIBC == null) {
+      MUSL_LIBC = initIsMuslLibc();
+    }
     return MUSL_LIBC;
+  }
+
+  /**
+   * Determine if the environment has a musl libc.
+   *
+   * The initialisation counterpart of {@link #isMuslLibc()}.
+   *
+   * Intentionally package-private for testing.
+   *
+   * @return true if the environment has a musl libc, false otherwise.
+   */
+  static boolean initIsMuslLibc() {
+    // consider explicit user setting from environment first
+    if ("true".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
+      return true;
+    }
+    if ("false".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
+      return false;
+    }
+
+    // check if ldd indicates a muslc lib
+    try {
+      final Process p =
+          new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
+      if (p.waitFor() == 0) {
+        return true;
+      }
+    } catch (final IOException | InterruptedException e) {
+      // do nothing, and move on to the next check
+    }
+
+    final File lib = new File("/lib");
+    if (lib.exists() && lib.isDirectory() && lib.canRead()) {
+      // attempt the most likely musl libc name first
+      final String possibleMuslcLibName;
+      if (isPowerPC()) {
+        possibleMuslcLibName = "libc.musl-ppc64le.so.1";
+      } else if (isAarch64()) {
+        possibleMuslcLibName = "libc.musl-aarch64.so.1";
+      } else if (isS390x()) {
+        possibleMuslcLibName = "libc.musl-s390x.so.1";
+      } else {
+        possibleMuslcLibName = "libc.musl-x86_64.so.1";
+      }
+      final File possibleMuslcLib = new File(lib, possibleMuslcLibName);
+      if (possibleMuslcLib.exists() && possibleMuslcLib.canRead()) {
+        return true;
+      }
+
+      // fallback to scanning for a musl libc
+      final File[] libFiles = lib.listFiles();
+      if (libFiles == null) {
+        return false;
+      }
+      for (final File f : libFiles) {
+        if (f.getName().startsWith("libc.musl")) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   public static boolean isSolaris() {

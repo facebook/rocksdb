@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <thread>
 #include <utility>

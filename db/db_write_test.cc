@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <memory>
 #include <thread>
@@ -18,6 +19,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -170,7 +172,8 @@ TEST_P(DBWriteTest, WriteStallRemoveNoSlowdownWrite) {
 
 TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   Options options = GetOptions();
-  options.level0_stop_writes_trigger = options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = options.level0_slowdown_writes_trigger =
+      4;
   std::vector<port::Thread> threads;
   std::atomic<int> thread_num(0);
   port::Mutex mutex;
@@ -195,7 +198,7 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
     Status s = dbfull()->Put(wo, key, "bar");
     ASSERT_TRUE(s.ok() || s.IsIncomplete());
   };
-  std::function<void(void *)> unblock_main_thread_func = [&](void *) {
+  std::function<void(void*)> unblock_main_thread_func = [&](void*) {
     mutex.Lock();
     ++writers;
     cv.SignalAll();
@@ -254,8 +257,9 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
   // This would have triggered a write stall. Unblock the write group leader
   TEST_SYNC_POINT("DBWriteTest::WriteThreadHangOnWriteStall:2");
-  // The leader is going to create missing newer links. When the leader finishes,
-  // the next leader is going to delay writes and fail writers with no_slowdown
+  // The leader is going to create missing newer links. When the leader
+  // finishes, the next leader is going to delay writes and fail writers with
+  // no_slowdown
 
   TEST_SYNC_POINT("DBWriteTest::WriteThreadHangOnWriteStall:3");
   for (auto& t : threads) {
@@ -453,15 +457,15 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
 }
 
 TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
@@ -603,62 +607,177 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Close();
 }
 
-// Test that db->LockWAL() flushes the WAL after locking.
-TEST_P(DBWriteTest, LockWalInEffect) {
+// Test that db->LockWAL() flushes the WAL after locking, which can fail
+TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  options.env = fault_fs_env.get();
+  options.disable_auto_compactions = true;
+  options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key0", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key1", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
+
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
+
+  // Fail the WAL flush if applicable
+  fault_fs->SetFilesystemActive(false);
+  Status s = Put("key2", "value");
+  if (options.manual_wal_flush) {
+    ASSERT_OK(s);
+    // I/O failure
+    ASSERT_NOK(db_->LockWAL());
+    // Should not need UnlockWAL after LockWAL fails
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_OK(db_->LockWAL());
+    ASSERT_OK(db_->UnlockWAL());
+  }
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
+  // Writes should work again
+  ASSERT_OK(Put("key3", "value"));
+  ASSERT_EQ(Get("key3"), "value");
+
+  // Should be extraneous, but allowed
+  ASSERT_NOK(db_->UnlockWAL());
+
+  // Close before mock_env destruct.
+  Close();
+}
+
+TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
+  Options options = GetOptions();
+  Reopen(options);
+  ASSERT_OK(Put("k1", "val"));
+  ASSERT_OK(db_->LockWAL());  // 0 -> 1
+  auto frozen_seqno = db_->GetLatestSequenceNumber();
+  std::atomic<bool> t1_completed{false};
+  port::Thread t1{[&]() {
+    // Won't finish until WAL unlocked
+    ASSERT_OK(Put("k1", "val2"));
+    t1_completed = true;
+  }};
+
+  ASSERT_OK(db_->LockWAL());  // 1 -> 2
+  // Read-only ops are OK
+  ASSERT_EQ(Get("k1"), "val");
+  {
+    std::vector<LiveFileStorageInfo> files;
+    LiveFilesStorageInfoOptions lf_opts;
+    // A DB flush could deadlock
+    lf_opts.wal_size_for_flush = UINT64_MAX;
+    ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
+  }
+
+  port::Thread t2{[&]() {
+    ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
+  }};
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1 or 3 -> 2
+  // Give t1 an extra chance to jump in case of bug
+  std::this_thread::yield();
+  t2.join();
+  ASSERT_FALSE(t1_completed.load());
+
+  // Should now have 2 outstanding LockWAL
+  ASSERT_EQ(Get("k1"), "val");
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1
+
+  ASSERT_FALSE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val");
+  ASSERT_EQ(frozen_seqno, db_->GetLatestSequenceNumber());
+
+  // Ensure final Unlock is concurrency safe and extra Unlock is safe but
+  // non-OK
+  std::atomic<int> unlock_ok{0};
+  port::Thread t3{[&]() {
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+    ASSERT_OK(db_->LockWAL());
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+  }};
+
+  if (db_->UnlockWAL().ok()) {
+    unlock_ok++;
+  }
+  t3.join();
+
+  // There was one extra unlock, so just one non-ok
+  ASSERT_EQ(unlock_ok.load(), 2);
+
+  // Write can proceed
+  t1.join();
+  ASSERT_TRUE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val2");
+  // And new writes
+  ASSERT_OK(Put("k2", "val"));
+  ASSERT_EQ(Get("k2"), "val");
 }
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
-    Options options = GetOptions();
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.statistics->set_stats_level(StatsLevel::kAll);
-    Reopen(options);
-    std::string wal_key_prefix = "WAL_KEY_";
-    std::string no_wal_key_prefix = "K_";
-    // 100 KB value each for NO-WAL operation
-    std::string no_wal_value(1024 * 100, 'X');
-    // 1B value each for WAL operation
-    std::string wal_value = "0";
-    std::thread threads[10];
-    for (int t = 0; t < 10; t++) {
-        threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix, no_wal_value, this] {
-            for(int i = 0; i < 10; i++) {
-              ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
-              write_option_disable.disableWAL = true;
-              ROCKSDB_NAMESPACE::WriteOptions write_option_default;
-              std::string no_wal_key = no_wal_key_prefix + std::to_string(t) +
-                                       "_" + std::to_string(i);
-              ASSERT_OK(
-                  this->Put(no_wal_key, no_wal_value, write_option_disable));
-              std::string wal_key =
-                  wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
-              ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
-              ASSERT_OK(dbfull()->SyncWAL());
-            }
-            return;
-        });
-    }
-    for (auto& t: threads) {
-        t.join();
-    }
-    uint64_t bytes_num = options.statistics->getTickerCount(
-        ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES);
-    // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
-    ASSERT_LE(bytes_num, 1024 * 100);
+  Options options = GetOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  Reopen(options);
+  std::string wal_key_prefix = "WAL_KEY_";
+  std::string no_wal_key_prefix = "K_";
+  // 100 KB value each for NO-WAL operation
+  std::string no_wal_value(1024 * 100, 'X');
+  // 1B value each for WAL operation
+  std::string wal_value = "0";
+  std::thread threads[10];
+  for (int t = 0; t < 10; t++) {
+    threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix,
+                              no_wal_value, this] {
+      for (int i = 0; i < 10; i++) {
+        ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
+        write_option_disable.disableWAL = true;
+        ROCKSDB_NAMESPACE::WriteOptions write_option_default;
+        std::string no_wal_key =
+            no_wal_key_prefix + std::to_string(t) + "_" + std::to_string(i);
+        ASSERT_OK(this->Put(no_wal_key, no_wal_value, write_option_disable));
+        std::string wal_key =
+            wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
+        ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
+        ASSERT_OK(dbfull()->SyncWAL());
+      }
+      return;
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  uint64_t bytes_num = options.statistics->getTickerCount(
+      ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES);
+  // written WAL size should less than 100KB (even included HEADER & FOOTER
+  // overhead)
+  ASSERT_LE(bytes_num, 1024 * 100);
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

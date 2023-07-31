@@ -70,6 +70,8 @@ struct TablePropertiesNames {
   static const std::string kSlowCompressionEstimatedDataSize;
   static const std::string kFastCompressionEstimatedDataSize;
   static const std::string kSequenceNumberTimeMapping;
+  static const std::string kTailStartOffset;
+  static const std::string kUserDefinedTimestampsPersisted;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -111,7 +113,7 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+  virtual void BlockAdd(uint64_t /* block_uncomp_bytes */,
                         uint64_t /* block_compressed_bytes_fast */,
                         uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
@@ -193,9 +195,9 @@ struct TableProperties {
   uint64_t index_value_is_delta_encoded = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
-  // total raw key size
+  // total raw (uncompressed, undelineated) key size
   uint64_t raw_key_size = 0;
-  // total raw value size
+  // total raw (uncompressed, undelineated) value size
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
@@ -238,6 +240,15 @@ struct TableProperties {
   // file if the property exists.
   // 0 means not exists.
   uint64_t external_sst_file_global_seqno_offset = 0;
+
+  // Offset where the "tail" part of SST file starts
+  // "Tail" refers to all blocks after data blocks till the end of the SST file
+  uint64_t tail_start_offset = 0;
+
+  // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+  // when the file is created. Default to be true, only when this flag is false,
+  // it's explicitly written to meta properties block.
+  uint64_t user_defined_timestamps_persisted = 1;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
 
+#include "block_cache.h"
 #include "file/random_access_file_reader.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
@@ -48,9 +49,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     BlockCacheLookupContext* lookup_context) {
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s =
-      GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
-                          get_context, lookup_context, &index_block);
+  const Status s = GetOrReadIndexBlock(no_io, get_context, lookup_context,
+                                       &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);
@@ -75,7 +75,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
@@ -84,6 +85,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.adaptive_readahead = read_options.adaptive_readahead;
     ro.async_io = read_options.async_io;
     ro.rate_limiter_priority = read_options.rate_limiter_priority;
+    ro.verify_checksums = read_options.verify_checksums;
+    ro.io_activity = read_options.io_activity;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
@@ -92,7 +95,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
 
     it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
@@ -110,8 +114,13 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   // the first level iter is always on heap and will attempt to delete it
   // in its destructor.
 }
-Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
-                                               bool pin) {
+Status PartitionIndexReader::CacheDependencies(
+    const ReadOptions& ro, bool pin, FilePrefetchBuffer* tail_prefetch_buffer) {
+  if (!partition_map_.empty()) {
+    // The dependencies are already cached since `partition_map_` is filled in
+    // an all-or-nothing manner.
+    return Status::OK();
+  }
   // Before read partitions, prefetch them to avoid lots of IOs
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   const BlockBasedTable::Rep* rep = table()->rep_;
@@ -121,9 +130,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   CachableEntry<Block> index_block;
   {
-    Status s = GetOrReadIndexBlock(false /* no_io */, ro.rate_limiter_priority,
-                                   nullptr /* get_context */, &lookup_context,
-                                   &index_block);
+    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
+                                   &lookup_context, &index_block, ro);
     if (!s.ok()) {
       return s;
     }
@@ -134,7 +142,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   index_block.GetValue()->NewIndexIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
-      index_has_first_key(), index_key_includes_seq(), index_value_is_full());
+      index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -156,22 +165,24 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(
-      0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
-      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
-  IOOptions opts;
-  {
-    Status s = rep->file->PrepareIOOptions(ro, opts);
-    if (s.ok()) {
-      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                    static_cast<size_t>(prefetch_len),
-                                    ro.rate_limiter_priority);
-    }
-    if (!s.ok()) {
-      return s;
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
+    rep->CreateFilePrefetchBuffer(
+        0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
+        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+    IOOptions opts;
+    {
+      Status s = rep->file->PrepareIOOptions(ro, opts);
+      if (s.ok()) {
+        s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                      static_cast<size_t>(prefetch_len),
+                                      ro.rate_limiter_priority);
+      }
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
-
   // For saving "all or nothing" to partition_map_
   UnorderedMap<uint64_t, CachableEntry<Block>> map_in_progress;
 
@@ -185,8 +196,9 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /*wait=*/true, /*for_compaction=*/false, &block, BlockType::kIndex,
+        prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
+        handle, UncompressionDict::GetEmptyDict(),
+        /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
         /*async_read=*/false);
 

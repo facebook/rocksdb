@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#if !defined(GFLAGS)
 #include <cstdio>
 int main() {
-  fprintf(stderr, "filter_bench requires gflags and !ROCKSDB_LITE\n");
+  fprintf(stderr, "filter_bench requires gflags\n");
   return 1;
 }
 #else
@@ -195,7 +195,7 @@ struct KeyMaker {
       len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
-    char * data = buf_.get() + start;
+    char *data = buf_.get() + start;
     // Populate key data such that all data makes it into a key of at
     // least 8 bytes. We also don't want all the within-filter key
     // variance confined to a contiguous 32 bits, because then a 32 bit
@@ -378,9 +378,9 @@ void FilterBench::Go() {
                                     FLAGS_average_keys_per_filter);
   const uint32_t variance_offset = variance_range / 2;
 
-  const std::vector<TestMode> &testModes =
-      FLAGS_best_case ? bestCaseTestModes
-                      : FLAGS_quick ? quickTestModes : allTestModes;
+  const std::vector<TestMode> &testModes = FLAGS_best_case ? bestCaseTestModes
+                                           : FLAGS_quick   ? quickTestModes
+                                                           : allTestModes;
 
   m_queries_ = FLAGS_m_queries;
   double working_mem_size_mb = FLAGS_working_mem_size_mb;
@@ -728,7 +728,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
                 batch_slices[i],
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr, Env::IO_TOTAL);
+                /*lookup_context=*/nullptr, ROCKSDB_NAMESPACE::ReadOptions());
           }
         } else {
           if (dry_run) {
@@ -837,4 +837,4 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#endif  // !defined(GFLAGS)

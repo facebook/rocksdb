@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <cinttypes>
 #include <cmath>
@@ -15,6 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
@@ -284,7 +286,6 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
   return string.compare(0, pattern.size(), pattern) == 0;
 }
 
-#ifndef ROCKSDB_LITE
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
@@ -323,7 +324,6 @@ int32_t ParseInt32(const std::string& value) {
   }
 }
 
-#endif
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;

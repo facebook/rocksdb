@@ -85,14 +85,14 @@ void ZSTDStreamingCompress::Reset() {
 
 int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
                                         char* output, size_t* output_pos) {
-  assert(input != nullptr && output != nullptr && output_pos != nullptr);
+  assert(output != nullptr && output_pos != nullptr);
   *output_pos = 0;
   // Don't need to uncompress an empty input
   if (input_size == 0) {
     return 0;
   }
 #ifdef ZSTD_STREAMING
-  if (input_buffer_.src != input) {
+  if (input) {
     // New input
     input_buffer_ = {input, input_size, /*pos=*/0};
   }

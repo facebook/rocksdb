@@ -6,14 +6,15 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling C++ ROCKSDB_NAMESPACE::OptionsUtil methods from Java side.
 
+#include "rocksdb/utilities/options_util.h"
+
 #include <jni.h>
+
 #include <string>
 
 #include "include/org_rocksdb_OptionsUtil.h"
-
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/options_util.h"
 #include "rocksjni/portal.h"
 
 void build_column_family_descriptor_list(
@@ -53,37 +54,9 @@ void build_column_family_descriptor_list(
 /*
  * Class:     org_rocksdb_OptionsUtil
  * Method:    loadLatestOptions
- * Signature: (Ljava/lang/String;JLjava/util/List;Z)V
- */
-void Java_org_rocksdb_OptionsUtil_loadLatestOptions__Ljava_lang_String_2JJLjava_util_List_2Z(
-    JNIEnv* env, jclass /*jcls*/, jstring jdbpath, jlong jenv_handle,
-    jlong jdb_opts_handle, jobject jcfds, jboolean ignore_unknown_options) {
-  jboolean has_exception = JNI_FALSE;
-  auto db_path =
-      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jdbpath, &has_exception);
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    return;
-  }
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descs;
-  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::LoadLatestOptions(
-      db_path, reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jenv_handle),
-      reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jdb_opts_handle),
-      &cf_descs, ignore_unknown_options);
-  if (!s.ok()) {
-    // error, raise an exception
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  } else {
-    build_column_family_descriptor_list(env, jcfds, cf_descs);
-  }
-}
-
-/*
- * Class:     org_rocksdb_OptionsUtil
- * Method:    loadLatestOptions_1
  * Signature: (JLjava/lang/String;JLjava/util/List;)V
  */
-void Java_org_rocksdb_OptionsUtil_loadLatestOptions__JLjava_lang_String_2JLjava_util_List_2(
+void Java_org_rocksdb_OptionsUtil_loadLatestOptions(
     JNIEnv* env, jclass /*jcls*/, jlong cfg_handle, jstring jdbpath,
     jlong jdb_opts_handle, jobject jcfds) {
   jboolean has_exception = JNI_FALSE;
@@ -111,37 +84,9 @@ void Java_org_rocksdb_OptionsUtil_loadLatestOptions__JLjava_lang_String_2JLjava_
 /*
  * Class:     org_rocksdb_OptionsUtil
  * Method:    loadOptionsFromFile
- * Signature: (Ljava/lang/String;JJLjava/util/List;Z)V
- */
-void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile__Ljava_lang_String_2JJLjava_util_List_2Z(
-    JNIEnv* env, jclass /*jcls*/, jstring jopts_file_name, jlong jenv_handle,
-    jlong jdb_opts_handle, jobject jcfds, jboolean ignore_unknown_options) {
-  jboolean has_exception = JNI_FALSE;
-  auto opts_file_name = ROCKSDB_NAMESPACE::JniUtil::copyStdString(
-      env, jopts_file_name, &has_exception);
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    return;
-  }
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descs;
-  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::LoadOptionsFromFile(
-      opts_file_name, reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jenv_handle),
-      reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jdb_opts_handle),
-      &cf_descs, ignore_unknown_options);
-  if (!s.ok()) {
-    // error, raise an exception
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  } else {
-    build_column_family_descriptor_list(env, jcfds, cf_descs);
-  }
-}
-
-/*
- * Class:     org_rocksdb_OptionsUtil
- * Method:    loadOptionsFromFile
  * Signature: (JLjava/lang/String;JLjava/util/List;)V
  */
-void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile__JLjava_lang_String_2JLjava_util_List_2(
+void Java_org_rocksdb_OptionsUtil_loadOptionsFromFile(
     JNIEnv* env, jclass /*jcls*/, jlong cfg_handle, jstring jopts_file_name,
     jlong jdb_opts_handle, jobject jcfds) {
   jboolean has_exception = JNI_FALSE;

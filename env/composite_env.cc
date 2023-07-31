@@ -391,7 +391,6 @@ Status CompositeEnv::NewDirectory(const std::string& name,
 
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {Customizable::kTargetPropName(),
      OptionTypeInfo(0, OptionType::kUnknown, OptionVerificationType::kByName,
                     OptionTypeFlags::kNone)
@@ -444,24 +443,19 @@ static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
              return target->env->ValidateOptions(db_opts, cf_opts);
            }
          })},
-#endif  // ROCKSDB_LITE
 };
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_fs_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
         {"file_system", OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
                             0, OptionVerificationType::kByName,
                             OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_clock_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
         {"clock", OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
                       0, OptionVerificationType::kByName,
                       OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace
@@ -499,7 +493,6 @@ Status CompositeEnvWrapper::PrepareOptions(const ConfigOptions& options) {
   return Env::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 Status CompositeEnvWrapper::ParseOption(const ConfigOptions& config_options,
                                         const OptionTypeInfo& opt_info,
                                         const std::string& opt_name,
@@ -549,7 +542,6 @@ std::string CompositeEnvWrapper::SerializeOptions(
   }
   return result;
 }
-#endif  // ROCKSDB_LITE
 
 EnvWrapper::EnvWrapper(Env* t) : target_(t) {
   RegisterOptions("", &target_, &env_wrapper_type_info);
@@ -570,7 +562,6 @@ Status EnvWrapper::PrepareOptions(const ConfigOptions& options) {
   return Env::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
                                          const std::string& header) const {
   auto parent = Env::SerializeOptions(config_options, "");
@@ -592,6 +583,5 @@ std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
     return result;
   }
 }
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

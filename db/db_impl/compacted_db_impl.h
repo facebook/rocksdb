@@ -4,9 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -118,13 +118,21 @@ class CompactedDBImpl : public DBImpl {
       const IngestExternalFileOptions& /*ingestion_options*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
   using DB::CreateColumnFamilyWithImport;
   virtual Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 
@@ -132,12 +140,10 @@ class CompactedDBImpl : public DBImpl {
   // Share with DBImplReadOnly?
 
  protected:
-#ifndef ROCKSDB_LITE
   Status FlushForGetLiveFiles() override {
     // No-op for read-only DB
     return Status::OK();
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   friend class DB;
@@ -150,4 +156,3 @@ class CompactedDBImpl : public DBImpl {
   LevelFilesBrief files_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

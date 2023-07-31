@@ -107,7 +107,10 @@ class SeqnoToTimeMapping {
   uint64_t GetOldestApproximateTime(SequenceNumber seqno) const;
 
   // Truncate the old entries based on the current time and max_time_duration_
-  SequenceNumber TruncateOldEntries(uint64_t now);
+  void TruncateOldEntries(uint64_t now);
+
+  // Given a time, return it's oldest possible sequence number
+  SequenceNumber GetOldestSequenceNum(uint64_t time);
 
   // Encode to a binary string
   void Encode(std::string& des, SequenceNumber start, SequenceNumber end,

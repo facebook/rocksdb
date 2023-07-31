@@ -42,9 +42,7 @@ std::string Key1(int i) {
   return buf;
 }
 
-std::string Key2(int i) {
-  return Key1(i) + "_xxx";
-}
+std::string Key2(int i) { return Key1(i) + "_xxx"; }
 
 class ManualCompactionTest : public testing::Test {
  public:
@@ -102,10 +100,10 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
     DB* db;
     Options options;
-    if (iter == 0) { // level compaction
+    if (iter == 0) {  // level compaction
       options.num_levels = 3;
       options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-    } else { // universal compaction
+    } else {  // universal compaction
       options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
     }
     options.create_if_missing = true;
@@ -192,6 +190,7 @@ TEST_F(ManualCompactionTest, Test) {
 TEST_F(ManualCompactionTest, SkipLevel) {
   DB* db;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 3;
   // Initially, flushed L0 files won't exceed 100.
   options.level0_file_num_compaction_trigger = 100;
@@ -288,9 +287,9 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     filter->Reset();
     ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, nullptr));
     ASSERT_EQ(4, filter->NumKeys());
-    // 1 is first compacted to L1 and then further compacted into [2, 4, 8],
-    // so finally the logged level for 1 is L1.
-    ASSERT_EQ(1, filter->KeyLevel("1"));
+    // 1 is first compacted from L0 to L1, and then L1 intra level compaction
+    // compacts [2, 4, 8] only.
+    ASSERT_EQ(0, filter->KeyLevel("1"));
     ASSERT_EQ(1, filter->KeyLevel("2"));
     ASSERT_EQ(1, filter->KeyLevel("4"));
     ASSERT_EQ(1, filter->KeyLevel("8"));
@@ -304,6 +303,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

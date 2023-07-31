@@ -12,6 +12,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -25,7 +26,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, WALRecoveryMode>
     wal_recovery_mode_string_map = {
         {"kTolerateCorruptedTailRecords",
@@ -220,6 +220,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"flush_verify_memtable_count",
          {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"compaction_verify_record_count",
+         {offsetof(struct ImmutableDBOptions, compaction_verify_record_count),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"track_and_verify_wals_in_manifest",
@@ -670,7 +674,6 @@ std::unique_ptr<Configurable> DBOptionsAsConfigurable(
   std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts, opt_map));
   return ptr;
 }
-#endif  // ROCKSDB_LITE
 
 ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 
@@ -680,6 +683,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       flush_verify_memtable_count(options.flush_verify_memtable_count),
+      compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
       verify_sst_unique_id_in_manifest(
@@ -734,9 +738,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_recovery_mode(options.wal_recovery_mode),
       allow_2pc(options.allow_2pc),
       row_cache(options.row_cache),
-#ifndef ROCKSDB_LITE
       wal_filter(options.wal_filter),
-#endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
@@ -774,6 +776,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
                    flush_verify_memtable_count);
+  ROCKS_LOG_HEADER(log, "         Options.compaction_verify_record_count: %d",
+                   compaction_verify_record_count);
   ROCKS_LOG_HEADER(log,
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
@@ -888,10 +892,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                              Options.row_cache: None");
   }
-#ifndef ROCKSDB_LITE
   ROCKS_LOG_HEADER(log, "                             Options.wal_filter: %s",
                    wal_filter ? wal_filter->Name() : "None");
-#endif  // ROCKDB_LITE
 
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
@@ -1051,7 +1053,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
 }
 
-#ifndef ROCKSDB_LITE
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -1082,5 +1083,4 @@ Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, db_mutable_options_type_info, &mutable_opts, opt_string);
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

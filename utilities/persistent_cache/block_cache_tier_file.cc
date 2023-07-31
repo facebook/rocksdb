@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
@@ -68,8 +67,7 @@ Status BlockCacheFile::Delete(uint64_t* size) {
 // <-- 4 --><-- 4  --><-- 4   --><-- 4     --><-- key size  --><-- v-size -->
 //
 struct CacheRecordHeader {
-  CacheRecordHeader()
-    : magic_(0), crc_(0), key_size_(0), val_size_(0) {}
+  CacheRecordHeader() : magic_(0), crc_(0), key_size_(0), val_size_(0) {}
   CacheRecordHeader(const uint32_t magic, const uint32_t key_size,
                     const uint32_t val_size)
       : magic_(magic), crc_(0), key_size_(key_size), val_size_(val_size) {}
@@ -608,4 +606,3 @@ void ThreadedWriter::DispatchIO(const IO& io) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

@@ -64,6 +64,8 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
+  bool level_compaction_dynamic_file_size;
+
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -71,6 +73,8 @@ struct ImmutableCFOptions {
   bool force_consistency_checks;
 
   uint64_t preclude_last_level_data_seconds;
+
+  uint64_t preserve_internal_time_seconds;
 
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
@@ -82,6 +86,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 
   std::shared_ptr<Cache> blob_cache;
+
+  bool persist_user_defined_timestamps;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
@@ -126,6 +132,8 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         max_compaction_bytes(options.max_compaction_bytes),
+        ignore_max_compaction_bytes_for_input(
+            options.ignore_max_compaction_bytes_for_input),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -164,6 +172,7 @@ struct MutableCFOptions {
                                    : options.last_level_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
+        block_protection_bytes_per_key(options.block_protection_bytes_per_key),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level) {
@@ -188,6 +197,7 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
         max_compaction_bytes(0),
+        ignore_max_compaction_bytes_for_input(true),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
@@ -213,6 +223,7 @@ struct MutableCFOptions {
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
+        block_protection_bytes_per_key(0),
         sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
@@ -269,6 +280,7 @@ struct MutableCFOptions {
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
   uint64_t max_compaction_bytes;
+  bool ignore_max_compaction_bytes_for_input;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
@@ -302,6 +314,7 @@ struct MutableCFOptions {
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
   uint32_t memtable_protection_bytes_per_key;
+  uint8_t block_protection_bytes_per_key;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
@@ -322,7 +335,6 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
 // `pin_l0_filter_and_index_blocks_in_cache` is set.
 size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options);
 
-#ifndef ROCKSDB_LITE
 Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
                                      const MutableCFOptions& mutable_opts,
                                      std::string* opt_string);
@@ -331,6 +343,5 @@ Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     Logger* info_log, MutableCFOptions* new_options);
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

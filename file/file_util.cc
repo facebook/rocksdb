@@ -5,8 +5,8 @@
 //
 #include "file/file_util.h"
 
-#include <string>
 #include <algorithm>
+#include <string>
 
 #include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"
@@ -116,7 +116,6 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& dir_to_sync,
                     const bool force_bg, const bool force_fg) {
-#ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
@@ -124,14 +123,6 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
   } else {
     return db_options->env->DeleteFile(fname);
   }
-#else
-  (void)dir_to_sync;
-  (void)force_bg;
-  (void)force_fg;
-  // SstFileManager is not supported in ROCKSDB_LITE
-  // Delete file immediately
-  return db_options->env->DeleteFile(fname);
-#endif
 }
 
 // requested_checksum_func_name brings the function name of the checksum
@@ -144,7 +135,7 @@ IOStatus GenerateOneFileChecksum(
     FileChecksumGenFactory* checksum_factory,
     const std::string& requested_checksum_func_name, std::string* file_checksum,
     std::string* file_checksum_func_name,
-    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    size_t verify_checksums_readahead_size, bool /*allow_mmap_reads*/,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
     Env::IOPriority rate_limiter_priority) {
   if (checksum_factory == nullptr) {
@@ -194,9 +185,9 @@ IOStatus GenerateOneFileChecksum(
     if (!io_s.ok()) {
       return io_s;
     }
-    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
-                                            nullptr /*Env*/, io_tracer, nullptr,
-                                            0, nullptr, rate_limiter));
+    reader.reset(new RandomAccessFileReader(
+        std::move(r_file), file_path, nullptr /*Env*/, io_tracer, nullptr,
+        Histograms::HISTOGRAM_ENUM_MAX, nullptr, rate_limiter));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on
@@ -205,10 +196,12 @@ IOStatus GenerateOneFileChecksum(
   size_t readahead_size = (verify_checksums_readahead_size != 0)
                               ? verify_checksums_readahead_size
                               : default_max_read_ahead_size;
-
-  FilePrefetchBuffer prefetch_buffer(readahead_size /* readahead_size */,
-                                     readahead_size /* max_readahead_size */,
-                                     !allow_mmap_reads /* enable */);
+  std::unique_ptr<char[]> buf;
+  if (reader->use_direct_io()) {
+    size_t alignment = reader->file()->GetRequiredBufferAlignment();
+    readahead_size = (readahead_size + alignment - 1) & ~(alignment - 1);
+  }
+  buf.reset(new char[readahead_size]);
 
   Slice slice;
   uint64_t offset = 0;
@@ -216,11 +209,11 @@ IOStatus GenerateOneFileChecksum(
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    if (!prefetch_buffer.TryReadFromCache(
-            opts, reader.get(), offset, bytes_to_read, &slice,
-            nullptr /* status */, rate_limiter_priority,
-            false /* for_compaction */)) {
-      return IOStatus::Corruption("file read failed");
+    io_s = reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr,
+                        rate_limiter_priority);
+    if (!io_s.ok()) {
+      return IOStatus::Corruption("file read failed with error: " +
+                                  io_s.ToString());
     }
     if (slice.size() == 0) {
       return IOStatus::Corruption("file too small");
@@ -228,6 +221,8 @@ IOStatus GenerateOneFileChecksum(
     checksum_generator->Update(slice.data(), slice.size());
     size -= slice.size();
     offset += slice.size();
+
+    TEST_SYNC_POINT("GenerateOneFileChecksum::Chunk:0");
   }
   checksum_generator->Finalize();
   *file_checksum = checksum_generator->GetChecksum();

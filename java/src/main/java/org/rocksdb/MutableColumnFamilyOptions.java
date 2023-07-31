@@ -7,15 +7,13 @@ package org.rocksdb;
 
 import java.util.*;
 
-public class MutableColumnFamilyOptions
-    extends AbstractMutableOptions {
-
+public class MutableColumnFamilyOptions extends AbstractMutableOptions {
   /**
    * User must use builder pattern, or parser.
    *
    * @param keys the keys
    * @param values the values
-   *
+   * <p>
    * See {@link #builder()} and {@link #parse(String)}.
    */
   private MutableColumnFamilyOptions(final String[] keys,
@@ -36,11 +34,11 @@ public class MutableColumnFamilyOptions
 
   /**
    * Parses a String representation of MutableColumnFamilyOptions
-   *
+   * <p>
    * The format is: key1=value1;key2=value2;key3=value3 etc
-   *
+   * <p>
    * For int[] values, each int should be separated by a colon, e.g.
-   *
+   * <p>
    * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable column family options
@@ -157,8 +155,8 @@ public class MutableColumnFamilyOptions
   public static class MutableColumnFamilyOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableColumnFamilyOptions, MutableColumnFamilyOptionsBuilder, MutableColumnFamilyOptionKey>
       implements MutableColumnFamilyOptionsInterface<MutableColumnFamilyOptionsBuilder> {
-
-    private final static Map<String, MutableColumnFamilyOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
+    private static final Map<String, MutableColumnFamilyOptionKey> ALL_KEYS_LOOKUP =
+        new HashMap<>();
     static {
       for(final MutableColumnFamilyOptionKey key : MemtableOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);
@@ -476,7 +474,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public CompressionType compressionType() {
-      return (CompressionType) getEnum(MiscOption.compression);
+      return getEnum(MiscOption.compression);
     }
 
     @Override
@@ -549,7 +547,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public CompressionType blobCompressionType() {
-      return (CompressionType) getEnum(BlobOption.blob_compression_type);
+      return getEnum(BlobOption.blob_compression_type);
     }
 
     @Override
@@ -617,7 +615,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public PrepopulateBlobCache prepopulateBlobCache() {
-      return (PrepopulateBlobCache) getEnum(BlobOption.prepopulate_blob_cache);
+      return getEnum(BlobOption.prepopulate_blob_cache);
     }
   }
 }

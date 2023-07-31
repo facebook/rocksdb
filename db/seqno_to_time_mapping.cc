@@ -31,11 +31,11 @@ void SeqnoToTimeMapping::Add(SequenceNumber seqno, uint64_t time) {
   seqno_time_mapping_.emplace_back(seqno, time);
 }
 
-SequenceNumber SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
+void SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
   assert(is_sorted_);
 
   if (max_time_duration_ == 0) {
-    return 0;
+    return;
   }
 
   const uint64_t cut_off_time =
@@ -48,12 +48,25 @@ SequenceNumber SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
         return target < other.time;
       });
   if (it == seqno_time_mapping_.begin()) {
-    return 0;
+    return;
   }
   it--;
   seqno_time_mapping_.erase(seqno_time_mapping_.begin(), it);
+}
 
-  return seqno_time_mapping_.front().seqno;
+SequenceNumber SeqnoToTimeMapping::GetOldestSequenceNum(uint64_t time) {
+  assert(is_sorted_);
+
+  auto it = std::upper_bound(
+      seqno_time_mapping_.begin(), seqno_time_mapping_.end(), time,
+      [](uint64_t target, const SeqnoTimePair& other) -> bool {
+        return target < other.time;
+      });
+  if (it == seqno_time_mapping_.begin()) {
+    return 0;
+  }
+  it--;
+  return it->seqno;
 }
 
 // The encoded format is:
@@ -93,6 +106,10 @@ void SeqnoToTimeMapping::Encode(std::string& dest, const SequenceNumber start,
     while (start_it < end_it && start_it->time < cut_off_time) {
       start_it++;
     }
+  }
+  // to include the first element
+  if (start_it != seqno_time_mapping_.begin()) {
+    start_it--;
   }
 
   // If there are more data than needed, pick the entries for encoding.

@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
@@ -72,11 +75,27 @@ std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   return result;
 }
 
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes() {
+  static std::vector<UserDefinedTimestampTestMode> udt_test_modes = {
+      UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+      UserDefinedTimestampTestMode::kNormal,
+      UserDefinedTimestampTestMode::kNone};
+  return udt_test_modes;
+}
+
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kNone;
+}
+
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
+}
+
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data = rnd->RandomString(raw);
+  std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -130,6 +149,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   const Comparator* user_comparator = nullptr;
   Status s = Comparator::CreateFromString(
       config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
   s.PermitUncheckedError();
   return user_comparator;
 }
@@ -242,7 +271,6 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
 }
 
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
-#ifndef ROCKSDB_LITE
   int random_num = pre_defined >= 0 ? pre_defined : rnd->Uniform(4);
   switch (random_num) {
     case 0:
@@ -252,11 +280,6 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
     default:
       return NewBlockBasedTableFactory();
   }
-#else
-  (void)rnd;
-  (void)pre_defined;
-  return NewBlockBasedTableFactory();
-#endif  // !ROCKSDB_LITE
 }
 
 MergeOperator* RandomMergeOperator(Random* rnd) {
@@ -501,13 +524,11 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     s = WriteStringToFile(env, contents, fname);
   }
   if (s.ok() && verify_checksum) {
-#ifndef ROCKSDB_LITE
     Options options;
     options.env = env;
     EnvOptions env_options;
     Status v = VerifySstFileChecksum(options, env_options, fname);
     assert(!v.ok());
-#endif
   }
   return s;
 }
@@ -620,7 +641,6 @@ class SpecialMemTableRep : public MemTableRep {
 };
 class SpecialSkipListFactory : public MemTableRepFactory {
  public:
-#ifndef ROCKSDB_LITE
   static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
     library.AddFactory<MemTableRepFactory>(
         ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
@@ -638,8 +658,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-#endif  // ROCKSDB_LITE
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // After number of inserts >= `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}
@@ -678,7 +697,6 @@ MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
   return new SpecialSkipListFactory(num_entries_per_flush);
 }
 
-#ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
 int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   size_t num_types;
@@ -721,17 +739,12 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
-#endif  // ROCKSDB_LITE
 
 void RegisterTestLibrary(const std::string& arg) {
   static bool registered = false;
   if (!registered) {
     registered = true;
-#ifndef ROCKSDB_LITE
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
-#else
-    (void)arg;
-#endif  // ROCKSDB_LITE
   }
 }
 }  // namespace test

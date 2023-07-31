@@ -168,10 +168,6 @@ class PosixFileSystem : public FileSystem {
     FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
@@ -223,10 +219,6 @@ class PosixFileSystem : public FileSystem {
     int flags = cloexec_flags(O_RDONLY, &options);
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
@@ -300,10 +292,6 @@ class PosixFileSystem : public FileSystem {
       // appends data to the end of the file, regardless of the value of
       // offset.
       // More info here: https://linux.die.net/man/2/pwrite
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // ROCKSDB_LITE
       flags |= O_WRONLY;
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
@@ -392,10 +380,6 @@ class PosixFileSystem : public FileSystem {
     int flags = 0;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
-#ifdef ROCKSDB_LITE
-      return IOStatus::IOError(fname,
-                               "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
@@ -575,7 +559,7 @@ class PosixFileSystem : public FileSystem {
     }
   }
 
-  IOStatus GetChildren(const std::string& dir, const IOOptions& /*opts*/,
+  IOStatus GetChildren(const std::string& dir, const IOOptions& opts,
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
@@ -595,12 +579,20 @@ class PosixFileSystem : public FileSystem {
     // reset errno before calling readdir()
     errno = 0;
     struct dirent* entry;
+
     while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
           entry->d_type == DT_DIR &&
-          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+          (strcmp(entry->d_name, ".") == 0 ||
+           strcmp(entry->d_name, "..") == 0
+#ifndef ASSERT_STATUS_CHECKED
+           // In case of ASSERT_STATUS_CHECKED, GetChildren support older
+           // version of API for debugging purpose.
+           || opts.do_not_recurse
+#endif
+          );
       if (!ignore) {
         result->push_back(entry->d_name);
       }
@@ -1115,10 +1107,11 @@ class PosixFileSystem : public FileSystem {
       // Prepare the cancel request.
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
-      // prep_cancel changed API in liburing, but we need to support both old
-      // and new versions so do it by hand
-      io_uring_prep_cancel(sqe, 0, 0);
-      sqe->addr = reinterpret_cast<uint64_t>(posix_handle);
+
+      // In order to cancel the request, sqe->addr of cancel request should
+      // match with the read request submitted which is posix_handle->iov.
+      io_uring_prep_cancel(sqe, &posix_handle->iov, 0);
+      // Sets sqe->user_data to posix_handle.
       io_uring_sqe_set_data(sqe, posix_handle);
 
       // submit the request.
@@ -1146,6 +1139,7 @@ class PosixFileSystem : public FileSystem {
         }
         assert(cqe != nullptr);
 
+        // Returns cqe->user_data.
         Posix_IOHandle* posix_handle =
             static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
         assert(posix_handle->iu == iu);
@@ -1186,6 +1180,16 @@ class PosixFileSystem : public FileSystem {
     // return OK.
     (void)io_handles;
     return IOStatus::OK();
+#endif
+  }
+
+  void SupportedOps(int64_t& supported_ops) override {
+    supported_ops = 0;
+#if defined(ROCKSDB_IOURING_PRESENT)
+    if (IsIOUringEnabled()) {
+      // Underlying FS supports async_io
+      supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+    }
 #endif
   }
 
@@ -1268,7 +1272,6 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return instance;
 }
 
-#ifndef ROCKSDB_LITE
 static FactoryFunc<FileSystem> posix_filesystem_reg =
     ObjectLibrary::Default()->AddFactory<FileSystem>(
         ObjectLibrary::PatternEntry("posix").AddSeparator("://", false),
@@ -1277,7 +1280,6 @@ static FactoryFunc<FileSystem> posix_filesystem_reg =
           f->reset(new PosixFileSystem());
           return f->get();
         });
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 

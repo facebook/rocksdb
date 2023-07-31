@@ -1,0 +1,1 @@
+Small efficiency improvement to HyperClockCache by reducing chance of compiler-generated heap allocations

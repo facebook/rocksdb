@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/cache.h"
@@ -41,7 +40,6 @@ class MemoryTest : public testing::Test {
     const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
     if (bbto != nullptr) {
       cache_set->insert(bbto->block_cache.get());
-      cache_set->insert(bbto->block_cache_compressed.get());
     }
   }
 
@@ -261,6 +259,7 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
@@ -268,11 +267,3 @@ int main(int argc, char** argv) {
 #endif
 }
 
-#else
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  printf("Skipped in RocksDBLite as utilities are not supported.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

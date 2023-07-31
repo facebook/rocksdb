@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -77,9 +76,7 @@ struct Node {
     next_.store(x, std::memory_order_release);
   }
   // No-barrier variants that can be safely used in a few locations.
-  Node* NoBarrier_Next() {
-    return next_.load(std::memory_order_relaxed);
-  }
+  Node* NoBarrier_Next() { return next_.load(std::memory_order_relaxed); }
 
   void NoBarrier_SetNext(Node* x) { next_.store(x, std::memory_order_relaxed); }
 
@@ -296,9 +293,9 @@ class HashLinkListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     void Seek(const Slice& internal_key, const char* memtable_key) override {
-      const char* encoded_key =
-          (memtable_key != nullptr) ?
-              memtable_key : EncodeKey(&tmp_, internal_key);
+      const char* encoded_key = (memtable_key != nullptr)
+                                    ? memtable_key
+                                    : EncodeKey(&tmp_, internal_key);
       iter_.Seek(encoded_key);
     }
 
@@ -324,7 +321,7 @@ class HashLinkListRep : public MemTableRep {
     // To destruct with the iterator.
     std::unique_ptr<MemtableSkipList> full_list_;
     std::unique_ptr<Allocator> allocator_;
-    std::string tmp_;       // For passing to EncodeKey
+    std::string tmp_;  // For passing to EncodeKey
   };
 
   class LinkListIterator : public MemTableRep::Iterator {
@@ -365,8 +362,8 @@ class HashLinkListRep : public MemTableRep {
     // Advance to the first entry with a key >= target
     void Seek(const Slice& internal_key,
               const char* /*memtable_key*/) override {
-      node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
-                                                              internal_key);
+      node_ =
+          hash_link_list_rep_->FindGreaterOrEqualInBucket(head_, internal_key);
     }
 
     // Retreat to the last entry with a key <= target
@@ -398,15 +395,14 @@ class HashLinkListRep : public MemTableRep {
       head_ = head;
       node_ = nullptr;
     }
+
    private:
     friend class HashLinkListRep;
     const HashLinkListRep* const hash_link_list_rep_;
     Node* head_;
     Node* node_;
 
-    virtual void SeekToHead() {
-      node_ = head_;
-    }
+    virtual void SeekToHead() { node_ = head_; }
   };
 
   class DynamicIterator : public HashLinkListRep::LinkListIterator {
@@ -486,7 +482,7 @@ class HashLinkListRep : public MemTableRep {
     // This is used when there wasn't a bucket. It is cheaper than
     // instantiating an empty bucket over which to iterate.
    public:
-    EmptyIterator() { }
+    EmptyIterator() {}
     bool Valid() const override { return false; }
     const char* key() const override {
       assert(false);
@@ -521,7 +517,7 @@ HashLinkListRep::HashLinkListRep(
       bucket_entries_logging_threshold_(bucket_entries_logging_threshold),
       if_log_bucket_dist_when_flash_(if_log_bucket_dist_when_flash) {
   char* mem = allocator_->AllocateAligned(sizeof(Pointer) * bucket_size,
-                                      huge_page_tlb_size, logger);
+                                          huge_page_tlb_size, logger);
 
   buckets_ = new (mem) Pointer[bucket_size];
 
@@ -530,8 +526,7 @@ HashLinkListRep::HashLinkListRep(
   }
 }
 
-HashLinkListRep::~HashLinkListRep() {
-}
+HashLinkListRep::~HashLinkListRep() {}
 
 KeyHandle HashLinkListRep::Allocate(const size_t len, char** buf) {
   char* mem = allocator_->AllocateAligned(sizeof(Node) + len);
@@ -633,9 +628,10 @@ void HashLinkListRep::Insert(KeyHandle handle) {
   if (bucket_entries_logging_threshold_ > 0 &&
       header->GetNumEntries() ==
           static_cast<uint32_t>(bucket_entries_logging_threshold_)) {
-    Info(logger_, "HashLinkedList bucket %" ROCKSDB_PRIszt
-                  " has more than %d "
-                  "entries. Key to insert: %s",
+    Info(logger_,
+         "HashLinkedList bucket %" ROCKSDB_PRIszt
+         " has more than %d "
+         "entries. Key to insert: %s",
          GetHash(transformed), header->GetNumEntries(),
          GetLengthPrefixedSlice(x->key).ToString(true).c_str());
   }
@@ -786,7 +782,7 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
         for (itr.SeekToFirst(); itr.Valid(); itr.Next()) {
           list->Insert(itr.key());
           count++;
-          }
+        }
       }
     }
     if (if_log_bucket_dist_when_flash_) {
@@ -926,4 +922,3 @@ MemTableRepFactory* NewHashLinkListRepFactory(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

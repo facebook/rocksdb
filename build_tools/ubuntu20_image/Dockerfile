@@ -16,6 +16,7 @@ RUN apt-get install -y libgflags-dev libtbb-dev
 RUN apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 # install cmake
 RUN apt-get install -y cmake
+RUN apt-get install -y libssl-dev
 # install clang-13
 WORKDIR /root
 RUN wget https://apt.llvm.org/llvm.sh

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -176,14 +175,8 @@ TEST_F(IOTracerParserTest, NoRecordingBeforeStartIOTrace) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 #endif  // GFLAGS
-#else
-#include <stdio.h>
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "io_tracer_parser_test is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-#endif  // ROCKSDB_LITE

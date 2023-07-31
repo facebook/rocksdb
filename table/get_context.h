@@ -75,8 +75,7 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
-    // TODO: remove once wide-column entities are supported by Get/MultiGet
-    kUnexpectedWideColumnEntity,
+    kMergeOperatorFailed,
   };
   GetContextStats get_context_stats_;
 
@@ -148,6 +147,14 @@ class GetContext {
     return max_covering_tombstone_seq_;
   }
 
+  bool NeedTimestamp() { return timestamp_ != nullptr; }
+
+  void SetTimestampFromRangeTombstone(const Slice& timestamp) {
+    assert(timestamp_);
+    timestamp_->assign(timestamp.data(), timestamp.size());
+    ts_from_rangetombstone_ = true;
+  }
+
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
   // If a non-null string is passed, all the SaveValue calls will be
@@ -171,13 +178,23 @@ class GetContext {
 
   bool has_callback() const { return callback_ != nullptr; }
 
+  const Slice& ukey_to_get_blob_value() const {
+    if (!ukey_with_ts_found_.empty()) {
+      return ukey_with_ts_found_;
+    } else {
+      return user_key_;
+    }
+  }
+
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
   void Merge(const Slice* value);
-  bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
+  void MergeWithEntity(Slice entity);
+  bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
+                    PinnableSlice* blob_value);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -187,9 +204,14 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
+  // When a blob index is found with the user key containing timestamp,
+  // this copies the corresponding user key on record in the sst file
+  // and is later used for blob verification.
+  PinnableSlice ukey_with_ts_found_;
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
+  bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;

@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
 /**
  * A simple abstraction to allow a Java class to wrap a custom comparator
  * implemented in C++.
- *
+ * <p>
  * The native comparator must directly extend rocksdb::Comparator.
  */
 public abstract class NativeComparatorWrapper
