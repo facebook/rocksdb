@@ -202,6 +202,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
   EpochNumberRequirement epoch_number_requirement_;
+  std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,

@@ -504,14 +504,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
             s = db_->Merge(write_opts, cfh, key, v);
           }
         } else {
-          Transaction* txn;
-          s = NewTxn(write_opts, &txn);
-          if (s.ok()) {
-            s = txn->Merge(cfh, key, v);
-            if (s.ok()) {
-              s = CommitTxn(txn);
-            }
-          }
+          s = ExecuteTransaction(
+              write_opts, /*thread=*/nullptr,
+              [&](Transaction& txn) { return txn.Merge(cfh, key, v); });
         }
       } else if (FLAGS_use_put_entity_one_in > 0) {
         s = db_->PutEntity(write_opts, cfh, key,
@@ -524,14 +519,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
             s = db_->Put(write_opts, cfh, key, v);
           }
         } else {
-          Transaction* txn;
-          s = NewTxn(write_opts, &txn);
-          if (s.ok()) {
-            s = txn->Put(cfh, key, v);
-            if (s.ok()) {
-              s = CommitTxn(txn);
-            }
-          }
+          s = ExecuteTransaction(
+              write_opts, /*thread=*/nullptr,
+              [&](Transaction& txn) { return txn.Put(cfh, key, v); });
         }
       }
 
@@ -629,14 +619,15 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
   }
 }
 
-Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
+Status StressTest::NewTxn(WriteOptions& write_opts,
+                          std::unique_ptr<Transaction>* out_txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
   }
   write_opts.disableWAL = FLAGS_disable_wal;
   static std::atomic<uint64_t> txn_id = {0};
   if (FLAGS_use_optimistic_txn) {
-    *txn = optimistic_txn_db_->BeginTransaction(write_opts);
+    out_txn->reset(optimistic_txn_db_->BeginTransaction(write_opts));
     return Status::OK();
   } else {
     TransactionOptions txn_options;
@@ -644,31 +635,31 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
         FLAGS_use_only_the_last_commit_time_batch_for_recovery;
     txn_options.lock_timeout = 600000;  // 10 min
     txn_options.deadlock_detect = true;
-    *txn = txn_db_->BeginTransaction(write_opts, txn_options);
+    out_txn->reset(txn_db_->BeginTransaction(write_opts, txn_options));
     auto istr = std::to_string(txn_id.fetch_add(1));
-    Status s = (*txn)->SetName("xid" + istr);
+    Status s = (*out_txn)->SetName("xid" + istr);
     return s;
   }
 }
 
-Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
+Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = Status::OK();
   if (FLAGS_use_optimistic_txn) {
     assert(optimistic_txn_db_);
-    s = txn->Commit();
+    s = txn.Commit();
   } else {
     assert(txn_db_);
-    s = txn->Prepare();
+    s = txn.Prepare();
     std::shared_ptr<const Snapshot> timestamped_snapshot;
     if (s.ok()) {
       if (thread && FLAGS_create_timestamped_snapshot_one_in &&
           thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
         uint64_t ts = db_stress_env->NowNanos();
-        s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
-                                            &timestamped_snapshot);
+        s = txn.CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                           &timestamped_snapshot);
 
         std::pair<Status, std::shared_ptr<const Snapshot>> res;
         if (thread->tid == 0) {
@@ -686,7 +677,7 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
           }
         }
       } else {
-        s = txn->Commit();
+        s = txn.Commit();
       }
     }
     if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
@@ -696,18 +687,37 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
       txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
     }
   }
-  delete txn;
   return s;
 }
 
-Status StressTest::RollbackTxn(Transaction* txn) {
-  if (!FLAGS_use_txn) {
-    return Status::InvalidArgument(
-        "RollbackTxn when FLAGS_use_txn is not"
-        " set");
+Status StressTest::ExecuteTransaction(
+    WriteOptions& write_opts, ThreadState* thread,
+    std::function<Status(Transaction&)>&& ops) {
+  std::unique_ptr<Transaction> txn;
+  Status s = NewTxn(write_opts, &txn);
+  if (s.ok()) {
+    for (int tries = 1;; ++tries) {
+      s = ops(*txn);
+      if (s.ok()) {
+        s = CommitTxn(*txn, thread);
+        if (s.ok()) {
+          break;
+        }
+      }
+      // Optimistic txn might return TryAgain, in which case rollback
+      // and try again. But that shouldn't happen too many times in a row.
+      if (!s.IsTryAgain() || !FLAGS_use_optimistic_txn) {
+        break;
+      }
+      if (tries >= 5) {
+        break;
+      }
+      s = txn->Rollback();
+      if (!s.ok()) {
+        break;
+      }
+    }
   }
-  Status s = txn->Rollback();
-  delete txn;
   return s;
 }
 

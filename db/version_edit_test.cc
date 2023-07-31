@@ -58,6 +58,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
   }
 
   edit.SetComparatorName("foo");
+  edit.SetPersistUserDefinedTimestamps(true);
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
@@ -95,6 +96,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
+  edit.SetPersistUserDefinedTimestamps(false);
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
@@ -125,6 +127,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_FALSE(new_files[1].second.user_defined_timestamps_persisted);
   ASSERT_TRUE(new_files[2].second.user_defined_timestamps_persisted);
   ASSERT_TRUE(new_files[3].second.user_defined_timestamps_persisted);
+  ASSERT_FALSE(parsed.GetPersistUserDefinedTimestamps());
 }
 
 TEST_F(VersionEditTest, EncodeDecodeNewFile4HandleFileBoundary) {
@@ -195,6 +198,7 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
+  edit.SetPersistUserDefinedTimestamps(true);
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
@@ -230,6 +234,7 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   ASSERT_EQ(3u, new_files[0].second.fd.GetPathId());
   ASSERT_EQ(3u, new_files[1].second.fd.GetPathId());
   ASSERT_EQ(1u, parsed.GetDeletedFiles().size());
+  ASSERT_TRUE(parsed.GetPersistUserDefinedTimestamps());
 }
 
 TEST_F(VersionEditTest, NewFile4NotSupportedField) {
@@ -240,9 +245,10 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, false);
 
   edit.SetComparatorName("foo");
+  edit.SetPersistUserDefinedTimestamps(false);
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);

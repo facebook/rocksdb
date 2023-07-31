@@ -127,6 +127,20 @@ class FlushJob {
   Env::IOPriority GetRateLimiterPriorityForWrite();
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 
+  // Require db_mutex held.
+  // Called only when UDT feature is enabled and
+  // `persist_user_defined_timestamps` flag is false. Because we will refrain
+  // from flushing as long as there are still UDTs in a memtable that hasn't
+  // expired w.r.t `full_history_ts_low`. However, flush is continued if there
+  // is risk of entering write stall mode. In that case, we need
+  // to track the effective cutoff timestamp below which all the udts are
+  // removed because of flush, and use it to increase `full_history_ts_low` if
+  // the effective cutoff timestamp is newer. See
+  // `MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT` for details.
+  void GetEffectiveCutoffUDTForPickedMemTables();
+
+  Status MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
+
   const std::string& dbname_;
   const std::string db_id_;
   const std::string db_session_id_;
@@ -195,6 +209,10 @@ class FlushJob {
   // db mutex
   const SeqnoToTimeMapping& db_impl_seqno_time_mapping_;
   SeqnoToTimeMapping seqno_to_time_mapping_;
+
+  // Keeps track of the newest user-defined timestamp for this flush job if
+  // `persist_user_defined_timestamps` flag is false.
+  std::string cutoff_udt_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

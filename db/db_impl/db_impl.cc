@@ -3191,6 +3191,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     edit.SetColumnFamily(new_id);
     edit.SetLogNumber(logfile_number_);
     edit.SetComparatorName(cf_options.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
@@ -5822,6 +5824,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       return s;
     }
   }
+  // FIXME? What does it mean if read_options.verify_checksums == false?
 
   // TODO: simplify using GetRefedColumnFamilySet?
   std::vector<ColumnFamilyData*> cfd_list;

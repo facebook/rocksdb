@@ -2063,6 +2063,10 @@ class DBImpl : public DB {
     // flush is considered complete.
     std::unordered_map<ColumnFamilyData*, uint64_t>
         cfd_to_max_mem_id_to_persist;
+
+#ifndef NDEBUG
+    int reschedule_count = 1;
+#endif /* !NDEBUG */
   };
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
@@ -2091,6 +2095,7 @@ class DBImpl : public DB {
                               Env::Priority thread_pri);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
+                         bool* flush_rescheduled_to_retain_udt,
                          Env::Priority thread_pri);
 
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
@@ -2102,6 +2107,12 @@ class DBImpl : public DB {
   bool RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                               std::unique_ptr<TaskLimiterToken>* token,
                               LogBuffer* log_buffer);
+
+  // Return true if the `FlushRequest` can be rescheduled to retain the UDT.
+  // Only true if there are user-defined timestamps in the involved MemTables
+  // with newer than cutoff timestamp `full_history_ts_low` and not flushing
+  // immediately will not cause entering write stall mode.
+  bool ShouldRescheduleFlushRequestToRetainUDT(const FlushRequest& flush_req);
 
   // Schedule background tasks
   Status StartPeriodicTaskScheduler();
@@ -2189,7 +2200,7 @@ class DBImpl : public DB {
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
-                              const int job_id, const Version* current,
+                              const int job_id,
                               CompactionJobInfo* compaction_job_info) const;
   // Reserve the next 'num' file numbers for to-be-ingested external SST files,
   // and return the current file_number in 'next_file_number'.

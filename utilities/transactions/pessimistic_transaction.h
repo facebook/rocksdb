@@ -308,4 +308,3 @@ class WriteCommittedTxn : public PessimisticTransaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

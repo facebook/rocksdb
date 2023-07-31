@@ -32,6 +32,7 @@ struct TableProperties;
 
 // Meta block names for metaindex
 extern const std::string kPropertiesBlockName;
+extern const std::string kIndexBlockName;
 extern const std::string kPropertiesBlockOldName;
 extern const std::string kCompressionDictBlockName;
 extern const std::string kRangeDelBlockName;

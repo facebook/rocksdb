@@ -5231,6 +5231,12 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
     }
 
     auto manual_compaction_thread = port::Thread([this]() {
+      // Write something to make the current Memtable non-empty, so an extra
+      // immutable Memtable will be created upon manual flush requested by
+      // CompactRange, triggering a write stall mode to be entered because of
+      // accumulation of write buffers due to manual flush.
+      Random compact_rnd(301);
+      ASSERT_OK(Put(Key(0), compact_rnd.RandomString(1024)));
       CompactRangeOptions cro;
       cro.allow_write_stall = false;
       ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -9801,6 +9807,43 @@ TEST_F(DBCompactionTest, NumberOfSubcompactions) {
   }
 }
 
+TEST_F(DBCompactionTest, VerifyRecordCount) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Only iterator through 10 keys and force compaction to finish.
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::stop", [&](void* stop_ptr) {
+        num_iter++;
+        if (num_iter == 10) {
+          *(bool*)stop_ptr = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Compaction number of input keys does not match number of keys "
+      "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

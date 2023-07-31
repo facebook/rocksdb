@@ -222,6 +222,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, flush_verify_memtable_count),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"compaction_verify_record_count",
+         {offsetof(struct ImmutableDBOptions, compaction_verify_record_count),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"track_and_verify_wals_in_manifest",
          {offsetof(struct ImmutableDBOptions,
                    track_and_verify_wals_in_manifest),
@@ -679,6 +683,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       flush_verify_memtable_count(options.flush_verify_memtable_count),
+      compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
       verify_sst_unique_id_in_manifest(
@@ -771,6 +776,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "            Options.flush_verify_memtable_count: %d",
                    flush_verify_memtable_count);
+  ROCKS_LOG_HEADER(log, "         Options.compaction_verify_record_count: %d",
+                   compaction_verify_record_count);
   ROCKS_LOG_HEADER(log,
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",

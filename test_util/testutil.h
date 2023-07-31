@@ -132,6 +132,9 @@ extern const Comparator* Uint64Comparator();
 // A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
 extern const Comparator* BytewiseComparatorWithU64TsWrapper();
 
+// A wrapper api for getting the ComparatorWithU64Ts<ReverseBytewiseComparator>
+extern const Comparator* ReverseBytewiseComparatorWithU64TsWrapper();
+
 class StringSink : public FSWritableFile {
  public:
   std::string contents_;

@@ -107,6 +107,9 @@ class BlockFetcherTest : public testing::Test {
     Footer footer;
     ReadFooter(file.get(), &footer);
     const BlockHandle& index_handle = footer.index_handle();
+    // FIXME: index handle will need to come from metaindex for
+    // format_version >= 6 when that becomes the default
+    ASSERT_FALSE(index_handle.IsNull());
 
     CompressionType compression_type;
     FetchBlock(file.get(), index_handle, BlockType::kIndex,
