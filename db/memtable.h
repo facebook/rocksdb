@@ -337,11 +337,6 @@ class MemTable {
       uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) +
                      update_counters.num_range_deletes;
       num_range_deletes_.store(val, std::memory_order_relaxed);
-      if (memtable_max_range_deletions_ > 0 &&
-          memtable_max_range_deletions_reached_ == false &&
-          val >= (uint64_t)memtable_max_range_deletions_) {
-        memtable_max_range_deletions_reached_ = true;
-      }
     }
     UpdateFlushState();
   }
@@ -648,9 +643,6 @@ class MemTable {
   // max range deletions in a memtable,  before automatic flushing, 0 for
   // unlimited.
   uint32_t memtable_max_range_deletions_ = 0;
-  // Range-delete will turn this flag on, if memtable_max_range_deletions_ is
-  // reached. ShouldFlushNow() will check this.
-  bool memtable_max_range_deletions_reached_ = false;
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;

@@ -179,7 +179,9 @@ size_t MemTable::ApproximateMemoryUsage() {
 bool MemTable::ShouldFlushNow() {
   // This is set if memtable_max_range_deletions is > 0,
   // and that many range deletions are done
-  if (memtable_max_range_deletions_reached_) {
+  if (memtable_max_range_deletions_ > 0 &&
+      num_range_deletes_.load(std::memory_order_relaxed) >=
+          static_cast<uint64_t>(memtable_max_range_deletions_)) {
     return true;
   }
 
@@ -768,12 +770,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     } else if (type == kTypeRangeDeletion) {
       uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) + 1;
       num_range_deletes_.store(val, std::memory_order_relaxed);
-      // Arrange for a flush if too many delete ranges have been issued.
-      if (memtable_max_range_deletions_ > 0 &&
-          memtable_max_range_deletions_reached_ == false &&
-          val >= (uint64_t)memtable_max_range_deletions_) {
-        memtable_max_range_deletions_reached_ = true;
-      }
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
