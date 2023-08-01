@@ -6664,7 +6664,6 @@ TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
 
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  Status s;
 
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
@@ -6675,9 +6674,11 @@ TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
   ASSERT_OK(txn->Put("3", "3"));
   ASSERT_OK(txn->Delete("2"));
 
-  read_options.iterate_upper_bound = new Slice("2", 1);
+  Slice upper_bound = "2";
+  read_options.iterate_upper_bound = &upper_bound;
   Iterator* iter = txn->GetIterator(read_options);
   ASSERT_OK(iter->status());
+
   iter->SeekToFirst();
   while(iter->Valid())
   {
