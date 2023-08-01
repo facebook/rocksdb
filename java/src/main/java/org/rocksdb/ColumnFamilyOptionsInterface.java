@@ -510,7 +510,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * Sets the maximum range delete calls, after which memtable is flushed.
    * This applies to the mutable memtable.
    *
-   * @param a positive integer, 0 (default) to disable the feature.
+   * @param count a positive integer, 0 (default) to disable the feature.
    * @return the reference of the current options.
    */
   T setMemtableMaxRangeDeletions(final int count);
