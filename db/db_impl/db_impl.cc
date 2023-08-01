@@ -5824,6 +5824,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       return s;
     }
   }
+  // FIXME? What does it mean if read_options.verify_checksums == false?
 
   // TODO: simplify using GetRefedColumnFamilySet?
   std::vector<ColumnFamilyData*> cfd_list;

@@ -1546,7 +1546,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (compaction_job_info != nullptr) {
     BuildCompactionJobInfo(cfd, c.get(), s, compaction_job_stats,
-                           job_context->job_id, version, compaction_job_info);
+                           job_context->job_id, compaction_job_info);
   }
 
   if (status.ok()) {
@@ -1643,21 +1643,18 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   }
 
   c->SetNotifyOnCompactionCompleted();
-  Version* current = cfd->current();
-  current->Ref();
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionBegin::UnlockMutex");
   {
     CompactionJobInfo info{};
-    BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, current, &info);
+    BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, &info);
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
     }
     info.status.PermitUncheckedError();
   }
   mutex_.Lock();
-  current->Unref();
 }
 
 void DBImpl::NotifyOnCompactionCompleted(
@@ -1675,21 +1672,17 @@ void DBImpl::NotifyOnCompactionCompleted(
     return;
   }
 
-  Version* current = cfd->current();
-  current->Ref();
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
     CompactionJobInfo info{};
-    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
-                           &info);
+    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
     }
   }
   mutex_.Lock();
-  current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 }
@@ -3923,7 +3916,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 void DBImpl::BuildCompactionJobInfo(
     const ColumnFamilyData* cfd, Compaction* c, const Status& st,
     const CompactionJobStats& compaction_job_stats, const int job_id,
-    const Version* current, CompactionJobInfo* compaction_job_info) const {
+    CompactionJobInfo* compaction_job_info) const {
   assert(compaction_job_info != nullptr);
   compaction_job_info->cf_id = cfd->GetID();
   compaction_job_info->cf_name = cfd->GetName();
@@ -3933,7 +3926,7 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
-  compaction_job_info->table_properties = c->GetOutputTableProperties();
+  compaction_job_info->table_properties = c->GetTableProperties();
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
 
@@ -3947,15 +3940,9 @@ void DBImpl::BuildCompactionJobInfo(
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
-      if (compaction_job_info->table_properties.count(fn) == 0) {
-        std::shared_ptr<const TableProperties> tp;
-        auto s = current->GetTableProperties(read_options, &tp, fmd, &fn);
-        if (s.ok()) {
-          compaction_job_info->table_properties[fn] = tp;
-        }
-      }
     }
   }
+
   for (const auto& newf : c->edit()->GetNewFiles()) {
     const FileMetaData& meta = newf.second;
     const FileDescriptor& desc = meta.fd;

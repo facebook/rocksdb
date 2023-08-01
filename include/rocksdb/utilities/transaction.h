@@ -227,7 +227,8 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_size_to_maintain).
+  // (see max_write_buffer_size_to_maintain). In either case, a Rollback()
+  // or new transaction is required to expect a different result.
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
@@ -259,6 +260,7 @@ class Transaction {
       std::shared_ptr<const Snapshot>* snapshot = nullptr);
 
   // Discard all batched writes in this transaction.
+  // FIXME: what happens if this isn't called before destruction?
   virtual Status Rollback() = 0;
 
   // Records the state of the transaction for future calls to

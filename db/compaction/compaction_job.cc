@@ -796,15 +796,46 @@ Status CompactionJob::Run() {
       auto fn =
           TableFileName(state.compaction->immutable_options()->cf_paths,
                         output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
-      tp[fn] = output.table_properties;
+      compact_->compaction->SetOutputTableProperties(fn,
+                                                     output.table_properties);
     }
   }
-  compact_->compaction->SetOutputTableProperties(std::move(tp));
 
-  // Finish up all book-keeping to unify the subcompaction results
+  // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
-  UpdateCompactionStats();
-
+  uint64_t num_input_range_del = 0;
+  bool ok = UpdateCompactionStats(&num_input_range_del);
+  // (Sub)compactions returned ok, do sanity check on the number of input keys.
+  if (status.ok() && ok && compaction_job_stats_->has_num_input_records) {
+    size_t ts_sz = compact_->compaction->column_family_data()
+                       ->user_comparator()
+                       ->timestamp_size();
+    // When trim_ts_ is non-empty, CompactionIterator takes
+    // HistoryTrimmingIterator as input iterator and sees a trimmed view of
+    // input keys. So the number of keys it processed is not suitable for
+    // verification here.
+    // TODO: support verification when trim_ts_ is non-empty.
+    if (!(ts_sz > 0 && !trim_ts_.empty()) &&
+        db_options_.compaction_verify_record_count) {
+      assert(compaction_stats_.stats.num_input_records > 0);
+      // TODO: verify the number of range deletion entries.
+      uint64_t expected =
+          compaction_stats_.stats.num_input_records - num_input_range_del;
+      uint64_t actual = compaction_job_stats_->num_input_records;
+      if (expected != actual) {
+        std::string msg =
+            "Total number of input records: " + std::to_string(expected) +
+            ", but processed " + std::to_string(actual) + " records.";
+        ROCKS_LOG_WARN(
+            db_options_.info_log, "[%s] [JOB %d] Compaction %s",
+            compact_->compaction->column_family_data()->GetName().c_str(),
+            job_context_->job_id, msg.c_str());
+        status = Status::Corruption(
+            "Compaction number of input keys does not match number of keys "
+            "processed.");
+      }
+    }
+  }
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
@@ -1252,6 +1283,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       /*expect_valid_internal_key=*/true, range_del_agg.get(),
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
+      sub_compact->compaction
+          ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_,
       preclude_last_level_min_seqno_);
@@ -1316,8 +1349,25 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
     }
+
+#ifndef NDEBUG
+    bool stop = false;
+    TEST_SYNC_POINT_CALLBACK("CompactionJob::ProcessKeyValueCompaction()::stop",
+                             static_cast<void*>(&stop));
+    if (stop) {
+      break;
+    }
+#endif  // NDEBUG
   }
 
+  // This number may not be accurate when CompactionIterator was created
+  // with `must_count_input_entries=false`.
+  assert(!sub_compact->compaction->DoesInputReferenceBlobFiles() ||
+         c_iter->HasNumInputEntryScanned());
+  sub_compact->compaction_job_stats.has_num_input_records =
+      c_iter->HasNumInputEntryScanned();
+  sub_compact->compaction_job_stats.num_input_records =
+      c_iter->NumInputEntryScanned();
   sub_compact->compaction_job_stats.num_blobs_read =
       c_iter_stats.num_blobs_read;
   sub_compact->compaction_job_stats.total_blob_bytes_read =
@@ -1903,24 +1953,53 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-
-void CompactionJob::UpdateCompactionStats() {
+bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   assert(compact_);
 
   Compaction* compaction = compact_->compaction;
   compaction_stats_.stats.num_input_files_in_non_output_levels = 0;
   compaction_stats_.stats.num_input_files_in_output_level = 0;
+
+  bool has_error = false;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  const auto& input_table_properties = compaction->GetTableProperties();
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
+    size_t num_input_files = compaction->num_input_files(input_level);
+    uint64_t* bytes_read;
     if (compaction->level(input_level) != compaction->output_level()) {
-      UpdateCompactionInputStatsHelper(
-          &compaction_stats_.stats.num_input_files_in_non_output_levels,
-          &compaction_stats_.stats.bytes_read_non_output_levels, input_level);
+      compaction_stats_.stats.num_input_files_in_non_output_levels +=
+          static_cast<int>(num_input_files);
+      bytes_read = &compaction_stats_.stats.bytes_read_non_output_levels;
     } else {
-      UpdateCompactionInputStatsHelper(
-          &compaction_stats_.stats.num_input_files_in_output_level,
-          &compaction_stats_.stats.bytes_read_output_level, input_level);
+      compaction_stats_.stats.num_input_files_in_output_level +=
+          static_cast<int>(num_input_files);
+      bytes_read = &compaction_stats_.stats.bytes_read_output_level;
+    }
+    for (size_t i = 0; i < num_input_files; ++i) {
+      const FileMetaData* file_meta = compaction->input(input_level, i);
+      *bytes_read += file_meta->fd.GetFileSize();
+      uint64_t file_input_entries = file_meta->num_entries;
+      uint64_t file_num_range_del = file_meta->num_range_deletions;
+      if (file_input_entries == 0) {
+        uint64_t file_number = file_meta->fd.GetNumber();
+        // Try getting info from table property
+        std::string fn =
+            TableFileName(compaction->immutable_options()->cf_paths,
+                          file_number, file_meta->fd.GetPathId());
+        const auto& tp = input_table_properties.find(fn);
+        if (tp != input_table_properties.end()) {
+          file_input_entries = tp->second->num_entries;
+          file_num_range_del = tp->second->num_range_deletions;
+        } else {
+          has_error = true;
+        }
+      }
+      compaction_stats_.stats.num_input_records += file_input_entries;
+      if (num_input_range_del) {
+        *num_input_range_del += file_num_range_del;
+      }
     }
   }
 
@@ -1930,21 +2009,7 @@ void CompactionJob::UpdateCompactionStats() {
 
   compaction_stats_.stats.num_dropped_records =
       compaction_stats_.DroppedRecords();
-}
-
-void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,
-                                                     uint64_t* bytes_read,
-                                                     int input_level) {
-  const Compaction* compaction = compact_->compaction;
-  auto num_input_files = compaction->num_input_files(input_level);
-  *num_files += static_cast<int>(num_input_files);
-
-  for (size_t i = 0; i < num_input_files; ++i) {
-    const auto* file_meta = compaction->input(input_level, i);
-    *bytes_read += file_meta->fd.GetFileSize();
-    compaction_stats_.stats.num_input_records +=
-        static_cast<uint64_t>(file_meta->num_entries);
-  }
+  return !has_error;
 }
 
 void CompactionJob::UpdateCompactionJobStats(

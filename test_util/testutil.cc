@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
