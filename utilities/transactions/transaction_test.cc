@@ -6657,6 +6657,37 @@ TEST_P(TransactionTest, StallTwoWriteQueues) {
   ASSERT_TRUE(t2_completed);
 }
 
+TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
+  if (txn_db_options.write_policy == WRITE_PREPARED) {
+    return;
+  }
+
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+
+  ASSERT_OK(txn->Put("2", "2"));
+  ASSERT_OK(txn->Put("1", "1"));
+  ASSERT_OK(txn->Put("3", "3"));
+  ASSERT_OK(txn->Delete("2"));
+
+  read_options.iterate_upper_bound = new Slice("2", 1);
+  Iterator* iter = txn->GetIterator(read_options);
+  ASSERT_OK(iter->status());
+  iter->SeekToFirst();
+  while(iter->Valid())
+  {
+    ASSERT_EQ("1", iter->key().ToString());
+    iter->Next();
+  }
+  delete iter;
+  delete txn;
+}
+
 // Make sure UnlockWAL does not return until the stall it controls is cleared.
 TEST_P(TransactionTest, UnlockWALStallCleared) {
   auto dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());

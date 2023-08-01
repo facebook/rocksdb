@@ -66,6 +66,7 @@ class BaseDeltaIterator : public Iterator {
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
+  bool delta_iterator_out_of_bound_;
   mutable Status status_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
