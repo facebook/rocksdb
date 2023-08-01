@@ -1273,8 +1273,8 @@ class VersionSet {
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false, bool json = false);
-
+                      bool verbose, bool hex = false, bool json = false,
+                      const std::vector<ColumnFamilyDescriptor>& cf_descs = {});
 
   const std::string& DbSessionId() const { return db_session_id_; }
 

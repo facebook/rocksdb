@@ -771,6 +771,7 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+  rep->verify_checksum_set_on_open = ro.verify_checksums;
   s = new_table->PrefetchIndexAndFilterBlocks(
       ro, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
       prefetch_all, table_options, level, file_size,
@@ -2454,6 +2455,10 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     return BlockType::kHashIndexMetadata;
   }
 
+  if (meta_block_name == kIndexBlockName) {
+    return BlockType::kIndex;
+  }
+
   if (meta_block_name.starts_with(kObsoleteFilterBlockPrefix)) {
     // Obsolete but possible in old files
     return BlockType::kInvalid;
@@ -2474,6 +2479,9 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
     BlockHandle handle;
     Slice input = index_iter->value();
     s = handle.DecodeFrom(&input);
+    if (!s.ok()) {
+      break;
+    }
     BlockContents contents;
     const Slice meta_block_name = index_iter->key();
     if (meta_block_name == kPropertiesBlockName) {
@@ -2484,7 +2492,13 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
                                     nullptr /* prefetch_buffer */, rep_->footer,
                                     rep_->ioptions, &table_properties,
                                     nullptr /* memory_allocator */);
+    } else if (rep_->verify_checksum_set_on_open &&
+               meta_block_name == kIndexBlockName) {
+      // WART: For now, to maintain similar I/O behavior as before
+      // format_version=6, we skip verifying index block checksum--but only
+      // if it was checked on open.
     } else {
+      // FIXME? Need to verify checksums of index and filter partitions?
       s = BlockFetcher(
               rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
               read_options, handle, &contents, rep_->ioptions,
@@ -2542,6 +2556,15 @@ Status BlockBasedTable::CreateIndexReader(
     InternalIterator* meta_iter, bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
+  if (FormatVersionUsesIndexHandleInFooter(rep_->footer.format_version())) {
+    rep_->index_handle = rep_->footer.index_handle();
+  } else {
+    Status s = FindMetaBlock(meta_iter, kIndexBlockName, &rep_->index_handle);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   switch (rep_->index_type) {
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       return PartitionIndexReader::Create(this, ro, prefetch_buffer, use_cache,
@@ -2709,7 +2732,7 @@ bool BlockBasedTable::TEST_FilterBlockInCache() const {
 bool BlockBasedTable::TEST_IndexBlockInCache() const {
   assert(rep_ != nullptr);
 
-  return TEST_BlockInCache(rep_->footer.index_handle());
+  return TEST_BlockInCache(rep_->index_handle);
 }
 
 Status BlockBasedTable::GetKVPairsFromDataBlocks(

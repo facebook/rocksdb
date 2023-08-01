@@ -127,11 +127,6 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
-  assert(!internal_key.empty());
-  InternalKey ikey;
-  ikey.DecodeFrom(internal_key);
-  assert(ikey.Valid());
-
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
   // Move the grandparent_index_ to the file containing the current user_key.
@@ -139,7 +134,7 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   // index points to the last file containing the key.
   while (grandparent_index_ < grandparents.size()) {
     if (being_grandparent_gap_) {
-      if (sstableKeyCompare(ucmp, ikey,
+      if (sstableKeyCompare(ucmp, internal_key,
                             grandparents[grandparent_index_]->smallest) < 0) {
         break;
       }
@@ -152,13 +147,13 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
       being_grandparent_gap_ = false;
     } else {
       int cmp_result = sstableKeyCompare(
-          ucmp, ikey, grandparents[grandparent_index_]->largest);
+          ucmp, internal_key, grandparents[grandparent_index_]->largest);
       // If it's same key, make sure grandparent_index_ is pointing to the last
       // one.
       if (cmp_result < 0 ||
           (cmp_result == 0 &&
            (grandparent_index_ == grandparents.size() - 1 ||
-            sstableKeyCompare(ucmp, ikey,
+            sstableKeyCompare(ucmp, internal_key,
                               grandparents[grandparent_index_ + 1]->smallest) <
                 0))) {
         break;

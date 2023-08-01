@@ -192,7 +192,21 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  void UpdateCompactionStats();
+  // Update the following stats in compaction_stats_.stats
+  // - num_input_files_in_non_output_levels
+  // - num_input_files_in_output_level
+  // - bytes_read_non_output_levels
+  // - bytes_read_output_level
+  // - num_input_records
+  // - bytes_read_blob
+  // - num_dropped_records
+  //
+  // @param num_input_range_del if non-null, will be set to the number of range
+  // deletion entries in this compaction input.
+  //
+  // Returns true iff compaction_stats_.stats.num_input_records and
+  // num_input_range_del are calculated successfully.
+  bool UpdateCompactionStats(uint64_t* num_input_range_del = nullptr);
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
@@ -266,9 +280,6 @@ class CompactionJob {
       const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
-
-  void UpdateCompactionInputStatsHelper(int* num_files, uint64_t* bytes_read,
-                                        int input_level);
 
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 

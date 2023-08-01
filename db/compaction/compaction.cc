@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "logging/logging.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
 #include "test_util/sync_point.h"
@@ -23,14 +24,13 @@ namespace ROCKSDB_NAMESPACE {
 const uint64_t kRangeTombstoneSentinel =
     PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b) {
-  auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
+int sstableKeyCompare(const Comparator* uc, const Slice& a, const Slice& b) {
+  auto c = uc->CompareWithoutTimestamp(ExtractUserKey(a), ExtractUserKey(b));
   if (c != 0) {
     return c;
   }
-  auto a_footer = ExtractInternalKeyFooter(a.Encode());
-  auto b_footer = ExtractInternalKeyFooter(b.Encode());
+  auto a_footer = ExtractInternalKeyFooter(a);
+  auto b_footer = ExtractInternalKeyFooter(b);
   if (a_footer == kRangeTombstoneSentinel) {
     if (b_footer != kRangeTombstoneSentinel) {
       return -1;
@@ -202,6 +202,34 @@ bool Compaction::IsFullCompaction(
     num_files_in_compaction += inputs[i].size();
   }
   return num_files_in_compaction == total_num_files;
+}
+
+const TablePropertiesCollection& Compaction::GetTableProperties() {
+  if (!input_table_properties_initialized_) {
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
+    for (size_t i = 0; i < num_input_levels(); ++i) {
+      for (const FileMetaData* fmd : *(this->inputs(i))) {
+        std::shared_ptr<const TableProperties> tp;
+        std::string file_name =
+            TableFileName(immutable_options_.cf_paths, fmd->fd.GetNumber(),
+                          fmd->fd.GetPathId());
+        Status s = input_version_->GetTableProperties(read_options, &tp, fmd,
+                                                      &file_name);
+        if (s.ok()) {
+          table_properties_[file_name] = tp;
+        } else {
+          ROCKS_LOG_ERROR(immutable_options_.info_log,
+                          "Unable to load table properties for file %" PRIu64
+                          " --- %s\n",
+                          fmd->fd.GetNumber(), s.ToString().c_str());
+        }
+      }
+    }
+
+    input_table_properties_initialized_ = true;
+  };
+
+  return table_properties_;
 }
 
 Compaction::Compaction(

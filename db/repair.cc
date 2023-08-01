@@ -157,6 +157,7 @@ class Repairer {
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(opts.persist_user_defined_timestamps);
     edit.SetLogNumber(0);
     edit.SetColumnFamily(cf_id);
     ColumnFamilyData* cfd;
@@ -720,6 +721,8 @@ class Repairer {
         // recovered epoch numbers
         VersionEdit edit;
         edit.SetComparatorName(cfd->user_comparator()->Name());
+        edit.SetPersistUserDefinedTimestamps(
+            cfd->ioptions()->persist_user_defined_timestamps);
         edit.SetLogNumber(0);
         edit.SetNextFile(next_file_number_);
         edit.SetColumnFamily(cfd->GetID());

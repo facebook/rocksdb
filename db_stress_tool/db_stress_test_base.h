@@ -64,11 +64,14 @@ class StressTest {
   virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
                                                   SharedState* shared);
 
-  Status NewTxn(WriteOptions& write_opts, Transaction** txn);
+  // ExecuteTransaction is recommended instead
+  Status NewTxn(WriteOptions& write_opts,
+                std::unique_ptr<Transaction>* out_txn);
+  Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
 
-  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
-
-  Status RollbackTxn(Transaction* txn);
+  // Creates a transaction, executes `ops`, and tries to commit
+  Status ExecuteTransaction(WriteOptions& write_opts, ThreadState* thread,
+                            std::function<Status(Transaction&)>&& ops);
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 

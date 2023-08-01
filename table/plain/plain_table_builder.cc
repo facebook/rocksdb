@@ -274,10 +274,11 @@ Status PlainTableBuilder::Finish() {
 
   // -- Write property block
   BlockHandle property_block_handle;
-  IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
+  io_status_ = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
-  if (!s.ok()) {
-    return static_cast<Status>(s);
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
   meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
@@ -293,8 +294,12 @@ Status PlainTableBuilder::Finish() {
   // Write Footer
   // no need to write out new footer if we're using default checksum
   FooterBuilder footer;
-  footer.Build(kPlainTableMagicNumber, /* format_version */ 0, offset_,
-               kNoChecksum, metaindex_block_handle);
+  Status s = footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
+                          offset_, kNoChecksum, metaindex_block_handle);
+  if (!s.ok()) {
+    status_ = s;
+    return status_;
+  }
   io_status_ = file_->Append(footer.GetSlice());
   if (io_status_.ok()) {
     offset_ += footer.GetSlice().size();

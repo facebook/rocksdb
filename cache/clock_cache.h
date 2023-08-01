@@ -371,14 +371,134 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
   // TODO: make these coundown values tuning parameters for eviction?
 
-  // See above
-  std::atomic<uint64_t> meta{};
+  // See above. Mutable for read reference counting.
+  mutable std::atomic<uint64_t> meta{};
 
-  // Anticipating use for SecondaryCache support
-  void* reserved_for_future_use = nullptr;
+  // Whether this is a "deteched" handle that is independently allocated
+  // with `new` (so must be deleted with `delete`).
+  // TODO: ideally this would be packed into some other data field, such
+  // as upper bits of total_charge, but that incurs a measurable performance
+  // regression.
+  bool standalone = false;
+
+  inline bool IsStandalone() const { return standalone; }
+
+  inline void SetStandalone() { standalone = true; }
 };  // struct ClockHandle
 
-class HyperClockTable {
+class BaseClockTable {
+ public:
+  BaseClockTable(CacheMetadataChargePolicy metadata_charge_policy,
+                 MemoryAllocator* allocator,
+                 const Cache::EvictionCallback* eviction_callback,
+                 const uint32_t* hash_seed)
+      : metadata_charge_policy_(metadata_charge_policy),
+        allocator_(allocator),
+        eviction_callback_(*eviction_callback),
+        hash_seed_(*hash_seed) {}
+
+  template <class Table>
+  typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
+                                               size_t capacity,
+                                               bool strict_capacity_limit,
+                                               bool allow_uncharged);
+
+  template <class Table>
+  Status Insert(const ClockHandleBasicData& proto,
+                typename Table::HandleImpl** handle, Cache::Priority priority,
+                size_t capacity, bool strict_capacity_limit);
+
+  void Ref(ClockHandle& handle);
+
+  size_t GetOccupancy() const {
+    return occupancy_.load(std::memory_order_relaxed);
+  }
+
+  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
+
+  size_t GetStandaloneUsage() const {
+    return standalone_usage_.load(std::memory_order_relaxed);
+  }
+
+  uint32_t GetHashSeed() const { return hash_seed_; }
+
+  struct EvictionData {
+    size_t freed_charge = 0;
+    size_t freed_count = 0;
+  };
+
+  void TrackAndReleaseEvictedEntry(ClockHandle* h, EvictionData* data);
+
+#ifndef NDEBUG
+  // Acquire N references
+  void TEST_RefN(ClockHandle& handle, size_t n);
+  // Helper for TEST_ReleaseN
+  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
+#endif
+
+ private:  // fns
+  // Creates a "standalone" handle for returning from an Insert operation that
+  // cannot be completed by actually inserting into the table.
+  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
+  template <class HandleImpl>
+  HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=true rules. This
+  // means the operation might fail with Status::MemoryLimit. If
+  // `need_evict_for_occupancy`, then eviction of at least one entry is
+  // required, and the operation should fail if not possible.
+  // NOTE: Otherwise, occupancy_ is not managed in this function
+  template <class Table>
+  Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
+                                     bool need_evict_for_occupancy,
+                                     typename Table::InsertState& state);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=false rules. This
+  // means that updating `usage_` always succeeds even if forced to exceed
+  // capacity. If `need_evict_for_occupancy`, then eviction of at least one
+  // entry is required, and the operation should return false if such eviction
+  // is not possible. `usage_` is not updated in that case. Otherwise, returns
+  // true, indicating success.
+  // NOTE: occupancy_ is not managed in this function
+  template <class Table>
+  bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
+                                      bool need_evict_for_occupancy,
+                                      typename Table::InsertState& state);
+
+ protected:  // data
+  // We partition the following members into different cache lines
+  // to avoid false sharing among Lookup, Release, Erase and Insert
+  // operations in ClockCacheShard.
+
+  // Clock algorithm sweep pointer.
+  std::atomic<uint64_t> clock_pointer_{};
+
+  ALIGN_AS(CACHE_LINE_SIZE)
+  // Number of elements in the table.
+  std::atomic<size_t> occupancy_{};
+
+  // Memory usage by entries tracked by the cache (including standalone)
+  std::atomic<size_t> usage_{};
+
+  // Part of usage by standalone entries (not in table)
+  std::atomic<size_t> standalone_usage_{};
+
+  ALIGN_AS(CACHE_LINE_SIZE)
+  const CacheMetadataChargePolicy metadata_charge_policy_;
+
+  // From Cache, for deleter
+  MemoryAllocator* const allocator_;
+
+  // A reference to Cache::eviction_callback_
+  const Cache::EvictionCallback& eviction_callback_;
+
+  // A reference to ShardedCacheBase::hash_seed_
+  const uint32_t& hash_seed_;
+};
+
+class HyperClockTable : public BaseClockTable {
  public:
   // Target size to be exactly a common cache line size (see static_assert in
   // clock_cache.cc)
@@ -387,16 +507,6 @@ class HyperClockTable {
     // up in this slot or a higher one.
     std::atomic<uint32_t> displacements{};
 
-    // Whether this is a "deteched" handle that is independently allocated
-    // with `new` (so must be deleted with `delete`).
-    // TODO: ideally this would be packed into some other data field, such
-    // as upper bits of total_charge, but that incurs a measurable performance
-    // regression.
-    bool standalone = false;
-
-    inline bool IsStandalone() const { return standalone; }
-
-    inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
   struct Opts {
@@ -410,49 +520,45 @@ class HyperClockTable {
                   const uint32_t* hash_seed, const Opts& opts);
   ~HyperClockTable();
 
-  Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
-                Cache::Priority priority, size_t capacity,
-                bool strict_capacity_limit);
+  // For BaseClockTable::Insert
+  struct InsertState {};
 
-  HandleImpl* CreateStandalone(ClockHandleBasicData& proto, size_t capacity,
-                               bool strict_capacity_limit,
-                               bool allow_uncharged);
+  void StartInsert(InsertState& state);
+
+  // Returns true iff there is room for the proposed number of entries.
+  bool GrowIfNeeded(size_t new_occupancy, InsertState& state);
+
+  HandleImpl* DoInsert(const ClockHandleBasicData& proto,
+                       uint64_t initial_countdown, bool take_ref,
+                       InsertState& state);
+
+  // Runs the clock eviction algorithm trying to reclaim at least
+  // requested_charge. Returns how much is evicted, which could be less
+  // if it appears impossible to evict the requested amount without blocking.
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
 
-  void Ref(HandleImpl& handle);
-
   void Erase(const UniqueId64x2& hashed_key);
-
-  void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
-                                size_t index_begin, size_t index_end,
-                                bool apply_if_will_be_deleted) const;
 
   void EraseUnRefEntries();
 
   size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
-  int GetLengthBits() const { return length_bits_; }
-
-  size_t GetOccupancy() const {
-    return occupancy_.load(std::memory_order_relaxed);
-  }
-
   size_t GetOccupancyLimit() const { return occupancy_limit_; }
 
-  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
+  const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
-  size_t GetStandaloneUsage() const {
-    return standalone_usage_.load(std::memory_order_relaxed);
+#ifndef NDEBUG
+  size_t& TEST_MutableOccupancyLimit() const {
+    return const_cast<size_t&>(occupancy_limit_);
   }
 
-  uint32_t GetHashSeed() const { return hash_seed_; }
-
-  // Acquire/release N references
-  void TEST_RefN(HandleImpl& handle, size_t n);
+  // Release N references
   void TEST_ReleaseN(HandleImpl* handle, size_t n);
+#endif
 
  private:  // functions
   // Returns x mod 2^{length_bits_}.
@@ -460,28 +566,19 @@ class HyperClockTable {
     return static_cast<size_t>(x) & length_bits_mask_;
   }
 
-  // Runs the clock eviction algorithm trying to reclaim at least
-  // requested_charge. Returns how much is evicted, which could be less
-  // if it appears impossible to evict the requested amount without blocking.
-  inline void Evict(size_t requested_charge, size_t* freed_charge,
-                    size_t* freed_count);
-
-  // Returns the first slot in the probe sequence, starting from the given
-  // probe number, with a handle e such that match(e) is true. At every
-  // step, the function first tests whether match(e) holds. If this is false,
-  // it evaluates abort(e) to decide whether the search should be aborted,
-  // and in the affirmative returns -1. For every handle e probed except
-  // the last one, the function runs update(e).
-  // The probe parameter is modified as follows. We say a probe to a handle
-  // e is aborting if match(e) is false and abort(e) is true. Then the final
-  // value of probe is one more than the last non-aborting probe during the
-  // call. This is so that that the variable can be used to keep track of
-  // progress across consecutive calls to FindSlot.
+  // Returns the first slot in the probe sequence with a handle e such that
+  // match_fn(e) is true. At every step, the function first tests whether
+  // match_fn(e) holds. If this is false, it evaluates abort_fn(e) to decide
+  // whether the search should be aborted, and if so, FindSlot immediately
+  // returns nullptr. For every handle e that is not a match and not aborted,
+  // FindSlot runs update_fn(e, is_last) where is_last is set to true iff that
+  // slot will be the last probed because the next would cycle back to the first
+  // slot probed. This function uses templates instead of std::function to
+  // minimize the risk of heap-allocated closures being created.
+  template <typename MatchFn, typename AbortFn, typename UpdateFn>
   inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key,
-                              std::function<bool(HandleImpl*)> match,
-                              std::function<bool(HandleImpl*)> stop,
-                              std::function<void(HandleImpl*)> update,
-                              size_t& probe);
+                              const MatchFn& match_fn, const AbortFn& abort_fn,
+                              const UpdateFn& update_fn);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
@@ -493,33 +590,6 @@ class HyperClockTable {
   // However, that means total_charge has to be saved from the handle
   // before releasing it so that it can be provided to this function.
   inline void ReclaimEntryUsage(size_t total_charge);
-
-  // Helper for updating `usage_` for new entry with given `total_charge`
-  // and evicting if needed under strict_capacity_limit=true rules. This
-  // means the operation might fail with Status::MemoryLimit. If
-  // `need_evict_for_occupancy`, then eviction of at least one entry is
-  // required, and the operation should fail if not possible.
-  // NOTE: Otherwise, occupancy_ is not managed in this function
-  inline Status ChargeUsageMaybeEvictStrict(size_t total_charge,
-                                            size_t capacity,
-                                            bool need_evict_for_occupancy);
-
-  // Helper for updating `usage_` for new entry with given `total_charge`
-  // and evicting if needed under strict_capacity_limit=false rules. This
-  // means that updating `usage_` always succeeds even if forced to exceed
-  // capacity. If `need_evict_for_occupancy`, then eviction of at least one
-  // entry is required, and the operation should return false if such eviction
-  // is not possible. `usage_` is not updated in that case. Otherwise, returns
-  // true, indicating success.
-  // NOTE: occupancy_ is not managed in this function
-  inline bool ChargeUsageMaybeEvictNonStrict(size_t total_charge,
-                                             size_t capacity,
-                                             bool need_evict_for_occupancy);
-
-  // Creates a "standalone" handle for returning from an Insert operation that
-  // cannot be completed by actually inserting into the table.
-  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
-  inline HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
 
   MemoryAllocator* GetAllocator() const { return allocator_; }
 
@@ -541,33 +611,6 @@ class HyperClockTable {
 
   // Array of slots comprising the hash table.
   const std::unique_ptr<HandleImpl[]> array_;
-
-  // From Cache, for deleter
-  MemoryAllocator* const allocator_;
-
-  // A reference to Cache::eviction_callback_
-  const Cache::EvictionCallback& eviction_callback_;
-
-  // A reference to ShardedCacheBase::hash_seed_
-  const uint32_t& hash_seed_;
-
-  // We partition the following members into different cache lines
-  // to avoid false sharing among Lookup, Release, Erase and Insert
-  // operations in ClockCacheShard.
-
-  ALIGN_AS(CACHE_LINE_SIZE)
-  // Clock algorithm sweep pointer.
-  std::atomic<uint64_t> clock_pointer_{};
-
-  ALIGN_AS(CACHE_LINE_SIZE)
-  // Number of elements in the table.
-  std::atomic<size_t> occupancy_{};
-
-  // Memory usage by entries tracked by the cache (including standalone)
-  std::atomic<size_t> usage_{};
-
-  // Part of usage by standalone entries (not in table)
-  std::atomic<size_t> standalone_usage_{};
 };  // class HyperClockTable
 
 // A single shard of sharded cache.
@@ -666,9 +709,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return Lookup(key, hashed_key);
   }
 
+#ifndef NDEBUG
+  size_t& TEST_MutableOccupancyLimit() const {
+    return table_.TEST_MutableOccupancyLimit();
+  }
   // Acquire/release N references
   void TEST_RefN(HandleImpl* handle, size_t n);
   void TEST_ReleaseN(HandleImpl* handle, size_t n);
+#endif
 
  private:  // data
   Table table_;

@@ -594,6 +594,7 @@ struct BlockBasedTable::Rep {
   BlockHandle compression_dict_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
+  BlockHandle index_handle;
   BlockBasedTableOptions::IndexType index_type;
   bool whole_key_filtering;
   bool prefix_filtering;
@@ -636,6 +637,12 @@ struct BlockBasedTable::Rep {
   bool index_has_first_key = false;
   bool index_key_includes_seq = true;
   bool index_value_is_full = true;
+
+  // Whether block checksums in metadata blocks were verified on open.
+  // This is only to mostly maintain current dubious behavior of VerifyChecksum
+  // with respect to index blocks, but only when the checksum was previously
+  // verified.
+  bool verify_checksum_set_on_open = false;
 
   const bool immortal_table;
   // Whether the user key contains user-defined timestamps. If this is false and

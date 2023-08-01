@@ -442,7 +442,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "dropping column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                     &column_families_[cf]);
@@ -451,7 +451,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "creating column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         thread->shared->UnlockColumnFamily(cf);
       }
@@ -603,7 +603,7 @@ class NonBatchedOpsStressTest : public StressTest {
     // Create a transaction in order to write some data. The purpose is to
     // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
     // will be rolled back once MultiGet returns.
-    Transaction* txn = nullptr;
+    std::unique_ptr<Transaction> txn;
     if (use_txn) {
       WriteOptions wo;
       if (FLAGS_rate_limit_auto_wal_flush) {
@@ -612,7 +612,7 @@ class NonBatchedOpsStressTest : public StressTest {
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
         fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
     for (size_t i = 0; i < num_keys; ++i) {
@@ -662,7 +662,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           if (!s.ok()) {
             fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           ryw_expected_values.push_back(std::nullopt);
@@ -866,7 +866,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
     if (use_txn) {
-      RollbackTxn(txn);
+      txn->Rollback().PermitUncheckedError();
     }
     return statuses;
   }
@@ -1278,14 +1278,9 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Merge(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Merge(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Merge(cfh, k, v);
+        });
       }
     } else if (FLAGS_use_put_entity_one_in > 0 &&
                (value_base % FLAGS_use_put_entity_one_in) == 0) {
@@ -1299,14 +1294,9 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Put(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Put(cfh, k, v);
+        });
       }
     }
 
@@ -1319,11 +1309,11 @@ class NonBatchedOpsStressTest : public StressTest {
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
 
@@ -1364,14 +1354,9 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Delete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Delete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Delete(cfh, key);
+        });
       }
       pending_expected_value.Commit();
 
@@ -1384,11 +1369,11 @@ class NonBatchedOpsStressTest : public StressTest {
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
     } else {
@@ -1401,14 +1386,9 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->SingleDelete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->SingleDelete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.SingleDelete(cfh, key);
+        });
       }
       pending_expected_value.Commit();
       thread->stats.AddSingleDeletes(1);
@@ -1420,11 +1400,11 @@ class NonBatchedOpsStressTest : public StressTest {
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
     }
@@ -1481,11 +1461,11 @@ class NonBatchedOpsStressTest : public StressTest {
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
     for (PendingExpectedValue& pending_expected_value :
@@ -1567,7 +1547,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     if (!s.ok()) {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
-      std::terminate();
+      thread->shared->SafeTerminate();
     }
 
     for (size_t i = 0; i < pending_expected_values.size(); ++i) {

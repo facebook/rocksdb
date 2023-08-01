@@ -33,9 +33,9 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
     if (read_options_.verify_checksums) {
-      io_status_ = status_to_io_status(VerifyBlockChecksum(
-          footer_.checksum_type(), slice_.data(), block_size_,
-          file_->file_name(), handle_.offset()));
+      io_status_ = status_to_io_status(
+          VerifyBlockChecksum(footer_, slice_.data(), block_size_,
+                              file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
       if (!io_status_.ok()) {
         assert(io_status_.IsCorruption());

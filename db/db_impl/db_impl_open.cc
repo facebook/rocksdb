@@ -1203,10 +1203,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                             Status::Corruption("log record too small"));
         continue;
       }
-
       // We create a new batch and initialize with a valid prot_info_ to store
       // the data checksums
       WriteBatch batch;
+      std::unique_ptr<WriteBatch> new_batch;
 
       status = WriteBatchInternal::SetContents(&batch, record);
       if (!status.ok()) {
@@ -1215,26 +1215,29 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
       const UnorderedMap<uint32_t, size_t>& record_ts_sz =
           reader.GetRecordedTimestampSize();
-      // TODO(yuzhangyu): update mode to kReconcileInconsistency when user
-      // comparator can be changed.
       status = HandleWriteBatchTimestampSizeDifference(
           &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kVerifyConsistency);
-      if (!status.ok()) {
-        return status;
-      }
-      TEST_SYNC_POINT_CALLBACK(
-          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch", &batch);
-      TEST_SYNC_POINT_CALLBACK(
-          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
-          &record_checksum);
-      status = WriteBatchInternal::UpdateProtectionInfo(
-          &batch, 8 /* bytes_per_key */, &record_checksum);
+          TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch);
       if (!status.ok()) {
         return status;
       }
 
-      SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
+      bool batch_updated = new_batch != nullptr;
+      WriteBatch* batch_to_use = batch_updated ? new_batch.get() : &batch;
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
+          batch_to_use);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+          &record_checksum);
+      status = WriteBatchInternal::UpdateProtectionInfo(
+          batch_to_use, 8 /* bytes_per_key */,
+          batch_updated ? nullptr : &record_checksum);
+      if (!status.ok()) {
+        return status;
+      }
+
+      SequenceNumber sequence = WriteBatchInternal::Sequence(batch_to_use);
 
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
@@ -1255,7 +1258,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // and returns true.
       if (!InvokeWalFilterIfNeededOnWalRecord(wal_number, fname, reporter,
                                               status, stop_replay_by_wal_filter,
-                                              batch)) {
+                                              *batch_to_use)) {
         continue;
       }
 
@@ -1266,7 +1269,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
       status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), &flush_scheduler_,
+          batch_to_use, column_family_memtables_.get(), &flush_scheduler_,
           &trim_history_scheduler_, true, wal_number, this,
           false /* concurrent_memtable_writes */, next_sequence,
           &has_valid_writes, seq_per_batch_, batch_per_txn_);
@@ -1655,6 +1658,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       Version* version = cfd->current();
       version->Ref();
       const ReadOptions read_option(Env::IOActivity::kDBOpen);
+      uint64_t num_input_entries = 0;
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, read_option, cfd->table_cache(),
@@ -1664,7 +1668,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           io_tracer_, BlobFileCreationReason::kRecovery,
           empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, write_hint,
-          nullptr /*full_history_ts_low*/, &blob_callback_, version);
+          nullptr /*full_history_ts_low*/, &blob_callback_, version,
+          &num_input_entries);
       version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -1677,6 +1682,19 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       // TODO(AR) is this ok?
       if (!io_s.ok() && s.ok()) {
         s = io_s;
+      }
+
+      uint64_t total_num_entries = mem->num_entries();
+      if (s.ok() && total_num_entries != num_input_entries) {
+        std::string msg = "Expected " + std::to_string(total_num_entries) +
+                          " entries in memtable, but read " +
+                          std::to_string(num_input_entries);
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "[%s] [JOB %d] Level-0 flush during recover: %s",
+                       cfd->GetName().c_str(), job_id, msg.c_str());
+        if (immutable_db_options_.flush_verify_memtable_count) {
+          s = Status::Corruption(msg);
+        }
       }
     }
   }

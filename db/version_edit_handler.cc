@@ -17,6 +17,7 @@
 #include "db/version_edit.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -613,14 +614,20 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
         version_edit_params_.SetLogNumber(edit.log_number_);
       }
     }
-    if (edit.has_comparator_ &&
-        edit.comparator_ != cfd->user_comparator()->Name()) {
-      if (!cf_to_cmp_names_) {
-        s = Status::InvalidArgument(
-            cfd->user_comparator()->Name(),
-            "does not match existing comparator " + edit.comparator_);
-      } else {
+    if (edit.has_comparator_) {
+      bool mark_sst_files_has_no_udt = false;
+      // If `persist_user_defined_timestamps` flag is recorded in manifest, it
+      // is guaranteed to be in the same VersionEdit as comparator. Otherwise,
+      // it's not recorded and it should have default value true.
+      s = ValidateUserDefinedTimestampsOptions(
+          cfd->user_comparator(), edit.comparator_,
+          cfd->ioptions()->persist_user_defined_timestamps,
+          edit.persist_user_defined_timestamps_, &mark_sst_files_has_no_udt);
+      if (!s.ok() && cf_to_cmp_names_) {
         cf_to_cmp_names_->emplace(cfd->GetID(), edit.comparator_);
+      }
+      if (mark_sst_files_has_no_udt) {
+        cfds_to_mark_no_udt_.insert(cfd->GetID());
       }
     }
     if (edit.HasFullHistoryTsLow()) {
@@ -673,10 +680,17 @@ Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
 
   VersionEdit::NewFiles& new_files = edit.GetMutableNewFiles();
   assert(!new_files.empty());
+  // If true, enabling user-defined timestamp is detected for this column
+  // family. All its existing SST files need to have the file boundaries handled
+  // and their `persist_user_defined_timestamps` flag set to false regardless of
+  // its existing value.
+  bool mark_existing_ssts_with_no_udt =
+      cfds_to_mark_no_udt_.find(cfd->GetID()) != cfds_to_mark_no_udt_.end();
   bool file_boundaries_need_handling = false;
   for (auto& new_file : new_files) {
     FileMetaData& meta = new_file.second;
-    if (meta.user_defined_timestamps_persisted) {
+    if (meta.user_defined_timestamps_persisted &&
+        !mark_existing_ssts_with_no_udt) {
       // `FileMetaData.user_defined_timestamps_persisted` field is the value of
       // the flag `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
       // at the time when the SST file was created. As a result, all added SST
@@ -689,6 +703,11 @@ Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
       break;
     }
     file_boundaries_need_handling = true;
+    assert(!meta.user_defined_timestamps_persisted ||
+           mark_existing_ssts_with_no_udt);
+    if (mark_existing_ssts_with_no_udt) {
+      meta.user_defined_timestamps_persisted = false;
+    }
     std::string smallest_buf;
     std::string largest_buf;
     PadInternalKeyWithMinTimestamp(&smallest_buf, meta.smallest.Encode(),

@@ -383,7 +383,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
     if (is_block_based_table) {
-      // For FIFO, max_open_files is checked in ValidateOptions().
+      // FIFO also requires max_open_files=-1, which is checked in
+      // ValidateOptions().
       result.ttl = kAdjustedTtl;
     } else {
       result.ttl = 0;
@@ -391,20 +392,20 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
-
-  // Turn on periodic compactions and set them to occur once every 30 days if
-  // compaction filters are used and periodic_compaction_seconds is set to the
-  // default value.
-  if (result.compaction_style != kCompactionStyleFIFO) {
+  if (result.compaction_style == kCompactionStyleLevel) {
     if ((result.compaction_filter != nullptr ||
          result.compaction_filter_factory != nullptr) &&
         result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
         is_block_based_table) {
       result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
     }
-  } else {
-    if (result.periodic_compaction_seconds != kDefaultPeriodicCompSecs &&
-        result.periodic_compaction_seconds > 0) {
+  } else if (result.compaction_style == kCompactionStyleUniversal) {
+    if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
+        is_block_based_table) {
+      result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+    }
+  } else if (result.compaction_style == kCompactionStyleFIFO) {
+    if (result.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
       ROCKS_LOG_WARN(
           db_options.info_log.get(),
           "periodic_compaction_seconds does not support FIFO compaction. You"
@@ -412,15 +413,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
-  // TTL compactions would work similar to Periodic Compactions in Universal in
-  // most of the cases. So, if ttl is set, execute the periodic compaction
-  // codepath.
-  if (result.compaction_style == kCompactionStyleUniversal && result.ttl != 0) {
-    if (result.periodic_compaction_seconds != 0) {
+  // For universal compaction, `ttl` and `periodic_compaction_seconds` mean the
+  // same thing, take the stricter value.
+  if (result.compaction_style == kCompactionStyleUniversal) {
+    if (result.periodic_compaction_seconds == 0) {
+      result.periodic_compaction_seconds = result.ttl;
+    } else if (result.ttl != 0) {
       result.periodic_compaction_seconds =
           std::min(result.ttl, result.periodic_compaction_seconds);
-    } else {
-      result.periodic_compaction_seconds = result.ttl;
     }
   }
 
@@ -1376,6 +1376,33 @@ Status ColumnFamilyData::ValidateOptions(
     }
   }
 
+  const auto* ucmp = cf_options.comparator;
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0 &&
+      !cf_options.persist_user_defined_timestamps) {
+    if (db_options.atomic_flush) {
+      return Status::NotSupported(
+          "Not persisting user-defined timestamps feature is not supported"
+          "in combination with atomic flush.");
+    }
+    if (db_options.allow_concurrent_memtable_write) {
+      return Status::NotSupported(
+          "Not persisting user-defined timestamps feature is not supported"
+          " in combination with concurrent memtable write.");
+    }
+    const char* comparator_name = cf_options.comparator->Name();
+    size_t name_size = strlen(comparator_name);
+    const char* suffix = ".u64ts";
+    size_t suffix_size = strlen(suffix);
+    if (name_size <= suffix_size ||
+        strcmp(comparator_name + name_size - suffix_size, suffix) != 0) {
+      return Status::NotSupported(
+          "Not persisting user-defined timestamps"
+          "feature only support user-defined timestamps formatted as "
+          "uint64_t.");
+    }
+  }
+
   if (cf_options.enable_blob_garbage_collection) {
     if (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
         cf_options.blob_garbage_collection_age_cutoff > 1.0) {
@@ -1513,6 +1540,43 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
+    uint64_t max_memtable_id) {
+  const Comparator* ucmp = user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0 || ioptions_.persist_user_defined_timestamps) {
+    return false;
+  }
+  // If users set the `persist_user_defined_timestamps` flag to false, they
+  // should also set the `full_history_ts_low` flag to indicate the range of
+  // user-defined timestamps to retain in memory. Otherwise, we do not
+  // explicitly postpone flush to retain UDTs.
+  const std::string& full_history_ts_low = GetFullHistoryTsLow();
+  if (full_history_ts_low.empty()) {
+    return false;
+  }
+#ifndef NDEBUG
+  Slice last_table_newest_udt;
+#endif /* !NDEBUG */
+  for (const Slice& table_newest_udt :
+       imm()->GetTablesNewestUDT(max_memtable_id)) {
+    assert(table_newest_udt.size() == full_history_ts_low.size());
+    assert(last_table_newest_udt.empty() ||
+           ucmp->CompareTimestamp(table_newest_udt, last_table_newest_udt) >=
+               0);
+    // Checking the newest UDT contained in MemTable with ascending ID up to
+    // `max_memtable_id`. MemTable with bigger ID will have newer UDT, return
+    // immediately on finding the first MemTable that needs postponing.
+    if (ucmp->CompareTimestamp(table_newest_udt, full_history_ts_low) >= 0) {
+      return true;
+    }
+#ifndef NDEBUG
+    last_table_newest_udt = table_newest_udt;
+#endif /* !NDEBUG */
+  }
+  return false;
 }
 
 void ColumnFamilyData::RecoverEpochNumbers() {

@@ -189,6 +189,10 @@ void FlushJob::PickMemTable() {
     return;
   }
 
+  // Track effective cutoff user-defined timestamp during flush if
+  // user-defined timestamps can be stripped.
+  GetEffectiveCutoffUDTForPickedMemTables();
+
   ReportFlushInputSize(mems_);
 
   // entries mems are (implicitly) sorted in ascending order by their created
@@ -292,6 +296,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   if ((s.ok() || s.IsColumnFamilyDropped()) &&
       shutting_down_->load(std::memory_order_acquire)) {
     s = Status::ShutdownInProgress("Database shutdown");
+  }
+
+  if (s.ok()) {
+    s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
   }
 
   if (!s.ok()) {
@@ -482,6 +490,7 @@ Status FlushJob::MemPurge() {
         nullptr, ioptions->allow_data_in_errors,
         ioptions->enforce_single_del_contracts,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        false /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, ioptions->info_log, full_history_ts_low);
 
@@ -1095,6 +1104,59 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
         std::move(blob_file_addition_info));
   }
   return info;
+}
+
+void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
+  db_mutex_->AssertHeld();
+  assert(pick_memtable_called);
+  const auto* ucmp = cfd_->internal_comparator().user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (db_options_.atomic_flush || ts_sz == 0 ||
+      cfd_->ioptions()->persist_user_defined_timestamps) {
+    return;
+  }
+  for (MemTable* m : mems_) {
+    Slice table_newest_udt = m->GetNewestUDT();
+    // The picked Memtables should have ascending ID, and should have
+    // non-decreasing newest user-defined timestamps.
+    if (!cutoff_udt_.empty()) {
+      assert(table_newest_udt.size() == cutoff_udt_.size());
+      assert(ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) >= 0);
+      cutoff_udt_.clear();
+    }
+    cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
+  }
+}
+
+Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
+  db_mutex_->AssertHeld();
+  const auto* ucmp = cfd_->user_comparator();
+  assert(ucmp);
+  const std::string& full_history_ts_low = cfd_->GetFullHistoryTsLow();
+  // Update full_history_ts_low to right above cutoff udt only if that would
+  // increase it.
+  if (cutoff_udt_.empty() ||
+      (!full_history_ts_low.empty() &&
+       ucmp->CompareTimestamp(cutoff_udt_, full_history_ts_low) < 0)) {
+    return Status::OK();
+  }
+  Slice cutoff_udt_slice = cutoff_udt_;
+  uint64_t cutoff_udt_ts = 0;
+  bool format_res = GetFixed64(&cutoff_udt_slice, &cutoff_udt_ts);
+  assert(format_res);
+  (void)format_res;
+  std::string new_full_history_ts_low;
+  // TODO(yuzhangyu): Add a member to AdvancedColumnFamilyOptions for an
+  //  operation to get the next immediately larger user-defined timestamp to
+  //  expand this feature to other user-defined timestamp formats.
+  PutFixed64(&new_full_history_ts_low, cutoff_udt_ts + 1);
+  VersionEdit edit;
+  edit.SetColumnFamily(cfd_->GetID());
+  edit.SetFullHistoryTsLow(new_full_history_ts_low);
+  return versions_->LogAndApply(cfd_, *cfd_->GetLatestMutableCFOptions(),
+                                ReadOptions(), &edit, db_mutex_,
+                                output_file_directory_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -3122,6 +3122,17 @@ int main(int argc, char** argv) {
     CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
     CheckTxnDBPinGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
 
+
+    //memory usage
+    rocksdb_t* base_db = rocksdb_transactiondb_get_base_db(txn_db);
+    rocksdb_memory_consumers_t* consumers = rocksdb_memory_consumers_create();
+    rocksdb_memory_consumers_add_db(consumers, base_db);
+    rocksdb_memory_usage_t* usage = rocksdb_approximate_memory_usage_create(consumers, &err);
+    CheckNoError(err);
+    rocksdb_approximate_memory_usage_destroy(usage);
+    rocksdb_memory_consumers_destroy(consumers);
+    rocksdb_transactiondb_close_base_db(base_db);
+
     // flush
     rocksdb_flushoptions_t* flush_options = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_options, 1);

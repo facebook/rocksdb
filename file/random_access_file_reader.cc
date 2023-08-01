@@ -97,6 +97,15 @@ IOStatus RandomAccessFileReader::Read(
 
   IOStatus io_s;
   uint64_t elapsed = 0;
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = false;
+  if (scratch != nullptr) {
+    // Check if offset, length and buffer are aligned.
+    is_aligned = (offset & (alignment - 1)) == 0 &&
+                 (n & (alignment - 1)) == 0 &&
+                 (uintptr_t(scratch) & (alignment - 1)) == 0;
+  }
+
   {
     StopWatch sw(clock_, stats_, hist_type_,
                  (opts.io_activity != Env::IOActivity::kUnknown)
@@ -106,8 +115,7 @@ IOStatus RandomAccessFileReader::Read(
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-      size_t alignment = file_->GetRequiredBufferAlignment();
+    if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
@@ -182,9 +190,9 @@ IOStatus RandomAccessFileReader::Read(
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
-          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
-                                                rate_limiter_priority, stats_,
-                                                RateLimiter::OpType::kRead);
+          allowed = rate_limiter_->RequestToken(
+              n - pos, (use_direct_io() ? alignment : 0), rate_limiter_priority,
+              stats_, RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
