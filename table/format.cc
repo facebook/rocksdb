@@ -645,18 +645,23 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
   StopWatchNano timer(ioptions.clock,
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
-  CacheAllocationPtr ubuf =
-      UncompressData(uncompression_info, data, size, &uncompressed_size,
-                     GetCompressFormatForVersion(format_version), allocator);
+  const char* error_msg = nullptr;
+  CacheAllocationPtr ubuf = UncompressData(
+      uncompression_info, data, size, &uncompressed_size,
+      GetCompressFormatForVersion(format_version), allocator, &error_msg);
   if (!ubuf) {
     if (!CompressionTypeSupported(uncompression_info.type())) {
       return Status::NotSupported(
           "Unsupported compression method for this build",
           CompressionTypeToString(uncompression_info.type()));
     } else {
+      std::ostringstream oss;
+      oss << "Corrupted compressed block contents";
+      if (error_msg) {
+        oss << ": " << error_msg;
+      }
       return Status::Corruption(
-          "Corrupted compressed block contents",
-          CompressionTypeToString(uncompression_info.type()));
+          oss.str(), CompressionTypeToString(uncompression_info.type()));
     }
   }
 
