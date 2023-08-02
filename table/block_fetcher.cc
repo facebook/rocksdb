@@ -14,7 +14,7 @@
 #include <string>
 
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -33,10 +33,14 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
     if (read_options_.verify_checksums) {
-      io_status_ = status_to_io_status(VerifyBlockChecksum(
-          footer_.checksum_type(), slice_.data(), block_size_,
-          file_->file_name(), handle_.offset()));
+      io_status_ = status_to_io_status(
+          VerifyBlockChecksum(footer_, slice_.data(), block_size_,
+                              file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+      if (!io_status_.ok()) {
+        assert(io_status_.IsCorruption());
+        RecordTick(ioptions_.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+      }
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -147,12 +151,11 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
     // file reader that does not implement mmap reads properly.
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
-    compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                    memory_allocator_compressed_);
+    compressed_buf_ =
+        AllocateBlock(block_size_with_trailer_, memory_allocator_compressed_);
     used_buf_ = compressed_buf_.get();
   } else {
-    heap_buf_ =
-        AllocateBlock(block_size_with_trailer_, memory_allocator_);
+    heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -187,8 +190,8 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
   assert(used_buf_ != compressed_buf_.get());
-  compressed_buf_ = AllocateBlock(block_size_with_trailer_,
-                                  memory_allocator_compressed_);
+  compressed_buf_ =
+      AllocateBlock(block_size_with_trailer_, memory_allocator_compressed_);
   memcpy(compressed_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_compressed_buf_memcpy_++;
@@ -255,6 +258,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(
             opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
             &direct_io_buf_, read_options_.rate_limiter_priority);
@@ -263,6 +267,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(opts, handle_.offset(),
                                  block_size_with_trailer_, &slice_, used_buf_,
                                  nullptr, read_options_.rate_limiter_priority);

@@ -49,10 +49,8 @@ class Configurable {
     std::string name;
     // Pointer to the object being registered
     void* opt_ptr;
-#ifndef ROCKSDB_LITE
     // The map of options being registered
     const std::unordered_map<std::string, OptionTypeInfo>* type_map;
-#endif
   };
 
  public:
@@ -121,7 +119,6 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opt_map,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Updates the named option to the input value, returning OK if successful.
   // Note that ConfigureOption does not cause PrepareOptions to be invoked.
   // @param config_options Controls how the name/value is processed.
@@ -135,7 +132,6 @@ class Configurable {
   // @return InvalidArgument If the value cannot be successfully  parsed.
   Status ConfigureOption(const ConfigOptions& config_options,
                          const std::string& name, const std::string& value);
-#endif  // ROCKSDB_LITE
 
   // Configures the options for this class based on the input parameters.
   // On successful completion, the object is updated with the settings from
@@ -171,7 +167,6 @@ class Configurable {
   // serialized.
   Status GetOptionString(const ConfigOptions& config_options,
                          std::string* result) const;
-#ifndef ROCKSDB_LITE
   // Returns the serialized options for this object.
   // This method is similar to GetOptionString with no errors.
   // @param config_options Controls how serialization happens.
@@ -202,7 +197,6 @@ class Configurable {
   //      its value cannot be serialized.
   virtual Status GetOption(const ConfigOptions& config_options,
                            const std::string& name, std::string* value) const;
-#endif  // ROCKSDB_LITE
 
   // Checks to see if this Configurable is equivalent to other.
   // This method assumes that the two objects are of the same class.
@@ -317,7 +311,6 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Method that configures a the specific opt_name from opt_value.
   // By default, this method calls opt_info.ParseOption with the
   // input parameters.
@@ -348,13 +341,10 @@ class Configurable {
                                const void* const this_ptr,
                                const void* const that_ptr,
                                std::string* bad_name) const;
-#endif
-#ifndef ROCKSDB_LITE
   // Internal method to serialize options (ToString)
   // Classes may override this value to change its behavior.
   virtual std::string SerializeOptions(const ConfigOptions& config_options,
                                        const std::string& header) const;
-#endif  // ROCKSDB_LITE
 
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   virtual std::string GetOptionName(const std::string& long_name) const;

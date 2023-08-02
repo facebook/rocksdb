@@ -5,8 +5,7 @@
 //
 #include "port/stack_trace.h"
 
-#if defined(ROCKSDB_LITE) ||                                                  \
-    !(defined(ROCKSDB_BACKTRACE) || defined(OS_MACOSX)) || defined(CYGWIN) || \
+#if !(defined(ROCKSDB_BACKTRACE) || defined(OS_MACOSX)) || defined(CYGWIN) || \
     defined(OS_SOLARIS) || defined(OS_WIN)
 
 // noop
@@ -24,17 +23,30 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #else
 
+#include <cxxabi.h>
 #include <execinfo.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <cxxabi.h>
 
-#if defined(OS_FREEBSD)
+#ifdef OS_OPENBSD
+#include <sys/wait.h>
 #include <sys/sysctl.h>
-#endif
+#endif  // OS_OPENBSD
+#ifdef OS_FREEBSD
+#include <sys/sysctl.h>
+#endif  // OS_FREEBSD
+#ifdef OS_LINUX
+#include <sys/prctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#if __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 30)
+#include <sys/syscall.h>
+#define gettid() syscall(SYS_gettid)
+#endif  // GLIBC version
+#endif  // OS_LINUX
 
 #include "port/lang.h"
 
@@ -43,21 +55,11 @@ namespace port {
 
 namespace {
 
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_GNU_KFREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 
-#if !defined(OS_FREEBSD)
-  char link[1024];
-  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
-  auto read = readlink(link, name, sizeof(name) - 1);
-  if (-1 == read) {
-    return nullptr;
-  } else {
-    name[read] = 0;
-    return name;
-  }
-#else
+#if defined(OS_FREEBSD)
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
   size_t namesz = sizeof(name);
 
@@ -65,6 +67,27 @@ const char* GetExecutableName() {
   if (-1 == ret) {
     return nullptr;
   } else {
+    return name;
+  }
+#elif defined(OS_OPENBSD)
+  int mib[4] = {CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV};
+  size_t namesz = sizeof(name);
+  char* bin[namesz];
+
+  auto ret = sysctl(mib, 4, bin, &namesz, nullptr, 0);
+  if (-1 == ret) {
+    return nullptr;
+  } else {
+    return bin[0];
+  }
+#else
+  char link[1024];
+  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
+  auto read = readlink(link, name, sizeof(name) - 1);
+  if (-1 == read) {
+    return nullptr;
+  } else {
+    name[read] = 0;
     return name;
   }
 #endif
@@ -120,6 +143,14 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 
 #endif
 
+const char* GetLldbScriptSelectThread(long long tid) {
+  // NOTE: called from a signal handler, so no heap allocation
+  static char script[80];
+  snprintf(script, sizeof(script),
+           "script -l python -- lldb.process.SetSelectedThreadByID(%lld)", tid);
+  return script;
+}
+
 }  // namespace
 
 void PrintStack(void* frames[], int num_frames) {
@@ -133,10 +164,129 @@ void PrintStack(void* frames[], int num_frames) {
 }
 
 void PrintStack(int first_frames_to_skip) {
+  // Default to getting stack traces with GDB, at least on Linux where we
+  // know how to attach to a particular thread.
+  //
+  // * Address space layout randomization (ASLR) interferes with getting good
+  //   stack information from backtrace+addr2line. This is more likely to show
+  //   up with LIB_MODE=shared builds (when kernel.randomize_va_space >= 1)
+  //   but can also show up with LIB_MODE=static builds ((when
+  //   kernel.randomize_va_space == 2).
+  // * It doesn't appear easy to detect when ASLR is in use.
+  // * With DEBUG_LEVEL < 2, backtrace() can skip frames that are not skipped
+  //   in GDB.
+  //
+  // LLDB also available as an option
+  bool lldb_stack_trace = getenv("ROCKSDB_LLDB_STACK") != nullptr;
+#if defined(OS_LINUX)
+  // Default true, override with ROCKSDB_BACKTRACE_STACK=1
+  bool gdb_stack_trace =
+      !lldb_stack_trace && getenv("ROCKSDB_BACKTRACE_STACK") == nullptr;
+#else
+  // Default false, override with ROCKSDB_GDB_STACK=1
+  bool gdb_stack_trace = getenv("ROCKSDB_GDB_STACK") != nullptr;
+#endif
+  // Also support invoking interactive debugger on stack trace, with this
+  // envvar set to non-empty
+  char* debug_env = getenv("ROCKSDB_DEBUG");
+  bool debug = debug_env != nullptr && strlen(debug_env) > 0;
+
+  if (lldb_stack_trace || gdb_stack_trace || debug) {
+    // Allow ouside debugger to attach, even with Yama security restrictions
+#ifdef PR_SET_PTRACER_ANY
+    (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
+    // Try to invoke GDB, either for stack trace or debugging.
+    long long attach_pid = getpid();
+    // NOTE: we're in a signal handler, so no heap allocation
+    char attach_pid_str[20];
+    snprintf(attach_pid_str, sizeof(attach_pid_str), "%lld", attach_pid);
+
+    // `gdb -p PID` seems to always attach to main thread, but `gdb -p TID`
+    // seems to be able to attach to a particular thread in a process, which
+    // makes sense as the main thread TID == PID of the process.
+    // But I haven't found that gdb capability documented anywhere, so leave
+    // a back door to attach to main thread.
+    long long gdb_attach_id = attach_pid;
+    // Save current thread id before fork
+    long long attach_tid = 0;
+#ifdef OS_LINUX
+    attach_tid = gettid();
+    if (getenv("ROCKSDB_DEBUG_USE_PID") == nullptr) {
+      gdb_attach_id = attach_tid;
+    }
+#endif
+
+    char gdb_attach_id_str[20];
+    snprintf(gdb_attach_id_str, sizeof(gdb_attach_id_str), "%lld",
+             gdb_attach_id);
+
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+      // child process
+      if (debug) {
+        if (strcmp(debug_env, "lldb") == 0) {
+          fprintf(stderr, "Invoking LLDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                  debug_env);
+          execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
+                 /*"-Q",*/ "-o", GetLldbScriptSelectThread(attach_tid),
+                 (char*)nullptr);
+          return;
+        } else {
+          fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                  debug_env);
+          execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", gdb_attach_id_str,
+                 (char*)nullptr);
+          return;
+        }
+      } else {
+        // Redirect child stdout to original stderr
+        dup2(2, 1);
+        // No child stdin (don't use pager)
+        close(0);
+        if (lldb_stack_trace) {
+          fprintf(stderr, "Invoking LLDB for stack trace...\n");
+
+          // Skip top ~8 frames here in PrintStack
+          auto bt_in_lldb =
+              "script -l python -- for f in lldb.thread.frames[8:]: print(f)";
+          execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
+                 "-b", "-Q", "-o", GetLldbScriptSelectThread(attach_tid), "-o",
+                 bt_in_lldb, (char*)nullptr);
+        } else {
+          // gdb_stack_trace
+          fprintf(stderr, "Invoking GDB for stack trace...\n");
+
+          // Skip top ~4 frames here in PrintStack
+          // See https://stackoverflow.com/q/40991943/454544
+          auto bt_in_gdb =
+              "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
+              "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 "
+              "42 43 44 -q frame";
+          // -n : Loading config files can apparently cause failures with the
+          // other options here.
+          // -batch : non-interactive; suppress banners as much as possible
+          execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
+                 gdb_attach_id_str, "-ex", bt_in_gdb, (char*)nullptr);
+        }
+        return;
+      }
+    } else {
+      // parent process; wait for child
+      int wstatus;
+      waitpid(child_pid, &wstatus, 0);
+      if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EXIT_SUCCESS) {
+        // Good
+        return;
+      }
+    }
+    fprintf(stderr, "GDB failed; falling back on backtrace+addr2line...\n");
+  }
+
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto num_frames = backtrace(frames, kMaxFrames);
+  int num_frames = (int) backtrace(frames, kMaxFrames);
   PrintStack(&frames[first_frames_to_skip], num_frames - first_frames_to_skip);
 }
 
@@ -149,7 +299,7 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto count = backtrace(frames, kMaxFrames);
+  int count = (int) backtrace(frames, kMaxFrames);
   *num_frames = count - first_frames_to_skip;
   void* callstack = malloc(sizeof(void*) * *num_frames);
   memcpy(callstack, &frames[first_frames_to_skip], sizeof(void*) * *num_frames);
@@ -187,6 +337,12 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+  // Allow ouside debugger to attach, even with Yama security restrictions.
+  // This is needed even outside of PrintStack() so that external mechanisms
+  // can dump stacks if they suspect that a test has hung.
+#ifdef PR_SET_PTRACER_ANY
+  (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
 }
 
 }  // namespace port

@@ -31,8 +31,8 @@ class StringAppendTESTOperator : public MergeOperator {
 
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const
-      override;
+                                 std::string* new_value,
+                                 Logger* logger) const override;
 
   static const char* kClassName() { return "StringAppendTESTOperator"; }
   static const char* kNickName() { return "stringappendtest"; }

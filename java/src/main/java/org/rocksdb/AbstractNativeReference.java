@@ -16,8 +16,9 @@ package org.rocksdb;
  * <a
  * href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">try-with-resources</a>
  * statement, when you are finished with the object. It is no longer
- * called automatically during the regular Java GC process via
+ * called automatically during the regular Java GC process via finalization
  * {@link AbstractNativeReference#finalize()}.</p>
+ * which is deprecated from Java 9.
  * <p>
  * Explanatory note - When or if the Garbage Collector calls {@link Object#finalize()}
  * depends on the JVM implementation and system conditions, which the programmer

@@ -17,7 +17,6 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_readonly_test_with_timestamp") {}
 
  protected:
-#ifndef ROCKSDB_LITE
   void CheckDBOpenedAsCompactedDBWithOneLevel0File() {
     VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
@@ -63,10 +62,8 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
     ASSERT_TRUE(
         storage_info->LevelFilesBrief(highest_non_empty_level).num_files > 0);
   }
-#endif  // !ROCKSDB_LITE
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGetReadTimestampSizeMismatch) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -949,7 +946,6 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 
   Close();
 }
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

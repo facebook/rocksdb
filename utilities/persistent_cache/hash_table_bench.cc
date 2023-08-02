@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#if !defined(OS_WIN) && !defined(ROCKSDB_LITE)
+#if !defined(OS_WIN)
 
 #ifndef GFLAGS
 #include <cstdio>

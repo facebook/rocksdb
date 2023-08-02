@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  win: circleci/windows@2.4.0
+  win: circleci/windows@5.0.0
 
 commands:
   install-cmake-on-macos:
@@ -45,6 +45,38 @@ commands:
             echo "export LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> $BASH_ENV
             echo "export ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> $BASH_ENV
 
+  windows-build-steps:
+    steps:
+      - checkout
+      - run:
+          name: "Install thirdparty dependencies"
+          command: |
+            echo "Installing CMake..."
+            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+            mkdir $Env:THIRDPARTY_HOME
+            cd $Env:THIRDPARTY_HOME
+            echo "Building Snappy dependency..."
+            curl https://github.com/google/snappy/archive/refs/tags/1.1.8.zip -O snappy-1.1.8.zip
+            unzip -q snappy-1.1.8.zip
+            cd snappy-1.1.8
+            mkdir build
+            cd build
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" ..
+            msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Build RocksDB"
+          command: |
+            mkdir build
+            cd build
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            cd ..
+            echo "Building with VS version: $Env:CMAKE_GENERATOR"
+            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Test RocksDB"
+          shell: powershell.exe
+          command: |
+            build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
   pre-steps-macos:
       steps:
         - pre-steps
@@ -120,15 +152,15 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 20000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
-            DURATION_RO: 400
-            DURATION_RW: 700
+            DURATION_RO: 300
+            DURATION_RW: 500
             # Keep threads within physical capacity of server (much lower than default)
             NUM_THREADS: 1
-            MAX_BACKGROUND_JOBS: 3
+            MAX_BACKGROUND_JOBS: 4
             # Don't run a couple of "optional" initial tests
             CI_TESTS_ONLY: "true"
             # Reduce configured size of levels to ensure more levels in the leveled compaction LSM tree
@@ -138,7 +170,11 @@ commands:
             # The benchmark host has 32GB memory
             # The following values are tailored to work with that
             # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
-
+            COMPRESSION_TYPE: "none"
+            CACHE_INDEX_AND_FILTER_BLOCKS: 1
+            MIN_LEVEL_TO_COMPRESS: 3
+            CACHE_SIZE_MB: 10240
+            MB_WRITE_PER_SEC: 2
 
   post-benchmarks:
     steps:
@@ -154,11 +190,6 @@ commands:
             true
 
 executors:
-  windows-2xlarge:
-    machine:
-      image: 'windows-server-2019-vs2019:stable'
-      resource_class: windows.2xlarge
-      shell: bash.exe
   linux-docker:
     docker:
       # The image configuration is build_tools/ubuntu20_image/Dockerfile
@@ -242,12 +273,12 @@ jobs:
           ./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
-  build-linux-shared_lib-alt_namespace-status_checked:
+  build-linux-static_lib-alt_namespace-status_checked:
     executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
       - post-steps
 
   build-linux-release:
@@ -255,11 +286,21 @@ jobs:
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
+      - run: ./db_stress --version # ensure with gflags
+      - run: make clean
       - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: ./db_stress --version # ensure with gflags
       - run: make clean
       - run: apt-get remove -y libgflags-dev
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
+      - run: make clean
       - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
@@ -274,27 +315,6 @@ jobs:
       - run: apt-get remove -y libgflags-dev
       - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-
-  build-linux-lite:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - pre-steps
-      - run: LITE=1 make V=1 J=8 -j8 check
-      - post-steps
-
-  build-linux-lite-release:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j8 release
-      - run: ./db_stress --version # ensure with gflags
-      - run: make clean
-      - run: apt-get remove -y libgflags-dev
-      - run: LITE=1 make V=1 -j8 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - post-steps
 
   build-linux-clang-no_test_run:
     executor: linux-docker
@@ -400,7 +420,10 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: make V=1 -j8 unity_test
+      - run:
+          name: "Unity build"
+          command: make V=1 -j8 unity_test
+          no_output_timeout: 20m
       - run: make V=1 -j8 -k check-headers # could be moved to a different build
       - post-steps
 
@@ -411,7 +434,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -457,7 +480,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+      - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-clang-13-no_test_run:
@@ -476,7 +499,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+      - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -493,7 +516,7 @@ jobs:
     resource_class: large
     steps:
       - pre-steps
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000 --use_io_uring=0' blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-linux-crashtest-tiered-storage-bb:
@@ -503,7 +526,7 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' blackbox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
@@ -514,77 +537,39 @@ jobs:
       - pre-steps
       - run:
           name: "run crashtest"
-          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS='--duration=10800 --use_io_uring=0' whitebox_crash_test_with_tiered_storage
           no_output_timeout: 100m
       - post-steps
 
-  build-windows:
-    executor: windows-2xlarge
-    parameters:
-      extra_cmake_opt:
-        default: ""
-        type: string
-      vs_year:
-        default: "2019"
-        type: string
-      cmake_generator:
-        default: "Visual Studio 16 2019"
-        type: string
+  build-windows-vs2022:
+    executor:
+      name: win/server-2022
+      size: 2xlarge
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
-      CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
-      CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
-      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
-      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
-      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
-      VS_YEAR: <<parameters.vs_year>>
-      CMAKE_GENERATOR: <<parameters.cmake_generator>>
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 17 2022
     steps:
-      - checkout
-      - run:
-          name: "Setup VS"
-          command: |
-            if [[ "${VS_YEAR}" == "2019" ]]; then
-              echo "VS2019 already present."
-            elif [[ "${VS_YEAR}" == "2017" ]]; then
-              echo "Installing VS2017..."
-              powershell .circleci/vs2017_install.ps1
-            elif [[ "${VS_YEAR}" == "2015" ]]; then
-              echo "Installing VS2015..."
-              powershell .circleci/vs2015_install.ps1
-            fi
-      - store_artifacts:
-          path: \Users\circleci\AppData\Local\Temp\vslogs.zip
-      - run:
-          name: "Install thirdparty dependencies"
-          command: |
-            mkdir ${THIRDPARTY_HOME}
-            cd ${THIRDPARTY_HOME}
-            echo "Installing CMake..."
-            curl --fail --silent --show-error --output cmake-3.16.4-win64-x64.zip --location https://github.com/Kitware/CMake/releases/download/v3.16.4/cmake-3.16.4-win64-x64.zip
-            unzip -q cmake-3.16.4-win64-x64.zip
-            echo "Building Snappy dependency..."
-            curl --fail --silent --show-error --output snappy-1.1.7.zip --location https://github.com/google/snappy/archive/1.1.7.zip
-            unzip -q snappy-1.1.7.zip
-            cd snappy-1.1.7
-            mkdir build
-            cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" ..
-            msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
-      - run:
-          name: "Build RocksDB"
-          command: |
-            mkdir build
-            cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
-            cd ..
-            echo "Building with VS version: ${CMAKE_GENERATOR}"
-            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
-      - run:
-          name: "Test RocksDB"
-          shell: powershell.exe
-          command: |
-            build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
+      - windows-build-steps
+
+  build-windows-vs2019:
+    executor:
+      name: win/server-2019
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 16 2019
+    steps:
+      - windows-build-steps
 
   build-linux-java:
     executor: linux-docker
@@ -832,18 +817,16 @@ workflows:
       - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
-      - build-linux-lite
   jobs-linux-run-tests-san:
     jobs:
       - build-linux-clang10-asan
       - build-linux-clang10-ubsan
       - build-linux-clang10-mini-tsan
-      - build-linux-shared_lib-alt_namespace-status_checked
+      - build-linux-static_lib-alt_namespace-status_checked
   jobs-linux-no-test-run:
     jobs:
       - build-linux-release
       - build-linux-release-rtti
-      - build-linux-lite-release
       - build-examples
       - build-fuzzers
       - build-linux-clang-no_test_run
@@ -859,15 +842,8 @@ workflows:
       - build-linux-mini-crashtest
   jobs-windows:
     jobs:
-      - build-windows:
-          name: "build-windows-vs2019"
-      - build-windows:
-          name: "build-windows-vs2019-cxx20"
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-      - build-windows:
-          name: "build-windows-vs2017"
-          vs_year: "2017"
-          cmake_generator: "Visual Studio 15 Win64"
+      - build-windows-vs2022
+      - build-windows-vs2019
       - build-cmake-mingw
   jobs-java:
     jobs:

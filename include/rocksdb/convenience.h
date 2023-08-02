@@ -90,10 +90,8 @@ struct ConfigOptions {
   // The environment to use for this option
   Env* env = Env::Default();
 
-#ifndef ROCKSDB_LITE
   // The object registry to use for this options
   std::shared_ptr<ObjectRegistry> registry;
-#endif
 
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
@@ -107,7 +105,6 @@ struct ConfigOptions {
   }
 };
 
-#ifndef ROCKSDB_LITE
 
 // The following set of functions provide a way to construct RocksDB Options
 // from a string or a string-to-string map.  Here is the general rule of
@@ -163,9 +160,10 @@ struct ConfigOptions {
 //     "kCompactionStyleNone".
 //
 
-// Take a default ColumnFamilyOptions "base_options" in addition to a
-// map "opts_map" of option name to option value to construct the new
-// ColumnFamilyOptions "new_options".
+// Take a ConfigOptions `config_options` and a ColumnFamilyOptions
+// "base_options" as the default option in addition to a map "opts_map" of
+// option name to option value to construct the new ColumnFamilyOptions
+// "new_options".
 //
 // Below are the instructions of how to config some non-primitive-typed
 // options in ColumnFamilyOptions:
@@ -241,11 +239,6 @@ struct ConfigOptions {
 //        cf_opt.compression_opts.strategy = 6;
 //        cf_opt.compression_opts.max_dict_bytes = 7;
 //
-// The GetColumnFamilyOptionsFromMap(ConfigOptions, ...) should be used; the
-// alternative signature may be deprecated in a future release.  The equivalent
-// functionality can be achieved by setting the corresponding options in
-// the ConfigOptions parameter.
-//
 // @param config_options controls how the map is processed.
 // @param base_options the default options of the output "new_options".
 // @param opts_map an option name to value map for specifying how "new_options"
@@ -270,15 +263,10 @@ Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options);
-Status GetColumnFamilyOptionsFromMap(
-    const ColumnFamilyOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped = false,
-    bool ignore_unknown_options = false);
 
-// Take a default DBOptions "base_options" in addition to a
-// map "opts_map" of option name to option value to construct the new
-// DBOptions "new_options".
+// Take a ConfigOptions `config_options` and a DBOptions "base_options" as the
+// default option in addition to a map "opts_map" of option name to option value
+// to construct the new DBOptions "new_options".
 //
 // Below are the instructions of how to config some non-primitive-typed
 // options in DBOptions:
@@ -288,11 +276,6 @@ Status GetColumnFamilyOptionsFromMap(
 //   [Example]:
 //   - Passing {"rate_limiter_bytes_per_sec", "1024"} is equivalent to
 //     passing NewGenericRateLimiter(1024) to rate_limiter_bytes_per_sec.
-//
-// The GetDBOptionsFromMap(ConfigOptions, ...) should be used; the
-// alternative signature may be deprecated in a future release. The equivalent
-// functionality can be achieved by setting the corresponding options in
-// the ConfigOptions parameter.
 //
 // @param config_options controls how the map is processed.
 // @param base_options the default options of the output "new_options".
@@ -317,15 +300,11 @@ Status GetDBOptionsFromMap(
     const ConfigOptions& cfg_options, const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options);
-Status GetDBOptionsFromMap(
-    const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped = false,
-    bool ignore_unknown_options = false);
 
-// Take a default BlockBasedTableOptions "table_options" in addition to a
-// map "opts_map" of option name to option value to construct the new
-// BlockBasedTableOptions "new_table_options".
+// Take a ConfigOptions `config_options` and a BlockBasedTableOptions
+// "table_options" as the default option in addition to a map "opts_map" of
+// option name to option value to construct the new BlockBasedTableOptions
+// "new_table_options".
 //
 // Below are the instructions of how to config some non-primitive-typed
 // options in BlockBasedTableOptions:
@@ -348,11 +327,6 @@ Status GetDBOptionsFromMap(
 //   - Passing {"block_cache", "1M"} in GetBlockBasedTableOptionsFromMap is
 //     equivalent to setting block_cache using NewLRUCache(1024 * 1024).
 //
-// The GetBlockBasedTableOptionsFromMap(ConfigOptions, ...) should be used;
-// the alternative signature may be deprecated in a future release. The
-// equivalent functionality can be achieved by setting the corresponding
-// options in the ConfigOptions parameter.
-//
 // @param config_options controls how the map is processed.
 // @param table_options the default options of the output "new_table_options".
 // @param opts_map an option name to value map for specifying how
@@ -372,20 +346,11 @@ Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options);
-Status GetBlockBasedTableOptionsFromMap(
-    const BlockBasedTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options,
-    bool input_strings_escaped = false, bool ignore_unknown_options = false);
 
-// Take a default PlainTableOptions "table_options" in addition to a
-// map "opts_map" of option name to option value to construct the new
-// PlainTableOptions "new_table_options".
-//
-// The GetPlainTableOptionsFromMap(ConfigOptions, ...) should be used; the
-// alternative signature may be deprecated in a future release. The equivalent
-// functionality can be achieved by setting the corresponding options in
-// the ConfigOptions parameter.
+// Take a ConfigOptions `config_options` and a default PlainTableOptions
+// "table_options" as the default option in addition to a map "opts_map" of
+// option name to option value to construct the new PlainTableOptions
+// "new_table_options".
 //
 // @param config_options controls how the map is processed.
 // @param table_options the default options of the output "new_table_options".
@@ -405,40 +370,23 @@ Status GetPlainTableOptionsFromMap(
     const ConfigOptions& config_options, const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options);
-Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped = false,
-    bool ignore_unknown_options = false);
 
-// Take a string representation of option names and values, apply them into the
-// base_options, and return the new options as a result. The string has the
-// following format:
+// Take a ConfigOptions `config_options`, a string representation of option
+// names and values, apply them into the base_options, and return the new
+// options as a result. The string has the following format:
 //   "write_buffer_size=1024;max_write_buffer_number=2"
 // Nested options config is also possible. For example, you can define
 // BlockBasedTableOptions as part of the string for block-based table factory:
 //   "write_buffer_size=1024;block_based_table_factory={block_size=4k};"
 //   "max_write_buffer_num=2"
 //
-//
-// The GetColumnFamilyOptionsFromString(ConfigOptions, ...) should be used; the
-// alternative signature may be deprecated in a future release. The equivalent
-// functionality can be achieved by setting the corresponding options in
-// the ConfigOptions parameter.
 Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& base_options,
-                                        const std::string& opts_str,
-                                        ColumnFamilyOptions* new_options);
-Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
                                         ColumnFamilyOptions* new_options);
 
 Status GetDBOptionsFromString(const ConfigOptions& config_options,
                               const DBOptions& base_options,
-                              const std::string& opts_str,
-                              DBOptions* new_options);
-
-Status GetDBOptionsFromString(const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options);
 
@@ -462,16 +410,10 @@ Status GetStringFromCompressionType(std::string* compression_str,
 std::vector<CompressionType> GetSupportedCompressions();
 
 Status GetBlockBasedTableOptionsFromString(
-    const BlockBasedTableOptions& table_options, const std::string& opts_str,
-    BlockBasedTableOptions* new_table_options);
-Status GetBlockBasedTableOptionsFromString(
     const ConfigOptions& config_options,
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options);
 
-Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options);
 Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
@@ -520,6 +462,5 @@ Status VerifySstFileChecksum(const Options& options,
                              const ReadOptions& read_options,
                              const std::string& file_path,
                              const SequenceNumber& largest_seqno = 0);
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

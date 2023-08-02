@@ -1422,10 +1422,9 @@ FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);
   }
-        return new FastLocalBloomBitsBuilder(
-            millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
-            cache_res_mgr,
-            context.table_options.detect_filter_construct_corruption);
+  return new FastLocalBloomBitsBuilder(
+      millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
+      cache_res_mgr, context.table_options.detect_filter_construct_corruption);
 }
 
 FilterBitsBuilder* BloomLikeFilterPolicy::GetLegacyBloomBuilderWithContext(
@@ -1788,7 +1787,7 @@ FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
 
-FilterPolicy::~FilterPolicy() { }
+FilterPolicy::~FilterPolicy() {}
 
 std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
     const std::string& name, double bits_per_key) {
@@ -1810,7 +1809,6 @@ std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
   }
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 static ObjectLibrary::PatternEntry FilterPatternEntryWithBits(
     const char* name) {
@@ -1919,7 +1917,6 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 }  // namespace
-#endif  // ROCKSDB_LITE
 
 Status FilterPolicy::CreateFromString(
     const ConfigOptions& options, const std::string& value,
@@ -1941,16 +1938,11 @@ Status FilterPolicy::CreateFromString(
   } else if (id.empty()) {  // We have no Id but have options.  Not good
     return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag loaded;
     std::call_once(loaded, [&]() {
       RegisterBuiltinFilterPolicies(*(ObjectLibrary::Default().get()), "");
     });
     status = options.registry->NewSharedObject(id, policy);
-#else
-    status =
-        Status::NotSupported("Cannot load filter policy in LITE mode ", value);
-#endif  // ROCKSDB_LITE
   }
   if (options.ignore_unsupported_options && status.IsNotSupported()) {
     return Status::OK();

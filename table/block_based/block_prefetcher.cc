@@ -17,9 +17,29 @@ void BlockPrefetcher::PrefetchIfNeeded(
     const size_t readahead_size, bool is_for_compaction,
     const bool no_sequential_checking,
     const Env::IOPriority rate_limiter_priority) {
-  // num_file_reads is used  by FilePrefetchBuffer only when
-  // implicit_auto_readahead is set.
+  const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
+  const size_t offset = handle.offset();
+
   if (is_for_compaction) {
+    if (!rep->file->use_direct_io()) {
+      // If FS supports prefetching (readahead_limit_ will be non zero in that
+      // case) and current block exists in prefetch buffer then return.
+      if (offset + len <= readahead_limit_) {
+        return;
+      }
+      Status s = rep->file->Prefetch(offset, len + compaction_readahead_size_,
+                                     rate_limiter_priority);
+      if (s.ok()) {
+        readahead_limit_ = offset + len + compaction_readahead_size_;
+        return;
+      }
+    }
+    // If FS prefetch is not supported, fall back to use internal prefetch
+    // buffer. Discarding other return status of Prefetch calls intentionally,
+    // as we can fallback to reading from disk if Prefetch fails.
+    //
+    // num_file_reads is used  by FilePrefetchBuffer only when
+    // implicit_auto_readahead is set.
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
         &prefetch_buffer_, /*implicit_auto_readahead=*/false,
@@ -59,9 +79,6 @@ void BlockPrefetcher::PrefetchIfNeeded(
         rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
-
-  size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
-  size_t offset = handle.offset();
 
   // If FS supports prefetching (readahead_limit_ will be non zero in that case)
   // and current block exists in prefetch buffer then return.

@@ -190,8 +190,9 @@ jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
-    env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
-                            const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
+    env->SetByteArrayRegion(
+        jret_value, 0, static_cast<jsize>(value.size()),
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       return nullptr;
@@ -251,12 +252,6 @@ std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> txn_column_families_helper(
   if (jcolumn_family_handles != nullptr) {
     const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
     if (len_cols > 0) {
-      if (env->EnsureLocalCapacity(len_cols) != 0) {
-        // out of memory
-        *has_exception = JNI_TRUE;
-        return std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>();
-      }
-
       jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
       if (jcfh == nullptr) {
         // exception thrown: OutOfMemoryError
@@ -292,47 +287,48 @@ void free_parts(
   }
 }
 
+void free_key_values(std::vector<jbyte*>& keys_to_free) {
+  for (auto& key : keys_to_free) {
+    delete[] key;
+  }
+}
+
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
 // cf multi get
 jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
                                   const jlong& jread_options_handle,
                                   const jobjectArray& jkey_parts) {
   const jsize len_key_parts = env->GetArrayLength(jkey_parts);
-  if (env->EnsureLocalCapacity(len_key_parts) != 0) {
-    // out of memory
-    return nullptr;
-  }
 
   std::vector<ROCKSDB_NAMESPACE::Slice> key_parts;
-  std::vector<std::tuple<jbyteArray, jbyte*, jobject>> key_parts_to_free;
+  std::vector<jbyte*> keys_to_free;
   for (int i = 0; i < len_key_parts; i++) {
     const jobject jk = env->GetObjectArrayElement(jkey_parts, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
-      free_parts(env, key_parts_to_free);
+      free_key_values(keys_to_free);
       return nullptr;
     }
     jbyteArray jk_ba = reinterpret_cast<jbyteArray>(jk);
     const jsize len_key = env->GetArrayLength(jk_ba);
-    if (env->EnsureLocalCapacity(len_key) != 0) {
-      // out of memory
-      env->DeleteLocalRef(jk);
-      free_parts(env, key_parts_to_free);
-      return nullptr;
-    }
-    jbyte* jk_val = env->GetByteArrayElements(jk_ba, nullptr);
+    jbyte* jk_val = new jbyte[len_key];
     if (jk_val == nullptr) {
       // exception thrown: OutOfMemoryError
       env->DeleteLocalRef(jk);
-      free_parts(env, key_parts_to_free);
+      free_key_values(keys_to_free);
+
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for CF handle array.");
       return nullptr;
     }
+    env->GetByteArrayRegion(jk_ba, 0, len_key, jk_val);
 
     ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(jk_val),
                                        len_key);
     key_parts.push_back(key_slice);
-
-    key_parts_to_free.push_back(std::make_tuple(jk_ba, jk_val, jk));
+    keys_to_free.push_back(jk_val);
+    env->DeleteLocalRef(jk);
   }
 
   auto* read_options =
@@ -342,7 +338,7 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
       fn_multi_get(*read_options, key_parts, &value_parts);
 
   // free up allocated byte arrays
-  free_parts(env, key_parts_to_free);
+  free_key_values(keys_to_free);
 
   // prepare the results
   const jclass jcls_ba = env->FindClass("[B");
@@ -366,7 +362,8 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
 
       env->SetByteArrayRegion(
           jentry_value, 0, static_cast<jsize>(value_parts[i].size()),
-          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_parts[i].c_str())));
+          const_cast<jbyte*>(
+              reinterpret_cast<const jbyte*>(value_parts[i].c_str())));
       if (env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jentry_value);
@@ -647,7 +644,7 @@ void txn_write_kv_parts_helper(JNIEnv* env,
                                const jobjectArray& jvalue_parts,
                                const jint& jvalue_parts_len) {
 #ifndef DEBUG
-  (void) jvalue_parts_len;
+  (void)jvalue_parts_len;
 #else
   assert(jkey_parts_len == jvalue_parts_len);
 #endif
@@ -655,6 +652,20 @@ void txn_write_kv_parts_helper(JNIEnv* env,
   auto key_parts = std::vector<ROCKSDB_NAMESPACE::Slice>();
   auto value_parts = std::vector<ROCKSDB_NAMESPACE::Slice>();
   auto jparts_to_free = std::vector<std::tuple<jbyteArray, jbyte*, jobject>>();
+
+  // Since this is fundamentally a gather write at the RocksDB level,
+  // it seems wrong to refactor it by copying (gathering) keys and data here,
+  // in order to avoid the local reference limit.
+  // The user needs to be a aware that there is a limit to the number of parts
+  // which can be gathered.
+  if (env->EnsureLocalCapacity(jkey_parts_len + jvalue_parts_len) != 0) {
+    // no space for all the jobjects we store up
+    env->ExceptionClear();
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, "Insufficient JNI local references for " +
+                 std::to_string(jkey_parts_len) + " key/value parts");
+    return;
+  }
 
   // convert java key_parts/value_parts byte[][] to Slice(s)
   for (jsize i = 0; i < jkey_parts_len; ++i) {
@@ -674,13 +685,6 @@ void txn_write_kv_parts_helper(JNIEnv* env,
 
     const jbyteArray jba_key_part = reinterpret_cast<jbyteArray>(jobj_key_part);
     const jsize jkey_part_len = env->GetArrayLength(jba_key_part);
-    if (env->EnsureLocalCapacity(jkey_part_len) != 0) {
-      // out of memory
-      env->DeleteLocalRef(jobj_value_part);
-      env->DeleteLocalRef(jobj_key_part);
-      free_parts(env, jparts_to_free);
-      return;
-    }
     jbyte* jkey_part = env->GetByteArrayElements(jba_key_part, nullptr);
     if (jkey_part == nullptr) {
       // exception thrown: OutOfMemoryError
@@ -693,18 +697,9 @@ void txn_write_kv_parts_helper(JNIEnv* env,
     const jbyteArray jba_value_part =
         reinterpret_cast<jbyteArray>(jobj_value_part);
     const jsize jvalue_part_len = env->GetArrayLength(jba_value_part);
-    if (env->EnsureLocalCapacity(jvalue_part_len) != 0) {
-      // out of memory
-      env->DeleteLocalRef(jobj_value_part);
-      env->DeleteLocalRef(jobj_key_part);
-      env->ReleaseByteArrayElements(jba_key_part, jkey_part, JNI_ABORT);
-      free_parts(env, jparts_to_free);
-      return;
-    }
     jbyte* jvalue_part = env->GetByteArrayElements(jba_value_part, nullptr);
     if (jvalue_part == nullptr) {
       // exception thrown: OutOfMemoryError
-      env->ReleaseByteArrayElements(jba_value_part, jvalue_part, JNI_ABORT);
       env->DeleteLocalRef(jobj_value_part);
       env->DeleteLocalRef(jobj_key_part);
       env->ReleaseByteArrayElements(jba_key_part, jkey_part, JNI_ABORT);
@@ -909,12 +904,6 @@ void txn_write_k_parts_helper(JNIEnv* env,
 
     const jbyteArray jba_key_part = reinterpret_cast<jbyteArray>(jobj_key_part);
     const jsize jkey_part_len = env->GetArrayLength(jba_key_part);
-    if (env->EnsureLocalCapacity(jkey_part_len) != 0) {
-      // out of memory
-      env->DeleteLocalRef(jobj_key_part);
-      free_parts(env, jkey_parts_to_free);
-      return;
-    }
     jbyte* jkey_part = env->GetByteArrayElements(jba_key_part, nullptr);
     if (jkey_part == nullptr) {
       // exception thrown: OutOfMemoryError

@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
@@ -237,7 +236,7 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
   }
   ASSERT_FALSE(wbwii->Valid());
 }
-}  // namespace anonymous
+}  // namespace
 
 class WBWIBaseTest : public testing::Test {
  public:
@@ -512,14 +511,10 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
 
 TEST_F(WBWIKeepTest, TestValueAsSecondaryIndex) {
   Entry entries[] = {
-      {"aaa", "0005", kPutRecord},
-      {"b", "0002", kPutRecord},
-      {"cdd", "0002", kMergeRecord},
-      {"aab", "00001", kPutRecord},
-      {"cc", "00005", kPutRecord},
-      {"cdd", "0002", kPutRecord},
-      {"aab", "0003", kPutRecord},
-      {"cc", "00005", kDeleteRecord},
+      {"aaa", "0005", kPutRecord},   {"b", "0002", kPutRecord},
+      {"cdd", "0002", kMergeRecord}, {"aab", "00001", kPutRecord},
+      {"cc", "00005", kPutRecord},   {"cdd", "0002", kPutRecord},
+      {"aab", "0003", kPutRecord},   {"cc", "00005", kDeleteRecord},
   };
   std::vector<Entry> entries_list(entries, entries + 8);
 
@@ -531,14 +526,10 @@ TEST_F(WBWIKeepTest, TestValueAsSecondaryIndex) {
   batch_->Clear();
 
   Entry new_entries[] = {
-      {"aaa", "0005", kPutRecord},
-      {"e", "0002", kPutRecord},
-      {"add", "0002", kMergeRecord},
-      {"aab", "00001", kPutRecord},
-      {"zz", "00005", kPutRecord},
-      {"add", "0002", kPutRecord},
-      {"aab", "0003", kPutRecord},
-      {"zz", "00005", kDeleteRecord},
+      {"aaa", "0005", kPutRecord},   {"e", "0002", kPutRecord},
+      {"add", "0002", kMergeRecord}, {"aab", "00001", kPutRecord},
+      {"zz", "00005", kPutRecord},   {"add", "0002", kPutRecord},
+      {"aab", "0003", kPutRecord},   {"zz", "00005", kDeleteRecord},
   };
 
   entries_list = std::vector<Entry>(new_entries, new_entries + 8);
@@ -2416,12 +2407,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main() {
-  fprintf(stderr, "SKIPPED\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

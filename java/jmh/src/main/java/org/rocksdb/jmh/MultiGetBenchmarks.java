@@ -194,24 +194,6 @@ public class MultiGetBenchmarks {
     return new ArrayList<>();
   }
 
-  @Benchmark
-  public List<RocksDB.MultiGetInstance> multiGetDirect10() throws RocksDBException {
-    final int fromKeyIdx = next(multiGetSize, keyCount);
-    if (fromKeyIdx >= 0) {
-      final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(
-          keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
-      for (final RocksDB.MultiGetInstance result : results) {
-        if (result.status.getCode() != Status.Code.Ok)
-          throw new RuntimeException("Test status assumption wrong");
-        if (result.valueSize != valueSize)
-          throw new RuntimeException("Test valueSize assumption wrong");
-      }
-      return results;
-    }
-    return new ArrayList<>();
-  }
-
   public static void main(final String[] args) throws RunnerException {
     final org.openjdk.jmh.runner.options.Options opt =
         new OptionsBuilder()

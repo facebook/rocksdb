@@ -5,10 +5,11 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
+
 #include <string>
 #include <vector>
+
 #include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -29,7 +30,7 @@ class TableBuilder;
 // The builder class of PlainTable. For description of PlainTable format
 // See comments of class PlainTableFactory, where instances of
 // PlainTableReader are created.
-class PlainTableBuilder: public TableBuilder {
+class PlainTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
@@ -84,7 +85,16 @@ class PlainTableBuilder: public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
-  TableProperties GetTableProperties() const override { return properties_; }
+  TableProperties GetTableProperties() const override {
+    TableProperties ret = properties_;
+    for (const auto& collector : table_properties_collectors_) {
+      for (const auto& prop : collector->GetReadableProperties()) {
+        ret.readable_properties.insert(prop);
+      }
+      collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
+    }
+    return ret;
+  }
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
@@ -149,4 +159,3 @@ class PlainTableBuilder: public TableBuilder {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

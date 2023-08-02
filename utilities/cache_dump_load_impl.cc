@@ -5,9 +5,6 @@
 
 #include "cache/cache_key.h"
 #include "table/block_based/block_based_table_reader.h"
-#ifndef ROCKSDB_LITE
-
-#include "utilities/cache_dump_load_impl.h"
 
 #include "cache/cache_entry_roles.h"
 #include "file/writable_file_writer.h"
@@ -17,6 +14,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/format.h"
 #include "util/crc32c.h"
+#include "utilities/cache_dump_load_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -68,8 +66,7 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
     return IOStatus::InvalidArgument("System clock is null");
   }
   clock_ = options_.clock;
-  // We copy the Cache Deleter Role Map as its member.
-  role_map_ = CopyCacheDeleterRoleMap();
+
   // Set the sequence number
   sequence_num_ = 0;
 
@@ -81,7 +78,8 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
   // Then, we iterate the block cache and dump out the blocks that are not
   // filtered out.
-  cache_->ApplyToAllEntries(DumpOneBlockCallBack(), {});
+  std::string buf;
+  cache_->ApplyToAllEntries(DumpOneBlockCallBack(buf), {});
 
   // Finally, write the footer
   io_s = WriteFooter();
@@ -106,77 +104,57 @@ bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
 // This is the callback function which will be applied to
 // Cache::ApplyToAllEntries. In this callback function, we will get the block
 // type, decide if the block needs to be dumped based on the filter, and write
-// the block through the provided writer.
-std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
-CacheDumperImpl::DumpOneBlockCallBack() {
-  return [&](const Slice& key, void* value, size_t /*charge*/,
-             Cache::DeleterFn deleter) {
-    // Step 1: get the type of the block from role_map_
-    auto e = role_map_.find(deleter);
-    CacheEntryRole role;
+// the block through the provided writer. `buf` is passed in for efficiennt
+// reuse.
+std::function<void(const Slice&, Cache::ObjectPtr, size_t,
+                   const Cache::CacheItemHelper*)>
+CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
+  return [&](const Slice& key, Cache::ObjectPtr value, size_t /*charge*/,
+             const Cache::CacheItemHelper* helper) {
+    if (helper == nullptr || helper->size_cb == nullptr ||
+        helper->saveto_cb == nullptr) {
+      // Not compatible with dumping. Skip this entry.
+      return;
+    }
+
+    CacheEntryRole role = helper->role;
     CacheDumpUnitType type = CacheDumpUnitType::kBlockTypeMax;
-    if (e == role_map_.end()) {
-      role = CacheEntryRole::kMisc;
-    } else {
-      role = e->second;
-    }
-    bool filter_out = false;
 
-    // Step 2: based on the key prefix, check if the block should be filter out.
-    if (ShouldFilterOut(key)) {
-      filter_out = true;
-    }
-
-    // Step 3: based on the block type, get the block raw pointer and length.
-    const char* block_start = nullptr;
-    size_t block_len = 0;
     switch (role) {
       case CacheEntryRole::kDataBlock:
         type = CacheDumpUnitType::kData;
-        block_start = (static_cast<Block*>(value))->data();
-        block_len = (static_cast<Block*>(value))->size();
         break;
       case CacheEntryRole::kFilterBlock:
         type = CacheDumpUnitType::kFilter;
-        block_start = (static_cast<ParsedFullFilterBlock*>(value))
-                          ->GetBlockContentsData()
-                          .data();
-        block_len = (static_cast<ParsedFullFilterBlock*>(value))
-                        ->GetBlockContentsData()
-                        .size();
         break;
       case CacheEntryRole::kFilterMetaBlock:
         type = CacheDumpUnitType::kFilterMetaBlock;
-        block_start = (static_cast<Block*>(value))->data();
-        block_len = (static_cast<Block*>(value))->size();
         break;
       case CacheEntryRole::kIndexBlock:
         type = CacheDumpUnitType::kIndex;
-        block_start = (static_cast<Block*>(value))->data();
-        block_len = (static_cast<Block*>(value))->size();
-        break;
-      case CacheEntryRole::kDeprecatedFilterBlock:
-        // Obsolete
-        filter_out = true;
-        break;
-      case CacheEntryRole::kMisc:
-        filter_out = true;
-        break;
-      case CacheEntryRole::kOtherBlock:
-        filter_out = true;
-        break;
-      case CacheEntryRole::kWriteBuffer:
-        filter_out = true;
         break;
       default:
-        filter_out = true;
+        // Filter out other entries
+        // FIXME? Do we need the CacheDumpUnitTypes? UncompressionDict?
+        return;
     }
 
-    // Step 4: if the block should not be filter out, write the block to the
-    // CacheDumpWriter
-    if (!filter_out && block_start != nullptr) {
-      WriteBlock(type, key, Slice(block_start, block_len))
-          .PermitUncheckedError();
+    // based on the key prefix, check if the block should be filter out.
+    if (ShouldFilterOut(key)) {
+      return;
+    }
+
+    assert(type != CacheDumpUnitType::kBlockTypeMax);
+
+    // Use cache item helper to get persistable data
+    // FIXME: reduce copying
+    size_t len = helper->size_cb(value);
+    buf.assign(len, '\0');
+    Status s = helper->saveto_cb(value, /*start*/ 0, len, buf.data());
+
+    if (s.ok()) {
+      // Write it out
+      WriteBlock(type, key, buf).PermitUncheckedError();
     }
   };
 }
@@ -265,8 +243,6 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
   if (reader_ == nullptr) {
     return IOStatus::InvalidArgument("CacheDumpReader is null");
   }
-  // we copy the Cache Deleter Role Map as its member.
-  role_map_ = CopyCacheDeleterRoleMap();
 
   // Step 2: read the header
   // TODO: we need to check the cache dump format version and RocksDB version
@@ -281,7 +257,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
 
   // Step 3: read out the rest of the blocks from the reader. The loop will stop
   // either I/O status is not ok or we reach to the the end.
-  while (io_s.ok() && dump_unit.type != CacheDumpUnitType::kFooter) {
+  while (io_s.ok()) {
     dump_unit.reset();
     data.clear();
     // read the content and store in the dump_unit
@@ -289,74 +265,14 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (!io_s.ok()) {
       break;
     }
+    if (dump_unit.type == CacheDumpUnitType::kFooter) {
+      break;
+    }
     // Create the uncompressed_block based on the information in the dump_unit
     // (There is no block trailer here compatible with block-based SST file.)
-    BlockContents uncompressed_block(
-        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len));
-    Cache::CacheItemHelper* helper = nullptr;
-    Statistics* statistics = nullptr;
-    Status s = Status::OK();
-    // according to the block type, get the helper callback function and create
-    // the corresponding block
-    switch (dump_unit.type) {
-      case CacheDumpUnitType::kFilter: {
-        helper = BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
-            BlockType::kFilter);
-        std::unique_ptr<ParsedFullFilterBlock> block_holder;
-        block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kData: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kIndex: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kIndex);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), 0, statistics, false,
-            toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kFilterMetaBlock: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(
-            BlockType::kFilterPartitionIndex);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kFooter:
-        break;
-      case CacheDumpUnitType::kDeprecatedFilterBlock:
-        // Obsolete
-        break;
-      default:
-        continue;
-    }
+    Slice content =
+        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len);
+    Status s = secondary_cache_->InsertSaved(dump_unit.key, content);
     if (!s.ok()) {
       io_s = status_to_io_status(std::move(s));
     }
@@ -451,4 +367,3 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
 
@@ -226,7 +225,9 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     DumpSlice(Slice(slice.data(), static_cast<size_t>(key_size)), show_key);
     if (show_blob != DisplayType::kNone) {
       fprintf(stdout, "  blob       : ");
-      DumpSlice(Slice(slice.data() + static_cast<size_t>(key_size), static_cast<size_t>(value_size)), show_blob);
+      DumpSlice(Slice(slice.data() + static_cast<size_t>(key_size),
+                      static_cast<size_t>(value_size)),
+                show_blob);
     }
     if (show_uncompressed_blob != DisplayType::kNone) {
       fprintf(stdout, "  raw blob   : ");
@@ -277,4 +278,3 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <unordered_map>
 
@@ -12,11 +11,11 @@
 #include "file/writable_file_writer.h"
 #include "rocksdb/utilities/cache_dump_load.h"
 #include "table/block_based/block.h"
-#include "table/block_based/block_like_traits.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "table/block_based/reader_common.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -108,13 +107,13 @@ class CacheDumperImpl : public CacheDumper {
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
-  std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
-  DumpOneBlockCallBack();
+  std::function<void(const Slice&, Cache::ObjectPtr, size_t,
+                     const Cache::CacheItemHelper*)>
+  DumpOneBlockCallBack(std::string& buf);
 
   CacheDumpOptions options_;
   std::shared_ptr<Cache> cache_;
   std::unique_ptr<CacheDumpWriter> writer_;
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
   SystemClock* clock_;
   uint32_t sequence_num_;
   // The cache key prefix filter. Currently, we use db_session_id as the prefix,
@@ -128,11 +127,10 @@ class CacheDumperImpl : public CacheDumper {
 class CacheDumpedLoaderImpl : public CacheDumpedLoader {
  public:
   CacheDumpedLoaderImpl(const CacheDumpOptions& dump_options,
-                        const BlockBasedTableOptions& toptions,
+                        const BlockBasedTableOptions& /*toptions*/,
                         const std::shared_ptr<SecondaryCache>& secondary_cache,
                         std::unique_ptr<CacheDumpReader>&& reader)
       : options_(dump_options),
-        toptions_(toptions),
         secondary_cache_(secondary_cache),
         reader_(std::move(reader)) {}
   ~CacheDumpedLoaderImpl() {}
@@ -145,10 +143,8 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   IOStatus ReadCacheBlock(std::string* data, DumpUnit* dump_unit);
 
   CacheDumpOptions options_;
-  const BlockBasedTableOptions& toptions_;
   std::shared_ptr<SecondaryCache> secondary_cache_;
   std::unique_ptr<CacheDumpReader> reader_;
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
 };
 
 // The default implementation of CacheDumpWriter. We write the blocks to a file
@@ -358,4 +354,3 @@ class CacheDumperHelper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

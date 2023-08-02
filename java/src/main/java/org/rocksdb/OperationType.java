@@ -7,14 +7,15 @@ package org.rocksdb;
 
 /**
  * The type used to refer to a thread operation.
- *
+ * <p>
  * A thread operation describes high-level action of a thread,
  * examples include compaction and flush.
  */
 public enum OperationType {
   OP_UNKNOWN((byte)0x0),
   OP_COMPACTION((byte)0x1),
-  OP_FLUSH((byte)0x2);
+  OP_FLUSH((byte) 0x2),
+  OP_DBOPEN((byte) 0x3);
 
   private final byte value;
 

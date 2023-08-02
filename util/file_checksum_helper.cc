@@ -98,6 +98,8 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
     return Status::InvalidArgument("checksum_list is nullptr");
   }
   assert(checksum_list);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   checksum_list->reset();
   Status s;
 
@@ -125,7 +127,8 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
-  FileChecksumRetriever retriever(manifest_file_size, *checksum_list);
+  FileChecksumRetriever retriever(read_options, manifest_file_size,
+                                  *checksum_list);
   retriever.Iterate(reader, &s);
   assert(!retriever.status().ok() ||
          manifest_file_size == std::numeric_limits<uint64_t>::max() ||
@@ -134,7 +137,6 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   return retriever.status();
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
                                             const std::string& /*arg*/) {
@@ -149,23 +151,19 @@ static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
   return 1;
 }
 }  // namespace
-#endif  // !ROCKSDB_LITE
 
 Status FileChecksumGenFactory::CreateFromString(
     const ConfigOptions& options, const std::string& value,
     std::shared_ptr<FileChecksumGenFactory>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterFileChecksumGenFactories(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   if (value == FileChecksumGenCrc32cFactory::kClassName()) {
     *result = GetFileChecksumGenCrc32cFactory();
     return Status::OK();
   } else {
-    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
-                                                        result);
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, result);
     return s;
   }
 }

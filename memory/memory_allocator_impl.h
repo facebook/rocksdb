@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "rocksdb/memory_allocator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,6 +35,13 @@ inline CacheAllocationPtr AllocateBlock(size_t size,
     return CacheAllocationPtr(block, allocator);
   }
   return CacheAllocationPtr(new char[size]);
+}
+
+inline CacheAllocationPtr AllocateAndCopyBlock(const Slice& data,
+                                               MemoryAllocator* allocator) {
+  CacheAllocationPtr cap = AllocateBlock(data.size(), allocator);
+  std::copy_n(data.data(), data.size(), cap.get());
+  return cap;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

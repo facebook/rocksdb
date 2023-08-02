@@ -19,8 +19,9 @@ struct FileMetaData;
 
 class VersionEditHandlerBase {
  public:
-  explicit VersionEditHandlerBase()
-      : max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options)
+      : read_options_(read_options),
+        max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
 
   virtual ~VersionEditHandlerBase() {}
 
@@ -31,8 +32,9 @@ class VersionEditHandlerBase {
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
 
  protected:
-  explicit VersionEditHandlerBase(uint64_t max_read_size)
-      : max_manifest_read_size_(max_read_size) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options,
+                                  uint64_t max_read_size)
+      : read_options_(read_options), max_manifest_read_size_(max_read_size) {}
   virtual Status Initialize() { return Status::OK(); }
 
   virtual Status ApplyVersionEdit(VersionEdit& edit,
@@ -45,6 +47,8 @@ class VersionEditHandlerBase {
 
   Status status_;
 
+  const ReadOptions& read_options_;
+
  private:
   AtomicGroupReadBuffer read_buffer_;
   const uint64_t max_manifest_read_size_;
@@ -52,7 +56,8 @@ class VersionEditHandlerBase {
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
  public:
-  ListColumnFamiliesHandler() : VersionEditHandlerBase() {}
+  explicit ListColumnFamiliesHandler(const ReadOptions& read_options)
+      : VersionEditHandlerBase(read_options) {}
 
   ~ListColumnFamiliesHandler() override {}
 
@@ -72,9 +77,9 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
 
 class FileChecksumRetriever : public VersionEditHandlerBase {
  public:
-  FileChecksumRetriever(uint64_t max_read_size,
+  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size,
                         FileChecksumList& file_checksum_list)
-      : VersionEditHandlerBase(max_read_size),
+      : VersionEditHandlerBase(read_options, max_read_size),
         file_checksum_list_(file_checksum_list) {}
 
   ~FileChecksumRetriever() override {}
@@ -110,10 +115,14 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_missing_files, no_error_if_files_missing,
-                           io_tracer, /*skip_load_table_files=*/false) {}
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent)
+      : VersionEditHandler(
+            read_only, column_families, version_set, track_missing_files,
+            no_error_if_files_missing, io_tracer, read_options,
+            /*skip_load_table_files=*/false, epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -134,7 +143,10 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files);
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options, bool skip_load_table_files,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
@@ -164,9 +176,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
                                     ColumnFamilyData* cfd,
                                     bool force_create_version);
 
-  Status LoadTables(ColumnFamilyData* cfd,
-                    bool prefetch_index_and_filter_in_cache,
-                    bool is_initial_load);
+  virtual Status LoadTables(ColumnFamilyData* cfd,
+                            bool prefetch_index_and_filter_in_cache,
+                            bool is_initial_load);
 
   virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
 
@@ -189,10 +201,23 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool skip_load_table_files_;
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
+  EpochNumberRequirement epoch_number_requirement_;
+  std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
+
+  // When `FileMetaData.user_defined_timestamps_persisted` is false and
+  // user-defined timestamp size is non-zero. User-defined timestamps are
+  // stripped from file boundaries: `smallest`, `largest` in
+  // `VersionEdit.DecodeFrom` before they were written to Manifest.
+  // This is the mirroring change to handle file boundaries on the Manifest read
+  // path for this scenario: to pad a minimum timestamp to the user key in
+  // `smallest` and `largest` so their format are consistent with the running
+  // user comparator.
+  Status MaybeHandleFileBoundariesForNewFiles(VersionEdit& edit,
+                                              const ColumnFamilyData* cfd);
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
@@ -205,7 +230,10 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
  public:
   VersionEditHandlerPointInTime(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer);
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
 
  protected:
@@ -213,10 +241,14 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
-  virtual Status VerifyFile(const std::string& fpath,
-                            const FileMetaData& fmeta);
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
                                 const BlobFileAddition& blob_addition);
+
+  Status LoadTables(ColumnFamilyData* cfd,
+                    bool prefetch_index_and_filter_in_cache,
+                    bool is_initial_load) override;
 
   std::unordered_map<uint32_t, Version*> versions_;
 };
@@ -225,9 +257,13 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
  public:
   explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
                           VersionSet* version_set,
-                          const std::shared_ptr<IOTracer>& io_tracer)
+                          const std::shared_ptr<IOTracer>& io_tracer,
+                          const ReadOptions& read_options,
+                          EpochNumberRequirement epoch_number_requirement =
+                              EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
-                                      version_set, io_tracer),
+                                      version_set, io_tracer, read_options,
+                                      epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   void PrepareToReadNewManifest() {
@@ -250,7 +286,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
-  Status VerifyFile(const std::string& fpath,
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
                     const FileMetaData& fmeta) override;
 
   enum Mode : uint8_t {
@@ -266,12 +302,13 @@ class DumpManifestHandler : public VersionEditHandler {
  public:
   DumpManifestHandler(std::vector<ColumnFamilyDescriptor> column_families,
                       VersionSet* version_set,
-                      const std::shared_ptr<IOTracer>& io_tracer, bool verbose,
-                      bool hex, bool json)
+                      const std::shared_ptr<IOTracer>& io_tracer,
+                      const ReadOptions& read_options, bool verbose, bool hex,
+                      bool json)
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
             /*track_missing_files=*/false,
-            /*no_error_if_files_missing=*/false, io_tracer,
+            /*no_error_if_files_missing=*/false, io_tracer, read_options,
             /*skip_load_table_files=*/true),
         verbose_(verbose),
         hex_(hex),

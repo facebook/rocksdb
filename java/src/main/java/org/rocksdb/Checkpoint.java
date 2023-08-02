@@ -31,8 +31,7 @@ public class Checkpoint extends RocksObject {
       throw new IllegalStateException(
           "RocksDB instance must be initialized.");
     }
-    Checkpoint checkpoint = new Checkpoint(db);
-    return checkpoint;
+    return new Checkpoint(db);
   }
 
   /**
@@ -53,10 +52,7 @@ public class Checkpoint extends RocksObject {
 
   private Checkpoint(final RocksDB db) {
     super(newCheckpoint(db.nativeHandle_));
-    this.db_ = db;
   }
-
-  private final RocksDB db_;
 
   private static native long newCheckpoint(long dbHandle);
   @Override protected final native void disposeInternal(final long handle);

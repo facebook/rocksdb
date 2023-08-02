@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <set>
 
@@ -338,4 +337,3 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

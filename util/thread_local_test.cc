@@ -559,23 +559,20 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
   // Triggers the initialization of singletons.
   Env::Default();
 
-#ifndef ROCKSDB_LITE
   try {
-#endif  // ROCKSDB_LITE
     ROCKSDB_NAMESPACE::port::Thread th(&AccessThreadLocal, nullptr);
     th.detach();
     TEST_SYNC_POINT("MainThreadDiesFirst:End");
-#ifndef ROCKSDB_LITE
   } catch (const std::system_error& ex) {
     std::cerr << "Start thread: " << ex.code() << std::endl;
     FAIL();
   }
-#endif  // ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

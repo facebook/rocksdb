@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+
+#include "rocksdb/db_dump_tool.h"
 
 #include <cinttypes>
 #include <iostream>
 
 #include "rocksdb/db.h"
-#include "rocksdb/db_dump_tool.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 
@@ -256,4 +256,3 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
   return true;
 }
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

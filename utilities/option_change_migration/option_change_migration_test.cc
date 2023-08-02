@@ -49,7 +49,6 @@ class DBOptionChangeMigrationTests
   uint64_t fifo_max_table_files_size_;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   Options old_options = CurrentOptions();
   old_options.compaction_style =
@@ -540,7 +539,6 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   }
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -1,12 +1,11 @@
 ---
-title: RocksDB Secondary Cache
+title: Asynchronous IO in RocksDB
 layout: post
-author: anand1976
-author: akankshamahajan15
+author:
+- akankshamahajan15
+- anand1976
 category: blog
 ---
-# Asynchronous IO in RocksDB
-
 ## Summary
 
 RocksDB provides several APIs to read KV pairs from a database, including Get and MultiGet for point lookups and Iterator for sequential scanning. These APIs may result in RocksDB reading blocks from SST files on disk storage. The types of blocks and the frequency with which they are read from storage is workload dependent. Some workloads may have a small working set and thus may be able to cache most of the data required, while others may have large working sets and have to read from disk more often. In the latter case, the latency would be much higher and throughput would be lower than the former. They would also be dependent on the characteristics of the underlying storage media, making it difficult to migrate from one medium to another, for example, local flash to disaggregated flash.
@@ -44,14 +43,14 @@ For the iterator Next operation, RocksDB tries to reduce the latency due to IO b
 
 While the prefetching in the previous paragraph helps, it is still synchronous and contributes to the iterator latency. When the async_io option is enabled, RocksDB prefetches in the background, i.e while the iterator is scanning KV pairs. This is accomplished in FilePrefetchBuffer by maintaining two prefetch buffers. The prefetch size is calculated as usual, but its then split across the two buffers. As the iteration proceeds and data in the first buffer is consumed, the buffer is cleared and an async read is scheduled to prefetch additional data. This read continues in the background while the iterator continues to process data in the second buffer. At this point, the roles of the two buffers are reversed. This does not completely hide the IO latency, since the iterator would have to wait for an async read to complete after the data in memory has been consumed. However, it does hide some of it by overlapping CPU and IO, and async prefetch can be happening on multiple levels in parallel, further reducing the latency.
 
-![Scan flow](/static/images/asynchronous-io/scan_flow.png)
+![Scan flow](/static/images/asynchronous-io/scan_async.png)
 {: style="display: block; margin-left: auto; margin-right: auto; width: 80%"}
 
 ### MultiGet
 
 The MultiGet API accepts a batch of keys as input. Its a more efficient way of looking up multiple keys compared to a loop of Gets. One way MultiGet is more efficient is by reading multiple data blocks from an SST file in a batch, for keys in the same file. This greatly reduces the latency of the request, compared to a loop of Gets. The MultiRead FileSystem API is used to read a batch of data blocks.
 
-![MultiGet flow](/static/images/asynchronous-io/multiget_flow.png)
+![MultiGet flow](/static/images/asynchronous-io/mget_async.png)
 {: style="display: block; margin-left: auto; margin-right: auto; width: 80%"}
 
 Even with the MultiRead optimization, subset of keys that are in different files still need to be read serially. We can take this one step further and read multiple files in parallel. In order to do this, a few fundamental changes were required in the MultiGet implementation -

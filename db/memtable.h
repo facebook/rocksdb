@@ -88,7 +88,7 @@ class MemTable {
  public:
   struct KeyComparator : public MemTableRep::KeyComparator {
     const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
+    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
     virtual int operator()(const char* prefix_len_key1,
                            const char* prefix_len_key2) const override;
     virtual int operator()(const char* prefix_len_key,
@@ -353,6 +353,10 @@ class MemTable {
     return data_size_.load(std::memory_order_relaxed);
   }
 
+  size_t write_buffer_size() const {
+    return write_buffer_size_.load(std::memory_order_relaxed);
+  }
+
   // Dynamically change the memtable's capacity. If set below the current usage,
   // the next key added will trigger a flush. Can only increase size when
   // memtable prefix bloom is disabled, since we can't easily allocate more
@@ -448,9 +452,7 @@ class MemTable {
   // persisted.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void MarkFlushed() {
-    table_->MarkFlushed();
-  }
+  void MarkFlushed() { table_->MarkFlushed(); }
 
   // return true if the current MemTableRep supports merge operator.
   bool IsMergeOperatorSupported() const {
@@ -501,7 +503,6 @@ class MemTable {
     flush_in_progress_ = in_progress;
   }
 
-#ifndef ROCKSDB_LITE
   void SetFlushJobInfo(std::unique_ptr<FlushJobInfo>&& info) {
     flush_job_info_ = std::move(info);
   }
@@ -509,7 +510,6 @@ class MemTable {
   std::unique_ptr<FlushJobInfo> ReleaseFlushJobInfo() {
     return std::move(flush_job_info_);
   }
-#endif  // !ROCKSDB_LITE
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
@@ -531,9 +531,17 @@ class MemTable {
     }
   }
 
+  // Get the newest user-defined timestamp contained in this MemTable. Check
+  // `newest_udt_` for what newer means. This method should only be invoked for
+  // an MemTable that has enabled user-defined timestamp feature and set
+  // `persist_user_defined_timestamps` to false. The tracked newest UDT will be
+  // used by flush job in the background to help check the MemTable's
+  // eligibility for Flush.
+  const Slice& GetNewestUDT() const;
+
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
-                                    size_t protection_bytes_per_key,
+                                    uint32_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
  private:
@@ -562,8 +570,8 @@ class MemTable {
   std::atomic<size_t> write_buffer_size_;
 
   // These are used to manage memtable flushes to storage
-  bool flush_in_progress_; // started the flush
-  bool flush_completed_;   // finished the flush
+  bool flush_in_progress_;  // started the flush
+  bool flush_completed_;    // finished the flush
   uint64_t file_number_;    // filled up after flush is complete
 
   // The updates to be applied to the transaction log when this
@@ -600,7 +608,7 @@ class MemTable {
   const SliceTransform* insert_with_hint_prefix_extractor_;
 
   // Insert hints for each prefix.
-  UnorderedMapH<Slice, void*, SliceHasher> insert_hints_;
+  UnorderedMapH<Slice, void*, SliceHasher32> insert_hints_;
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;
@@ -618,10 +626,21 @@ class MemTable {
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
-#ifndef ROCKSDB_LITE
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
-#endif  // !ROCKSDB_LITE
+
+  // Size in bytes for the user-defined timestamps.
+  size_t ts_sz_;
+
+  // Whether to persist user-defined timestamps
+  bool persist_user_defined_timestamps_;
+
+  // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
+  // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
+  // ts2. We track this field for a MemTable if its column family has UDT
+  // feature enabled and the `persist_user_defined_timestamp` flag is false.
+  // Otherwise, this field just contains an empty Slice.
+  Slice newest_udt_;
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
@@ -659,6 +678,8 @@ class MemTable {
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);
+
+  void MaybeUpdateNewestUDT(const Slice& user_key);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

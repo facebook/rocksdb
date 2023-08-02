@@ -317,7 +317,7 @@ Status TracerHelper::DecodeTraceRecord(Trace* trace, int trace_file_version,
       cf_ids.reserve(multiget_size);
       multiget_keys.reserve(multiget_size);
       for (uint32_t i = 0; i < multiget_size; i++) {
-        uint32_t tmp_cfid;
+        uint32_t tmp_cfid = 0;
         Slice tmp_key;
         GetFixed32(&cfids_payload, &tmp_cfid);
         GetLengthPrefixedSlice(&keys_payload, &tmp_key);

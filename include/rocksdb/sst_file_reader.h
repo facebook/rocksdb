@@ -5,9 +5,7 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
-#include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -31,9 +29,6 @@ class SstFileReader {
   // If "snapshot" is nullptr, the iterator returns only the latest keys.
   Iterator* NewIterator(const ReadOptions& options);
 
-  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
-      const ReadOptions& options);
-
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 
   // Verifies whether there is corruption in this table.
@@ -48,4 +43,3 @@ class SstFileReader {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

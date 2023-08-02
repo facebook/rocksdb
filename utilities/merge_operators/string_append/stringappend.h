@@ -16,10 +16,8 @@ class StringAppendOperator : public AssociativeMergeOperator {
   explicit StringAppendOperator(char delim_char);
   explicit StringAppendOperator(const std::string& delim);
 
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
+  virtual bool Merge(const Slice& key, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
                      Logger* logger) const override;
 
   static const char* kClassName() { return "StringAppendOperator"; }

@@ -13,7 +13,7 @@
 #include <limits>
 
 #include "logging/logging.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"
@@ -71,6 +71,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
       max_compaction_bytes(options.max_compaction_bytes),
+      ignore_max_compaction_bytes_for_input(
+          options.ignore_max_compaction_bytes_for_input),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
@@ -107,7 +109,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
       blob_cache(options.blob_cache),
-      prepopulate_blob_cache(options.prepopulate_blob_cache) {
+      prepopulate_blob_cache(options.prepopulate_blob_cache),
+      persist_user_defined_timestamps(options.persist_user_defined_timestamps) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -135,6 +138,11 @@ void DBOptions::Dump(Logger* log) const {
 void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "              Options.comparator: %s",
                    comparator->Name());
+  if (comparator->timestamp_size() > 0) {
+    ROCKS_LOG_HEADER(
+        log, "              Options.persist_user_defined_timestamps: %s",
+        persist_user_defined_timestamps ? "true" : "false");
+  }
   ROCKS_LOG_HEADER(log, "          Options.merge_operator: %s",
                    merge_operator ? merge_operator->Name() : "None");
   ROCKS_LOG_HEADER(log, "       Options.compaction_filter: %s",
@@ -281,6 +289,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
+    ROCKS_LOG_HEADER(log, "  Options.ignore_max_compaction_bytes_for_input: %s",
+                     ignore_max_compaction_bytes_for_input ? "true" : "false");
     ROCKS_LOG_HEADER(
         log,
         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
@@ -602,7 +612,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
   return this;
 }
 
-#ifndef ROCKSDB_LITE
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
   BlockBasedTableOptions block_based_options;
@@ -674,58 +683,10 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   return this;
 }
 
-#endif  // !ROCKSDB_LITE
+ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
+    : verify_checksums(_verify_checksums), fill_cache(_fill_cache) {}
 
-ReadOptions::ReadOptions()
-    : snapshot(nullptr),
-      iterate_lower_bound(nullptr),
-      iterate_upper_bound(nullptr),
-      readahead_size(0),
-      max_skippable_internal_keys(0),
-      read_tier(kReadAllTier),
-      verify_checksums(true),
-      fill_cache(true),
-      tailing(false),
-      managed(false),
-      total_order_seek(false),
-      auto_prefix_mode(false),
-      prefix_same_as_start(false),
-      pin_data(false),
-      background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false),
-      timestamp(nullptr),
-      iter_start_ts(nullptr),
-      deadline(std::chrono::microseconds::zero()),
-      io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
-      adaptive_readahead(false),
-      async_io(false),
-      optimize_multiget_for_io(true) {}
-
-ReadOptions::ReadOptions(bool cksum, bool cache)
-    : snapshot(nullptr),
-      iterate_lower_bound(nullptr),
-      iterate_upper_bound(nullptr),
-      readahead_size(0),
-      max_skippable_internal_keys(0),
-      read_tier(kReadAllTier),
-      verify_checksums(cksum),
-      fill_cache(cache),
-      tailing(false),
-      managed(false),
-      total_order_seek(false),
-      auto_prefix_mode(false),
-      prefix_same_as_start(false),
-      pin_data(false),
-      background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false),
-      timestamp(nullptr),
-      iter_start_ts(nullptr),
-      deadline(std::chrono::microseconds::zero()),
-      io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
-      adaptive_readahead(false),
-      async_io(false),
-      optimize_multiget_for_io(true) {}
+ReadOptions::ReadOptions(Env::IOActivity _io_activity)
+    : io_activity(_io_activity) {}
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -9,16 +9,16 @@ import java.nio.ByteBuffer;
 
 /**
  * WriteBatch holds a collection of updates to apply atomically to a DB.
- *
+ * <p>
  * The updates are applied in the order in which they are added
  * to the WriteBatch.  For example, the value of "key" will be "v3"
  * after the following batch is written:
- *
+ * <p>
  *    batch.put("key", "v1");
  *    batch.remove("key");
  *    batch.put("key", "v2");
  *    batch.put("key", "v3");
- *
+ * <p>
  * Multiple threads can invoke const methods on a WriteBatch without
  * external synchronization, but if any of the threads may call a
  * non-const method, all threads accessing the same WriteBatch must use
@@ -180,7 +180,7 @@ public class WriteBatch extends AbstractWriteBatch {
 
   /**
    * Gets the WAL termination point.
-   *
+   * <p>
    * See {@link #markWalTerminationPoint()}
    *
    * @return the WAL termination point
@@ -260,9 +260,8 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void setMaxBytes(final long nativeHandle,
     final long maxBytes);
 
-  private native static long newWriteBatch(final int reserved_bytes);
-  private native static long newWriteBatch(final byte[] serialized,
-      final int serializedLength);
+  private static native long newWriteBatch(final int reserved_bytes);
+  private static native long newWriteBatch(final byte[] serialized, final int serializedLength);
   private native void iterate(final long handle, final long handlerHandle)
       throws RocksDBException;
   private native byte[] data(final long nativeHandle) throws RocksDBException;
@@ -282,10 +281,9 @@ public class WriteBatch extends AbstractWriteBatch {
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler
-      extends RocksCallbackObject {
+  public abstract static class Handler extends RocksCallbackObject {
     public Handler() {
-      super(null);
+      super(0L);
     }
 
     @Override

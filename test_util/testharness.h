@@ -51,7 +51,14 @@
     GTEST_SUCCESS_("BYPASSED: " m);     \
   } while (false) /* user ; */
 
+// Avoid "loss of precision" warnings when passing in 64-bit integers
+#define EXPECT_NEAR2(val1, val2, abs_error)                         \
+  EXPECT_NEAR(static_cast<double>(val1), static_cast<double>(val2), \
+              static_cast<double>(abs_error))
+
 #include <string>
+
+#include "port/stack_trace.h"
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {

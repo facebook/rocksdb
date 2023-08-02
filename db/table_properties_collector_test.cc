@@ -61,30 +61,30 @@ void MakeBuilder(
 }  // namespace
 
 // Collects keys that starts with "A" in a table.
-class RegularKeysStartWithA: public TablePropertiesCollector {
+class RegularKeysStartWithA : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "RegularKeysStartWithA"; }
 
   Status Finish(UserCollectedProperties* properties) override {
-     std::string encoded;
-     std::string encoded_num_puts;
-     std::string encoded_num_deletes;
-     std::string encoded_num_single_deletes;
-     std::string encoded_num_size_changes;
-     PutVarint32(&encoded, count_);
-     PutVarint32(&encoded_num_puts, num_puts_);
-     PutVarint32(&encoded_num_deletes, num_deletes_);
-     PutVarint32(&encoded_num_single_deletes, num_single_deletes_);
-     PutVarint32(&encoded_num_size_changes, num_size_changes_);
-     *properties = UserCollectedProperties{
-         {"TablePropertiesTest", message_},
-         {"Count", encoded},
-         {"NumPuts", encoded_num_puts},
-         {"NumDeletes", encoded_num_deletes},
-         {"NumSingleDeletes", encoded_num_single_deletes},
-         {"NumSizeChanges", encoded_num_size_changes},
-     };
-     return Status::OK();
+    std::string encoded;
+    std::string encoded_num_puts;
+    std::string encoded_num_deletes;
+    std::string encoded_num_single_deletes;
+    std::string encoded_num_size_changes;
+    PutVarint32(&encoded, count_);
+    PutVarint32(&encoded_num_puts, num_puts_);
+    PutVarint32(&encoded_num_deletes, num_deletes_);
+    PutVarint32(&encoded_num_single_deletes, num_single_deletes_);
+    PutVarint32(&encoded_num_size_changes, num_size_changes_);
+    *properties = UserCollectedProperties{
+        {"TablePropertiesTest", message_},
+        {"Count", encoded},
+        {"NumPuts", encoded_num_puts},
+        {"NumDeletes", encoded_num_deletes},
+        {"NumSingleDeletes", encoded_num_single_deletes},
+        {"NumSizeChanges", encoded_num_size_changes},
+    };
+    return Status::OK();
   }
 
   Status AddUserKey(const Slice& user_key, const Slice& /*value*/,
@@ -292,8 +292,9 @@ void TestCustomizedTablePropertiesCollector(
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, read_options, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -338,7 +339,7 @@ void TestCustomizedTablePropertiesCollector(
 TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
-  for (bool encode_as_internal : { true, false }) {
+  for (bool encode_as_internal : {true, false}) {
     Options options;
     BlockBasedTableOptions table_options;
     table_options.flush_block_policy_factory =
@@ -355,7 +356,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
                                            kBlockBasedTableMagicNumber,
                                            encode_as_internal, options, ikc);
 
-#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
     // test plain table
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 8;
@@ -367,7 +367,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
     TestCustomizedTablePropertiesCollector(backward_mode_,
                                            kPlainTableMagicNumber,
                                            encode_as_internal, options, ikc);
-#endif  // !ROCKSDB_LITE
   }
 }
 
@@ -404,7 +403,7 @@ void TestInternalKeyPropertiesCollector(
     // HACK: Set options.info_log to avoid writing log in
     // SanitizeOptions().
     options.info_log = std::make_shared<test::NullLogger>();
-    options = SanitizeOptions("db",            // just a place holder
+    options = SanitizeOptions("db",  // just a place holder
                               options);
     ImmutableOptions ioptions(options);
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
@@ -431,8 +430,10 @@ void TestInternalKeyPropertiesCollector(
         new RandomAccessFileReader(std::move(source), "test"));
 
     std::unique_ptr<TableProperties> props;
-    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
-                                   magic_number, ioptions, &props);
+    const ReadOptions read_options;
+    Status s =
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            ioptions, read_options, &props);
     ASSERT_OK(s);
 
     auto user_collected = props->user_collected_properties;
@@ -486,7 +487,6 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
         std::make_shared<BlockBasedTableFactory>());
   }
 
-#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
   plain_table_options.bloom_bits_per_key = 8;
@@ -495,7 +495,6 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(
       backward_mode_, kPlainTableMagicNumber, false /* not sanitize */,
       std::make_shared<PlainTableFactory>(plain_table_options));
-#endif  // !ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,
@@ -507,6 +506,7 @@ INSTANTIATE_TEST_CASE_P(CustomizedTablePropertiesCollector, TablePropertiesTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -17,7 +17,7 @@
 #include "rocksdb/slice.h"
 #include "util/hash.h"
 
-#ifdef HAVE_AVX2
+#ifdef __AVX2__
 #include <immintrin.h>
 #endif
 
@@ -231,7 +231,7 @@ class FastLocalBloomImpl {
   static inline bool HashMayMatchPrepared(uint32_t h2, int num_probes,
                                           const char *data_at_cache_line) {
     uint32_t h = h2;
-#ifdef HAVE_AVX2
+#ifdef __AVX2__
     int rem_probes = num_probes;
 
     // NOTE: For better performance for num_probes in {1, 2, 9, 10, 17, 18,

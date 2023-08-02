@@ -90,7 +90,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
   status_.PermitUncheckedError();
-  assert(timestamp_size_ == user_comparator_.timestamp_size());
+  assert(timestamp_size_ ==
+         user_comparator_.user_comparator()->timestamp_size());
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
@@ -130,6 +131,7 @@ void DBIter::Next() {
   assert(valid_);
   assert(status_.ok());
 
+  PERF_COUNTER_ADD(iter_next_count, 1);
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
@@ -157,6 +159,8 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
+    ClearSavedValue();
+
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
       const Slice prefix = prefix_.GetUserKey();
@@ -192,6 +196,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
+  // TODO: plumb Env::IOActivity
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
@@ -338,11 +343,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
-        if (!iter_.PrepareValue()) {
-          assert(!iter_.status().ok());
-          valid_ = false;
-          return false;
-        }
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -366,6 +366,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
             } else {
@@ -394,6 +399,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
@@ -513,6 +523,8 @@ bool DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
@@ -522,11 +534,13 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
     }
-    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
+    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
+        kTypeDeletionWithTimestamp == ikey.type) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
@@ -541,8 +555,7 @@ bool DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
-      Status s = Merge(&val, ikey.user_key);
-      if (!s.ok()) {
+      if (!Merge(&val, ikey.user_key)) {
         return false;
       }
       // iter_ is positioned after put
@@ -571,8 +584,7 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       valid_ = true;
-      Status s = Merge(&blob_value_, ikey.user_key);
-      if (!s.ok()) {
+      if (!Merge(&blob_value_, ikey.user_key)) {
         return false;
       }
 
@@ -586,11 +598,18 @@ bool DBIter::MergeValuesNewToOld() {
       }
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      if (!MergeEntity(iter_.value(), ikey.user_key)) {
+        return false;
+      }
+
+      // iter_ is positioned after put
+      iter_.Next();
+      if (!iter_.status().ok()) {
+        valid_ = false;
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -609,8 +628,7 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  Status s = Merge(nullptr, saved_key_.GetUserKey());
-  if (!s.ok()) {
+  if (!Merge(nullptr, saved_key_.GetUserKey())) {
     return false;
   }
   assert(status_.ok());
@@ -621,6 +639,7 @@ void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
 
+  PERF_COUNTER_ADD(iter_prev_count, 1);
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
   ResetBlobValue();
@@ -633,6 +652,8 @@ void DBIter::Prev() {
     }
   }
   if (ok) {
+    ClearSavedValue();
+
     Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
@@ -861,9 +882,14 @@ bool DBIter::FindValueForCurrentKey() {
     if (timestamp_lb_ != nullptr) {
       // Only needed when timestamp_lb_ is not null
       [[maybe_unused]] const bool ret = ParseKey(&ikey_);
-      saved_ikey_.assign(iter_.key().data(), iter_.key().size());
       // Since the preceding ParseKey(&ikey) succeeds, so must this.
       assert(ret);
+      saved_key_.SetInternalKey(ikey);
+    } else if (user_comparator_.Compare(ikey.user_key,
+                                        saved_key_.GetUserKey()) < 0) {
+      saved_key_.SetUserKey(
+          ikey.user_key,
+          !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
     valid_entry_seen = true;
@@ -938,9 +964,6 @@ bool DBIter::FindValueForCurrentKey() {
     assert(last_key_entry_type == ikey_.type);
   }
 
-  Status s;
-  s.PermitUncheckedError();
-
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -948,16 +971,15 @@ bool DBIter::FindValueForCurrentKey() {
       if (timestamp_lb_ == nullptr) {
         valid_ = false;
       } else {
-        saved_key_.SetInternalKey(saved_ikey_);
         valid_ = true;
       }
       return true;
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion) {
-        s = Merge(nullptr, saved_key_.GetUserKey());
-        if (!s.ok()) {
+          last_not_merge_type == kTypeSingleDeletion ||
+          last_not_merge_type == kTypeDeletionWithTimestamp) {
+        if (!Merge(nullptr, saved_key_.GetUserKey())) {
           return false;
         }
         return true;
@@ -972,8 +994,7 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
         valid_ = true;
-        s = Merge(&blob_value_, saved_key_.GetUserKey());
-        if (!s.ok()) {
+        if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
           return false;
         }
 
@@ -981,25 +1002,20 @@ bool DBIter::FindValueForCurrentKey() {
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
-        // TODO: support wide-column entities
-        status_ = Status::NotSupported(
-            "Merge currently not supported for wide-column entities");
-        valid_ = false;
-        return false;
+        if (!MergeEntity(pinned_value_, saved_key_.GetUserKey())) {
+          return false;
+        }
+
+        return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
-        s = Merge(&pinned_value_, saved_key_.GetUserKey());
-        if (!s.ok()) {
+        if (!Merge(&pinned_value_, saved_key_.GetUserKey())) {
           return false;
         }
         return true;
       }
       break;
     case kTypeValue:
-      if (timestamp_lb_ != nullptr) {
-        saved_key_.SetInternalKey(saved_ikey_);
-      }
-
       SetValueAndColumnsFromPlain(pinned_value_);
 
       break;
@@ -1023,11 +1039,6 @@ bool DBIter::FindValueForCurrentKey() {
           "Unknown value type: " +
           std::to_string(static_cast<unsigned int>(last_key_entry_type)));
       return false;
-  }
-  if (!s.ok()) {
-    valid_ = false;
-    status_ = s;
-    return false;
   }
   valid_ = true;
   return true;
@@ -1145,6 +1156,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   while (true) {
     iter_.Next();
 
@@ -1158,10 +1171,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
       break;
     }
-    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+        ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
     if (!iter_.PrepareValue()) {
@@ -1171,8 +1186,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     if (ikey.type == kTypeValue) {
       const Slice val = iter_.value();
-      Status s = Merge(&val, saved_key_.GetUserKey());
-      if (!s.ok()) {
+      if (!Merge(&val, saved_key_.GetUserKey())) {
         return false;
       }
       return true;
@@ -1191,8 +1205,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
       valid_ = true;
-      Status s = Merge(&blob_value_, saved_key_.GetUserKey());
-      if (!s.ok()) {
+      if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
         return false;
       }
 
@@ -1200,11 +1213,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      if (!MergeEntity(iter_.value(), saved_key_.GetUserKey())) {
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -1214,8 +1227,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
   }
 
-  Status s = Merge(nullptr, saved_key_.GetUserKey());
-  if (!s.ok()) {
+  if (!Merge(nullptr, saved_key_.GetUserKey())) {
     return false;
   }
 
@@ -1238,21 +1250,47 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   return true;
 }
 
-Status DBIter::Merge(const Slice* val, const Slice& user_key) {
+bool DBIter::Merge(const Slice* val, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, val, merge_context_.GetOperands(),
-      &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+      &saved_value_, logger_, statistics_, clock_, &pinned_value_,
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;
-    return s;
+    return false;
   }
 
   SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
                                                    : saved_value_);
 
   valid_ = true;
-  return s;
+  return true;
+}
+
+bool DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  Status s = MergeHelper::TimedFullMergeWithEntity(
+      merge_operator_, user_key, entity, merge_context_.GetOperands(),
+      &saved_value_, logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
+  if (!s.ok()) {
+    valid_ = false;
+    status_ = s;
+    return false;
+  }
+
+  if (!SetValueAndColumnsFromEntity(saved_value_)) {
+    return false;
+  }
+
+  valid_ = true;
+  return true;
 }
 
 // Move backwards until the key smaller than saved_key_.
@@ -1394,18 +1432,17 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     if (timestamp_size_ > 0) {
       const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
-      saved_key_.UpdateInternalKey(
-          kMaxSequenceNumber, kValueTypeForSeekForPrev,
-          timestamp_lb_ != nullptr ? timestamp_lb_ : &ts);
+      saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
+                                   &ts);
     }
   }
 }
 
 void DBIter::Seek(const Slice& target) {
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1422,7 +1459,6 @@ void DBIter::Seek(const Slice& target) {
     db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1477,10 +1513,10 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1499,7 +1535,6 @@ void DBIter::SeekForPrev(const Slice& target) {
                                    upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1552,6 +1587,7 @@ void DBIter::SeekToFirst() {
     Seek(*iterate_lower_bound_);
     return;
   }
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
@@ -1602,27 +1638,19 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    const bool is_ikey = (timestamp_size_ > 0 && timestamp_lb_ != nullptr);
+#ifndef NDEBUG
     Slice k = Valid() ? key() : Slice();
-    if (is_ikey && Valid()) {
+    if (Valid() && timestamp_size_ > 0 && timestamp_lb_) {
       k.remove_suffix(kNumInternalBytes + timestamp_size_);
     }
-    while (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
-                               *iterate_upper_bound_, /*a_has_ts=*/false, k,
-                               /*b_has_ts=*/false)) {
-      ReleaseTempPinnedData();
-      ResetBlobValue();
-      ResetValueAndColumns();
-      PrevInternal(nullptr);
-
-      k = key();
-      if (is_ikey) {
-        k.remove_suffix(kNumInternalBytes + timestamp_size_);
-      }
-    }
+    assert(!Valid() || user_comparator_.CompareWithoutTimestamp(
+                           k, /*a_has_ts=*/false, *iterate_upper_bound_,
+                           /*b_has_ts=*/false) < 0);
+#endif
     return;
   }
 
+  PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.

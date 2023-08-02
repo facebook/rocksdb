@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <cstdint>
@@ -30,43 +29,12 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status DBImpl::FlushForGetLiveFiles() {
-  mutex_.AssertHeld();
-
-  // flush all dirty data to disk.
-  Status status;
-  if (immutable_db_options_.atomic_flush) {
-    autovector<ColumnFamilyData*> cfds;
-    SelectColumnFamiliesForAtomicFlush(&cfds);
-    mutex_.Unlock();
-    status =
-        AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kGetLiveFiles);
-    if (status.IsColumnFamilyDropped()) {
-      status = Status::OK();
-    }
-    mutex_.Lock();
-  } else {
-    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      mutex_.Unlock();
-      status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
-      TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
-      TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
-      mutex_.Lock();
-      if (!status.ok() && !status.IsColumnFamilyDropped()) {
-        break;
-      } else if (status.IsColumnFamilyDropped()) {
-        status = Status::OK();
-      }
-    }
-  }
-  return status;
+  return DBImpl::FlushAllColumnFamilies(FlushOptions(),
+                                        FlushReason::kGetLiveFiles);
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                            uint64_t* manifest_file_size,
-                            bool flush_memtable) {
+                            uint64_t* manifest_file_size, bool flush_memtable) {
   *manifest_file_size = 0;
 
   mutex_.Lock();
@@ -439,5 +407,3 @@ Status DBImpl::GetLiveFilesStorageInfo(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

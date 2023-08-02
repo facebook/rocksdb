@@ -43,7 +43,7 @@ public class OptimisticTransactionOptions extends RocksObject
     return this;
   }
 
-  private native static long newOptimisticTransactionOptions();
+  private static native long newOptimisticTransactionOptions();
   private native boolean isSetSnapshot(final long handle);
   private native void setSetSnapshot(final long handle,
       final boolean setSnapshot);

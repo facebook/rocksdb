@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#if !defined(GFLAGS)
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
@@ -14,6 +14,7 @@ int main() {
 int main() { return 0; }
 #else
 #include <semaphore.h>
+
 #include <atomic>
 #include <bitset>
 #include <chrono>
@@ -281,8 +282,9 @@ struct StatsThread {
       }
       auto now = std::chrono::steady_clock::now();
       double elapsed =
-          std::chrono::duration_cast<std::chrono::duration<double> >(
-              now - tlast).count();
+          std::chrono::duration_cast<std::chrono::duration<double> >(now -
+                                                                     tlast)
+              .count();
       uint64_t w = ::stats.written.load();
       uint64_t r = ::stats.read.load();
       fprintf(stderr,
@@ -373,4 +375,4 @@ int main(int argc, char** argv) {
   writers.clear();
   readers.clear();
 }
-#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#endif  // !defined(GFLAGS)

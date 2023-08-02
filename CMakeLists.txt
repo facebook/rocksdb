@@ -245,39 +245,40 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
   endif(HAS_S390X_MARCH_NATIVE)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
 
-option(PORTABLE "build a portable binary" OFF)
-option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
-option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
-option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
-if(PORTABLE)
-  # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
-  # is available, it is available by default.
-  if(FORCE_SSE42 AND NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
-  endif()
-  if(MSVC)
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
-    endif()
-    # MSVC automatically enables BMI / lzcnt with AVX2.
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    endif()
-  else()
-    if(FORCE_AVX)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
-    endif()
-    if(FORCE_AVX2)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
-    endif()
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+  CHECK_C_COMPILER_FLAG("-march=loongarch64" HAS_LOONGARCH64)
+  if(HAS_LOONGARCH64)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+  endif(HAS_LOONGARCH64)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+
+set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
+if(PORTABLE STREQUAL 1)
+  # Usually nothing to do; compiler default is typically the most general
+  if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^loongarch64")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
+    endif()
+  endif()
+elseif(PORTABLE MATCHES [^0]+)
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 else()
   if(MSVC)
+    # NOTE: No auto-detection of current CPU, but instead assume some useful
+    # level of optimization is supported
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
+    # Require instruction set from current CPU (with some legacy or opt-out
+    # exceptions)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
@@ -290,27 +291,6 @@ include(CheckCXXSourceCompiles)
 set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
-endif()
-
-if (NOT PORTABLE OR FORCE_SSE42)
-  CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" HAVE_SSE42)
-  if(HAVE_SSE42)
-    add_definitions(-DHAVE_SSE42)
-    add_definitions(-DHAVE_PCLMUL)
-  elseif(FORCE_SSE42)
-    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
-  endif()
 endif()
 
 # Check if -latomic is required or not
@@ -485,12 +465,6 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-memcmp")
 endif()
 
-option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
-if(ROCKSDB_LITE)
-  add_definitions(-DROCKSDB_LITE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Os")
-endif()
-
 if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
@@ -573,7 +547,7 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
-check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+check_cxx_symbol_exists(getauxval "sys/auxv.h" HAVE_AUXV_GETAUXVAL)
 if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
@@ -649,12 +623,14 @@ set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
         cache/cache_key.cc
+        cache/cache_helpers.cc
         cache/cache_reservation_manager.cc
         cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
-        cache/fast_lru_cache.cc
         cache/lru_cache.cc
+        cache/secondary_cache.cc
+        cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
@@ -741,6 +717,7 @@ set(SOURCES
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
+        db/write_stall_stats.cc
         db/write_thread.cc
         env/composite_env.cc
         env/env.cc
@@ -796,6 +773,7 @@ set(SOURCES
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
+        port/mmap.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
@@ -805,6 +783,7 @@ set(SOURCES
         table/block_based/block_based_table_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
+        table/block_based/block_cache.cc
         table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
         table/block_based/data_block_hash_index.cc
@@ -830,6 +809,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -871,6 +851,7 @@ set(SOURCES
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
+        util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
         util/murmurhash.cc
@@ -884,6 +865,8 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/udt_util.cc
+        util/write_batch_util.cc
         util/xxhash.cc
         utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
@@ -978,6 +961,12 @@ if ( ROCKSDB_PLUGINS )
         plugin/${plugin}/${src}
         PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
     endforeach()
+    foreach (test ${${plugin}_TESTS})
+      list(APPEND PLUGIN_TESTS plugin/${plugin}/${test})
+      set_source_files_properties(
+        plugin/${plugin}/${test}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
     foreach (path ${${plugin}_INCLUDE_PATHS})
       include_directories(${path})
     endforeach()
@@ -990,12 +979,6 @@ if ( ROCKSDB_PLUGINS )
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
   endforeach()
-endif()
-
-if(HAVE_SSE42 AND NOT MSVC)
-  set_source_files_properties(
-    util/crc32c.cc
-    PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
@@ -1263,6 +1246,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
@@ -1308,6 +1292,7 @@ if(WITH_TESTS)
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
+        db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc
         db/db_flush_test.cc
@@ -1438,6 +1423,7 @@ if(WITH_TESTS)
         util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
+        util/udt_util_test.cc
         util/work_queue_test.cc
         utilities/agg_merge/agg_merge_test.cc
         utilities/backup/backup_engine_test.cc
@@ -1469,6 +1455,7 @@ if(WITH_TESTS)
         utilities/ttl/ttl_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
+	${PLUGIN_TESTS}
     )
   endif()
 
@@ -1572,9 +1559,9 @@ endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)
 if(WITH_TRACE_TOOLS)
-  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+  add_executable(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
     tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
-  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+  target_link_libraries(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(trace_analyzer${ARTIFACT_SUFFIX}
@@ -1605,3 +1592,6 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)

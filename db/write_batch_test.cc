@@ -174,9 +174,10 @@ TEST_F(WriteBatchTest, Corruption) {
   Slice contents = WriteBatchInternal::Contents(&batch);
   ASSERT_OK(WriteBatchInternal::SetContents(
       &batch, Slice(contents.data(), contents.size() - 1)));
-  ASSERT_EQ("Put(foo, bar)@200"
-            "Corruption: bad WriteBatch Delete",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(foo, bar)@200"
+      "Corruption: bad WriteBatch Delete",
+      PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, Append) {
@@ -184,28 +185,28 @@ TEST_F(WriteBatchTest, Append) {
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("",
-            PrintContents(&b1));
+  ASSERT_EQ("", PrintContents(&b1));
   ASSERT_EQ(0u, b1.Count());
   ASSERT_OK(b2.Put("a", "va"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200",
-            PrintContents(&b1));
+  ASSERT_EQ("Put(a, va)@200", PrintContents(&b1));
   ASSERT_EQ(1u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("b", "vb"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@201",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@201",
+      PrintContents(&b1));
   ASSERT_EQ(2u, b1.Count());
   ASSERT_OK(b2.Delete("foo"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@202"
-            "Put(b, vb)@201"
-            "Delete(foo)@203",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Delete(foo)@203",
+      PrintContents(&b1));
   ASSERT_EQ(4u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("c", "cc"));
@@ -246,90 +247,105 @@ TEST_F(WriteBatchTest, SingleDeletion) {
   ASSERT_EQ(2u, batch.Count());
 }
 
-namespace {
-  struct TestHandler : public WriteBatch::Handler {
-    std::string seen;
-    Status PutCF(uint32_t column_family_id, const Slice& key,
-                 const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "Delete(" + key.ToString() + ")";
-      } else {
-        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status SingleDeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "SingleDelete(" + key.ToString() + ")";
-      } else {
-        seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                         const Slice& end_key) override {
-      if (column_family_id == 0) {
-        seen += "DeleteRange(" + begin_key.ToString() + ", " +
-                end_key.ToString() + ")";
-      } else {
-        seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
-                begin_key.ToString() + ", " + end_key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status MergeCF(uint32_t column_family_id, const Slice& key,
-                   const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    void LogData(const Slice& blob) override {
-      seen += "LogData(" + blob.ToString() + ")";
-    }
-    Status MarkBeginPrepare(bool unprepare) override {
-      seen +=
-          "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkEndPrepare(const Slice& xid) override {
-      seen += "MarkEndPrepare(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkNoop(bool empty_batch) override {
-      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkCommit(const Slice& xid) override {
-      seen += "MarkCommit(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
-      seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
-              ts.ToString(true) + ")";
-      return Status::OK();
-    }
-    Status MarkRollback(const Slice& xid) override {
-      seen += "MarkRollback(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-  };
+TEST_F(WriteBatchTest, OwnershipTransfer) {
+  Random rnd(301);
+  WriteBatch put_batch;
+  ASSERT_OK(put_batch.Put(rnd.RandomString(16) /* key */,
+                          rnd.RandomString(1024) /* value */));
+
+  // (1) Verify `Release()` transfers string data ownership
+  const char* expected_data = put_batch.Data().data();
+  std::string batch_str = put_batch.Release();
+  ASSERT_EQ(expected_data, batch_str.data());
+
+  // (2) Verify constructor transfers string data ownership
+  WriteBatch move_batch(std::move(batch_str));
+  ASSERT_EQ(expected_data, move_batch.Data().data());
 }
+
+namespace {
+struct TestHandler : public WriteBatch::Handler {
+  std::string seen;
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    if (column_family_id == 0) {
+      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "Delete(" + key.ToString() + ")";
+    } else {
+      seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "SingleDelete(" + key.ToString() + ")";
+    } else {
+      seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override {
+    if (column_family_id == 0) {
+      seen += "DeleteRange(" + begin_key.ToString() + ", " +
+              end_key.ToString() + ")";
+    } else {
+      seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
+              begin_key.ToString() + ", " + end_key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
+    if (column_family_id == 0) {
+      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  void LogData(const Slice& blob) override {
+    seen += "LogData(" + blob.ToString() + ")";
+  }
+  Status MarkBeginPrepare(bool unprepare) override {
+    seen +=
+        "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkEndPrepare(const Slice& xid) override {
+    seen += "MarkEndPrepare(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkNoop(bool empty_batch) override {
+    seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkCommit(const Slice& xid) override {
+    seen += "MarkCommit(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
+    seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
+            ts.ToString(true) + ")";
+    return Status::OK();
+  }
+  Status MarkRollback(const Slice& xid) override {
+    seen += "MarkRollback(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+};
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
@@ -609,24 +625,25 @@ TEST_F(WriteBatchTest, PutGatherSlices) {
   {
     // Try a write where the key is one slice but the value is two
     Slice key_slice("baz");
-    Slice value_slices[2] = { Slice("header"), Slice("payload") };
+    Slice value_slices[2] = {Slice("header"), Slice("payload")};
     ASSERT_OK(
         batch.Put(SliceParts(&key_slice, 1), SliceParts(value_slices, 2)));
   }
 
   {
     // One where the key is composite but the value is a single slice
-    Slice key_slices[3] = { Slice("key"), Slice("part2"), Slice("part3") };
+    Slice key_slices[3] = {Slice("key"), Slice("part2"), Slice("part3")};
     Slice value_slice("value");
     ASSERT_OK(
         batch.Put(SliceParts(key_slices, 3), SliceParts(&value_slice, 1)));
   }
 
   WriteBatchInternal::SetSequence(&batch, 100);
-  ASSERT_EQ("Put(baz, headerpayload)@101"
-            "Put(foo, bar)@100"
-            "Put(keypart2part3, value)@102",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(baz, headerpayload)@101"
+      "Put(foo, bar)@100"
+      "Put(keypart2part3, value)@102",
+      PrintContents(&batch));
   ASSERT_EQ(3u, batch.Count());
 }
 
@@ -646,7 +663,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   uint32_t id_;
   const Comparator* const ucmp_ = BytewiseComparator();
 };
-}  // namespace anonymous
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
@@ -676,7 +693,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
       handler.seen);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   WriteBatchWithIndex batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
@@ -778,7 +794,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
       "Merge(omom, nom)",
       handler.seen);
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(WriteBatchTest, SavePointTest) {
   Status s;
@@ -948,7 +963,7 @@ Status CheckTimestampsInWriteBatch(
   TimestampChecker ts_checker(cf_to_ucmps, timestamp);
   return wb.Iterate(&ts_checker);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
   ColumnFamilyHandleImplDummy cf0(0,
@@ -961,14 +976,14 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.DeleteRange(nullptr, "begin_key", "end_key", "ts")
                   .IsInvalidArgument());
 
   ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(
       wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsInvalidArgument());
 
@@ -978,7 +993,7 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsInvalidArgument());
   ASSERT_TRUE(
       wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsInvalidArgument());
 
@@ -1107,6 +1122,7 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

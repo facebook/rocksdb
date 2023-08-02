@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
 #include <algorithm>
@@ -142,20 +141,18 @@ TEST_F(RangeLockingTest, UpgradeLockAndGetConflict) {
   auto cf = db->DefaultColumnFamily();
   Status s;
   std::string value;
-  txn_options.lock_timeout= 10;
+  txn_options.lock_timeout = 10;
 
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
 
   // Get the shared lock in txn0
-  s = txn0->GetForUpdate(ReadOptions(), cf,
-                                Slice("a"), &value,
-                                false /*exclusive*/);
+  s = txn0->GetForUpdate(ReadOptions(), cf, Slice("a"), &value,
+                         false /*exclusive*/);
   ASSERT_TRUE(s.IsNotFound());
 
   // Get the shared lock on the same key in txn1
-  s = txn1->GetForUpdate(ReadOptions(), cf,
-                         Slice("a"), &value,
+  s = txn1->GetForUpdate(ReadOptions(), cf, Slice("a"), &value,
                          false /*exclusive*/);
   ASSERT_TRUE(s.IsNotFound());
 
@@ -169,7 +166,6 @@ TEST_F(RangeLockingTest, UpgradeLockAndGetConflict) {
   delete txn0;
   delete txn1;
 }
-
 
 TEST_F(RangeLockingTest, SnapshotValidation) {
   Status s;
@@ -450,13 +446,3 @@ int main(int /*argc*/, char** /*argv*/) {
 
 #endif  // OS_WIN
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "skipped as transactions are not supported in rocksdb_lite\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

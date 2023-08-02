@@ -47,13 +47,13 @@ public class FlushOptions extends RocksObject {
   }
 
   /**
-   * Set to true so that flush would proceeds immediately even it it means
+   * Set to true so that flush would proceed immediately even if it means
    * writes will stall for the duration of the flush.
-   *
+   * <p>
    * Set to false so that the operation will wait until it's possible to do
    * the flush without causing stall or until required flush is performed by
    * someone else (foreground call or background thread).
-   *
+   * <p>
    * Default: false
    *
    * @param allowWriteStall true to allow writes to stall for flush, false
@@ -78,7 +78,7 @@ public class FlushOptions extends RocksObject {
     return allowWriteStall(nativeHandle_);
   }
 
-  private native static long newFlushOptions();
+  private static native long newFlushOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setWaitForFlush(final long handle,

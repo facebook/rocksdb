@@ -25,6 +25,7 @@ struct ImmutableDBOptions {
   bool error_if_exists;
   bool paranoid_checks;
   bool flush_verify_memtable_count;
+  bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
   bool verify_sst_unique_id_in_manifest;
   Env* env;
@@ -76,9 +77,7 @@ struct ImmutableDBOptions {
   WALRecoveryMode wal_recovery_mode;
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
-#ifndef ROCKSDB_LITE
   WalFilter* wal_filter;
-#endif  // ROCKSDB_LITE
   bool fail_if_options_file_error;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
@@ -139,7 +138,6 @@ struct MutableDBOptions {
   int max_background_flushes;
 };
 
-#ifndef ROCKSDB_LITE
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
                                      const MutableDBOptions& mutable_opts,
                                      std::string* opt_string);
@@ -151,6 +149,5 @@ Status GetMutableDBOptionsFromStrings(
 
 bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
                               const MutableDBOptions& that_options);
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -145,9 +145,7 @@ class IteratorWrapperBase {
     return iter_->IsValuePinned();
   }
 
-  bool IsValuePrepared() const {
-    return result_.value_prepared;
-  }
+  bool IsValuePrepared() const { return result_.value_prepared; }
 
   Slice user_key() const {
     assert(Valid());
