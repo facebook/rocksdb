@@ -461,4 +461,23 @@ struct TieredVolatileCacheOptions {
 
 extern std::shared_ptr<Cache> NewTieredVolatileCache(
     TieredVolatileCacheOptions& cache_opts);
+
+struct LFUCacheOptions : public ShardedCacheOptions {
+
+  LFUCacheOptions() {}
+  LFUCacheOptions(size_t _capacity,
+                  bool _strict_capacity_limit,
+                  std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+                  CacheMetadataChargePolicy _metadata_charge_policy =
+                      kDefaultCacheMetadataChargePolicy)
+      : ShardedCacheOptions(_capacity, 0, _strict_capacity_limit,
+                            std::move(_memory_allocator),
+                            _metadata_charge_policy)
+  {}
+
+  // Construct an instance of LFUCache using these options
+  std::shared_ptr<Cache> MakeSharedCache() const;
+
+};
+
 }  // namespace ROCKSDB_NAMESPACE
