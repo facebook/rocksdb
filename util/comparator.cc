@@ -396,4 +396,123 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   }
   return status;
 }
+
+int Comparator::CompareToPrefix(const Slice& a, bool a_has_ts,
+                                const Slice& prefix) const {
+  assert(CanKeysWithDifferentByteContentsBeEqual() == false);
+  // NOTE: we can't always just strip off the prefix.size() prefix of 'a'
+  // because that might not be a fully formed, comparable prefix (e.g. varint
+  // field)
+  if (a.starts_with(prefix)) {
+    return 0;
+  } else {
+    int cmp = CompareWithoutTimestamp(a, a_has_ts, prefix, false /*b_has_ts*/);
+    assert(cmp != 0);  // Based on path conditions+assertions above
+    return cmp < 0;
+  }
+}
+
+const SliceBound SliceBound::kMin{"", SliceBound::kBeforePrefix};
+const SliceBound SliceBound::kMax{"", SliceBound::kAfterPrefix};
+
+bool OrderedBeforeBound(const Slice& a, bool a_has_ts, const SliceBound& b,
+                        const Comparator& comp) {
+  bool after_mode = (b.mode & SliceBound::kAfterBit) != 0;
+  bool prefix_mode = (b.mode & SliceBound::kPrefixBit) != 0;
+  bool timestamp_mode = (b.mode & SliceBound::kUserTimestampBit) != 0;
+  int cmp;
+  if (prefix_mode) {
+    assert(!timestamp_mode);
+    cmp = comp.CompareToPrefix(a, a_has_ts, b.key_like);
+  } else if (comp.timestamp_size() == 0 || (a_has_ts && timestamp_mode)) {
+    // Full compare
+    cmp = comp.Compare(a, b.key_like);
+  } else {
+    // Can't compare a non-timestamp specific key to a timestamped bound
+    assert(a_has_ts || !timestamp_mode);
+    // Ignore timestamp
+    cmp = comp.CompareWithoutTimestamp(a, a_has_ts, b.key_like, timestamp_mode);
+  }
+  // "Before" mode: check a < b (cmp < 0). "After" mode: check a <= b (cmp < 1).
+  return cmp - after_mode < 0;
+}
+
+int CompareBounds(const SliceBound& a, const SliceBound& b,
+                  const Comparator& comp) {
+  bool after_mode_a = (a.mode & SliceBound::kAfterBit) != 0;
+  bool prefix_mode_a = (a.mode & SliceBound::kPrefixBit) != 0;
+  bool timestamp_mode_a = (a.mode & SliceBound::kUserTimestampBit) != 0;
+  bool after_mode_b = (b.mode & SliceBound::kAfterBit) != 0;
+  bool prefix_mode_b = (b.mode & SliceBound::kPrefixBit) != 0;
+  bool timestamp_mode_b = (b.mode & SliceBound::kUserTimestampBit) != 0;
+  if (prefix_mode_a) {
+    assert(!timestamp_mode_a);
+    if (prefix_mode_b) {
+      assert(!timestamp_mode_b);
+      // In general where different byte contents, including different size,
+      // might be equal, the only way to determine whether one is a prefix of
+      // the other, or are equal, is to check both ways.
+      int cmp1 = comp.CompareToPrefix(a.key_like, false /*has_ts*/, b.key_like);
+      int cmp2 = comp.CompareToPrefix(b.key_like, false /*has_ts*/, a.key_like);
+      if (cmp1 == 0) {
+        // b is a prefix of a
+        if (cmp2 == 0) {
+          // a is also a prefix of b
+          return int{after_mode_a} - int{after_mode_b};
+        } else {
+          return after_mode_b ? -1 : 1;
+        }
+      } else if (cmp2 == 0) {
+        // a is a prefix of b (but not vice-versa)
+        return after_mode_a ? 1 : -1;
+      } else {
+        // Neither is prefix of the other. Both comparisons should agree.
+        assert(cmp1 != 0 && cmp2 != 0);
+        assert((cmp1 > 0) == (cmp2 < 0));
+        return cmp1;
+      }
+    } else {
+      int cmp = -comp.CompareToPrefix(b.key_like, timestamp_mode_b, a.key_like);
+      if (cmp == 0) {
+        cmp = after_mode_a ? 1 : -1;
+      }
+      return cmp;
+    }
+  } else if (prefix_mode_b) {
+    assert(!timestamp_mode_b);
+    int cmp = comp.CompareToPrefix(a.key_like, timestamp_mode_a, b.key_like);
+    if (cmp == 0) {
+      cmp = after_mode_b ? 1 : -1;
+    }
+    return cmp;
+  } else if (comp.timestamp_size() == 0 ||
+             (timestamp_mode_a && timestamp_mode_b)) {
+    // Full compare
+    int cmp = comp.Compare(a.key_like, b.key_like);
+    if (cmp == 0) {
+      cmp = int{after_mode_a} - int{after_mode_b};
+    }
+    return cmp;
+  } else {
+    // Compare ignoring some timestamps
+    int cmp = comp.CompareWithoutTimestamp(a.key_like, timestamp_mode_a,
+                                           b.key_like, timestamp_mode_b);
+    if (cmp == 0) {
+      if (timestamp_mode_a || timestamp_mode_b) {
+        assert(timestamp_mode_a != timestamp_mode_b);
+        // The timestamp-key bound is considered within the before & after of
+        // the non-timestamp bound.
+        if (timestamp_mode_a) {
+          cmp = after_mode_b ? -1 : 1;
+        } else {
+          cmp = after_mode_a ? 1 : -1;
+        }
+      } else {
+        cmp = int{after_mode_a} - int{after_mode_b};
+      }
+    }
+    return cmp;
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE

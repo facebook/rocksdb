@@ -50,7 +50,7 @@ int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey* b);
 
 // An AtomicCompactionUnitBoundary represents a range of keys [smallest,
-// largest] that exactly spans one ore more neighbouring SSTs on the same
+// largest] that exactly spans one or more neighbouring SSTs on the same
 // level. Every pair of  SSTs in this range "overlap" (i.e., the largest
 // user key of one file is the smallest user key of the next file). These
 // boundaries are propagated down to RangeDelAggregator during compaction
