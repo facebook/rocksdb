@@ -6668,7 +6668,6 @@ TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
-
   ASSERT_OK(txn->Put("2", "2"));
   ASSERT_OK(txn->Put("1", "1"));
   ASSERT_OK(txn->Put("3", "3"));
@@ -6680,8 +6679,7 @@ TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
   ASSERT_OK(iter->status());
 
   iter->SeekToFirst();
-  while(iter->Valid())
-  {
+  while (iter->Valid()) {
     ASSERT_EQ("1", iter->key().ToString());
     iter->Next();
   }
