@@ -943,6 +943,8 @@ struct DBOptions {
   std::shared_ptr<WriteBufferManager> write_buffer_manager = nullptr;
 
   // DEPRECATED
+  // This flag has no effect on the behavior of compaction and we plan to delete
+  // it in the future.
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
