@@ -24,6 +24,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -563,7 +564,7 @@ class HyperClockTable : public BaseClockTable {
  private:  // functions
   // Returns x mod 2^{length_bits_}.
   inline size_t ModTableSize(uint64_t x) {
-    return static_cast<size_t>(x) & length_bits_mask_;
+    return BitwiseAnd(x, length_bits_mask_);
   }
 
   // Returns the first slot in the probe sequence with a handle e such that
