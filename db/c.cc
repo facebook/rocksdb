@@ -280,7 +280,10 @@ struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
 };
 
-struct rocksdb_statistics_histogram_data_t : public HistogramData {};
+struct rocksdb_statistics_histogram_data_t {
+  rocksdb_statistics_histogram_data_t() : rep() {}
+  HistogramData rep;
+};
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
@@ -3902,7 +3905,7 @@ void rocksdb_options_statistics_get_histogram_data(
     rocksdb_statistics_histogram_data_t* const data) {
   ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
   if (statistics) {
-    statistics->histogramData(type, data);
+    statistics->histogramData(type, &data->rep);
   } else {
     *data = rocksdb_statistics_histogram_data_t{};
   }
@@ -6673,47 +6676,47 @@ void rocksdb_statistics_histogram_data_destroy(
 
 double rocksdb_statistics_histogram_data_get_median(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->median;
+  return data->rep.median;
 }
 
 double rocksdb_statistics_histogram_data_get_p95(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->percentile95;
+  return data->rep.percentile95;
 }
 
 double rocksdb_statistics_histogram_data_get_p99(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->percentile99;
+  return data->rep.percentile99;
 }
 
 double rocksdb_statistics_histogram_data_get_average(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->average;
+  return data->rep.average;
 }
 
 double rocksdb_statistics_histogram_data_get_std_dev(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->standard_deviation;
+  return data->rep.standard_deviation;
 }
 
 double rocksdb_statistics_histogram_data_get_max(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->max;
+  return data->rep.max;
 }
 
 uint64_t rocksdb_statistics_histogram_data_get_count(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->count;
+  return data->rep.count;
 }
 
 uint64_t rocksdb_statistics_histogram_data_get_sum(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->sum;
+  return data->rep.sum;
 }
 
 double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data) {
-  return data->min;
+  return data->rep.min;
 }
 
 }  // end extern "C"

@@ -2060,9 +2060,11 @@ int main(int argc, char** argv) {
     CheckCondition(29.0 ==
                    rocksdb_options_get_experimental_mempurge_threshold(o));
 
-    CheckCondition(0 == rocksdb_options_get_statistics_level(o));
+    CheckCondition(rocksdb_statistics_level_disable_all ==
+                   rocksdb_options_get_statistics_level(o));
     rocksdb_options_enable_statistics(o);
-    CheckCondition(0 != rocksdb_options_get_statistics_level(o));
+    CheckCondition(rocksdb_statistics_level_disable_all !=
+                   rocksdb_options_get_statistics_level(o));
     rocksdb_options_set_statistics_level(o, rocksdb_statistics_level_all);
     CheckCondition(rocksdb_statistics_level_all ==
                    rocksdb_options_get_statistics_level(o));
@@ -3655,6 +3657,13 @@ int main(int argc, char** argv) {
     CheckCondition(0 == rocksdb_options_statistics_get_ticker_count(
                             options, BYTES_WRITTEN_TICKER));
     rocksdb_options_statistics_get_histogram_data(options, DB_WRITE_HIST, hist);
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_median(hist));
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_p95(hist));
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_p99(hist));
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_average(hist));
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_std_dev(hist));
+    CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_max(hist));
+    CheckCondition(0 == rocksdb_statistics_histogram_data_get_count(hist));
     CheckCondition(0 == rocksdb_statistics_histogram_data_get_sum(hist));
 
     int i;
@@ -3674,7 +3683,6 @@ int main(int argc, char** argv) {
     CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_max(hist));
     CheckCondition(0 != rocksdb_statistics_histogram_data_get_count(hist));
     CheckCondition(0 != rocksdb_statistics_histogram_data_get_sum(hist));
-    CheckCondition(0.0 != rocksdb_statistics_histogram_data_get_min(hist));
 
     rocksdb_statistics_histogram_data_destroy(hist);
   }
