@@ -50,7 +50,7 @@ DEFINE_double(resident_ratio, 0.25,
 DEFINE_uint64(ops_per_thread, 2000000U, "Number of operations per thread.");
 DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
 
-DEFINE_uint32(skew, 5, "Degree of skew in key selection");
+DEFINE_uint32(skew, 5, "Degree of skew in key selection. 0 = no skew");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
 
 DEFINE_uint32(lookup_insert_percent, 87,
@@ -71,7 +71,6 @@ DEFINE_uint32(
 
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
-DEFINE_bool(skewed, false, "If true, skew the key access distribution");
 
 DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
@@ -80,6 +79,11 @@ DEFINE_bool(lean, false,
 DEFINE_bool(early_exit, false,
             "Exit before deallocating most memory. Good for malloc stats, e.g."
             "MALLOC_CONF=\"stats_print:true\"");
+
+DEFINE_bool(histograms, true,
+            "Whether to track and print histogram statistics.");
+
+DEFINE_uint32(seed, 0, "Hashing/random seed to use. 0 = choose at random");
 
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
@@ -149,9 +153,6 @@ class SharedState {
  public:
   explicit SharedState(CacheBench* cache_bench)
       : cv_(&mu_),
-        num_initialized_(0),
-        start_(false),
-        num_done_(0),
         cache_bench_(cache_bench) {}
 
   ~SharedState() {}
@@ -174,15 +175,27 @@ class SharedState {
 
   bool Started() const { return start_; }
 
+  void AddLookupStats(uint64_t hits, uint64_t misses) {
+    MutexLock l(&mu_);
+    lookup_count_ += hits + misses;
+    lookup_hits_ += hits;
+  }
+
+  double GetLookupHitRatio() const {
+    return 1.0 * lookup_hits_ / lookup_count_;
+  }
+
  private:
   port::Mutex mu_;
   port::CondVar cv_;
 
-  uint64_t num_initialized_;
-  bool start_;
-  uint64_t num_done_;
-
   CacheBench* cache_bench_;
+
+  uint64_t num_initialized_ = 0;
+  bool start_ = false;
+  uint64_t num_done_ = 0;
+  uint64_t lookup_count_ = 0;
+  uint64_t lookup_hits_ = 0;
 };
 
 // Per-thread state for concurrent executions of the same benchmark.
@@ -194,27 +207,19 @@ struct ThreadState {
   uint64_t duration_us = 0;
 
   ThreadState(uint32_t index, SharedState* _shared)
-      : tid(index), rnd(1000 + index), shared(_shared) {}
+      : tid(index), rnd(FLAGS_seed + 1 + index), shared(_shared) {}
 };
 
 struct KeyGen {
   char key_data[27];
 
-  Slice GetRand(Random64& rnd, uint64_t max_key, int max_log) {
-    uint64_t key = 0;
-    if (!FLAGS_skewed) {
-      uint64_t raw = rnd.Next();
-      // Skew according to setting
-      for (uint32_t i = 0; i < FLAGS_skew; ++i) {
-        raw = std::min(raw, rnd.Next());
-      }
-      key = FastRange64(raw, max_key);
-    } else {
-      key = rnd.Skewed(max_log);
-      if (key > max_key) {
-        key -= max_key;
-      }
+  Slice GetRand(Random64& rnd, uint64_t max_key, uint32_t skew) {
+    uint64_t raw = rnd.Next();
+    // Skew according to setting
+    for (uint32_t i = 0; i < skew; ++i) {
+      raw = std::min(raw, rnd.Next());
     }
+    uint64_t key = FastRange64(raw, max_key);
     // Variable size and alignment
     size_t off = key % 8;
     key_data[0] = char{42};
@@ -285,31 +290,25 @@ class CacheBench {
         lookup_threshold_(insert_threshold_ +
                           kHundredthUint64 * FLAGS_lookup_percent),
         erase_threshold_(lookup_threshold_ +
-                         kHundredthUint64 * FLAGS_erase_percent),
-        skewed_(FLAGS_skewed) {
+                         kHundredthUint64 * FLAGS_erase_percent) {
     if (erase_threshold_ != 100U * kHundredthUint64) {
       fprintf(stderr, "Percentages must add to 100.\n");
       exit(1);
-    }
-
-    max_log_ = 0;
-    if (skewed_) {
-      uint64_t max_key = max_key_;
-      while (max_key >>= 1) max_log_++;
-      if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
     } else if (FLAGS_cache_type == "hyper_clock_cache") {
-      cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
-                                      FLAGS_num_shard_bits)
-                   .MakeSharedCache();
+      HyperClockCacheOptions opts(FLAGS_cache_size, FLAGS_value_bytes,
+                                  FLAGS_num_shard_bits);
+      opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      cache_ = opts.MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
                            false /* strict_capacity_limit */,
                            0.5 /* high_pri_pool_ratio */);
+      opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -333,13 +332,50 @@ class CacheBench {
   ~CacheBench() {}
 
   void PopulateCache() {
-    Random64 rnd(1);
+    Random64 rnd(FLAGS_seed);
     KeyGen keygen;
-    for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
-                                createValue(rnd), &helper1, FLAGS_value_bytes);
+    size_t max_occ = 0;
+    size_t inserts_since_max_occ_increase = 0;
+    size_t keys_since_last_not_found = 0;
+
+    // Avoid redundant insertions by checking Lookup before Insert.
+    // Loop until insertions consistently fail to increase max occupancy or
+    // it becomes difficult to find keys not already inserted.
+    while (inserts_since_max_occ_increase < 100 &&
+           keys_since_last_not_found < 100) {
+      Slice key = keygen.GetRand(rnd, max_key_, FLAGS_skew);
+
+      Cache::Handle* handle = cache_->Lookup(key);
+      if (handle != nullptr) {
+        cache_->Release(handle);
+        ++keys_since_last_not_found;
+        continue;
+      }
+      keys_since_last_not_found = 0;
+
+      Status s =
+          cache_->Insert(key, createValue(rnd), &helper1, FLAGS_value_bytes);
       assert(s.ok());
+
+      handle = cache_->Lookup(key);
+      if (!handle) {
+        fprintf(stderr, "Failed to lookup key just inserted.\n");
+        assert(false);
+        exit(42);
+      } else {
+        cache_->Release(handle);
+      }
+
+      size_t occ = cache_->GetOccupancyCount();
+      if (occ > max_occ) {
+        max_occ = occ;
+        inserts_since_max_occ_increase = 0;
+      } else {
+        ++inserts_since_max_occ_increase;
+      }
     }
+    printf("Population complete (%zu entries, %g average charge)\n", max_occ,
+           1.0 * FLAGS_cache_size / max_occ);
   }
 
   bool Run() {
@@ -398,18 +434,21 @@ class CacheBench {
                                         FLAGS_ops_per_thread / elapsed_secs);
     printf("Thread ops/sec = %u\n", ops_per_sec);
 
-    printf("\nOperation latency (ns):\n");
-    HistogramImpl combined;
-    for (uint32_t i = 0; i < FLAGS_threads; i++) {
-      combined.Merge(threads[i]->latency_ns_hist);
-    }
-    printf("%s", combined.ToString().c_str());
+    printf("Lookup hit ratio: %g\n", shared.GetLookupHitRatio());
 
-    if (FLAGS_gather_stats) {
-      printf("\nGather stats latency (us):\n");
-      printf("%s", stats_hist.ToString().c_str());
-    }
+    if (FLAGS_histograms) {
+      printf("\nOperation latency (ns):\n");
+      HistogramImpl combined;
+      for (uint32_t i = 0; i < FLAGS_threads; i++) {
+        combined.Merge(threads[i]->latency_ns_hist);
+      }
+      printf("%s", combined.ToString().c_str());
 
+      if (FLAGS_gather_stats) {
+        printf("\nGather stats latency (us):\n");
+        printf("%s", stats_hist.ToString().c_str());
+      }
+    }
     printf("\n%s", stats_report.c_str());
 
     return true;
@@ -423,8 +462,6 @@ class CacheBench {
   const uint64_t insert_threshold_;
   const uint64_t lookup_threshold_;
   const uint64_t erase_threshold_;
-  const bool skewed_;
-  int max_log_;
 
   // A benchmark version of gathering stats on an active block cache by
   // iterating over it. The primary purpose is to measure the impact of
@@ -494,13 +531,17 @@ class CacheBench {
         // Something slightly more expensive as in stats by category
         helpers.insert(helper);
       };
-      timer.Start();
+      if (FLAGS_histograms) {
+        timer.Start();
+      }
       Cache::ApplyToAllEntriesOptions opts;
       opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
       shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
       table_occupancy = shared->GetCacheBench()->cache_->GetOccupancyCount();
       table_size = shared->GetCacheBench()->cache_->GetTableAddressCount();
-      stats_hist->Add(timer.ElapsedNanos() / 1000);
+      if (FLAGS_histograms) {
+        stats_hist->Add(timer.ElapsedNanos() / 1000);
+      }
     }
   }
 
@@ -531,6 +572,8 @@ class CacheBench {
   void OperateCache(ThreadState* thread) {
     // To use looked-up values
     uint64_t result = 0;
+    uint64_t lookup_misses = 0;
+    uint64_t lookup_hits = 0;
     // To hold handles for a non-trivial amount of time
     Cache::Handle* handle = nullptr;
     KeyGen gen;
@@ -539,10 +582,12 @@ class CacheBench {
     StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
+      Slice key = gen.GetRand(thread->rnd, max_key_, FLAGS_skew);
       uint64_t random_op = thread->rnd.Next();
 
-      timer.Start();
+      if (FLAGS_histograms) {
+        timer.Start();
+      }
 
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
@@ -553,12 +598,14 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
                                 Cache::Priority::LOW);
         if (handle) {
+          ++lookup_hits;
           if (!FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
         } else {
+          ++lookup_misses;
           // do insert
           Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
                                     FLAGS_value_bytes, &handle);
@@ -582,11 +629,14 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
                                 Cache::Priority::LOW);
         if (handle) {
+          ++lookup_hits;
           if (!FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
+        } else {
+          ++lookup_misses;
         }
       } else if (random_op < erase_threshold_) {
         // do erase
@@ -595,7 +645,10 @@ class CacheBench {
         // Should be extremely unlikely (noop)
         assert(random_op >= kHundredthUint64 * 100U);
       }
-      thread->latency_ns_hist.Add(timer.ElapsedNanos());
+      if (FLAGS_histograms) {
+        thread->latency_ns_hist.Add(timer.ElapsedNanos());
+      }
+      thread->shared->AddLookupStats(lookup_hits, lookup_misses);
     }
     if (FLAGS_early_exit) {
       MutexLock l(thread->shared->GetMutex());
@@ -621,6 +674,7 @@ class CacheBench {
 #ifndef NDEBUG
     printf("WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
+    printf("----------------------------\n");
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
     printf("DMutex impl name    : %s\n", DMutex::kName());
     printf("Number of threads   : %u\n", FLAGS_threads);
@@ -960,11 +1014,14 @@ int cache_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
+  if (FLAGS_seed == 0) {
+    FLAGS_seed = static_cast<uint32_t>(port::GetProcessID());
+    printf("Using seed = %" PRIu32 "\n", FLAGS_seed);
+  }
+
   ROCKSDB_NAMESPACE::CacheBench bench;
   if (FLAGS_populate_cache) {
     bench.PopulateCache();
-    printf("Population complete\n");
-    printf("----------------------------\n");
   }
   if (bench.Run()) {
     return 0;
