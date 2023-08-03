@@ -1440,8 +1440,9 @@ inline CacheAllocationPtr ZSTD_Uncompress(
     size_t* uncompressed_size, MemoryAllocator* allocator = nullptr,
     const char** error_message = nullptr) {
 #ifdef ZSTD
-  static const char* kErrorDecodeOutputSize = "Cannot decode output size.";
-  static const char* kErrorOutputLenMismatch =
+  static const char* const kErrorDecodeOutputSize =
+      "Cannot decode output size.";
+  static const char* const kErrorOutputLenMismatch =
       "Decompressed size does not match header.";
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
