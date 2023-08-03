@@ -651,7 +651,7 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
       GetCompressFormatForVersion(format_version), allocator, &error_msg);
   if (!ubuf) {
     if (!CompressionTypeSupported(uncompression_info.type())) {
-      return Status::NotSupported(
+      ret = Status::NotSupported(
           "Unsupported compression method for this build",
           CompressionTypeToString(uncompression_info.type()));
     } else {
@@ -660,9 +660,10 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
       if (error_msg) {
         oss << ": " << error_msg;
       }
-      return Status::Corruption(
+      ret = Status::Corruption(
           oss.str(), CompressionTypeToString(uncompression_info.type()));
     }
+    return ret;
   }
 
   *out_contents = BlockContents(std::move(ubuf), uncompressed_size);

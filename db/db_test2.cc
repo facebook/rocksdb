@@ -7670,6 +7670,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
+#if defined(ZSTD_ADVANCED)
 TEST_F(DBTest2, ZSTDChecksum) {
   // Verify that corruption during decompression is caught.
   Options options = CurrentOptions();
@@ -7701,6 +7702,7 @@ TEST_F(DBTest2, ZSTDChecksum) {
   s = Flush();
   ASSERT_TRUE(s.IsCorruption());
 }
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 
