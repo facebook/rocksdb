@@ -18,8 +18,8 @@ void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
-  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()
-      && !FLAGS_post_verification_only) {
+  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning() &&
+      !FLAGS_post_verification_only) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -33,7 +33,7 @@ void ThreadBody(void* v) {
     }
   }
   if (!FLAGS_post_verification_only) {
-     thread->shared->GetStressTest()->OperateDb(thread);
+    thread->shared->GetStressTest()->OperateDb(thread);
   }
   {
     MutexLock l(shared->GetMutex());
@@ -152,9 +152,9 @@ bool RunStressTestImpl(SharedState* shared) {
     if (!FLAGS_post_verification_only) {
       now = clock->NowMicros();
       fprintf(stdout, "%s Starting database operations\n",
-               clock->TimeToString(now / 1000000).c_str());
+              clock->TimeToString(now / 1000000).c_str());
     } else {
-       fprintf(stdout, "Skipping database operations\n");
+      fprintf(stdout, "Skipping database operations\n");
     }
 
     shared->SetStart();
@@ -187,7 +187,8 @@ bool RunStressTestImpl(SharedState* shared) {
   // emit no ops or writes error. To avoid this, merging and reporting stats
   // are not executed when running with post_verification_only
   // TODO: We need to create verification stats (e.g. how many keys
-  // are verified by which method) and report them here instead of operation stats.
+  // are verified by which method) and report them here instead of operation
+  // stats.
   if (!FLAGS_post_verification_only) {
     for (unsigned int i = 1; i < n; i++) {
       threads[0]->stats.Merge(threads[i]->stats);
