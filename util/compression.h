@@ -401,6 +401,8 @@ class CompressionContext {
         ZSTD_freeCCtx(zstd_ctx_);
         zstd_ctx_ = CreateZSTDContext();
       }
+#else
+      (void)level;
 #endif
     }
   }
@@ -1599,6 +1601,7 @@ inline std::string ZSTD_FinalizeDictionary(
     return dict_data;
   }
 #else   // up to v1.4.4
+  assert(false);
   (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
