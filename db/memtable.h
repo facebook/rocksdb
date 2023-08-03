@@ -68,6 +68,7 @@ struct MemTablePostProcessInfo {
   uint64_t data_size = 0;
   uint64_t num_entries = 0;
   uint64_t num_deletes = 0;
+  uint64_t num_range_deletes = 0;
 };
 
 using MultiGetRange = MultiGetContext::Range;
@@ -332,6 +333,10 @@ class MemTable {
       num_deletes_.fetch_add(update_counters.num_deletes,
                              std::memory_order_relaxed);
     }
+    if (update_counters.num_range_deletes > 0) {
+      num_range_deletes_.fetch_add(update_counters.num_range_deletes,
+                                   std::memory_order_relaxed);
+    }
     UpdateFlushState();
   }
 
@@ -347,6 +352,13 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   uint64_t num_deletes() const {
     return num_deletes_.load(std::memory_order_relaxed);
+  }
+
+  // Get total number of range deletions in the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  uint64_t num_range_deletes() const {
+    return num_range_deletes_.load(std::memory_order_relaxed);
   }
 
   uint64_t get_data_size() const {
@@ -565,6 +577,7 @@ class MemTable {
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
   std::atomic<uint64_t> num_deletes_;
+  std::atomic<uint64_t> num_range_deletes_;
 
   // Dynamically changeable memtable option
   std::atomic<size_t> write_buffer_size_;
@@ -625,6 +638,10 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+
+  // max range deletions in a memtable,  before automatic flushing, 0 for
+  // unlimited.
+  uint32_t memtable_max_range_deletions_ = 0;
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;

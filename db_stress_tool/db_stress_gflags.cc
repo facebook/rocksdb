@@ -1102,4 +1102,8 @@ DEFINE_uint64(stats_dump_period_sec,
 DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 
+DEFINE_uint32(memtable_max_range_deletions, 0,
+              "If nonzero, RocksDB will try to flush the current memtable"
+              "after the number of range deletions is >= this limit");
+
 #endif  // GFLAGS

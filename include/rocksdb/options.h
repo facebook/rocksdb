@@ -331,6 +331,17 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // RocksDB will try to flush the current memtable after the number of range
+  // deletions is >= this limit. For workloads with many range
+  // deletions, limiting the number of range deletions in memtable can help
+  // prevent performance degradation and/or OOM caused by too many range
+  // tombstones in a single memtable.
+  //
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t memtable_max_range_deletions = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
