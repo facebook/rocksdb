@@ -4097,7 +4097,7 @@ Status DBImpl::WaitForCompact(
     }
   }
   if (wait_for_compact_options.close_db) {
-    DBImpl::CancelPeriodicTaskSchedulers();
+    DBImpl::CancelPeriodicTaskScheduler();
   }
   TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
