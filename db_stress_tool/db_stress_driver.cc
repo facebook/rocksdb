@@ -188,7 +188,7 @@ bool RunStressTestImpl(SharedState* shared) {
   // are not executed when running with post_verification_only
   // TODO: We need to create verification stats (e.g. how many keys
   // are verified by which method) and report them here instead of operation stats.
-  if (!FLAGS_post_verification_only){
+  if (!FLAGS_post_verification_only) {
     for (unsigned int i = 1; i < n; i++) {
       threads[0]->stats.Merge(threads[i]->stats);
     }
@@ -205,7 +205,10 @@ bool RunStressTestImpl(SharedState* shared) {
     fprintf(stdout, "%s Verification successful\n",
             clock->TimeToString(now / 1000000).c_str());
   }
-  stress->PrintStatistics();
+
+  if (!FLAGS_post_verification_only) {
+    stress->PrintStatistics();
+  }
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
       FLAGS_continuous_verification_interval > 0) {
