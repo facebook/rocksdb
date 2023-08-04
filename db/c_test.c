@@ -198,6 +198,36 @@ static void CheckDel(void* ptr, const char* k, size_t klen) {
   (*state)++;
 }
 
+// Callback from rocksdb_writebatch_iterate()
+static void CheckPutCf(void* ptr, uint32_t column_family_id, const char* k, size_t klen, const char* v,
+                     size_t vlen) {
+  CheckCondition(column_family_id == 2);
+
+  int* state = (int*)ptr;
+  CheckCondition(*state < 4);
+  switch (*state) {
+    case 0:
+      CheckEqual("bar", k, klen);
+      CheckEqual("b", v, vlen);
+      break;
+    case 1:
+      CheckEqual("box", k, klen);
+      CheckEqual("c", v, vlen);
+      break;
+  }
+  (*state)++;
+}
+
+// Callback from rocksdb_writebatch_iterate()
+static void CheckDelCf(void* ptr, uint32_t column_family_id, const char* k, size_t klen) {
+  CheckCondition(column_family_id == 2);
+
+  int* state = (int*)ptr;
+  CheckCondition(*state == 2);
+  CheckEqual("bar", k, klen);
+  (*state)++;
+}
+
 static void CmpDestroy(void* arg) { (void)arg; }
 
 static int CmpCompare(void* arg, const char* a, size_t alen, const char* b,
@@ -977,6 +1007,30 @@ int main(int argc, char** argv) {
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     CheckGet(db, roptions, "bay", NULL);
+    rocksdb_writebatch_destroy(wb);
+  }
+
+  StartPhase("writebatch_iterator_handler");
+  {
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    rocksdb_writebatch_put(wb, "foo", 3, "a", 1);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "box", 3, "c", 1);
+    rocksdb_writebatch_delete(wb, "bar", 3);
+
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+
+    int pos = 0;
+    rocksdb_writebatch_handler_t* h = rocksdb_writebatch_new_handler(&pos, CheckPut, CheckDel);
+    rocksdb_writebatch_handler_set_put_cf(h, CheckPutCf);
+    rocksdb_writebatch_handler_set_delete_cf(h, CheckDelCf);
+
+    rocksdb_writebatch_iterate_with_handler(wb, h);
+    CheckCondition(pos == 3);
+
+    rocksdb_writebatch_handler_destroy(h);
     rocksdb_writebatch_destroy(wb);
   }
 

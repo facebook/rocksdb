@@ -2159,15 +2159,74 @@ void rocksdb_writebatch_put_log_data(rocksdb_writebatch_t* b, const char* blob,
 class H : public WriteBatch::Handler {
  public:
   void* state_;
+
   void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
+  void (*put_cf_)(void*, uint32_t column_family_id, const char* k, size_t klen, const char* v, size_t vlen);
   void (*deleted_)(void*, const char* k, size_t klen);
+  void (*deleted_cf_)(void*, uint32_t column_family_id, const char* k, size_t klen);
+
   void Put(const Slice& key, const Slice& value) override {
     (*put_)(state_, key.data(), key.size(), value.data(), value.size());
   }
   void Delete(const Slice& key) override {
     (*deleted_)(state_, key.data(), key.size());
   }
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (deleted_cf_) {
+      (*deleted_cf_)(state_, column_family_id, key.data(), key.size());
+      return Status::OK();
+    }
+
+    return Status::OK();
+  }
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    if (put_cf_) {
+      (*put_cf_)(state_, column_family_id, key.data(), key.size(), value.data(), value.size());
+      return Status::OK();
+    }
+
+    return Status::OK();
+  }
 };
+
+struct rocksdb_writebatch_handler_t {
+  H rep;
+};
+
+rocksdb_writebatch_handler_t* rocksdb_writebatch_new_handler(
+    void* state,
+    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void*, const char* k, size_t klen)
+) {
+  H handler;
+  handler.state_ = state;
+  handler.put_ = put;
+  handler.deleted_ = deleted;
+
+  rocksdb_writebatch_handler_t* h = new rocksdb_writebatch_handler_t;
+  h->rep = handler;
+
+  return h;
+}
+
+void rocksdb_writebatch_handler_set_put_cf(
+    rocksdb_writebatch_handler_t* h,
+    void (*put_cf)(void*, uint32_t column_family_id, const char* k, size_t klen, const char* v, size_t vlen)
+) {
+  h->rep.put_cf_ = put_cf;
+}
+
+void rocksdb_writebatch_handler_set_delete_cf(
+    rocksdb_writebatch_handler_t* h,
+    void (*delete_cf)(void*, uint32_t column_family_id, const char* k, size_t klen)
+) {
+  h->rep.deleted_cf_ = delete_cf;
+}
+
+void rocksdb_writebatch_handler_destroy(rocksdb_writebatch_handler_t* h) {
+  delete h;
+}
 
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
                                 void (*put)(void*, const char* k, size_t klen,
@@ -2179,6 +2238,10 @@ void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
   handler.put_ = put;
   handler.deleted_ = deleted;
   b->rep.Iterate(&handler);
+}
+
+void rocksdb_writebatch_iterate_with_handler(rocksdb_writebatch_t* b, rocksdb_writebatch_handler_t* h) {
+  b->rep.Iterate(&h->rep);
 }
 
 const char* rocksdb_writebatch_data(rocksdb_writebatch_t* b, size_t* size) {
