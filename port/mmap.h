@@ -14,6 +14,7 @@
 #endif  // OS_WIN
 
 #include <cstdint>
+#include <utility>
 
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -65,6 +66,21 @@ class MemMapping {
 #endif  // OS_WIN
 
   static MemMapping AllocateAnonymous(size_t length, bool huge);
+};
+
+template <typename T>
+class TypedMemMapping : public MemMapping {
+ public:
+  TypedMemMapping(MemMapping&& v) noexcept : MemMapping(std::move(v)) {}
+  TypedMemMapping& operator=(MemMapping&& v) noexcept {
+    MemMapping& base = *this;
+    base = std::move(v);
+  };
+
+  inline T* Get() const { return static_cast<T*>(MemMapping::Get()); }
+  inline size_t Count() const { return MemMapping::Length() / sizeof(T); }
+
+  inline T& operator[](size_t index) const { return Get()[index]; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

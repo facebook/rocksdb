@@ -436,6 +436,10 @@ class CacheBench {
 
     printf("Lookup hit ratio: %g\n", shared.GetLookupHitRatio());
 
+    size_t occ = cache_->GetOccupancyCount();
+    size_t slot = cache_->GetTableAddressCount();
+    printf("Final load factor: %g (%zu / %zu)\n", 1.0 * occ / slot, occ, slot);
+
     if (FLAGS_histograms) {
       printf("\nOperation latency (ns):\n");
       HistogramImpl combined;
@@ -676,6 +680,7 @@ class CacheBench {
 #endif
     printf("----------------------------\n");
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
+    printf("Cache impl name     : %s\n", cache_->Name());
     printf("DMutex impl name    : %s\n", DMutex::kName());
     printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
