@@ -53,8 +53,10 @@ class FileTtlBooster {
       enabled_ = true;
       uint64_t all_boost_start_age = ttl / 2;
       uint64_t all_boost_age_range = (ttl / 32) * 31 - all_boost_start_age;
+      // TODO(cbi): more reasonable algorithm that gives different values
+      //   when num_non_empty_levels - level - 1 > 63.
       uint64_t boost_age_range =
-          all_boost_age_range >> (num_non_empty_levels - level - 1);
+          all_boost_age_range >> std::min(63, num_non_empty_levels - level - 1);
       boost_age_start_ = all_boost_start_age + boost_age_range;
       const uint64_t kBoostRatio = 16;
       // prevent 0 value to avoid divide 0 error.
