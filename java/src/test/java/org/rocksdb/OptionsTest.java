@@ -699,6 +699,7 @@ public class OptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void accessHintOnCompactionStart() {
     try (final Options opt = new Options()) {

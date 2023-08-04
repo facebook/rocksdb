@@ -143,8 +143,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
 
-  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
-    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
+  if (result.compaction_readahead_size == 0) {
+    if (result.use_direct_reads) {
+      TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
+    }
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 

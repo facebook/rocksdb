@@ -840,6 +840,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public Options setAccessHintOnCompactionStart(final AccessHint accessHint) {
     assert(isOwningHandle());
     setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
@@ -847,6 +848,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public AccessHint accessHintOnCompactionStart() {
     assert(isOwningHandle());
     return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
