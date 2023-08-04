@@ -129,7 +129,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (FLAGS_cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
-  } else if (FLAGS_cache_type == "hyper_clock_cache") {
+  } else if (FLAGS_cache_type == "hyper_clock_cache" ||
+             FLAGS_cache_type == "fixed_hyper_clock_cache") {
     HyperClockCacheOptions opts(static_cast<size_t>(capacity),
                                 FLAGS_block_size /*estimated_entry_charge*/,
                                 num_shard_bits);

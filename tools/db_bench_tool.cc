@@ -3039,7 +3039,8 @@ class Benchmark {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+    } else if (FLAGS_cache_type == "hyper_clock_cache" ||
+               FLAGS_cache_type == "fixed_hyper_clock_cache") {
       HyperClockCacheOptions hcco{
           static_cast<size_t>(capacity),
           static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,

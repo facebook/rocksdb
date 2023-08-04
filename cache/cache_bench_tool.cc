@@ -299,7 +299,8 @@ class CacheBench {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+    } else if (FLAGS_cache_type == "hyper_clock_cache" ||
+               FLAGS_cache_type == "fixed_hyper_clock_cache") {
       HyperClockCacheOptions opts(FLAGS_cache_size, FLAGS_value_bytes,
                                   FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
