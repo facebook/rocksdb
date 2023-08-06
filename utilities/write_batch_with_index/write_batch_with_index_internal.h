@@ -34,8 +34,7 @@ class BaseDeltaIterator : public Iterator {
  public:
   BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
                     WBWIIteratorImpl* delta_iterator,
-                    const Comparator* comparator,
-                    const ReadOptions* read_options = nullptr);
+                    const Comparator* comparator);
 
   ~BaseDeltaIterator() override {}
 
@@ -69,7 +68,6 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
-  const Slice* iterate_upper_bound_;
   MergeContext merge_context_;
   mutable std::string merge_result_;
 };
@@ -196,11 +194,15 @@ class WBWIIteratorImpl : public WBWIIterator {
   WBWIIteratorImpl(uint32_t column_family_id,
                    WriteBatchEntrySkipList* skip_list,
                    const ReadableWriteBatch* write_batch,
-                   WriteBatchEntryComparator* comparator)
+                   WriteBatchEntryComparator* comparator,
+                   const Slice* iterate_lower_bound = nullptr,
+                   const Slice* iterate_upper_bound = nullptr)
       : column_family_id_(column_family_id),
         skip_list_iter_(skip_list),
         write_batch_(write_batch),
-        comparator_(comparator) {}
+        comparator_(comparator),
+        iterate_lower_bound_(iterate_lower_bound),
+        iterate_upper_bound_(iterate_upper_bound) {}
 
   ~WBWIIteratorImpl() override {}
 
@@ -208,12 +210,27 @@ class WBWIIteratorImpl : public WBWIIterator {
     if (!skip_list_iter_.Valid()) {
       return false;
     }
-    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    return (iter_entry != nullptr &&
-            iter_entry->column_family == column_family_id_);
+    const WriteBatchIndexEntry* sl_iter_entry = skip_list_iter_.key();
+    bool valid = sl_iter_entry != nullptr &&
+                 sl_iter_entry->column_family == column_family_id_;
+    if (!valid) {
+      return false;
+    }
+
+    // skiplist has no idea of bounds, we do bounds checking here
+    const Slice& curKey = Entry().key;
+    return !afterUpperBound(&curKey) && !beforeLowerBound(&curKey);
   }
 
   void SeekToFirst() override {
+    if (iterate_lower_bound_ != nullptr) {
+      WriteBatchIndexEntry search_entry(
+          iterate_lower_bound_ /* search_key */, column_family_id_,
+          true /* is_forward_direction */, false /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
+      return;
+    }
+
     WriteBatchIndexEntry search_entry(
         nullptr /* search_key */, column_family_id_,
         true /* is_forward_direction */, true /* is_seek_to_first */);
@@ -221,9 +238,15 @@ class WBWIIteratorImpl : public WBWIIterator {
   }
 
   void SeekToLast() override {
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_ + 1,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
+    WriteBatchIndexEntry search_entry =
+        (iterate_upper_bound_ != nullptr)
+            ? WriteBatchIndexEntry(
+                  iterate_upper_bound_ /* search_key */, column_family_id_,
+                  true /* is_forward_direction */, false /* is_seek_to_first */)
+            : WriteBatchIndexEntry(
+                  nullptr /* search_key */, column_family_id_ + 1,
+                  true /* is_forward_direction */, true /* is_seek_to_first */);
+
     skip_list_iter_.Seek(&search_entry);
     if (!skip_list_iter_.Valid()) {
       skip_list_iter_.SeekToLast();
@@ -233,13 +256,24 @@ class WBWIIteratorImpl : public WBWIIterator {
   }
 
   void Seek(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                      true /* is_forward_direction */,
-                                      false /* is_seek_to_first */);
+    WriteBatchIndexEntry search_entry(
+        beforeLowerBound(&key) ? iterate_lower_bound_ : &key, column_family_id_,
+        true /* is_forward_direction */, false /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
   }
 
   void SeekForPrev(const Slice& key) override {
+    if (afterUpperBound(&key)) {
+      WriteBatchIndexEntry search_entry(
+          iterate_upper_bound_, column_family_id_,
+          // is_forward_direction, set to true so that
+          // iterate_upper_bound_ is excluded, this is not a readable trick,
+          // TODO fix it by renaming WriteBatchIndexEntry::is_forward_direction
+          true, false /* is_seek_to_first */);
+      skip_list_iter_.SeekForPrev(&search_entry);
+      return;
+    }
+
     WriteBatchIndexEntry search_entry(&key, column_family_id_,
                                       false /* is_forward_direction */,
                                       false /* is_seek_to_first */);
@@ -289,6 +323,30 @@ class WBWIIteratorImpl : public WBWIIterator {
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
   const ReadableWriteBatch* write_batch_;
   WriteBatchEntryComparator* comparator_;
+  const Slice* iterate_lower_bound_;
+  const Slice* iterate_upper_bound_;
+
+  bool afterUpperBound(const Slice* k) const {
+    if (iterate_upper_bound_ == nullptr) {
+      return false;
+    }
+
+    return comparator_->GetComparator(column_family_id_)
+               ->CompareWithoutTimestamp(*k, /*a_has_ts=*/false,
+                                         *iterate_upper_bound_,
+                                         /*b_has_ts=*/false) >= 0;
+  }
+
+  bool beforeLowerBound(const Slice* k) const {
+    if (iterate_lower_bound_ == nullptr) {
+      return false;
+    }
+
+    return comparator_->GetComparator(column_family_id_)
+               ->CompareWithoutTimestamp(*k, /*a_has_ts=*/false,
+                                         *iterate_lower_bound_,
+                                         /*b_has_ts=*/false) < 0;
+  }
 };
 
 class WriteBatchWithIndexInternal {

@@ -1037,7 +1037,8 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wupt_db_->NewIterator(options, column_family, this);
   assert(db_iter);
 
-  auto iter = write_batch_.NewIteratorWithBase(column_family, db_iter);
+  auto iter =
+      write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
   active_iterators_.push_back(iter);
   iter->RegisterCleanup(CleanupWriteUnpreparedWBWIIterator, this, iter);
   return iter;

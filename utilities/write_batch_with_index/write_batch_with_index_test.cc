@@ -1640,6 +1640,55 @@ TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
+  Status s = OpenDB();
+  ASSERT_OK(s);
+
+  // writes that should be observed by BaseDeltaIterator::delta_iterator_
+  ASSERT_OK(batch_->Put("a", "aa"));
+  ASSERT_OK(batch_->Put("b", "bb"));
+  ASSERT_OK(batch_->Put("c", "cc"));
+
+  // given range [b, c)
+  // assert only {b} is return
+
+  ReadOptions ro;
+  ro.iterate_lower_bound = new Slice("b");
+  ro.iterate_upper_bound = new Slice("c");
+  std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+      db_->DefaultColumnFamily(), new KVIter(new KVMap()), &ro));
+
+  // move to the lower bound
+  iter->SeekToFirst();
+  ASSERT_EQ("b", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+
+  // move to the upper bound
+  iter->SeekToLast();
+  ASSERT_EQ("b", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  // test bounds checking in Seek and SeekForPrev
+  iter->Seek(Slice("a"));
+  ASSERT_EQ("b", iter->key());
+  iter->Seek(Slice("b"));
+  ASSERT_EQ("b", iter->key());
+  iter->Seek(Slice("c"));
+  ASSERT_FALSE(iter->Valid());
+
+  iter->SeekForPrev(Slice("c"));
+  ASSERT_EQ("b", iter->key());
+  iter->SeekForPrev(Slice("b"));
+  ASSERT_EQ("b", iter->key());
+  iter->SeekForPrev(Slice("a"));
+  ASSERT_FALSE(iter->Valid());
+}
+
+// TestTxnRespectBoundingInReadOption can not mirror here, since KVIter does not
+// have bounds checking
+
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
   KVMap empty_map;

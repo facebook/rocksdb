@@ -78,6 +78,69 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
+TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  Status s;
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
+    // writes that should be observed by base_iterator_ in BaseDeltaIterator
+    txn->Put("a", "aa");
+    txn->Put("c", "cc");
+    txn->Put("e", "ee");
+    txn->Put("f", "ff");
+    ASSERT_TRUE(txn->Commit().ok());
+  }
+
+  std::unique_ptr<Transaction> txn2(db->BeginTransaction(write_options));
+  // writes that should be observed by delta_iterator_ in BaseDeltaIterator
+  txn2->Put("b", "bb");
+  txn2->Put("c", "cc");
+  txn2->Put("f", "ff");
+
+  //  base_iterator_:   b c   f
+  // delta_iterator_: a   c e f
+  //
+  // given range [c, f)
+  // assert only {c, e} can be seen
+
+  ReadOptions ro;
+  ro.iterate_lower_bound = new Slice("c");
+  ro.iterate_upper_bound = new Slice("f");
+  std::unique_ptr<Iterator> iter(txn2->GetIterator(ro));
+
+  iter->Seek(Slice("b"));
+  ASSERT_EQ("c", iter->key());  // lower bound capping
+  iter->Seek(Slice("f"));
+  ASSERT_FALSE(iter->Valid());  // out of bound
+
+  iter->SeekForPrev(Slice("f"));
+  ASSERT_EQ("e", iter->key());  // upper bound capping
+  iter->SeekForPrev(Slice("b"));
+  ASSERT_FALSE(iter->Valid());  // out of bound
+
+  // move to the lower bound
+  iter->SeekToFirst();
+  ASSERT_EQ("c", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+
+  // move to the upper bound
+  iter->SeekToLast();
+  ASSERT_EQ("e", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  // reversely walk to the beginning
+  iter->SeekToLast();
+  ASSERT_EQ("e", iter->key());
+  iter->Prev();
+  ASSERT_EQ("c", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+}
+
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
   write_options.sync = true;
