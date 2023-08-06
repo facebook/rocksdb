@@ -71,11 +71,12 @@ class MemMapping {
 template <typename T>
 class TypedMemMapping : public MemMapping {
  public:
-  TypedMemMapping(MemMapping&& v) noexcept : MemMapping(std::move(v)) {}
+  /*implicit*/ TypedMemMapping(MemMapping&& v) noexcept
+      : MemMapping(std::move(v)) {}
   TypedMemMapping& operator=(MemMapping&& v) noexcept {
     MemMapping& base = *this;
     base = std::move(v);
-  };
+  }
 
   inline T* Get() const { return static_cast<T*>(MemMapping::Get()); }
   inline size_t Count() const { return MemMapping::Length() / sizeof(T); }
