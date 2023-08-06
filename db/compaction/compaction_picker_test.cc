@@ -1968,6 +1968,15 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, FileTtlBoosterLargeNumLevels) {
+  const uint64_t kCurrentTime = 1000000;
+  FileTtlBooster booster(kCurrentTime, /*ttl=*/2048,
+                         /*num_non_empty_levels=*/100, /*level=*/1);
+  FileMetaData meta;
+  meta.oldest_ancester_time = kCurrentTime - 1023;
+  ASSERT_EQ(1, booster.GetBoostScore(&meta));
+}
+
 TEST_F(CompactionPickerTest, FileTtlBooster) {
   // Set TTL to 2048
   // TTL boosting for all levels starts at 1024,

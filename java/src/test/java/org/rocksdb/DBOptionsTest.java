@@ -453,6 +453,7 @@ public class DBOptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void accessHintOnCompactionStart() {
     try(final DBOptions opt = new DBOptions()) {
