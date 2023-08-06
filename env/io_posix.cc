@@ -201,7 +201,7 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
+    r = photon::iouring_pread(fd_, ptr, left, (off_t)offset);
     if (r <= 0) {
       break;
     }
@@ -332,7 +332,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
+    r = photon::iouring_pread(fd_, ptr, left, offset);
     if (r <= 0) {
       break;
     }
@@ -754,12 +754,8 @@ Status PosixWritableFile::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
-    ssize_t done = write(fd_, src, left);
-    std::this_thread::yield();
+    ssize_t done = photon::iouring_pwrite(fd_, src, left, -1);
     if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
       return IOError("While appending to file", filename_, errno);
     }
     left -= done;
@@ -779,7 +775,7 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
-    ssize_t done = photon::iouring_pwrite(fd_, src, left, offset, -1);;
+    ssize_t done = photon::iouring_pwrite(fd_, src, left, (off_t)offset);;
     if (done < 0) {
       return IOError("While pwrite to file at offset " + ToString(offset),
                      filename_, errno);
@@ -976,7 +972,7 @@ Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
-    ssize_t done = photon::iouring_pwrite(fd_, src, left, offset, -1);
+    ssize_t done = photon::iouring_pwrite(fd_, src, left, (off_t)offset);
     if (done < 0) {
       // error while writing to file
       return IOError(
@@ -998,7 +994,7 @@ Status PosixRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    ssize_t done = photon::iouring_pread(fd_, ptr, left, offset, 0, -1);
+    ssize_t done = photon::iouring_pread(fd_, ptr, left, (off_t)offset);
     if (done < 0) {
       // error while reading from file
       return IOError("While reading random read/write file offset " +

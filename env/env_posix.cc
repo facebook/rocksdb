@@ -255,7 +255,7 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd = -1;
-    int flags = (reopen) ? (O_CREAT | O_APPEND) : (O_CREAT | O_TRUNC);
+    int flags = (reopen) ? (O_CREAT | O_APPEND) : (O_CREAT | O_TRUNC | O_APPEND);
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
       // Note: we should avoid O_APPEND here due to ta the following bug:
