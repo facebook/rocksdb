@@ -970,7 +970,7 @@ void DBImpl::PersistStats() {
                      "Storing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
                      " to in-memory stats history",
                      stats_slice_.size(), now_seconds);
-      stats_history_[now_seconds] = stats_delta;
+      stats_history_[now_seconds] = std::move(stats_delta);
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
