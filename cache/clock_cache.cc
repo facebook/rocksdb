@@ -408,14 +408,14 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   // Grab any available capacity, and free up any more required.
   size_t old_usage = usage_.load(std::memory_order_relaxed);
   size_t new_usage;
-    do {
-      new_usage = std::min(capacity, old_usage + total_charge);
-      if (new_usage == old_usage) {
-        // No change needed
-        break;
-      }
-    } while (!usage_.compare_exchange_weak(old_usage, new_usage,
-                                           std::memory_order_relaxed));
+  do {
+    new_usage = std::min(capacity, old_usage + total_charge);
+    if (new_usage == old_usage) {
+      // No change needed
+      break;
+    }
+  } while (!usage_.compare_exchange_weak(old_usage, new_usage,
+                                         std::memory_order_relaxed));
   // How much do we need to evict then?
   size_t need_evict_charge = old_usage + total_charge - new_usage;
   size_t request_evict_charge = need_evict_charge;

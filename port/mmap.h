@@ -68,6 +68,9 @@ class MemMapping {
   static MemMapping AllocateAnonymous(size_t length, bool huge);
 };
 
+// Simple MemMapping wrapper that presents the memory as an array of T.
+// For example,
+//  TypedMemMapping<uint64_t> arr = MemMapping::AllocateLazyZeroed(num_bytes);
 template <typename T>
 class TypedMemMapping : public MemMapping {
  public:

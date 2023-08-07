@@ -221,7 +221,11 @@ TEST(MmapTest, AllocateLazyZeroed) {
   // Doesn't have to be page aligned
   constexpr size_t len = 1234567;    // in bytes
   constexpr size_t count = len / 8;  // in uint64_t objects
-  TypedMemMapping<uint64_t> arr = MemMapping::AllocateLazyZeroed(len);
+  // Implicit conversion move
+  TypedMemMapping<uint64_t> pre_arr = MemMapping::AllocateLazyZeroed(len);
+  // Move from same type
+  TypedMemMapping<uint64_t> arr = std::move(pre_arr);
+
   ASSERT_NE(arr.Get(), nullptr);
   ASSERT_EQ(arr.Get(), &arr[0]);
   ASSERT_EQ(arr.Get(), arr.MemMapping::Get());
