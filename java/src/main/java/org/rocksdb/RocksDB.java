@@ -3417,6 +3417,25 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * ClipColumnFamily() will clip the entries in the CF according to the range
+   * [begin_key, end_key). Returns OK on success, and a non-OK status on error.
+   * Any entries outside this range will be completely deleted (including
+   * tombstones).
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance
+   * @param beginKey First key to clip within database (inclusive)
+   * @param endKey Last key to clip within database (exclusive)
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void clipColumnFamily(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
+    clipColumnFamily(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, beginKey, 0,
+        beginKey.length, endKey, 0, endKey.length);
+  }
+
+  /**
    * Change the options for the column family handle.
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -4452,6 +4471,9 @@ public class RocksDB extends RocksObject {
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
+  private native void clipColumnFamily(final long handle, final long cfHandle, final byte[] beginKey,
+      final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
+      final int endKeyOffset, final int endKeyLength) throws RocksDBException;
   private native void merge(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final byte[] value,
       final int valueOffset, final int valueLength) throws RocksDBException;
