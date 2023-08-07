@@ -80,7 +80,6 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   WriteOptions write_options;
-  Status s;
 
   {
     std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
