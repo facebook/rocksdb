@@ -79,8 +79,10 @@ inline void Unref(const ClockHandle& h, uint64_t count = 1) {
   // Pretend we never took the reference
   // WART: there's a tiny chance we release last ref to invisible
   // entry here. If that happens, we let eviction take care of it.
-  h.meta.fetch_sub(ClockHandle::kAcquireIncrement * count,
-                   std::memory_order_release);
+  uint64_t old_meta = h.meta.fetch_sub(ClockHandle::kAcquireIncrement * count,
+                                       std::memory_order_release);
+  assert(GetRefcount(old_meta) != 0);
+  (void)old_meta;
 }
 
 inline bool ClockUpdate(ClockHandle& h) {
@@ -406,14 +408,14 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   // Grab any available capacity, and free up any more required.
   size_t old_usage = usage_.load(std::memory_order_relaxed);
   size_t new_usage;
-  if (LIKELY(old_usage != capacity)) {
-    do {
-      new_usage = std::min(capacity, old_usage + total_charge);
-    } while (!usage_.compare_exchange_weak(old_usage, new_usage,
-                                           std::memory_order_relaxed));
-  } else {
-    new_usage = old_usage;
-  }
+  do {
+    new_usage = std::min(capacity, old_usage + total_charge);
+    if (new_usage == old_usage) {
+      // No change needed
+      break;
+    }
+  } while (!usage_.compare_exchange_weak(old_usage, new_usage,
+                                         std::memory_order_relaxed));
   // How much do we need to evict then?
   size_t need_evict_charge = old_usage + total_charge - new_usage;
   size_t request_evict_charge = need_evict_charge;
@@ -1418,7 +1420,7 @@ void AddShardEvaluation(const HyperClockCache::Shard& shard,
   // If filled to capacity, what would the occupancy ratio be?
   double ratio = occ_ratio / usage_ratio;
   // Given max load factor, what that load factor be?
-  double lf = ratio * kStrictLoadFactor;
+  double lf = ratio * HyperClockTable::kStrictLoadFactor;
   predicted_load_factors.push_back(lf);
 
   // Update min_recommendation also
@@ -1457,17 +1459,18 @@ void HyperClockCache::ReportProblems(
                       predicted_load_factors.end(), 0.0) /
       shard_count;
 
-  constexpr double kLowSpecLoadFactor = kLoadFactor / 2;
-  constexpr double kMidSpecLoadFactor = kLoadFactor / 1.414;
-  if (average_load_factor > kLoadFactor) {
+  constexpr double kLowSpecLoadFactor = HyperClockTable::kLoadFactor / 2;
+  constexpr double kMidSpecLoadFactor = HyperClockTable::kLoadFactor / 1.414;
+  if (average_load_factor > HyperClockTable::kLoadFactor) {
     // Out of spec => Consider reporting load factor too high
     // Estimate effective overall capacity loss due to enforcing occupancy limit
     double lost_portion = 0.0;
     int over_count = 0;
     for (double lf : predicted_load_factors) {
-      if (lf > kStrictLoadFactor) {
+      if (lf > HyperClockTable::kStrictLoadFactor) {
         ++over_count;
-        lost_portion += (lf - kStrictLoadFactor) / lf / shard_count;
+        lost_portion +=
+            (lf - HyperClockTable::kStrictLoadFactor) / lf / shard_count;
       }
     }
     // >= 20% loss -> error

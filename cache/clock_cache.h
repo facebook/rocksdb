@@ -282,29 +282,6 @@ class ClockCacheTest;
 
 // ----------------------------------------------------------------------- //
 
-// The load factor p is a real number in (0, 1) such that at all
-// times at most a fraction p of all slots, without counting tombstones,
-// are occupied by elements. This means that the probability that a random
-// probe hits an occupied slot is at most p, and thus at most 1/p probes
-// are required on average. For example, p = 70% implies that between 1 and 2
-// probes are needed on average (bear in mind that this reasoning doesn't
-// consider the effects of clustering over time, which should be negligible
-// with double hashing).
-// Because the size of the hash table is always rounded up to the next
-// power of 2, p is really an upper bound on the actual load factor---the
-// actual load factor is anywhere between p/2 and p. This is a bit wasteful,
-// but bear in mind that slots only hold metadata, not actual values.
-// Since space cost is dominated by the values (the LSM blocks),
-// overprovisioning the table with metadata only increases the total cache space
-// usage by a tiny fraction.
-constexpr double kLoadFactor = 0.7;
-
-// The user can exceed kLoadFactor if the sizes of the inserted values don't
-// match estimated_value_size, or in some rare cases with
-// strict_capacity_limit == false. To avoid degenerate performance, we set a
-// strict upper bound on the load factor.
-constexpr double kStrictLoadFactor = 0.84;
-
 struct ClockHandleBasicData {
   Cache::ObjectPtr value = nullptr;
   const Cache::CacheItemHelper* helper = nullptr;
@@ -374,17 +351,6 @@ struct ClockHandle : public ClockHandleBasicData {
 
   // See above. Mutable for read reference counting.
   mutable std::atomic<uint64_t> meta{};
-
-  // Whether this is a "deteched" handle that is independently allocated
-  // with `new` (so must be deleted with `delete`).
-  // TODO: ideally this would be packed into some other data field, such
-  // as upper bits of total_charge, but that incurs a measurable performance
-  // regression.
-  bool standalone = false;
-
-  inline bool IsStandalone() const { return standalone; }
-
-  inline void SetStandalone() { standalone = true; }
 };  // struct ClockHandle
 
 class BaseClockTable {
@@ -476,6 +442,7 @@ class BaseClockTable {
   // Clock algorithm sweep pointer.
   std::atomic<uint64_t> clock_pointer_{};
 
+  // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
   std::atomic<size_t> occupancy_{};
@@ -508,6 +475,16 @@ class HyperClockTable : public BaseClockTable {
     // up in this slot or a higher one.
     std::atomic<uint32_t> displacements{};
 
+    // Whether this is a "deteched" handle that is independently allocated
+    // with `new` (so must be deleted with `delete`).
+    // TODO: ideally this would be packed into some other data field, such
+    // as upper bits of total_charge, but that incurs a measurable performance
+    // regression.
+    bool standalone = false;
+
+    inline bool IsStandalone() const { return standalone; }
+
+    inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
   struct Opts {
@@ -560,6 +537,29 @@ class HyperClockTable : public BaseClockTable {
   // Release N references
   void TEST_ReleaseN(HandleImpl* handle, size_t n);
 #endif
+
+  // The load factor p is a real number in (0, 1) such that at all
+  // times at most a fraction p of all slots, without counting tombstones,
+  // are occupied by elements. This means that the probability that a random
+  // probe hits an occupied slot is at most p, and thus at most 1/p probes
+  // are required on average. For example, p = 70% implies that between 1 and 2
+  // probes are needed on average (bear in mind that this reasoning doesn't
+  // consider the effects of clustering over time, which should be negligible
+  // with double hashing).
+  // Because the size of the hash table is always rounded up to the next
+  // power of 2, p is really an upper bound on the actual load factor---the
+  // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
+  // but bear in mind that slots only hold metadata, not actual values.
+  // Since space cost is dominated by the values (the LSM blocks),
+  // overprovisioning the table with metadata only increases the total cache
+  // space usage by a tiny fraction.
+  static constexpr double kLoadFactor = 0.7;
+
+  // The user can exceed kLoadFactor if the sizes of the inserted values don't
+  // match estimated_value_size, or in some rare cases with
+  // strict_capacity_limit == false. To avoid degenerate performance, we set a
+  // strict upper bound on the load factor.
+  static constexpr double kStrictLoadFactor = 0.84;
 
  private:  // functions
   // Returns x mod 2^{length_bits_}.
