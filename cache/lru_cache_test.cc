@@ -916,9 +916,9 @@ TEST_F(ClockCacheTest, TableSizesTest) {
                        .MakeSharedCache();
       // Table sizes are currently only powers of two
       EXPECT_GE(cache->GetTableAddressCount(),
-                est_count / HyperClockTable::kLoadFactor);
+                est_count / FixedHyperClockTable::kLoadFactor);
       EXPECT_LE(cache->GetTableAddressCount(),
-                est_count / HyperClockTable::kLoadFactor * 2.0);
+                est_count / FixedHyperClockTable::kLoadFactor * 2.0);
       EXPECT_EQ(cache->GetUsage(), 0);
 
       // kFullChargeMetaData
@@ -935,9 +935,10 @@ TEST_F(ClockCacheTest, TableSizesTest) {
         double est_count_after_meta =
             (capacity - cache->GetUsage()) * 1.0 / est_val_size;
         EXPECT_GE(cache->GetTableAddressCount(),
-                  est_count_after_meta / HyperClockTable::kLoadFactor);
-        EXPECT_LE(cache->GetTableAddressCount(),
-                  est_count_after_meta / HyperClockTable::kLoadFactor * 2.0);
+                  est_count_after_meta / FixedHyperClockTable::kLoadFactor);
+        EXPECT_LE(
+            cache->GetTableAddressCount(),
+            est_count_after_meta / FixedHyperClockTable::kLoadFactor * 2.0);
       }
     }
   }

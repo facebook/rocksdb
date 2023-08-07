@@ -1420,7 +1420,7 @@ void AddShardEvaluation(const FixedHyperClockCache::Shard& shard,
   // If filled to capacity, what would the occupancy ratio be?
   double ratio = occ_ratio / usage_ratio;
   // Given max load factor, what that load factor be?
-  double lf = ratio * HyperClockTable::kStrictLoadFactor;
+  double lf = ratio * FixedHyperClockTable::kStrictLoadFactor;
   predicted_load_factors.push_back(lf);
 
   // Update min_recommendation also
@@ -1459,18 +1459,19 @@ void FixedHyperClockCache::ReportProblems(
                       predicted_load_factors.end(), 0.0) /
       shard_count;
 
-  constexpr double kLowSpecLoadFactor = HyperClockTable::kLoadFactor / 2;
-  constexpr double kMidSpecLoadFactor = HyperClockTable::kLoadFactor / 1.414;
-  if (average_load_factor > HyperClockTable::kLoadFactor) {
+  constexpr double kLowSpecLoadFactor = FixedHyperClockTable::kLoadFactor / 2;
+  constexpr double kMidSpecLoadFactor =
+      FixedHyperClockTable::kLoadFactor / 1.414;
+  if (average_load_factor > FixedHyperClockTable::kLoadFactor) {
     // Out of spec => Consider reporting load factor too high
     // Estimate effective overall capacity loss due to enforcing occupancy limit
     double lost_portion = 0.0;
     int over_count = 0;
     for (double lf : predicted_load_factors) {
-      if (lf > HyperClockTable::kStrictLoadFactor) {
+      if (lf > FixedHyperClockTable::kStrictLoadFactor) {
         ++over_count;
         lost_portion +=
-            (lf - HyperClockTable::kStrictLoadFactor) / lf / shard_count;
+            (lf - FixedHyperClockTable::kStrictLoadFactor) / lf / shard_count;
       }
     }
     // >= 20% loss -> error
