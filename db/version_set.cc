@@ -1948,8 +1948,14 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
   uint64_t sum_file_size_bytes = 0;
   uint64_t sum_data_size_bytes = 0;
   for (auto* file_meta : files_[level]) {
-    sum_file_size_bytes += file_meta->fd.GetFileSize();
-    sum_data_size_bytes += file_meta->raw_key_size + file_meta->raw_value_size;
+    auto raw_size = file_meta->raw_key_size + file_meta->raw_value_size;
+    // Check if the table property is properly initialized. It might not be
+    // because in `UpdateAccumulatedStats` we limit the maximum number of
+    // properties to read once.
+    if (raw_size > 0) {
+      sum_file_size_bytes += file_meta->fd.GetFileSize();
+      sum_data_size_bytes += raw_size;
+    }
   }
   if (sum_file_size_bytes == 0) {
     return -1.0;
