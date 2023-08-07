@@ -26,7 +26,6 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
     : forward_(true),
       current_at_base_(true),
       equal_keys_(false),
-      delta_iterator_out_of_bound_(false),
       status_(Status::OK()),
       base_iterator_(base_iterator),
       delta_iterator_(delta_iterator),
@@ -273,10 +272,7 @@ void BaseDeltaIterator::AdvanceBase() {
 }
 
 bool BaseDeltaIterator::BaseValid() const { return base_iterator_->Valid(); }
-
-bool BaseDeltaIterator::DeltaValid() const {
-  return !delta_iterator_out_of_bound_ && delta_iterator_->Valid();
-}
+bool BaseDeltaIterator::DeltaValid() const { return delta_iterator_->Valid(); }
 
 void BaseDeltaIterator::UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
@@ -313,7 +309,6 @@ void BaseDeltaIterator::UpdateCurrent() {
                 delta_entry.key, /*a_has_ts=*/false, *iterate_upper_bound_,
                 /*b_has_ts=*/false) >= 0) {
           // out of upper bound -> delta finished.
-          delta_iterator_out_of_bound_ = true;
           return;
         }
       }

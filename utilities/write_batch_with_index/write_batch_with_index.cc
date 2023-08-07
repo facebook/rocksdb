@@ -299,9 +299,10 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {
-  auto wbwiii =
-      new WBWIIteratorImpl(GetColumnFamilyID(column_family), &(rep->skip_list),
-                           &rep->write_batch, &rep->comparator);
+  auto wbwiii = new WBWIIteratorImpl(
+      GetColumnFamilyID(column_family), &(rep->skip_list), &rep->write_batch,
+      &rep->comparator,
+      read_options == nullptr ? nullptr : read_options->iterate_upper_bound);
   return new BaseDeltaIterator(column_family, base_iterator, wbwiii,
                                GetColumnFamilyUserComparator(column_family),
                                read_options);

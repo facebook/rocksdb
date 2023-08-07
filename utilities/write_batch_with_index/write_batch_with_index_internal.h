@@ -66,7 +66,6 @@ class BaseDeltaIterator : public Iterator {
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
-  bool delta_iterator_out_of_bound_;
   mutable Status status_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
@@ -201,6 +200,18 @@ class WBWIIteratorImpl : public WBWIIterator {
       : column_family_id_(column_family_id),
         skip_list_iter_(skip_list),
         write_batch_(write_batch),
+        iterate_upper_bound_(nullptr),
+        comparator_(comparator) {}
+
+  WBWIIteratorImpl(uint32_t column_family_id,
+                   WriteBatchEntrySkipList* skip_list,
+                   const ReadableWriteBatch* write_batch,
+                   WriteBatchEntryComparator* comparator,
+                   const Slice* iterate_upper_bound)
+      : column_family_id_(column_family_id),
+        skip_list_iter_(skip_list),
+        write_batch_(write_batch),
+        iterate_upper_bound_(iterate_upper_bound),
         comparator_(comparator) {}
 
   ~WBWIIteratorImpl() override {}
@@ -210,8 +221,18 @@ class WBWIIteratorImpl : public WBWIIterator {
       return false;
     }
     const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    return (iter_entry != nullptr &&
-            iter_entry->column_family == column_family_id_);
+
+    if (iter_entry == nullptr ||
+        iter_entry->column_family != column_family_id_) {
+      return false;
+    }
+
+    if (iterate_upper_bound_ == nullptr) {
+      return true;
+    } else {
+      return comparator_->CompareKey(column_family_id_, *iterate_upper_bound_,
+                                     Entry().key) > 0;
+    }
   }
 
   void SeekToFirst() override {
@@ -289,6 +310,7 @@ class WBWIIteratorImpl : public WBWIIterator {
   uint32_t column_family_id_;
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
   const ReadableWriteBatch* write_batch_;
+  const Slice* iterate_upper_bound_;
   WriteBatchEntryComparator* comparator_;
 };
 

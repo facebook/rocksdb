@@ -6658,12 +6658,12 @@ TEST_P(TransactionTest, StallTwoWriteQueues) {
 }
 
 TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
-  if (txn_db_options.write_policy == WRITE_PREPARED) {
+  if (txn_db_options.write_policy != WRITE_COMMITTED) {
     return;
   }
 
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
 
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
@@ -6671,19 +6671,44 @@ TEST_P(TransactionTest, TnxIteratorWithUpperBound) {
   ASSERT_OK(txn->Put("2", "2"));
   ASSERT_OK(txn->Put("1", "1"));
   ASSERT_OK(txn->Put("3", "3"));
-  ASSERT_OK(txn->Delete("2"));
 
-  Slice upper_bound = "2";
-  read_options.iterate_upper_bound = &upper_bound;
-  Iterator* iter = txn->GetIterator(read_options);
-  ASSERT_OK(iter->status());
+  {
+    Slice upper_bound = "2";
+    read_options.iterate_upper_bound = &upper_bound;
+    Iterator* iter = txn->GetIterator(read_options);
+    ASSERT_OK(iter->status());
 
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    ASSERT_EQ("1", iter->key().ToString());
-    iter->Next();
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      ASSERT_EQ("1", iter->key().ToString());
+      iter->Next();
+    }
+
+    // iter is reusable
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    delete iter;
   }
-  delete iter;
+
+  {
+    Slice upper_bound = "4";
+    read_options.iterate_upper_bound = &upper_bound;
+
+    std::string results[] = {"1", "2", "3"};
+
+    Iterator* forward_iter = txn->GetIterator(read_options);
+
+    forward_iter->SeekToFirst();
+    for (int i = 0; i < 3; i++) {
+      ASSERT_TRUE(forward_iter->Valid());
+      ASSERT_EQ(results[i], forward_iter->key().ToString());
+
+      forward_iter->Next();
+    }
+
+    delete forward_iter;
+  }
+
   delete txn;
 }
 
