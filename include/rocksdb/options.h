@@ -2127,8 +2127,8 @@ struct WaitForCompactOptions {
   bool flush = false;
 
   // A boolean to call Close() after waiting is done. By the time Close() is
-  // called here, there should be no background jobs in progress and periodic
-  // tasks should all be canceled. DB may not have been closed if Close()
+  // called here, there should be no background jobs in progress and no new
+  // background jobs should be added. DB may not have been closed if Close()
   // returned Aborted status due to unreleased snapshots in the system. See
   // comments in DB::Close() for details.
   bool close_db = false;

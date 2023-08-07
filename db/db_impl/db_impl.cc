@@ -183,6 +183,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
+      reject_new_background_jobs_(false),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -392,22 +393,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      s = AtomicFlushMemTables(flush_opts, context.flush_reason);
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        InstrumentedMutexUnlock u(&mutex_);
-        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
+    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
