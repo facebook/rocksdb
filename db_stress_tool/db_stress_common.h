@@ -306,6 +306,7 @@ DECLARE_uint32(memtable_protection_bytes_per_key);
 DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_bool(persist_user_defined_timestamps);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
@@ -676,6 +677,7 @@ extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 extern std::string GetNowNanos();
+extern std::string GetFullHistoryTsLowForCutoffTs(const std::string& cutoff_ts);
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

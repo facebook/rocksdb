@@ -316,6 +316,17 @@ std::string GetNowNanos() {
   return ret;
 }
 
+std::string GetFullHistoryTsLowForCutoffTs(const std::string& cutoff_ts) {
+  Slice cutoff_udt_slice = cutoff_ts;
+  uint64_t cutoff_udt_ts = 0;
+  bool format_res = GetFixed64(&cutoff_udt_slice, &cutoff_udt_ts);
+  assert(format_res);
+  (void)format_res;
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, cutoff_udt_ts + 1);
+  return full_history_ts_low;
+}
+
 namespace {
 
 class MyXXH64Checksum : public FileChecksumGenerator {

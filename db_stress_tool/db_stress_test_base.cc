@@ -480,6 +480,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   int cf_idx = 0;
   Status s;
   for (auto cfh : column_families_) {
+    std::string ts;
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
 
@@ -490,8 +491,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
       const Slice v(value, sz);
 
-
-      std::string ts;
       if (FLAGS_user_timestamp_size > 0) {
         ts = GetNowNanos();
       }
@@ -529,6 +528,12 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
       if (!s.ok()) {
         break;
       }
+    }
+
+    if (FLAGS_user_timestamp_size > 0 &&
+        !FLAGS_persist_user_defined_timestamps) {
+      std::string full_history_ts_low = GetFullHistoryTsLowForCutoffTs(ts);
+      db_->IncreaseFullHistoryTsLow(cfh, full_history_ts_low);
     }
     if (!s.ok()) {
       break;
@@ -2503,6 +2508,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "Persist user defined timestamps: %d\n",
+          FLAGS_persist_user_defined_timestamps);
   fprintf(stdout, "WAL compression           : %s\n",
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
@@ -2911,6 +2918,10 @@ bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
     return false;
   }
 
+  if (!FLAGS_persist_user_defined_timestamps) {
+    return false;
+  }
+
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
     return false;
@@ -2937,6 +2948,10 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
                                                     Slice& ts_slice,
                                                     ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  if (!FLAGS_persist_user_defined_timestamps) {
     return;
   }
 
@@ -2999,6 +3014,8 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     exit(1);
   }
   options.comparator = cmp;
+  options.persist_user_defined_timestamps =
+      FLAGS_persist_user_defined_timestamps;
 }
 
 bool InitializeOptionsFromFile(Options& options) {
