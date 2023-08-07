@@ -970,7 +970,7 @@ void DBImpl::PersistStats() {
                      "Storing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
                      " to in-memory stats history",
                      stats_slice_.size(), now_seconds);
-      stats_history_[now_seconds] = stats_delta;
+      stats_history_[now_seconds] = std::move(stats_delta);
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
@@ -4447,9 +4447,11 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           deleted_files.insert(level_file);
           level_file->being_compacted = true;
         }
-        vstorage->ComputeCompactionScore(*cfd->ioptions(),
-                                         *cfd->GetLatestMutableCFOptions());
       }
+    }
+    if (!deleted_files.empty()) {
+      vstorage->ComputeCompactionScore(*cfd->ioptions(),
+                                       *cfd->GetLatestMutableCFOptions());
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
