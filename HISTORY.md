@@ -15,6 +15,7 @@
 
 ### Bug Fixes
 * Fix use_after_free bug in async_io MultiReads when underlying FS enabled kFSBuffer. kFSBuffer is when underlying FS pass their own buffer instead of using RocksDB scratch in FSReadRequest. Right now it's an experimental feature.
+* Fix a bug in FileTTLBooster that can cause users with a large number of levels (more than 65) to see errors like "runtime error: shift exponent .. is too large.." (#11673).
 
 ## 8.4.0 (06/26/2023)
 ### New Features
