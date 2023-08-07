@@ -80,7 +80,6 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
   Status s;
 
   {
@@ -139,6 +138,9 @@ TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   ASSERT_EQ("c", iter->key());
   iter->Prev();
   ASSERT_FALSE(iter->Valid());
+
+  delete ro.iterate_lower_bound;
+  delete ro.iterate_upper_bound;
 }
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {

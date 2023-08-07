@@ -1644,6 +1644,8 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   Status s = OpenDB();
   ASSERT_OK(s);
 
+  KVMap empty_map;
+
   // writes that should be observed by BaseDeltaIterator::delta_iterator_
   ASSERT_OK(batch_->Put("a", "aa"));
   ASSERT_OK(batch_->Put("b", "bb"));
@@ -1656,7 +1658,7 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   ro.iterate_lower_bound = new Slice("b");
   ro.iterate_upper_bound = new Slice("c");
   std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
-      db_->DefaultColumnFamily(), new KVIter(new KVMap()), &ro));
+      db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
 
   // move to the lower bound
   iter->SeekToFirst();
@@ -1684,10 +1686,10 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   ASSERT_EQ("b", iter->key());
   iter->SeekForPrev(Slice("a"));
   ASSERT_FALSE(iter->Valid());
-}
 
-// TestTxnRespectBoundingInReadOption can not mirror here, since KVIter does not
-// have bounds checking
+  delete ro.iterate_lower_bound;
+  delete ro.iterate_upper_bound;
+}
 
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
