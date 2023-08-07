@@ -63,7 +63,8 @@ bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
 
-  if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
+  if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes &&
+      !FLAGS_post_verification_only) {
     Status s = InitUnverifiedSubdir(FLAGS_db);
     if (s.ok() && !FLAGS_expected_values_dir.empty()) {
       s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
