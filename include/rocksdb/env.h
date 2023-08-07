@@ -279,6 +279,7 @@ class Env : public Customizable {
                                    std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options);
 
+  // TODO(yingchun): it's not true, it will not create a file when not exists.
   // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.

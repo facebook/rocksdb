@@ -70,6 +70,7 @@ option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
 option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_OPENSSL "build with openssl" OFF)
 option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
@@ -173,6 +174,14 @@ else()
     add_definitions(-DZSTD)
     include_directories(${ZSTD_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS zstd::zstd)
+  endif()
+
+  if(WITH_OPENSSL)
+    find_package(OpenSSL REQUIRED)
+    add_definitions(-DOPENSSL)
+    include_directories(${OPENSSL_INCLUDE_DIR})
+    # Only the crypto library is needed.
+    list(APPEND THIRDPARTY_LIBS ${OPENSSL_CRYPTO_LIBRARIES})
   endif()
 endif()
 
@@ -720,6 +729,7 @@ set(SOURCES
         db/write_controller.cc
         db/write_stall_stats.cc
         db/write_thread.cc
+        encryption/encryption.cc
         env/composite_env.cc
         env/env.cc
         env/env_chroot.cc
@@ -1362,6 +1372,7 @@ if(WITH_TESTS)
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
+        encryption/encryption_test.cc
         env/env_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc

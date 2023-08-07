@@ -36,6 +36,7 @@
 #endif
 
 #include "db/db_impl/db_impl.h"
+#include "encryption/encryption.h"
 #include "env/emulated_clock.h"
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
@@ -2901,11 +2902,31 @@ TEST_F(CreateEnvTest, CreateChrootFileSystem) {
 }
 #endif  // OS_WIN
 
-TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
+class CreateEncryptedEnvTest : public CreateEnvTest,
+                               public testing::WithParamInterface<std::string> {
+};
+
+#ifdef OPENSSL
+INSTANTIATE_TEST_CASE_P(CreateEnvTest, CreateEncryptedEnvTest,
+                        ::testing::Values(
+                            // CTREncryptionProvider
+                            std::string("provider=1://test; id=") +
+                                EncryptedFileSystem::kClassName(),
+                            // AESEncryptionProvider
+                            std::string("provider=AES://test; id=") +
+                                EncryptedFileSystem::kClassName()));
+#else
+INSTANTIATE_TEST_CASE_P(CreateEnvTest, CreateEncryptedEnvTest,
+                        ::testing::Values(
+                            // CTREncryptionProvider
+                            std::string("provider=1://test; id=") +
+                            EncryptedFileSystem::kClassName()));
+#endif  // OPENSSL
+
+TEST_P(CreateEncryptedEnvTest, CreateEncryptedFileSystem) {
   std::shared_ptr<FileSystem> fs, copy;
 
-  std::string base_opts =
-      std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
+  std::string base_opts = GetParam();
   // The EncryptedFileSystem requires a "provider" option.
   ASSERT_NOK(FileSystem::CreateFromString(
       config_options_, EncryptedFileSystem::kClassName(), &fs));
@@ -2931,7 +2952,6 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
   ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
-
 
 namespace {
 

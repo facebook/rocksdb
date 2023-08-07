@@ -41,6 +41,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "encryption/encryption.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
@@ -1745,6 +1746,16 @@ DEFINE_bool(build_info, false,
 
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
+
+#ifdef OPENSSL
+DEFINE_string(
+    encryption_method, "",
+    "If non-empty, enable encryption with the specific encryption method. Now "
+    "supports AES128CTR, AES192CTR, AES256CTR and SM4CTR.");
+
+DEFINE_string(encryption_instance_key, "",
+              "Instance key in plain-text to create the encrypted Env.");
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -8555,6 +8566,21 @@ int db_bench_tool(int argc, char** argv) {
             "settable\n");
     exit(1);
   }
+
+#ifdef OPENSSL
+  if (!FLAGS_encryption_method.empty()) {
+    encryption::EncryptionMethod method =
+        encryption::EncryptionMethodStringToEnum(FLAGS_encryption_method);
+    if (method == encryption::EncryptionMethod::kUnknown) {
+      fprintf(stderr, "Unknown encryption method %s\n",
+              FLAGS_encryption_method.c_str());
+      exit(1);
+    }
+    auto provider = std::make_shared<encryption::AESEncryptionProvider>(
+        FLAGS_encryption_instance_key, method);
+    FLAGS_env = NewEncryptedEnv(FLAGS_env, provider);
+  }
+#endif  // OPENSSL
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NONE;

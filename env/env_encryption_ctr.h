@@ -9,8 +9,8 @@
 #include "rocksdb/env_encryption.h"
 
 namespace ROCKSDB_NAMESPACE {
-// CTRCipherStream implements BlockAccessCipherStream using an
-// Counter operations mode.
+// CTRCipherStream implements BlockAccessCipherStream using a
+// Counter operation mode.
 // See https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation
 //
 // Note: This is a possible implementation of BlockAccessCipherStream,

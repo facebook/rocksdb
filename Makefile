@@ -703,6 +703,7 @@ TESTS_PLATFORM_DEPENDENT := \
 	crc32c_test \
 	coding_test \
 	inlineskiplist_test \
+	encryption_test \
 	env_basic_test \
 	env_test \
 	env_logger_test \
@@ -1985,6 +1986,9 @@ wide_column_serialization_test: $(OBJ_DIR)/db/wide/wide_column_serialization_tes
 	$(AM_LINK)
 
 wide_columns_helper_test: $(OBJ_DIR)/db/wide/wide_columns_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+encryption_test: encryption/encryption_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

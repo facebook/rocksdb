@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "db/db_test_util.h"
+#include "encryption/encryption.h"
 #include "env/mock_env.h"
 #include "file/file_util.h"
 #include "rocksdb/convenience.h"
@@ -81,6 +83,51 @@ static Env* GetTestFS() {
   return fs_env;
 }
 
+#ifdef OPENSSL
+const std::string kTestInstanceKey = "test_instance_key";
+
+static Env* GetAes128EncryptedEnv() {
+  static Env* env = nullptr;
+  auto provider = std::make_shared<encryption::AESEncryptionProvider>(
+      kTestInstanceKey, encryption::EncryptionMethod::kAES128_CTR);
+  env = NewEncryptedEnv(Env::Default(), provider);
+  return env;
+}
+
+static Env* GetAes192EncryptedEnv() {
+  static Env* env = nullptr;
+  auto provider = std::make_shared<encryption::AESEncryptionProvider>(
+      kTestInstanceKey, encryption::EncryptionMethod::kAES192_CTR);
+  env = NewEncryptedEnv(Env::Default(), provider);
+  return env;
+}
+
+static Env* GetAes256EncryptedEnv() {
+  static Env* env = nullptr;
+  auto provider = std::make_shared<encryption::AESEncryptionProvider>(
+      kTestInstanceKey, encryption::EncryptionMethod::kAES256_CTR);
+  env = NewEncryptedEnv(Env::Default(), provider);
+  return env;
+}
+
+static Env* GetSm4EncryptedEnv() {
+  static Env* env = nullptr;
+  auto provider = std::make_shared<encryption::AESEncryptionProvider>(
+      kTestInstanceKey, encryption::EncryptionMethod::kSM4_CTR);
+  env = NewEncryptedEnv(Env::Default(), provider);
+  return env;
+}
+
+std::vector<CreateEnvFunc*> GetEncryptedEnvs() {
+  std::vector<CreateEnvFunc*> res;
+  res.push_back(&GetAes128EncryptedEnv);
+  res.push_back(&GetAes192EncryptedEnv);
+  res.push_back(&GetAes256EncryptedEnv);
+  res.push_back(&GetSm4EncryptedEnv);
+  return res;
+}
+#endif  // OPENSSL
+
 }  // namespace
 class EnvBasicTestWithParam
     : public testing::Test,
@@ -118,8 +165,12 @@ INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
 INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetMemoryEnv));
 
-namespace {
+#ifdef OPENSSL
+INSTANTIATE_TEST_CASE_P(AesEncryptedEnv, EnvBasicTestWithParam,
+                        ::testing::ValuesIn(GetEncryptedEnvs()));
+#endif  // OPENSSL
 
+namespace {
 // Returns a vector of 0 or 1 Env*, depending whether an Env is registered for
 // TEST_ENV_URI.
 //
@@ -145,6 +196,10 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
 
 INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
+#ifdef OPENSSL
+INSTANTIATE_TEST_CASE_P(AesEncryptedEnv, EnvMoreTestWithParam,
+                        ::testing::ValuesIn(GetEncryptedEnvs()));
+#endif  // OPENSSL
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
