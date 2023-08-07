@@ -209,8 +209,6 @@ default_params = {
     "min_write_buffer_number_to_merge": lambda: random.choice([1, 2]),
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
-    # "persist_user_defined_timestamps": lambda: random.choice([0, 1]),
-    "persist_user_defined_timestamps": 0,
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -660,21 +658,6 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_external_file_one_in"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
-    if (
-            dest_params.get("user_timestamp_size") > 1
-            and dest_params.get("persist_user_defined_timestamps") == 0
-    ):
-        dest_params["delpercent"] += dest_params["delrangepercent"]
-        dest_params["delrangepercent"] = 0
-        dest_params["enable_blob_files"] = 0
-        dest_params["allow_concurrent_memtable_write"] = 0
-        dest_params["atomic_flush"] = 0
-        # check why this failure:
-#         Failure in DB::Open in backup/restore with: Corruption: Corrupted block entry: per key-value checksum verification failed. Offset: 0. Entry index: 0.
-# Verification failed: Backup/restore gave inconsistent state. Status is Corruption: Corrupted block entry: per key-value checksum verification failed. Offset: 0. Entry index: 0.
-# Verification failed :(
-#         dest_params["backup_one_in"] = 0
-        dest_params["block_protection_bytes_per_key"] = 0
 
     return dest_params
 

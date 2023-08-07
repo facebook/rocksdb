@@ -1302,13 +1302,6 @@ class NonBatchedOpsStressTest : public StressTest {
 
     pending_expected_value.Commit();
 
-    if (s.ok() && FLAGS_user_timestamp_size &&
-        !FLAGS_persist_user_defined_timestamps) {
-      std::string full_history_ts_low =
-          GetFullHistoryTsLowForCutoffTs(write_ts);
-      db_->IncreaseFullHistoryTsLow(cfh, full_history_ts_low);
-    }
-
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1398,14 +1391,6 @@ class NonBatchedOpsStressTest : public StressTest {
         });
       }
       pending_expected_value.Commit();
-
-      if (s.ok() && FLAGS_user_timestamp_size &&
-          !FLAGS_persist_user_defined_timestamps) {
-        std::string full_history_ts_low =
-            GetFullHistoryTsLowForCutoffTs(write_ts_str);
-        db_->IncreaseFullHistoryTsLow(cfh, full_history_ts_low);
-      }
-
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
         if (FLAGS_injest_error_severity >= 2) {
