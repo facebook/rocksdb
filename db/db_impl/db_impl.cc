@@ -28,6 +28,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
+#include "db/convenience_impl.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -74,7 +75,6 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -5974,7 +5974,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
-          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksumInternal(
               opts, file_options_, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,

@@ -7,6 +7,7 @@
 
 #include "rocksdb/convenience.h"
 
+#include "db/convenience_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 
@@ -49,6 +50,15 @@ Status VerifySstFileChecksum(const Options& options,
         "`Env::IOActivity::kUnknown`");
   }
   ReadOptions read_options(_read_options);
+  return VerifySstFileChecksumInternal(options, env_options, read_options,
+                                       file_path, largest_seqno);
+}
+
+Status VerifySstFileChecksumInternal(const Options& options,
+                                     const EnvOptions& env_options,
+                                     const ReadOptions& read_options,
+                                     const std::string& file_path,
+                                     const SequenceNumber& largest_seqno) {
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
