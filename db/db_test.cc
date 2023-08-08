@@ -6940,7 +6940,7 @@ TEST_F(DBTest, RowCache) {
     }
   };
   options.row_cache = std::make_shared<FailInsertionCache>(options.row_cache);
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   Reopen(options);
 
   ASSERT_EQ(Get("foo"), "bar");
