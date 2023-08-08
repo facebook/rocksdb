@@ -373,8 +373,8 @@ namespace clock_cache {
 
 class ClockCacheTest : public testing::Test {
  public:
-  using Shard = HyperClockCache::Shard;
-  using Table = HyperClockTable;
+  using Shard = FixedHyperClockCache::Shard;
+  using Table = FixedHyperClockTable;
   using HandleImpl = Shard::HandleImpl;
 
   ClockCacheTest() {}
@@ -916,9 +916,9 @@ TEST_F(ClockCacheTest, TableSizesTest) {
                        .MakeSharedCache();
       // Table sizes are currently only powers of two
       EXPECT_GE(cache->GetTableAddressCount(),
-                est_count / HyperClockTable::kLoadFactor);
+                est_count / FixedHyperClockTable::kLoadFactor);
       EXPECT_LE(cache->GetTableAddressCount(),
-                est_count / HyperClockTable::kLoadFactor * 2.0);
+                est_count / FixedHyperClockTable::kLoadFactor * 2.0);
       EXPECT_EQ(cache->GetUsage(), 0);
 
       // kFullChargeMetaData
@@ -935,9 +935,10 @@ TEST_F(ClockCacheTest, TableSizesTest) {
         double est_count_after_meta =
             (capacity - cache->GetUsage()) * 1.0 / est_val_size;
         EXPECT_GE(cache->GetTableAddressCount(),
-                  est_count_after_meta / HyperClockTable::kLoadFactor);
-        EXPECT_LE(cache->GetTableAddressCount(),
-                  est_count_after_meta / HyperClockTable::kLoadFactor * 2.0);
+                  est_count_after_meta / FixedHyperClockTable::kLoadFactor);
+        EXPECT_LE(
+            cache->GetTableAddressCount(),
+            est_count_after_meta / FixedHyperClockTable::kLoadFactor * 2.0);
       }
     }
   }
@@ -1425,7 +1426,7 @@ TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
         k2.AsSlice(),
         GetHelper(CacheEntryRole::kDataBlock, /*secondary_compatible=*/false),
         /*context*/ this, Cache::Priority::LOW);
-    if (strict_capacity_limit || GetParam() == kHyperClock) {
+    if (strict_capacity_limit || IsHyperClock()) {
       ASSERT_NE(handle2, nullptr);
       cache->Release(handle2);
       ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1450,12 +1451,12 @@ TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
 // CORRECTION: this is not quite right. block_1 can be inserted into the block
 // cache because strict_capacity_limit=false, but it is removed from the cache
 // in Release() because of being over-capacity, without demoting to secondary
-// cache. HyperClockCache doesn't check capacity on release (for efficiency)
-// so can demote the over-capacity item to secondary cache. Also, we intend to
-// add support for demotion in Release, but that currently causes too much
-// unit test churn.
+// cache. FixedHyperClockCache doesn't check capacity on release (for
+// efficiency) so can demote the over-capacity item to secondary cache. Also, we
+// intend to add support for demotion in Release, but that currently causes too
+// much unit test churn.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     // See CORRECTION above
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
@@ -1553,7 +1554,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
@@ -1741,7 +1742,7 @@ TEST_P(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_P(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
@@ -1851,7 +1852,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
                             str.length()));
   }
   // Force all entries to be evicted to the secondary cache
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     // HCC doesn't respond immediately to SetCapacity
     for (int i = 9000; i < 9030; ++i) {
       ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), nullptr,
@@ -1906,7 +1907,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
 // a sync point callback in TestSecondaryCache::Lookup. We then control the
 // lookup result by setting the ResultMap.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
@@ -2407,7 +2408,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // with new options, which set the lowest_used_cache_tier to
 // kNonVolatileBlockTier. So secondary cache will be used.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
@@ -2502,7 +2503,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
-  if (GetParam() == kHyperClock) {
+  if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }

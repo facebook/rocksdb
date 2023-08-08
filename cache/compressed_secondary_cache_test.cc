@@ -737,7 +737,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 class CompressedSecondaryCacheTest
     : public CompressedSecondaryCacheTestBase,
       public testing::WithParamInterface<std::string> {
-  const std::string& Type() override { return GetParam(); }
+  const std::string& Type() const override { return GetParam(); }
 };
 
 INSTANTIATE_TEST_CASE_P(CompressedSecondaryCacheTest,
@@ -752,7 +752,7 @@ class CompressedSecCacheTestWithCompressAndAllocatorParam
     sec_cache_is_compressed_ = std::get<0>(GetParam());
     use_jemalloc_ = std::get<1>(GetParam());
   }
-  const std::string& Type() override { return std::get<2>(GetParam()); }
+  const std::string& Type() const override { return std::get<2>(GetParam()); }
   bool sec_cache_is_compressed_;
   bool use_jemalloc_;
 };
@@ -773,7 +773,7 @@ class CompressedSecondaryCacheTestWithCompressionParam
   CompressedSecondaryCacheTestWithCompressionParam() {
     sec_cache_is_compressed_ = std::get<0>(GetParam());
   }
-  const std::string& Type() override { return std::get<1>(GetParam()); }
+  const std::string& Type() const override { return std::get<1>(GetParam()); }
   bool sec_cache_is_compressed_;
 };
 
@@ -950,7 +950,7 @@ class CompressedSecCacheTestWithCompressAndSplitParam
     sec_cache_is_compressed_ = std::get<0>(GetParam());
     enable_custom_split_merge_ = std::get<1>(GetParam());
   }
-  const std::string& Type() override { return std::get<2>(GetParam()); }
+  const std::string& Type() const override { return std::get<2>(GetParam()); }
   bool sec_cache_is_compressed_;
   bool enable_custom_split_merge_;
 };

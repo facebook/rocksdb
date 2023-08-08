@@ -42,12 +42,14 @@ class WithCacheType : public TestCreateContext {
   };
 
   static constexpr auto kLRU = "lru";
-  static constexpr auto kHyperClock = "hyper_clock";
+  static constexpr auto kFixedHyperClock = "fixed_hyper_clock";
 
   // For options other than capacity
   size_t estimated_value_size_ = 1;
 
-  virtual const std::string& Type() = 0;
+  virtual const std::string& Type() const = 0;
+
+  bool IsHyperClock() const { return Type() == kFixedHyperClock; }
 
   std::shared_ptr<Cache> NewCache(
       size_t capacity,
@@ -62,7 +64,7 @@ class WithCacheType : public TestCreateContext {
       }
       return lru_opts.MakeSharedCache();
     }
-    if (type == kHyperClock) {
+    if (type == kFixedHyperClock) {
       HyperClockCacheOptions hc_opts{capacity, estimated_value_size_};
       hc_opts.hash_seed = 0;  // deterministic tests
       if (modify_opts_fn) {
@@ -105,14 +107,14 @@ class WithCacheType : public TestCreateContext {
 
 class WithCacheTypeParam : public WithCacheType,
                            public testing::WithParamInterface<std::string> {
-  const std::string& Type() override { return GetParam(); }
+  const std::string& Type() const override { return GetParam(); }
 };
 
 constexpr auto kLRU = WithCacheType::kLRU;
-constexpr auto kHyperClock = WithCacheType::kHyperClock;
+constexpr auto kFixedHyperClock = WithCacheType::kFixedHyperClock;
 
 inline auto GetTestingCacheTypes() {
-  return testing::Values(std::string(kLRU), std::string(kHyperClock));
+  return testing::Values(std::string(kLRU), std::string(kFixedHyperClock));
 }
 
 }  // namespace secondary_cache_test_util

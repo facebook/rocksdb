@@ -466,7 +466,7 @@ class BaseClockTable {
   const uint32_t& hash_seed_;
 };
 
-class HyperClockTable : public BaseClockTable {
+class FixedHyperClockTable : public BaseClockTable {
  public:
   // Target size to be exactly a common cache line size (see static_assert in
   // clock_cache.cc)
@@ -491,12 +491,12 @@ class HyperClockTable : public BaseClockTable {
     size_t estimated_value_size;
   };
 
-  HyperClockTable(size_t capacity, bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator,
-                  const Cache::EvictionCallback* eviction_callback,
-                  const uint32_t* hash_seed, const Opts& opts);
-  ~HyperClockTable();
+  FixedHyperClockTable(size_t capacity, bool strict_capacity_limit,
+                       CacheMetadataChargePolicy metadata_charge_policy,
+                       MemoryAllocator* allocator,
+                       const Cache::EvictionCallback* eviction_callback,
+                       const uint32_t* hash_seed, const Opts& opts);
+  ~FixedHyperClockTable();
 
   // For BaseClockTable::Insert
   struct InsertState {};
@@ -612,7 +612,7 @@ class HyperClockTable : public BaseClockTable {
 
   // Array of slots comprising the hash table.
   const std::unique_ptr<HandleImpl[]> array_;
-};  // class HyperClockTable
+};  // class FixedHyperClockTable
 
 // A single shard of sharded cache.
 template <class Table>
@@ -729,17 +729,17 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   std::atomic<bool> strict_capacity_limit_;
 };  // class ClockCacheShard
 
-class HyperClockCache
+class FixedHyperClockCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache<ClockCacheShard<HyperClockTable>> {
+    : public ShardedCache<ClockCacheShard<FixedHyperClockTable>> {
  public:
-  using Shard = ClockCacheShard<HyperClockTable>;
+  using Shard = ClockCacheShard<FixedHyperClockTable>;
 
-  explicit HyperClockCache(const HyperClockCacheOptions& opts);
+  explicit FixedHyperClockCache(const HyperClockCacheOptions& opts);
 
-  const char* Name() const override { return "HyperClockCache"; }
+  const char* Name() const override { return "FixedHyperClockCache"; }
 
   Cache::ObjectPtr Value(Handle* handle) override;
 
@@ -749,7 +749,7 @@ class HyperClockCache
 
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;
-};  // class HyperClockCache
+};  // class FixedHyperClockCache
 
 }  // namespace clock_cache
 
