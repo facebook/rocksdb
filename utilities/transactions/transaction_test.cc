@@ -78,6 +78,43 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
+TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
+  // This test does writes without snapshot validation, and then tries to create
+  // iterator later, which is unsupported in write unprepared.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
+  WriteOptions write_options;
+  ReadOptions read_options;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  // Write some keys in a txn
+  s = txn->Put("2", "2");
+  ASSERT_OK(s);
+
+  s = txn->Put("1", "1");
+  ASSERT_OK(s);
+
+  s = txn->Delete("2");
+  ASSERT_OK(s);
+
+  read_options.iterate_upper_bound = new Slice("2", 1);
+  Iterator* iter = txn->GetIterator(read_options);
+  ASSERT_OK(iter->status());
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    ASSERT_EQ("1", iter->key().ToString());
+    iter->Next();
+  }
+  delete iter;
+  delete txn;
+  delete read_options.iterate_upper_bound;
+}
+
 TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   WriteOptions write_options;
 
