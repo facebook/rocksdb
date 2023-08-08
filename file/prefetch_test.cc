@@ -550,7 +550,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   }
   Close();
   std::vector<int> buff_prefectch_level_count = {0, 0, 0};
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     fs->ClearPrefetchCount();
@@ -678,7 +678,7 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
   }
   Close();
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     fs->ClearPrefetchCount();
@@ -793,7 +793,7 @@ TEST_P(PrefetchTest, ConfigureNumFilesReadsForReadaheadSize) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   Close();
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
 
   fs->ClearPrefetchCount();
   buff_prefetch_count = 0;

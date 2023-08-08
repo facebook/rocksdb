@@ -9792,7 +9792,7 @@ TEST_F(DBCompactionTest, NumberOfSubcompactions) {
     SubCompactionEventListener* listener = new SubCompactionEventListener();
     options.listeners.clear();
     options.listeners.emplace_back(listener);
-    TryReopen(options);
+    ASSERT_OK(TryReopen(options));
 
     for (int file = 0; file < kLevel0CompactTrigger; ++file) {
       for (int key = file; key < 2 * kNumKeyPerFile; key += 2) {

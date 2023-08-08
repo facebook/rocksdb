@@ -652,7 +652,7 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
   options.create_if_missing = true;
   options.env = env_.get();
 
-  DB::Open(options, dbname_, &db);
+  ASSERT_OK(DB::Open(options, dbname_, &db));
   ColumnFamilyHandle* handle;
   ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options),
                                    "ttl_column_family", &handle));

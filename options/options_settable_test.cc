@@ -34,6 +34,8 @@ namespace ROCKSDB_NAMESPACE {
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
 #ifndef ROCKSDB_UBSAN_RUN
+// status check adds CXX flag -fno-elide-constructors which fails this test.
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 
 class OptionsSettableTest : public testing::Test {
  public:
@@ -641,6 +643,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_ASSERT_STATUS_CHECKED
 #endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
