@@ -6,9 +6,11 @@
 #include <functional>
 
 #include "db/db_test_util.h"
+#include "db/output_validator.h"
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -339,6 +341,69 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
   }
 
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
+  SyncPoint::GetInstance()->SetCallBack("SSTFileWriter::Add", [&](void* arg) {
+    Slice& key = *static_cast<Slice*>(arg);
+    assert(key.size() > 0);
+    char* buf = const_cast<char*>(key.data());
+    buf[0]++;  // corrupt the first byte
+  });
+  Options options = CurrentOptions();
+  // writes in order with paranoid checks succeed
+  options.paranoid_file_checks = true;
+  SstFileWriter sst_file_writer_with_paranoid(EnvOptions(), options);
+  std::string file1 = sst_files_dir_ + "file01.sst";
+  ASSERT_OK(sst_file_writer_with_paranoid.Open(file1));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2001), Key(2001) + "_val"));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2002), Key(2002) + "_val"));
+  ASSERT_OK(sst_file_writer_with_paranoid.Finish());
+
+  // writes in order without paranoid checks succeed
+  options.paranoid_file_checks = false;
+  SstFileWriter sst_file_writer_no_paranoid(EnvOptions(), options);
+  std::string file2 = sst_files_dir_ + "file02.sst";
+  ASSERT_OK(sst_file_writer_no_paranoid.Open(file2));
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2001), Key(2001) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2002), Key(2002) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Finish());
+
+  // writes out of order with paranoid checks fail
+  std::string file3 = sst_files_dir_ + "file03.sst";
+  ASSERT_OK(sst_file_writer_with_paranoid.Open(file3));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2004), Key(2004) + "_val"));
+  ASSERT_NOK(sst_file_writer_with_paranoid.Put(Key(2003), Key(2003) + "_val"));
+  ASSERT_NOK(sst_file_writer_with_paranoid.Put(Key(2002), Key(2002) + "_val"));
+  ASSERT_NOK(sst_file_writer_with_paranoid.Finish());
+
+  // writes out of order without paranoid checks fail
+  std::string file4 = sst_files_dir_ + "file04.sst";
+  ASSERT_OK(sst_file_writer_no_paranoid.Open(file4));
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2004), Key(2004) + "_val"));
+  ASSERT_NOK(sst_file_writer_no_paranoid.Put(Key(2003), Key(2003) + "_val"));
+  ASSERT_NOK(sst_file_writer_no_paranoid.Put(Key(2002), Key(2002) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Finish());
+
+  // paranoid writes capture on-disk data corruption
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::string file5 = sst_files_dir_ + "file05.sst";
+  ASSERT_OK(sst_file_writer_with_paranoid.Open(file5));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer_with_paranoid.Put(Key(2001), Key(2001) + "_val"));
+  ASSERT_TRUE(sst_file_writer_with_paranoid.Finish().IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // non-paranoid writes fail to capture on-disk data corruption
+  std::string file6 = sst_files_dir_ + "file06.sst";
+  ASSERT_OK(sst_file_writer_no_paranoid.Open(file6));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2001), Key(2001) + "_val"));
+  ASSERT_OK(sst_file_writer_no_paranoid.Finish());
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {

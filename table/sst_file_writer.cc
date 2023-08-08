@@ -5,12 +5,16 @@
 
 #include "rocksdb/sst_file_writer.h"
 
+#include <iostream>
+#include <memory>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/output_validator.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
@@ -40,7 +44,6 @@ struct SstFileWriter::Rep {
         invalidate_page_cache(_invalidate_page_cache),
         skip_filters(_skip_filters),
         db_session_id(_db_session_id) {}
-
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
@@ -52,6 +55,7 @@ struct SstFileWriter::Rep {
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
+  std::unique_ptr<OutputValidator> kv_validator;
   // If true, We will give the OS a hint that this file pages is not needed
   // every time we write 1MB to the file.
   bool invalidate_page_cache;
@@ -70,15 +74,7 @@ struct SstFileWriter::Rep {
 
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
-    } else {
-      if (internal_comparator.user_comparator()->Compare(
-              user_key, file_info.largest_key) <= 0) {
-        // Make sure that keys are added in order
-        return Status::InvalidArgument(
-            "Keys must be added in strict ascending order.");
-      }
     }
-
     assert(value_type == kTypeValue || value_type == kTypeMerge ||
            value_type == kTypeDeletion ||
            value_type == kTypeDeletionWithTimestamp);
@@ -87,8 +83,14 @@ struct SstFileWriter::Rep {
 
     ikey.Set(user_key, sequence_number, value_type);
 
-    builder->Add(ikey.Encode(), value);
+    Slice encoded_key = ikey.Encode();
+    Status s = kv_validator->Add(encoded_key, value);
+    if (!s.ok()) {
+      return s;
+    }
 
+    TEST_SYNC_POINT_CALLBACK("SSTFileWriter::Add", &encoded_key);
+    builder->Add(encoded_key, value);
     // update file info
     file_info.num_entries++;
     file_info.largest_key.assign(user_key.data(), user_key.size());
@@ -166,7 +168,6 @@ struct SstFileWriter::Rep {
 
     auto ikey_and_end_key = tombstone.Serialize();
     builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-
     // update file info
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
@@ -275,6 +276,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
 
   sst_file->SetIOPriority(r->io_priority);
+  r->kv_validator = std::unique_ptr<OutputValidator>(
+      new OutputValidator(r->internal_comparator, /* enable_order_check */ true,
+                          /* enable_hash */ true));
 
   CompressionType compression_type;
   CompressionOptions compression_opts;
@@ -419,6 +423,57 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     r->file_info.file_checksum_func_name =
         r->file_writer->GetFileChecksumFuncName();
   }
+
+  if (s.ok() && r->mutable_cf_options.paranoid_file_checks) {
+    std::unique_ptr<TableReader> table_reader;
+    std::unique_ptr<FSRandomAccessFile> sst_file;
+    std::unique_ptr<RandomAccessFileReader> sst_file_reader;
+
+    s = r->ioptions.fs->NewRandomAccessFile(r->file_info.file_path,
+                                            r->env_options, &sst_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+
+    sst_file_reader.reset(new RandomAccessFileReader(
+        std::move(sst_file), r->file_info.file_path, /* clock */ nullptr,
+        /* io_tracer */ nullptr));
+
+    s = r->ioptions.table_factory->NewTableReader(
+        TableReaderOptions(r->ioptions, r->mutable_cf_options.prefix_extractor,
+                           r->env_options, r->internal_comparator,
+                           /*skip_filters*/ false, /*immortal*/ false,
+                           /*force_direct_prefetch*/ false, /*level*/ -1,
+                           /*block_cache_tracer*/ nullptr,
+                           /*max_file_size_for_l0_meta_pin*/ 0),
+        std::move(sst_file_reader), r->file_info.file_size, &table_reader);
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> itr(table_reader->NewIterator(
+        ro, r->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+
+    s = itr->status();
+    if (!s.ok()) {
+      return s;
+    }
+
+    OutputValidator file_validator(r->internal_comparator, true, true);
+
+    for (itr->SeekToFirst(); itr->Valid(); itr->Next()) {
+      file_validator.Add(itr->key(), itr->value());
+    }
+
+    s = itr->status();
+    if (s.ok() && !r->kv_validator->CompareValidator(file_validator)) {
+      s = Status::Corruption("Paranoid checksums do not match");
+    }
+  }
+
   if (!s.ok()) {
     r->ioptions.env->DeleteFile(r->file_info.file_path);
   }
