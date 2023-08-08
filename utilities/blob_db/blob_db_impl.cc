@@ -1402,7 +1402,7 @@ std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& _read_options,
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
 
     for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = s;
+      statuses.push_back(s);
     }
     return statuses;
   }

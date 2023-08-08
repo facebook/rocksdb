@@ -165,7 +165,7 @@ class RandomAccessFileReader {
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_bufy) const;
+                char* scratch, AlignedBuf* aligned_buf) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
@@ -173,7 +173,7 @@ class RandomAccessFileReader {
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_bu) const;
+                     size_t num_reqs, AlignedBuf* aligned_buf) const;
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, opts, nullptr);
