@@ -491,7 +491,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
       const Slice v(value, sz);
 
-
       std::string ts;
       if (FLAGS_user_timestamp_size > 0) {
         ts = GetNowNanos();
