@@ -39,9 +39,16 @@ Status VerifySstFileChecksum(const Options& options,
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const ReadOptions& read_options,
+                             const ReadOptions& _read_options,
                              const std::string& file_path,
                              const SequenceNumber& largest_seqno) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Can only call VerifySstFileChecksum with `ReadOptions::io_activity` "
+        "is "
+        "`Env::IOActivity::kUnknown`");
+  }
+  ReadOptions read_options(_read_options);
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);

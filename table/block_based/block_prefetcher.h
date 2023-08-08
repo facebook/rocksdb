@@ -22,7 +22,7 @@ class BlockPrefetcher {
                         const BlockHandle& handle, size_t readahead_size,
                         bool is_for_compaction,
                         const bool no_sequential_checking,
-                        Env::IOPriority rate_limiter_priority);
+                        const ReadOptions& read_options);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
   void UpdateReadPattern(const uint64_t& offset, const size_t& len) {

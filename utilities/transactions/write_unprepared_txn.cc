@@ -943,13 +943,13 @@ Status WriteUnpreparedTxn::PopSavePoint() {
   return Status::NotFound();
 }
 
-void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
+void WriteUnpreparedTxn::MultiGet(const ReadOptions& _read_options,
                                   ColumnFamilyHandle* column_family,
                                   const size_t num_keys, const Slice* keys,
                                   PinnableSlice* values, Status* statuses,
                                   const bool sorted_input) {
-  if (options.io_activity != Env::IOActivity::kUnknown &&
-      options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -961,16 +961,16 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
     }
     return;
   }
-  ReadOptions complete_read_options(options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot = wupt_db_->AssignMinMaxSeqs(
-      complete_read_options.snapshot, &min_uncommitted, &snap_seq);
+      read_options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
                                           unprep_seqs_, backed_by_snapshot);
-  write_batch_.MultiGetFromBatchAndDB(db_, complete_read_options, column_family,
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input, &callback);
   if (UNLIKELY(!callback.valid() ||
@@ -982,21 +982,21 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
   }
 }
 
-Status WriteUnpreparedTxn::Get(const ReadOptions& options,
+Status WriteUnpreparedTxn::Get(const ReadOptions& _read_options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
-  if (options.io_activity != Env::IOActivity::kUnknown &&
-      options.io_activity != Env::IOActivity::kGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-  ReadOptions complete_read_options(options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
 
-  return GetImpl(complete_read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value);
 }
 
 Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,

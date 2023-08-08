@@ -232,20 +232,20 @@ Status TransactionBaseImpl::PopSavePoint() {
   return write_batch_.PopSavePoint();
 }
 
-Status TransactionBaseImpl::Get(const ReadOptions& read_options,
+Status TransactionBaseImpl::Get(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
-  auto s = GetImpl(complete_read_options, column_family, key, value);
+  auto s = GetImpl(read_options, column_family, key, value);
   return s;
 }
 
@@ -262,20 +262,20 @@ Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-Status TransactionBaseImpl::Get(const ReadOptions& read_options,
+Status TransactionBaseImpl::Get(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
-  return GetImpl(complete_read_options, column_family, key, pinnable_val);
+  return GetImpl(read_options, column_family, key, pinnable_val);
 }
 
 Status TransactionBaseImpl::GetImpl(const ReadOptions& read_options,
@@ -342,13 +342,13 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
 }
 
 std::vector<Status> TransactionBaseImpl::MultiGet(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -358,27 +358,27 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
     }
     return stat_list;
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
   values->resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = GetImpl(complete_read_options, column_family[i], keys[i],
-                           &(*values)[i]);
+    stat_list[i] =
+        GetImpl(read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;
 }
 
-void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
+void TransactionBaseImpl::MultiGet(const ReadOptions& _read_options,
                                    ColumnFamilyHandle* column_family,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
                                    const bool sorted_input) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -389,11 +389,11 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
     }
     return;
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  write_batch_.MultiGetFromBatchAndDB(db_, complete_read_options, column_family,
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
 }

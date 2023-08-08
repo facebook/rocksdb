@@ -43,25 +43,25 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
              /*timestamp*/ nullptr);
 }
 
-Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
-                            const Slice& key, PinnableSlice* value,
-                            std::string* timestamp) {
-  if (options.io_activity != Env::IOActivity::kUnknown &&
-      options.io_activity != Env::IOActivity::kGet) {
+Status CompactedDBImpl::Get(const ReadOptions& _read_options,
+                            ColumnFamilyHandle*, const Slice& key,
+                            PinnableSlice* value, std::string* timestamp) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-  ReadOptions complete_read_options(options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
 
   assert(user_comparator_);
-  if (complete_read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(DefaultColumnFamily(),
-                                        *(complete_read_options.timestamp),
-                                        /*ts_for_read=*/true);
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -81,7 +81,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
-  LookupKey lkey(key, kMaxSequenceNumber, complete_read_options.timestamp);
+  LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, lkey.user_key(), value,
                          /*columns=*/nullptr, ts, nullptr, nullptr, true,
@@ -95,7 +95,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
           /*b_has_ts=*/false) < 0) {
     return Status::NotFound();
   }
-  Status s = f.fd.table_reader->Get(complete_read_options, lkey.internal_key(),
+  Status s = f.fd.table_reader->Get(read_options, lkey.internal_key(),
                                     &get_context, nullptr);
   if (!s.ok() && !s.IsNotFound()) {
     return s;
@@ -113,28 +113,28 @@ std::vector<Status> CompactedDBImpl::MultiGet(
 }
 
 std::vector<Status> CompactedDBImpl::MultiGet(
-    const ReadOptions& options, const std::vector<ColumnFamilyHandle*>&,
+    const ReadOptions& _read_options, const std::vector<ColumnFamilyHandle*>&,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
   assert(user_comparator_);
   size_t num_keys = keys.size();
-  if (options.io_activity != Env::IOActivity::kUnknown &&
-      options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
     return std::vector<Status>(num_keys, s);
   }
 
-  ReadOptions complete_read_options(options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
-  if (complete_read_options.timestamp) {
-    Status s = FailIfTsMismatchCf(DefaultColumnFamily(),
-                                  *(complete_read_options.timestamp),
-                                  /*ts_for_read=*/true);
+  if (read_options.timestamp) {
+    Status s =
+        FailIfTsMismatchCf(DefaultColumnFamily(), *(read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
     }
@@ -156,7 +156,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
-    LookupKey lkey(key, kMaxSequenceNumber, complete_read_options.timestamp);
+    LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
     const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
     if (user_comparator_->CompareWithoutTimestamp(
             key, /*a_has_ts=*/false,
@@ -179,16 +179,15 @@ std::vector<Status> CompactedDBImpl::MultiGet(
     if (r != nullptr) {
       PinnableSlice pinnable_val;
       std::string& value = (*values)[idx];
-      LookupKey lkey(keys[idx], kMaxSequenceNumber,
-                     complete_read_options.timestamp);
+      LookupKey lkey(keys[idx], kMaxSequenceNumber, read_options.timestamp);
       std::string* timestamp = timestamps ? &(*timestamps)[idx] : nullptr;
       GetContext get_context(
           user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
           lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
           user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
           nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
-      Status s = r->Get(complete_read_options, lkey.internal_key(),
-                        &get_context, nullptr);
+      Status s =
+          r->Get(read_options, lkey.internal_key(), &get_context, nullptr);
       assert(static_cast<size_t>(idx) < statuses.size());
       if (!s.ok() && !s.IsNotFound()) {
         statuses[idx] = s;

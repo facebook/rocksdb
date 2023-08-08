@@ -43,7 +43,7 @@ static OperationInfo global_operation_table[] = {
     {ThreadStatus::OP_GET, "Get"},
     {ThreadStatus::OP_MULTIGET, "MultiGet"},
     {ThreadStatus::OP_DBITERATOR, "DBIterator"},
-    {ThreadStatus::OP_VERIFY_CHECKSUM, "VerifyChecksum"},
+    {ThreadStatus::OP_VERIFY_DB_CHECKSUM, "VerifyDBChecksum"},
     {ThreadStatus::OP_VERIFY_FILE_CHECKSUMS, "VerifyFileChecksums"},
 
 };

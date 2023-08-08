@@ -102,8 +102,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s = reader_->Read(IOOptions(), offset, size, result, buffer_.get(),
-                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+  Status s =
+      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -277,4 +277,3 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-

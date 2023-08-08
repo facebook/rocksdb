@@ -931,7 +931,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
-            ThreadStatus::OperationType::OP_VERIFY_CHECKSUM);
+            ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM);
         Status status = db_->VerifyChecksum();
         ThreadStatusUtil::ResetThreadStatus();
         if (!status.ok()) {

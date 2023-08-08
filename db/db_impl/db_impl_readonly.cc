@@ -36,19 +36,19 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
              /*timestamp*/ nullptr);
 }
 
-Status DBImplReadOnly::Get(const ReadOptions& read_options,
+Status DBImplReadOnly::Get(const ReadOptions& _read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* pinnable_val,
                            std::string* timestamp) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
@@ -56,9 +56,9 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(column_family);
-  if (complete_read_options.timestamp) {
+  if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(complete_read_options.timestamp),
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
                            /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
@@ -94,12 +94,11 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
-  LookupKey lkey(key, snapshot, complete_read_options.timestamp);
+  LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
                               /*columns=*/nullptr, ts, &s, &merge_context,
-                              &max_covering_tombstone_seq,
-                              complete_read_options,
+                              &max_covering_tombstone_seq, read_options,
                               false /* immutable_memtable */, &read_cb)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -107,7 +106,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(
-        complete_read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
+        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
         &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
@@ -123,22 +122,22 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   return s;
 }
 
-Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
+Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
                                       ColumnFamilyHandle* column_family) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kDBIterator) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return NewErrorIterator(Status::InvalidArgument(
         "Can only call NewIterator with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   assert(column_family);
-  if (complete_read_options.timestamp) {
+  if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(complete_read_options.timestamp),
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
                            /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
@@ -153,15 +152,15 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
-  SequenceNumber read_seq = complete_read_options.snapshot != nullptr
-                                ? reinterpret_cast<const SnapshotImpl*>(
-                                      complete_read_options.snapshot)
-                                      ->number_
-                                : latest_snapshot;
+  SequenceNumber read_seq =
+      read_options.snapshot != nullptr
+          ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                ->number_
+          : latest_snapshot;
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, complete_read_options, *cfd->ioptions(),
-      super_version->mutable_cf_options, super_version->current, read_seq,
+      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
+      super_version->current, read_seq,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
   auto internal_iter = NewInternalIterator(

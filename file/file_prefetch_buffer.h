@@ -183,14 +183,12 @@ class FilePrefetchBuffer {
   bool Enabled() const { return enable_; }
 
   // Load data into the buffer from a file.
+  // opts                  : the IO options to use.
   // reader                : the file reader.
   // offset                : the file offset to start reading from.
   // n                     : the number of bytes to read.
-  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
-  //                         bypass.
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
-                  uint64_t offset, size_t n,
-                  Env::IOPriority rate_limiter_priority);
+                  uint64_t offset, size_t n);
 
   // Request for reading the data from a file asynchronously.
   // If data already exists in the buffer, result will be updated.
@@ -217,18 +215,14 @@ class FilePrefetchBuffer {
   // n                     : the number of bytes.
   // result                : output buffer to put the data into.
   // s                     : output status.
-  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
-  //                         bypass.
   // for_compaction        : true if cache read is done for compaction read.
   bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
                         uint64_t offset, size_t n, Slice* result, Status* s,
-                        Env::IOPriority rate_limiter_priority,
                         bool for_compaction = false);
 
   bool TryReadFromCacheAsync(const IOOptions& opts,
                              RandomAccessFileReader* reader, uint64_t offset,
-                             size_t n, Slice* result, Status* status,
-                             Env::IOPriority rate_limiter_priority);
+                             size_t n, Slice* result, Status* status);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
@@ -305,12 +299,11 @@ class FilePrefetchBuffer {
   Status PrefetchAsyncInternal(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
                                size_t length, size_t readahead_size,
-                               Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
-              Env::IOPriority rate_limiter_priority, uint64_t read_len,
-              uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
+              uint64_t read_len, uint64_t chunk_len, uint64_t rounddown_start,
+              uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
                    uint64_t read_len, uint64_t rounddown_start, uint32_t index);
@@ -409,7 +402,6 @@ class FilePrefetchBuffer {
   Status HandleOverlappingData(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
                                size_t length, size_t readahead_size,
-                               Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer, uint64_t& tmp_offset,
                                size_t& tmp_length);
 
@@ -417,14 +409,12 @@ class FilePrefetchBuffer {
                                  RandomAccessFileReader* reader,
                                  uint64_t offset, size_t n, Slice* result,
                                  Status* s,
-                                 Env::IOPriority rate_limiter_priority,
                                  bool for_compaction = false);
 
   bool TryReadFromCacheAsyncUntracked(const IOOptions& opts,
                                       RandomAccessFileReader* reader,
                                       uint64_t offset, size_t n, Slice* result,
-                                      Status* status,
-                                      Env::IOPriority rate_limiter_priority);
+                                      Status* status);
 
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being

@@ -83,24 +83,24 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                        size_t batch_cnt, WritePreparedTxn* txn);
 
   using DB::Get;
-  virtual Status Get(const ReadOptions& options,
+  virtual Status Get(const ReadOptions& _read_options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
+      const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
   using DB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& options,
+  virtual Iterator* NewIterator(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   using DB::NewIterators;
   virtual Status NewIterators(
-      const ReadOptions& options,
+      const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 

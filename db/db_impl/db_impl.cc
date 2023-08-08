@@ -1929,26 +1929,25 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                  /*timestamp=*/nullptr);
 }
 
-Status DBImpl::Get(const ReadOptions& read_options,
+Status DBImpl::Get(const ReadOptions& _read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
   assert(value != nullptr);
   value->Reset();
 
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Can only call Get with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
 
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
   }
 
-  Status s =
-      GetImpl(complete_read_options, column_family, key, value, timestamp);
+  Status s = GetImpl(read_options, column_family, key, value, timestamp);
   return s;
 }
 
@@ -2321,7 +2320,7 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 std::vector<Status> DBImpl::MultiGet(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
@@ -2330,10 +2329,11 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_GUARD(get_snapshot_time);
 
   size_t num_keys = keys.size();
+  assert(column_family.size() == num_keys);
   std::vector<Status> stat_list(num_keys);
 
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -2344,19 +2344,18 @@ std::vector<Status> DBImpl::MultiGet(
     return stat_list;
   }
 
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  assert(column_family.size() == num_keys);
 
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
-    if (complete_read_options.timestamp) {
-      stat_list[i] = FailIfTsMismatchCf(column_family[i],
-                                        *(complete_read_options.timestamp),
-                                        /*ts_for_read=*/true);
+    if (read_options.timestamp) {
+      stat_list[i] =
+          FailIfTsMismatchCf(column_family[i], *(read_options.timestamp),
+                             /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2409,7 +2408,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   bool unref_only =
       MultiCFSnapshot<UnorderedMap<uint32_t, MultiGetColumnFamilyData>>(
-          complete_read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+          read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
           &consistent_seqnum);
 
   TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum1");
@@ -2438,8 +2437,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
-  if (complete_read_options.timestamp &&
-      complete_read_options.timestamp->size() > 0) {
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }
@@ -2450,8 +2448,7 @@ std::vector<Status> DBImpl::MultiGet(
     std::string* value = &(*values)[keys_read];
     std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
 
-    LookupKey lkey(keys[keys_read], consistent_seqnum,
-                   complete_read_options.timestamp);
+    LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
         column_family[keys_read]);
     SequenceNumber max_covering_tombstone_seq = 0;
@@ -2460,20 +2457,20 @@ std::vector<Status> DBImpl::MultiGet(
     auto mgd = mgd_iter->second;
     auto super_version = mgd.super_version;
     bool skip_memtable =
-        (complete_read_options.read_tier == kPersistedTier &&
+        (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(
               lkey, value, /*columns=*/nullptr, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, complete_read_options,
+              &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(
-                     lkey, value, /*columns=*/nullptr, timestamp, &s,
-                     &merge_context, &max_covering_tombstone_seq,
-                     complete_read_options, read_callback)) {
+      } else if (super_version->imm->Get(lkey, value, /*columns=*/nullptr,
+                                         timestamp, &s, &merge_context,
+                                         &max_covering_tombstone_seq,
+                                         read_options, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2482,7 +2479,7 @@ std::vector<Status> DBImpl::MultiGet(
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
       PinnedIteratorsManager pinned_iters_mgr;
-      super_version->current->Get(complete_read_options, lkey, &pinnable_val,
+      super_version->current->Get(read_options, lkey, &pinnable_val,
                                   /*columns=*/nullptr, timestamp, &s,
                                   &merge_context, &max_covering_tombstone_seq,
                                   &pinned_iters_mgr, /*value_found=*/nullptr,
@@ -2496,16 +2493,16 @@ std::vector<Status> DBImpl::MultiGet(
       bytes_read += value->size();
       num_found++;
       curr_value_size += value->size();
-      if (curr_value_size > complete_read_options.value_size_soft_limit) {
+      if (curr_value_size > read_options.value_size_soft_limit) {
         while (++keys_read < num_keys) {
           stat_list[keys_read] = Status::Aborted();
         }
         break;
       }
     }
-    if (complete_read_options.deadline.count() &&
+    if (read_options.deadline.count() &&
         immutable_db_options_.clock->NowMicros() >
-            static_cast<uint64_t>(complete_read_options.deadline.count())) {
+            static_cast<uint64_t>(read_options.deadline.count())) {
       break;
     }
   }
@@ -2514,7 +2511,7 @@ std::vector<Status> DBImpl::MultiGet(
     // The only reason to break out of the loop is when the deadline is
     // exceeded
     assert(immutable_db_options_.clock->NowMicros() >
-           static_cast<uint64_t>(complete_read_options.deadline.count()));
+           static_cast<uint64_t>(read_options.deadline.count()));
     for (++keys_read; keys_read < num_keys; ++keys_read) {
       stat_list[keys_read] = Status::TimedOut();
     }
@@ -2671,12 +2668,12 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
            /* timestamps */ nullptr, statuses, sorted_input);
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+void DBImpl::MultiGet(const ReadOptions& _read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
                       Status* statuses, const bool sorted_input) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -2687,11 +2684,11 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     }
     return;
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  MultiGetCommon(complete_read_options, num_keys, column_families, keys, values,
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
                  /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
 
@@ -2887,13 +2884,13 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
            /* timestamps */ nullptr, statuses, sorted_input);
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options,
+void DBImpl::MultiGet(const ReadOptions& _read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
         "Can only call MultiGet with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
@@ -2905,11 +2902,11 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
     return;
   }
 
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  MultiGetCommon(complete_read_options, column_family, num_keys, keys, values,
+  MultiGetCommon(read_options, column_family, num_keys, keys, values,
                  /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
 
@@ -2957,18 +2954,18 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
 }
 
 void DBImpl::MultiGetWithCallback(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kMultiGet) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
     assert(false);
     return;
   }
 
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kMultiGet;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
@@ -2983,7 +2980,7 @@ void DBImpl::MultiGetWithCallback(
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum;
   bool unref_only = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
-      complete_read_options, callback, iter_deref_lambda, &multiget_cf_data,
+      read_options, callback, iter_deref_lambda, &multiget_cf_data,
       &consistent_seqnum);
 #ifndef NDEBUG
   assert(!unref_only);
@@ -2992,7 +2989,7 @@ void DBImpl::MultiGetWithCallback(
   (void)unref_only;
 #endif  // NDEBUG
 
-  if (callback && complete_read_options.snapshot == nullptr) {
+  if (callback && read_options.snapshot == nullptr) {
     // The unprep_seqs are not published for write unprepared, so it could be
     // that max_visible_seq is larger. Seek to the std::max of the two.
     // However, we still want our callback to contain the actual snapshot so
@@ -3013,14 +3010,13 @@ void DBImpl::MultiGetWithCallback(
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = callback;
-  if (complete_read_options.timestamp &&
-      complete_read_options.timestamp->size() > 0) {
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
     assert(!read_callback);  // timestamp with callback is not supported
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }
 
-  Status s = MultiGetImpl(complete_read_options, 0, num_keys, sorted_keys,
+  Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                           multiget_cf_data[0].super_version, consistent_seqnum,
                           read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
@@ -3466,33 +3462,33 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
-Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
+Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
                               ColumnFamilyHandle* column_family) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kDBIterator) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return NewErrorIterator(Status::InvalidArgument(
         "Can only call NewIterator with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
   }
 
-  if (complete_read_options.managed) {
+  if (read_options.managed) {
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
   Iterator* result = nullptr;
-  if (complete_read_options.read_tier == kPersistedTier) {
+  if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
   assert(column_family);
 
-  if (complete_read_options.timestamp) {
+  if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(complete_read_options.timestamp),
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
                            /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
@@ -3508,12 +3504,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  if (complete_read_options.tailing) {
+  if (read_options.tailing) {
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-    auto iter = new ForwardIterator(this, complete_read_options, cfd, sv,
+    auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
-        env_, complete_read_options, *cfd->ioptions(), sv->mutable_cf_options,
+        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
         this, cfd);
@@ -3521,12 +3517,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
-    result = NewIteratorImpl(
-        complete_read_options, cfd,
-        (complete_read_options.snapshot != nullptr)
-            ? complete_read_options.snapshot->GetSequenceNumber()
-            : kMaxSequenceNumber,
-        read_callback);
+    result = NewIteratorImpl(read_options, cfd,
+                             (read_options.snapshot != nullptr)
+                                 ? read_options.snapshot->GetSequenceNumber()
+                                 : kMaxSequenceNumber,
+                             read_callback);
   }
   return result;
 }
@@ -3614,33 +3609,32 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 }
 
 Status DBImpl::NewIterators(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kDBIterator) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return Status::InvalidArgument(
         "Can only call NewIterators with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kDBIterator;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
   }
-  if (complete_read_options.managed) {
+  if (read_options.managed) {
     return Status::NotSupported("Managed iterator is not supported anymore.");
   }
-  if (complete_read_options.read_tier == kPersistedTier) {
+  if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
 
-  if (complete_read_options.timestamp) {
+  if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s =
-          FailIfTsMismatchCf(cf, *(complete_read_options.timestamp),
-                             /*ts_for_read=*/true);
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -3658,14 +3652,14 @@ Status DBImpl::NewIterators(
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
-  if (complete_read_options.tailing) {
+  if (read_options.tailing) {
     for (auto cfh : column_families) {
       auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-      auto iter = new ForwardIterator(this, complete_read_options, cfd, sv,
+      auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
-          env_, complete_read_options, *cfd->ioptions(), sv->mutable_cf_options,
+          env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           read_callback, this, cfd));
@@ -3674,15 +3668,15 @@ Status DBImpl::NewIterators(
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterators is overridden in
     // WritePreparedTxnDB
-    auto snapshot = complete_read_options.snapshot != nullptr
-                        ? complete_read_options.snapshot->GetSequenceNumber()
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd =
           static_cast_with_check<ColumnFamilyHandleImpl>(column_families[i])
               ->cfd();
       iterators->push_back(
-          NewIteratorImpl(complete_read_options, cfd, snapshot, read_callback));
+          NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
   }
 
@@ -5889,34 +5883,34 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
   return status;
 }
 
-Status DBImpl::VerifyFileChecksums(const ReadOptions& read_options) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kVerifyFileChecksums) {
+Status DBImpl::VerifyFileChecksums(const ReadOptions& _read_options) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kVerifyFileChecksums) {
     return Status::InvalidArgument(
         "Can only call VerifyFileChecksums with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or "
         "`Env::IOActivity::kVerifyFileChecksums`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kVerifyFileChecksums;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kVerifyFileChecksums;
   }
-  return VerifyChecksumInternal(complete_read_options,
+  return VerifyChecksumInternal(read_options,
                                 /*use_file_checksum=*/true);
 }
 
-Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown &&
-      read_options.io_activity != Env::IOActivity::kVerifyChecksum) {
+Status DBImpl::VerifyChecksum(const ReadOptions& _read_options) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kVerifyDBChecksum) {
     return Status::InvalidArgument(
         "Can only call VerifyChecksum with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kVerifyChecksum`");
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kVerifyDBChecksum`");
   }
-  ReadOptions complete_read_options(read_options);
-  if (complete_read_options.io_activity == Env::IOActivity::kUnknown) {
-    complete_read_options.io_activity = Env::IOActivity::kVerifyChecksum;
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kVerifyDBChecksum;
   }
-  return VerifyChecksumInternal(complete_read_options,
+  return VerifyChecksumInternal(read_options,
                                 /*use_file_checksum=*/false);
 }
 

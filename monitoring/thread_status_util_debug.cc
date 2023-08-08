@@ -42,8 +42,8 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
       return Env::IOActivity::kMultiGet;
     case ThreadStatus::OperationType::OP_DBITERATOR:
       return Env::IOActivity::kDBIterator;
-    case ThreadStatus::OperationType::OP_VERIFY_CHECKSUM:
-      return Env::IOActivity::kVerifyChecksum;
+    case ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM:
+      return Env::IOActivity::kVerifyDBChecksum;
     case ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS:
       return Env::IOActivity::kVerifyFileChecksums;
     default:
