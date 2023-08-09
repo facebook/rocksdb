@@ -925,7 +925,7 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   options.db_paths.emplace_back(dbname_ + "_2", 0);
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
-  Flush();
+  ASSERT_OK(Flush());
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   // Currently not supported
@@ -968,7 +968,7 @@ TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   // Before the bug fix, reopening the DB would fail because the MANIFEST's
   // AddWal entry indicated the WAL should be synced through "key2" -> "val2".

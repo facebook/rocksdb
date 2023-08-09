@@ -654,7 +654,7 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
     for (i = 0; i < maxKey; i++) {
       ASSERT_OK(Put(Key(i), Key(i)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   };
   auto GetFn = [&]() {
     int i;
@@ -792,7 +792,7 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
     }
     // Add a large key to make the file contain wide range
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-    Flush(1);
+    ASSERT_OK(Flush(1));
 
     // Check if they can be found
     for (int i = 0; i < maxKey; i++) {
@@ -1696,7 +1696,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    TryReopen(options);
+    ASSERT_OK(TryReopen(options));
     CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
 
     const int maxKey = 10000;
@@ -1705,7 +1705,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     }
     // Add a large key to make the file contain wide range
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     EXPECT_EQ(policy->DumpTestReport(),
               fifo ? "cf=abe,s=kCompactionStyleFIFO,n=7,l=0,b=0,r=kFlush\n"
                    : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
@@ -1713,7 +1713,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     for (int i = maxKey / 2; i < maxKey; i++) {
       ASSERT_OK(Put(1, Key(i), Key(i)));
     }
-    Flush(1);
+    ASSERT_OK(Flush(1));
     EXPECT_EQ(policy->DumpTestReport(),
               fifo ? "cf=abe,s=kCompactionStyleFIFO,n=7,l=0,b=0,r=kFlush\n"
                    : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
@@ -2261,7 +2261,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
   ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
   ASSERT_EQ(0, get_perf_context()->bloom_sst_miss_count);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // sanity checks
   ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
@@ -2311,7 +2311,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
   ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   iter.reset(dbfull()->NewIterator(ReadOptions()));
 
@@ -2379,7 +2379,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     snprintf(buf, sizeof(buf), "%02d______:end", i + 1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->Flush();
+    ASSERT_OK(dbtest->Flush());
   }
 
   // GROUP 2
@@ -2390,7 +2390,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     snprintf(buf, sizeof(buf), "%02d______:end", small_range_sstfiles + i + 1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->Flush();
+    ASSERT_OK(dbtest->Flush());
   }
 }
 }  // anonymous namespace
@@ -2853,7 +2853,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("foq1", "bar1"));
     ASSERT_OK(Put("fpa", "0"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     std::unique_ptr<Iterator> iter_old(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
     EXPECT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
@@ -2981,7 +2981,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     ASSERT_OK(Put(2, "foo5", "bar5"));
     ASSERT_OK(Put(2, "foq6", "bar6"));
     ASSERT_OK(Put(2, "fpq7", "bar7"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(read_options, handles_[2]));
@@ -3031,17 +3031,17 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("foo1", "bar1"));
     ASSERT_OK(Put("fpa", "0"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     ASSERT_OK(Put("foo3", "bar3"));
     ASSERT_OK(Put("foo4", "bar4"));
     ASSERT_OK(Put("foo5", "bar5"));
     ASSERT_OK(Put("fpb", "1"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     ASSERT_OK(Put("foo6", "bar6"));
     ASSERT_OK(Put("foo7", "bar7"));
     ASSERT_OK(Put("foo8", "bar8"));
     ASSERT_OK(Put("fpc", "2"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
     ReadOptions read_options;
     read_options.prefix_same_as_start = true;

@@ -269,7 +269,13 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
       db_impl_->immutable_db_options().sst_file_manager.get());
-  DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
+  s = DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to clean up directory %s, status: %s",
+                    blob_dir_.c_str(), s.ToString().c_str());
+    return s;
+  }
 
   UpdateLiveSSTSize();
 
@@ -1915,7 +1921,7 @@ std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
       }
 
       if (!blob_file->Immutable()) {
-        CloseBlobFile(blob_file);
+        CloseBlobFile(blob_file).PermitUncheckedError();
       }
 
       assert(blob_file->Immutable());

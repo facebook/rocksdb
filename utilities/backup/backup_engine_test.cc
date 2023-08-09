@@ -589,7 +589,7 @@ void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + std::to_string(i);
     std::string value;
-    Status s = db->Get(ReadOptions(), Slice(key), &value);
+    ASSERT_OK(db->Get(ReadOptions(), Slice(key), &value));
     ASSERT_EQ(value, "testvalue" + std::to_string(i));
   }
 }
@@ -4308,13 +4308,13 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   for (auto be_pair :
        {std::make_pair(backup_engine_.get(), alt_backup_engine),
         std::make_pair(alt_backup_engine, backup_engine_.get())}) {
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
     RestoreOptions ro;
     // Fails without alternate dir
     ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
                     .IsInvalidArgument());
 
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
     // Works with alternate dir
     ro.alternate_dirs.push_front(be_pair.second);
     ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
@@ -4332,7 +4332,7 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   for (auto be_pair :
        {std::make_pair(backup_engine_.get(), alt_backup_engine),
         std::make_pair(alt_backup_engine, backup_engine_.get())}) {
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
     ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
