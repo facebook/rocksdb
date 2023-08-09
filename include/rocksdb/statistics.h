@@ -555,6 +555,13 @@ enum Histograms : uint32_t {
   FILE_READ_FLUSH_MICROS,
   FILE_READ_COMPACTION_MICROS,
   FILE_READ_DB_OPEN_MICROS,
+  // The following `FILE_READ_*` require stats level greater than
+  // `StatsLevel::kExceptDetailedTimers`
+  FILE_READ_GET_MICROS,
+  FILE_READ_MULTIGET_MICROS,
+  FILE_READ_DB_ITERATOR_MICROS,
+  FILE_READ_VERIFY_DB_CHECKSUM_MICROS,
+  FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
 
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,

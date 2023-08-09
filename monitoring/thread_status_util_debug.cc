@@ -36,6 +36,16 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
       return Env::IOActivity::kCompaction;
     case ThreadStatus::OperationType::OP_DBOPEN:
       return Env::IOActivity::kDBOpen;
+    case ThreadStatus::OperationType::OP_GET:
+      return Env::IOActivity::kGet;
+    case ThreadStatus::OperationType::OP_MULTIGET:
+      return Env::IOActivity::kMultiGet;
+    case ThreadStatus::OperationType::OP_DBITERATOR:
+      return Env::IOActivity::kDBIterator;
+    case ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM:
+      return Env::IOActivity::kVerifyDBChecksum;
+    case ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS:
+      return Env::IOActivity::kVerifyFileChecksums;
     default:
       return Env::IOActivity::kUnknown;
   }
