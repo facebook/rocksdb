@@ -79,6 +79,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
+  // Reproduction from the original bug report, 11606
   // This test does writes without snapshot validation, and then tries to create
   // iterator later, which is unsupported in write unprepared.
   if (txn_db_options.write_policy == WRITE_UNPREPARED) {
@@ -116,6 +117,10 @@ TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
 }
 
 TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
 
   {
@@ -134,8 +139,8 @@ TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   txn2->Put("c", "cc");
   txn2->Put("f", "ff");
 
-  //  base_iterator_:   b c   f
-  // delta_iterator_: a   c e f
+  // delta_iterator_:   b c   f
+  //  base_iterator_: a   c e f
   //
   // given range [c, f)
   // assert only {c, e} can be seen

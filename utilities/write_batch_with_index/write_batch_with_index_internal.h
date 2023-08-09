@@ -207,19 +207,7 @@ class WBWIIteratorImpl : public WBWIIterator {
   ~WBWIIteratorImpl() override {}
 
   bool Valid() const override {
-    if (!skip_list_iter_.Valid()) {
-      return false;
-    }
-    const WriteBatchIndexEntry* sl_iter_entry = skip_list_iter_.key();
-    bool valid = sl_iter_entry != nullptr &&
-                 sl_iter_entry->column_family == column_family_id_;
-    if (!valid) {
-      return false;
-    }
-
-    // skiplist has no idea of bounds, we do bounds checking here
-    const Slice& curKey = Entry().key;
-    return !afterUpperBound(&curKey) && !beforeLowerBound(&curKey);
+    return !out_of_bound_ && validRegardlessOfBoundLimit();
   }
 
   void SeekToFirst() override {
@@ -228,13 +216,14 @@ class WBWIIteratorImpl : public WBWIIterator {
           iterate_lower_bound_ /* search_key */, column_family_id_,
           true /* is_forward_direction */, false /* is_seek_to_first */);
       skip_list_iter_.Seek(&search_entry);
-      return;
+    } else {
+      WriteBatchIndexEntry search_entry(
+          nullptr /* search_key */, column_family_id_,
+          true /* is_forward_direction */, true /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
     }
 
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
+    out_of_bound_ = false;
   }
 
   void SeekToLast() override {
@@ -253,17 +242,30 @@ class WBWIIteratorImpl : public WBWIIterator {
     } else {
       skip_list_iter_.Prev();
     }
+
+    out_of_bound_ = false;
   }
 
   void Seek(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(
-        beforeLowerBound(&key) ? iterate_lower_bound_ : &key, column_family_id_,
-        true /* is_forward_direction */, false /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
+    if (beforeLowerBound(&key)) {  // cap to prevent out of bound
+      WriteBatchIndexEntry search_entry(iterate_lower_bound_, column_family_id_,
+                                        true /* is_forward_direction */,
+                                        false /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
+      out_of_bound_ = false;
+    } else if (afterUpperBound(&key)) {
+      out_of_bound_ = true;
+    } else {
+      WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                        true /* is_forward_direction */,
+                                        false /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
+      out_of_bound_ = false;
+    }
   }
 
   void SeekForPrev(const Slice& key) override {
-    if (afterUpperBound(&key)) {
+    if (afterUpperBound(&key)) {  // cap to prevent out of bound
       WriteBatchIndexEntry search_entry(
           iterate_upper_bound_, column_family_id_,
           // is_forward_direction, set to true so that
@@ -271,18 +273,31 @@ class WBWIIteratorImpl : public WBWIIterator {
           // TODO fix it by renaming WriteBatchIndexEntry::is_forward_direction
           true, false /* is_seek_to_first */);
       skip_list_iter_.SeekForPrev(&search_entry);
-      return;
+      out_of_bound_ = false;
+    } else if (beforeLowerBound(&key)) {
+      out_of_bound_ = true;
+    } else {
+      WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                        false /* is_forward_direction */,
+                                        false /* is_seek_to_first */);
+      skip_list_iter_.SeekForPrev(&search_entry);
+      out_of_bound_ = false;
     }
-
-    WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                      false /* is_forward_direction */,
-                                      false /* is_seek_to_first */);
-    skip_list_iter_.SeekForPrev(&search_entry);
   }
 
-  void Next() override { skip_list_iter_.Next(); }
+  void Next() override {
+    skip_list_iter_.Next();
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
+    }
+  }
 
-  void Prev() override { skip_list_iter_.Prev(); }
+  void Prev() override {
+    skip_list_iter_.Prev();
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
+    }
+  }
 
   WriteEntry Entry() const override;
 
@@ -325,6 +340,21 @@ class WBWIIteratorImpl : public WBWIIterator {
   WriteBatchEntryComparator* comparator_;
   const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
+  bool out_of_bound_ = false;
+
+  bool testOutOfBound() const {
+    const Slice& curKey = Entry().key;
+    return afterUpperBound(&curKey) || beforeLowerBound(&curKey);
+  }
+
+  bool validRegardlessOfBoundLimit() const {
+    if (!skip_list_iter_.Valid()) {
+      return false;
+    }
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    return iter_entry != nullptr &&
+           iter_entry->column_family == column_family_id_;
+  }
 
   bool afterUpperBound(const Slice* k) const {
     if (iterate_upper_bound_ == nullptr) {
