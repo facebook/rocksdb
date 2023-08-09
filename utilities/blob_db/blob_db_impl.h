@@ -103,12 +103,13 @@ class BlobDBImpl : public BlobDB {
              const Slice& value) override;
 
   using BlobDB::Get;
-  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
 
-  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             uint64_t* expiration) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, uint64_t* expiration) override;
 
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
@@ -123,7 +124,7 @@ class BlobDBImpl : public BlobDB {
 
   using BlobDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& read_options, const std::vector<Slice>& keys,
+      const ReadOptions& _read_options, const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
   using BlobDB::Write;

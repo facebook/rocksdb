@@ -169,6 +169,7 @@ default_params = {
     ),
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "verify_checksum_one_in": 1000000,
+    "verify_file_checksums_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval": 0,
     "max_key_len": 3,
@@ -658,6 +659,8 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_external_file_one_in"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
+    if dest_params["file_checksum_impl"] == "none":
+        dest_params["verify_file_checksums_one_in"] = 0
 
     return dest_params
 

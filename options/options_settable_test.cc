@@ -378,6 +378,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
+// status check adds CXX flag -fno-elide-constructors which fails this test.
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -641,6 +643,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_ASSERT_STATUS_CHECKED
 #endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN

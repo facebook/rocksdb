@@ -96,12 +96,13 @@ class DBImplSecondary : public DBImpl {
   // workaround, the secondaries can be opened with `max_open_files=-1` so that
   // it eagerly keeps all talbe files open and is able to access the contents of
   // deleted files via prior open fd.
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
 
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
@@ -117,7 +118,7 @@ class DBImplSecondary : public DBImpl {
   // deleted. As a partial hacky workaround, the secondaries can be opened with
   // `max_open_files=-1` so that it eagerly keeps all talbe files open and is
   // able to access the contents of deleted files via prior open fd.
-  Iterator* NewIterator(const ReadOptions&,
+  Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
@@ -127,7 +128,7 @@ class DBImplSecondary : public DBImpl {
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
 
-  Status NewIterators(const ReadOptions& options,
+  Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
@@ -324,4 +325,3 @@ class DBImplSecondary : public DBImpl {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -345,7 +345,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
         return true;
       }
       std::string res;
-      db_->Get(ReadOptions(), "", &res);
+      EXPECT_TRUE(db_->Get(ReadOptions(), "", &res).IsNotFound());
       return true;
     }
 

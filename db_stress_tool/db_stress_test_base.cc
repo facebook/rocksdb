@@ -129,7 +129,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (FLAGS_cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
-  } else if (FLAGS_cache_type == "hyper_clock_cache") {
+  } else if (FLAGS_cache_type == "hyper_clock_cache" ||
+             FLAGS_cache_type == "fixed_hyper_clock_cache") {
     HyperClockCacheOptions opts(static_cast<size_t>(capacity),
                                 FLAGS_block_size /*estimated_entry_charge*/,
                                 num_shard_bits);
@@ -489,7 +490,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
       const Slice v(value, sz);
-
 
       std::string ts;
       if (FLAGS_user_timestamp_size > 0) {
@@ -929,9 +929,25 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
+        ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM);
         Status status = db_->VerifyChecksum();
+        ThreadStatusUtil::ResetThreadStatus();
         if (!status.ok()) {
           VerificationAbort(shared, "VerifyChecksum status not OK", status);
+        }
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_verify_file_checksums_one_in)) {
+        ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS);
+        Status status = db_->VerifyFileChecksums(read_opts);
+        ThreadStatusUtil::ResetThreadStatus();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyFileChecksums status not OK",
+                            status);
         }
       }
 
@@ -1034,10 +1050,18 @@ void StressTest::OperateDb(ThreadState* thread) {
           // If its the last iteration, ensure that multiget_batch_size is 1
           multiget_batch_size = std::max(multiget_batch_size, 1);
           rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
+          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
           TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
+          ThreadStatusUtil::ResetThreadStatus();
           i += multiget_batch_size - 1;
         } else {
+          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           TestGet(thread, read_opts, rand_column_families, rand_keys);
+          ThreadStatusUtil::ResetThreadStatus();
         }
       } else if (prob_op < prefix_bound) {
         assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
@@ -1066,8 +1090,12 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!FLAGS_skip_verifydb &&
             thread->rand.OneInOpt(
                 FLAGS_verify_iterator_with_expected_state_one_in)) {
+          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_DBITERATOR);
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
                                      rand_keys);
+          ThreadStatusUtil::ResetThreadStatus();
         } else {
           int num_seeks = static_cast<int>(std::min(
               std::max(static_cast<uint64_t>(thread->rand.Uniform(4)),
@@ -1076,7 +1104,11 @@ void StressTest::OperateDb(ThreadState* thread) {
                        static_cast<uint64_t>(1))));
           rand_keys = GenerateNKeys(thread, num_seeks, i);
           i += num_seeks - 1;
+          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_DBITERATOR);
           TestIterate(thread, read_opts, rand_column_families, rand_keys);
+          ThreadStatusUtil::ResetThreadStatus();
         }
       } else {
         assert(iterate_bound <= prob_op);

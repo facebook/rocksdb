@@ -248,6 +248,7 @@ DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);

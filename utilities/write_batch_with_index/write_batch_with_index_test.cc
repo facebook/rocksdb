@@ -261,14 +261,14 @@ class WBWIBaseTest : public testing::Test {
     std::string result;
     for (size_t i = 0; i < key.size(); i++) {
       if (key[i] == 'd') {
-        batch_->Delete(cf, key);
+        EXPECT_OK(batch_->Delete(cf, key));
         result = "";
       } else if (key[i] == 'p') {
         result = key + std::to_string(i);
-        batch_->Put(cf, key, result);
+        EXPECT_OK(batch_->Put(cf, key, result));
       } else if (key[i] == 'm') {
         std::string value = key + std::to_string(i);
-        batch_->Merge(cf, key, value);
+        EXPECT_OK(batch_->Merge(cf, key, value));
         if (result.empty()) {
           result = value;
         } else {
@@ -1243,7 +1243,7 @@ TEST_F(WBWIOverwriteTest, TestGetFromBatchMerge2) {
   s = batch_->GetFromBatch(column_family, options_, "X", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  batch_->Merge(column_family, "X", "ddd");
+  ASSERT_OK(batch_->Merge(column_family, "X", "ddd"));
   ASSERT_OK(batch_->GetFromBatch(column_family, options_, "X", &value));
   ASSERT_EQ("ddd", value);
 }
@@ -2100,8 +2100,8 @@ TEST_P(WriteBatchWithIndexTest, GetFromBatchAfterMerge) {
 
   ASSERT_OK(OpenDB());
   ASSERT_OK(db_->Put(write_opts_, "o", "aa"));
-  batch_->Merge("o", "bb");  // Merging bb under key "o"
-  batch_->Merge("m", "cc");  // Merging bc under key "m"
+  ASSERT_OK(batch_->Merge("o", "bb"));  // Merging bb under key "o"
+  ASSERT_OK(batch_->Merge("m", "cc"));  // Merging bc under key "m"
   s = batch_->GetFromBatch(options_, "m", &value);
   ASSERT_EQ(s.code(), Status::Code::kMergeInProgress);
   s = batch_->GetFromBatch(options_, "o", &value);

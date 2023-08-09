@@ -384,6 +384,7 @@ class DBIter final : public Iterator {
   bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
+  const Env::IOActivity io_activity_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;

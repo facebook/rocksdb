@@ -51,12 +51,12 @@ class WritePreparedTxn : public PessimisticTransaction {
   // seq in the WAL that is also published, LastPublishedSequence, as opposed to
   // the last seq in the memtable.
   using Transaction::Get;
-  virtual Status Get(const ReadOptions& options,
+  virtual Status Get(const ReadOptions& _read_options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
   using Transaction::MultiGet;
-  virtual void MultiGet(const ReadOptions& options,
+  virtual void MultiGet(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
@@ -85,6 +85,10 @@ class WritePreparedTxn : public PessimisticTransaction {
   friend class WritePreparedTxnDB;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
+
+  using Transaction::GetImpl;
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value) override;
 
   Status PrepareInternal() override;
 

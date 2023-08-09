@@ -495,7 +495,7 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -536,7 +536,7 @@ TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
 
   // Simulate full loss of unsynced data. This should drop nothing since we did
   // `FlushWAL(true /* sync */)` before `Close()`.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 

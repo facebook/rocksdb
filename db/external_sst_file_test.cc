@@ -2223,7 +2223,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   // Trigger compaction if size amplification exceeds 110%.
   options.compaction_options_universal.max_size_amplification_percent = 110;
   options.level0_file_num_compaction_trigger = 4;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   Random rnd(301);
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 10; j++) {
@@ -2239,7 +2239,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
 
   // Turning off the option allows DB to compact ingested files.
   options.allow_ingest_behind = false;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   ASSERT_EQ(1, level_to_files[2].size());

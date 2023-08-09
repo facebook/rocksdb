@@ -860,10 +860,11 @@ Status BlockBasedTable::PrefetchTail(
                            &prefetch_off_len_pair);
 #endif  // NDEBUG
 
+  IOOptions opts;
+  Status s = file->PrepareIOOptions(ro, opts);
   // Try file system prefetch
-  if (!file->use_direct_io() && !force_direct_prefetch) {
-    if (!file->Prefetch(prefetch_off, prefetch_len, ro.rate_limiter_priority)
-             .IsNotSupported()) {
+  if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
+    if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
       prefetch_buffer->reset(new FilePrefetchBuffer(
           0 /* readahead_size */, 0 /* max_readahead_size */,
           false /* enable */, true /* track_min_offset */));
@@ -879,12 +880,8 @@ Status BlockBasedTable::PrefetchTail(
       nullptr /* fs */, nullptr /* clock */, stats,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
-  IOOptions opts;
-  Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
-    s = (*prefetch_buffer)
-            ->Prefetch(opts, file, prefetch_off, prefetch_len,
-                       ro.rate_limiter_priority);
+    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
   }
   return s;
 }

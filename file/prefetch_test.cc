@@ -550,7 +550,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   }
   Close();
   std::vector<int> buff_prefectch_level_count = {0, 0, 0};
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     fs->ClearPrefetchCount();
@@ -678,7 +678,7 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
   }
   Close();
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     fs->ClearPrefetchCount();
@@ -793,7 +793,7 @@ TEST_P(PrefetchTest, ConfigureNumFilesReadsForReadaheadSize) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   Close();
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
 
   fs->ClearPrefetchCount();
   buff_prefetch_count = 0;
@@ -2606,8 +2606,10 @@ TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   fpb.UpdateReadPattern(0, 4096, false);
   // Now read some data that straddles the two prefetch buffers - offset 8192 to
   // 16384
-  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), 8192, 8192,
-                                        &result, &s, Env::IOPriority::IO_LOW));
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  ASSERT_TRUE(
+      fpb.TryReadFromCacheAsync(io_opts, r.get(), 8192, 8192, &result, &s));
 }
 
 TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
@@ -2642,9 +2644,10 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   }
 
   ASSERT_TRUE(s.IsTryAgain());
-  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), /*offset=*/3000,
-                                        /*length=*/4000, &async_result, &s,
-                                        Env::IOPriority::IO_LOW));
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(io_opts, r.get(), /*offset=*/3000,
+                                        /*length=*/4000, &async_result, &s));
   // No sync call should be made.
   HistogramData sst_read_micros;
   stats()->histogramData(SST_READ_MICROS, &sst_read_micros);

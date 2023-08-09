@@ -80,11 +80,11 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
       if (read_options_.async_io && !for_compaction_) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority);
+            &io_s);
       } else {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_);
+            &io_s, for_compaction_);
       }
       if (read_from_prefetch_buffer) {
         ProcessTrailerIfPresent();
@@ -259,18 +259,18 @@ IOStatus BlockFetcher::ReadBlockContents() {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
         PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
-        io_status_ = file_->Read(
-            opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
-            &direct_io_buf_, read_options_.rate_limiter_priority);
+        io_status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, nullptr, &direct_io_buf_);
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
         PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
-        io_status_ = file_->Read(opts, handle_.offset(),
-                                 block_size_with_trailer_, &slice_, used_buf_,
-                                 nullptr, read_options_.rate_limiter_priority);
+        io_status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, used_buf_, nullptr);
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {

@@ -484,9 +484,12 @@ Status TableCache::Get(
     RowCacheInterface row_cache{ioptions_.row_cache.get()};
     size_t charge = row_cache_entry->capacity() + sizeof(std::string);
     auto row_ptr = new std::string(std::move(*row_cache_entry));
-    // If row cache is full, it's OK to continue.
-    row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge)
-        .PermitUncheckedError();
+    Status rcs = row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge);
+    if (!rcs.ok()) {
+      // If row cache is full, it's OK to continue, but we keep ownership of
+      // row_ptr.
+      delete row_ptr;
+    }
   }
 
   if (handle != nullptr) {

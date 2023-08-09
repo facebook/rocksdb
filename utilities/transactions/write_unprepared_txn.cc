@@ -943,20 +943,36 @@ Status WriteUnpreparedTxn::PopSavePoint() {
   return Status::NotFound();
 }
 
-void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
+void WriteUnpreparedTxn::MultiGet(const ReadOptions& _read_options,
                                   ColumnFamilyHandle* column_family,
                                   const size_t num_keys, const Slice* keys,
                                   PinnableSlice* values, Status* statuses,
                                   const bool sorted_input) {
-  assert(options.io_activity == Env::IOActivity::kUnknown);
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
   SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  const SnapshotBackup backed_by_snapshot = wupt_db_->AssignMinMaxSeqs(
+      read_options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
                                           unprep_seqs_, backed_by_snapshot);
-  write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
-                                      keys, values, statuses, sorted_input,
-                                      &callback);
+  write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
+                                      num_keys, keys, values, statuses,
+                                      sorted_input, &callback);
   if (UNLIKELY(!callback.valid() ||
                !wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
@@ -966,14 +982,26 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
   }
 }
 
-Status WriteUnpreparedTxn::Get(const ReadOptions& options,
+Status WriteUnpreparedTxn::Get(const ReadOptions& _read_options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
-  if (options.io_activity != Env::IOActivity::kUnknown) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  return GetImpl(read_options, column_family, key, value);
+}
+
+Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
