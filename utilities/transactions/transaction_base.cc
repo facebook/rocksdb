@@ -110,6 +110,8 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
+  WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
+      write_batch_.GetWriteBatch(), cmp_->timestamp_size());
   WriteBatchInternal::UpdateProtectionInfo(
       write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key)
       .PermitUncheckedError();

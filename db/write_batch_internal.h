@@ -224,6 +224,9 @@ class WriteBatchInternal {
   static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
 
+  static void SetDefaultColumnFamilyTimestampSize(WriteBatch* wb,
+                                                  size_t default_cf_ts_sz);
+
   static std::tuple<Status, uint32_t, size_t> GetColumnFamilyIdAndTimestampSize(
       WriteBatch* b, ColumnFamilyHandle* column_family);
 
