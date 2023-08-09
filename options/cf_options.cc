@@ -552,6 +552,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                }
              })},
         // End special case properties
+        {"memtable_max_range_deletions",
+         {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

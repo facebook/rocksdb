@@ -507,6 +507,23 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   SstPartitionerFactory sstPartitionerFactory();
 
   /**
+   * Sets the maximum range delete calls, after which memtable is flushed.
+   * This applies to the mutable memtable.
+   *
+   * @param count a positive integer, 0 (default) to disable the feature.
+   * @return the reference of the current options.
+   */
+  T setMemtableMaxRangeDeletions(final int count);
+
+  /**
+   * Gets the current setting of maximum range deletes allowed
+   * 0(default) indicates that feature is disabled.
+   *
+   * @return current value of memtable_max_range_deletions
+   */
+  int memtableMaxRangeDeletions();
+
+  /**
    * Compaction concurrent thread limiter for the column family.
    * If non-nullptr, use given concurrent thread limiter to control
    * the max outstanding compaction tasks. Limiter can be shared with

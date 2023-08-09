@@ -861,6 +861,7 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
+    uint64_t total_num_range_deletes = 0;
     // Used for testing:
     uint64_t mems_size = mems_.size();
     (void)mems_size;  // avoids unused variable error when
@@ -883,15 +884,20 @@ Status FlushJob::WriteLevel0Table() {
       total_num_deletes += m->num_deletes();
       total_data_size += m->get_data_size();
       total_memory_usage += m->ApproximateMemoryUsage();
+      total_num_range_deletes += m->num_range_deletes();
     }
 
+    // TODO(cbi): when memtable is flushed due to number of range deletions
+    //  hitting limit memtable_max_range_deletions, flush_reason_ is still
+    //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"
                          << "num_memtables" << mems_.size() << "num_entries"
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "total_data_size"
                          << total_data_size << "memory_usage"
-                         << total_memory_usage << "flush_reason"
+                         << total_memory_usage << "num_range_deletes"
+                         << total_num_range_deletes << "flush_reason"
                          << GetFlushReasonString(flush_reason_);
 
     {

@@ -6927,6 +6927,27 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(Get("foo"), "bar");
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+
+  // Also test non-OK cache insertion (would be ASAN failure on memory leak)
+  class FailInsertionCache : public CacheWrapper {
+   public:
+    using CacheWrapper::CacheWrapper;
+    const char* Name() const override { return "FailInsertionCache"; }
+    Status Insert(const Slice&, Cache::ObjectPtr, const CacheItemHelper*,
+                  size_t, Handle** = nullptr,
+                  Priority = Priority::LOW) override {
+      return Status::MemoryLimit();
+    }
+  };
+  options.row_cache = std::make_shared<FailInsertionCache>(options.row_cache);
+  ASSERT_OK(options.statistics->Reset());
+  Reopen(options);
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo"), "bar");
+  // Test condition requires row cache insertion to fail
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
 }
 
 TEST_F(DBTest, PinnableSliceAndRowCache) {

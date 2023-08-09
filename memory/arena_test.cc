@@ -219,21 +219,28 @@ size_t PopMinorPageFaultCount() {
 
 TEST(MmapTest, AllocateLazyZeroed) {
   // Doesn't have to be page aligned
-  constexpr size_t len = 1234567;
-  MemMapping m = MemMapping::AllocateLazyZeroed(len);
-  auto arr = static_cast<char*>(m.Get());
+  constexpr size_t len = 1234567;    // in bytes
+  constexpr size_t count = len / 8;  // in uint64_t objects
+  // Implicit conversion move
+  TypedMemMapping<uint64_t> pre_arr = MemMapping::AllocateLazyZeroed(len);
+  // Move from same type
+  TypedMemMapping<uint64_t> arr = std::move(pre_arr);
 
-  // Should generally work
-  ASSERT_NE(arr, nullptr);
+  ASSERT_NE(arr.Get(), nullptr);
+  ASSERT_EQ(arr.Get(), &arr[0]);
+  ASSERT_EQ(arr.Get(), arr.MemMapping::Get());
+
+  ASSERT_EQ(arr.Length(), len);
+  ASSERT_EQ(arr.Count(), count);
 
   // Start counting page faults
   PopMinorPageFaultCount();
 
   // Access half of the allocation
   size_t i = 0;
-  for (; i < len / 2; ++i) {
+  for (; i < count / 2; ++i) {
     ASSERT_EQ(arr[i], 0);
-    arr[i] = static_cast<char>(i & 255);
+    arr[i] = i;
   }
 
   // Appropriate page faults (maybe more)
@@ -241,9 +248,9 @@ TEST(MmapTest, AllocateLazyZeroed) {
   ASSERT_GE(faults, len / 2 / port::kPageSize);
 
   // Access rest of the allocation
-  for (; i < len; ++i) {
+  for (; i < count; ++i) {
     ASSERT_EQ(arr[i], 0);
-    arr[i] = static_cast<char>(i & 255);
+    arr[i] = i;
   }
 
   // Appropriate page faults (maybe more)
@@ -251,8 +258,8 @@ TEST(MmapTest, AllocateLazyZeroed) {
   ASSERT_GE(faults, len / 2 / port::kPageSize);
 
   // Verify data
-  for (i = 0; i < len; ++i) {
-    ASSERT_EQ(arr[i], static_cast<char>(i & 255));
+  for (i = 0; i < count; ++i) {
+    ASSERT_EQ(arr[i], i);
   }
 }
 

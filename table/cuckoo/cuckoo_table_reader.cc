@@ -144,9 +144,8 @@ CuckooTableReader::CuckooTableReader(
       *reinterpret_cast<const uint32_t*>(cuckoo_block_size->second.data());
   cuckoo_block_bytes_minus_one_ = cuckoo_block_size_ * bucket_length_ - 1;
   // TODO: rate limit reads of whole cuckoo tables.
-  status_ =
-      file_->Read(IOOptions(), 0, static_cast<size_t>(file_size), &file_data_,
-                  nullptr, nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+  status_ = file_->Read(IOOptions(), 0, static_cast<size_t>(file_size),
+                        &file_data_, nullptr, nullptr);
 }
 
 Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,

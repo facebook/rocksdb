@@ -4990,7 +4990,7 @@ TEST_P(TransactionTest, DeleteRangeSupportTest) {
           }
           break;
         case WRITE_PREPARED:
-          // Intentional fall-through
+          FALLTHROUGH_INTENDED;
         case WRITE_UNPREPARED:
           if (skip_concurrency_control && skip_duplicate_key_check) {
             ASSERT_OK(s);

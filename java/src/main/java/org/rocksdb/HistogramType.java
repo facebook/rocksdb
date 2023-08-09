@@ -175,6 +175,16 @@ public enum HistogramType {
 
   FILE_READ_DB_OPEN_MICROS((byte) 0x3C),
 
+  FILE_READ_GET_MICROS((byte) 0x3D),
+
+  FILE_READ_MULTIGET_MICROS((byte) 0x3E),
+
+  FILE_READ_DB_ITERATOR_MICROS((byte) 0x3F),
+
+  FILE_READ_VERIFY_DB_CHECKSUM_MICROS((byte) 0x40),
+
+  FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS((byte) 0x41),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 

@@ -752,6 +752,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setAccessHintOnCompactionStart(final AccessHint accessHint) {
     assert(isOwningHandle());
     setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
@@ -759,6 +760,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public AccessHint accessHintOnCompactionStart() {
     assert(isOwningHandle());
     return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));

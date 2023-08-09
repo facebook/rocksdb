@@ -441,6 +441,11 @@ class Env : public Customizable {
     kFlush = 0,
     kCompaction = 1,
     kDBOpen = 2,
+    kGet = 3,
+    kMultiGet = 4,
+    kDBIterator = 5,
+    kVerifyDBChecksum = 6,
+    kVerifyFileChecksums = 7,
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 

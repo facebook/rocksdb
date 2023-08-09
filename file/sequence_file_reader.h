@@ -99,6 +99,9 @@ class SequentialFileReader {
   // when less than n bytes are actually read (e.g. at end of file). To avoid
   // overcharging the rate limiter, the caller can use file size to cap n to
   // read until end of file.
+  //
+  // TODO(hx235): accept parameter `IOOptions` containing
+  // `rate_limiter_priority` like RandomAccessFileReader::Read()
   IOStatus Read(size_t n, Slice* result, char* scratch,
                 Env::IOPriority rate_limiter_priority);
 

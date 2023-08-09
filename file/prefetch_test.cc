@@ -238,16 +238,9 @@ TEST_P(PrefetchTest, Basic) {
     fs->ClearPrefetchCount();
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    if (use_direct_io) {
-      // To rule out false positive by the SST file tail prefetch during
-      // compaction output verification
-      ASSERT_GT(buff_prefetch_count, 1);
-    } else {
-      // In buffered IO, compaction readahead size is 0, leading to no prefetch
-      // during compaction input read
-      ASSERT_EQ(buff_prefetch_count, 1);
-    }
-
+    // To rule out false positive by the SST file tail prefetch during
+    // compaction output verification
+    ASSERT_GT(buff_prefetch_count, 1);
     buff_prefetch_count = 0;
 
     ASSERT_GT(cur_table_open_prefetch_tail_read.count,
@@ -2613,8 +2606,10 @@ TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   fpb.UpdateReadPattern(0, 4096, false);
   // Now read some data that straddles the two prefetch buffers - offset 8192 to
   // 16384
-  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), 8192, 8192,
-                                        &result, &s, Env::IOPriority::IO_LOW));
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  ASSERT_TRUE(
+      fpb.TryReadFromCacheAsync(io_opts, r.get(), 8192, 8192, &result, &s));
 }
 
 TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
@@ -2649,9 +2644,10 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   }
 
   ASSERT_TRUE(s.IsTryAgain());
-  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), /*offset=*/3000,
-                                        /*length=*/4000, &async_result, &s,
-                                        Env::IOPriority::IO_LOW));
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(io_opts, r.get(), /*offset=*/3000,
+                                        /*length=*/4000, &async_result, &s));
   // No sync call should be made.
   HistogramData sst_read_micros;
   stats()->histogramData(SST_READ_MICROS, &sst_read_micros);

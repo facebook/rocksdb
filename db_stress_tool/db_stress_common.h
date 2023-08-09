@@ -248,6 +248,7 @@ DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
@@ -326,6 +327,8 @@ DECLARE_int32(create_timestamped_snapshot_one_in);
 DECLARE_bool(allow_data_in_errors);
 
 DECLARE_bool(enable_thread_tracking);
+
+DECLARE_uint32(memtable_max_range_deletions);
 
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature

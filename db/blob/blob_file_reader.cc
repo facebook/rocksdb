@@ -154,11 +154,9 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
     constexpr uint64_t read_offset = 0;
     constexpr size_t read_size = BlobLogHeader::kSize;
 
-    // TODO: rate limit reading headers from blob files.
     const Status s =
         ReadFromFile(file_reader, read_options, read_offset, read_size,
-                     statistics, &header_slice, &buf, &aligned_buf,
-                     Env::IO_TOTAL /* rate_limiter_priority */);
+                     statistics, &header_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -207,11 +205,9 @@ Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
     const uint64_t read_offset = file_size - BlobLogFooter::kSize;
     constexpr size_t read_size = BlobLogFooter::kSize;
 
-    // TODO: rate limit reading footers from blob files.
     const Status s =
         ReadFromFile(file_reader, read_options, read_offset, read_size,
-                     statistics, &footer_slice, &buf, &aligned_buf,
-                     Env::IO_TOTAL /* rate_limiter_priority */);
+                     statistics, &footer_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -242,8 +238,7 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                                     const ReadOptions& read_options,
                                     uint64_t read_offset, size_t read_size,
                                     Statistics* statistics, Slice* slice,
-                                    Buffer* buf, AlignedBuf* aligned_buf,
-                                    Env::IOPriority rate_limiter_priority) {
+                                    Buffer* buf, AlignedBuf* aligned_buf) {
   assert(slice);
   assert(buf);
   assert(aligned_buf);
@@ -264,13 +259,13 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
     constexpr char* scratch = nullptr;
 
     s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
-                          aligned_buf, rate_limiter_priority);
+                          aligned_buf);
   } else {
     buf->reset(new char[read_size]);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
     s = file_reader->Read(io_options, read_offset, read_size, slice, buf->get(),
-                          aligned_scratch, rate_limiter_priority);
+                          aligned_scratch);
   }
 
   if (!s.ok()) {
@@ -345,8 +340,7 @@ Status BlobFileReader::GetBlob(
     }
     prefetched = prefetch_buffer->TryReadFromCache(
         io_options, file_reader_.get(), record_offset,
-        static_cast<size_t>(record_size), &record_slice, &s,
-        read_options.rate_limiter_priority, for_compaction);
+        static_cast<size_t>(record_size), &record_slice, &s, for_compaction);
     if (!s.ok()) {
       return s;
     }
@@ -357,10 +351,10 @@ Status BlobFileReader::GetBlob(
     PERF_COUNTER_ADD(blob_read_count, 1);
     PERF_COUNTER_ADD(blob_read_byte, record_size);
     PERF_TIMER_GUARD(blob_read_time);
-    const Status s = ReadFromFile(
-        file_reader_.get(), read_options, record_offset,
-        static_cast<size_t>(record_size), statistics_, &record_slice, &buf,
-        &aligned_buf, read_options.rate_limiter_priority);
+    const Status s =
+        ReadFromFile(file_reader_.get(), read_options, record_offset,
+                     static_cast<size_t>(record_size), statistics_,
+                     &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -468,9 +462,12 @@ void BlobFileReader::MultiGetBlob(
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
   PERF_COUNTER_ADD(blob_read_count, num_blobs);
   PERF_COUNTER_ADD(blob_read_byte, total_len);
-  s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
-                              direct_io ? &aligned_buf : nullptr,
-                              read_options.rate_limiter_priority);
+  IOOptions opts;
+  s = file_reader_->PrepareIOOptions(read_options, opts);
+  if (s.ok()) {
+    s = file_reader_->MultiRead(opts, read_reqs.data(), read_reqs.size(),
+                                direct_io ? &aligned_buf : nullptr);
+  }
   if (!s.ok()) {
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();

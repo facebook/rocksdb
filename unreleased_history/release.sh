@@ -31,7 +31,7 @@ awk '/#define ROCKSDB_MAJOR/ { major = $3 }
      /#define ROCKSDB_MINOR/ { minor = $3 }
      /#define ROCKSDB_PATCH/ { patch = $3 }
      END { printf "## " major "." minor "." patch }' < include/rocksdb/version.h >> HISTORY.new
-echo " (`date +%x`)" >> HISTORY.new
+echo " (`git log -n1 --date=format:"%m/%d/%Y" --format="%ad"`)" >> HISTORY.new
 
 function process_file () {
   # use awk to correct

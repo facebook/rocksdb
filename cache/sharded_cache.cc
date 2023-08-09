@@ -38,7 +38,7 @@ uint32_t DetermineSeed(int32_t hash_seed_option) {
       return GetSliceHash(hostname) & kSeedMask;
     } else {
       // Fall back on something stable within the process.
-      return static_cast<uint32_t>(gen.GetBaseUpper()) & kSeedMask;
+      return BitwiseAnd(gen.GetBaseUpper(), kSeedMask);
     }
   } else {
     // for kQuasiRandomHashSeed and fallback

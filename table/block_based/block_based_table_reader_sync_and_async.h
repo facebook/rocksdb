@@ -144,7 +144,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       if (file->use_direct_io()) {
 #endif  // WITH_COROUTINES
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                            &direct_io_buf, options.rate_limiter_priority);
+                            &direct_io_buf);
 #if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(
