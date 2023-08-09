@@ -164,11 +164,15 @@ const Comparator* ReverseBytewiseComparator();
 // Returns a builtin comparator that enables user-defined timestamps (formatted
 // as uint64_t) while ordering the user key part without UDT with a
 // BytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
 const Comparator* BytewiseComparatorWithU64Ts();
 
 // Returns a builtin comparator that enables user-defined timestamps (formatted
 // as uint64_t) while ordering the user key part without UDT with a
 // ReverseBytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
 const Comparator* ReverseBytewiseComparatorWithU64Ts();
 
 }  // namespace ROCKSDB_NAMESPACE
