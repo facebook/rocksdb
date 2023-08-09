@@ -34,8 +34,6 @@ namespace ROCKSDB_NAMESPACE {
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
 #ifndef ROCKSDB_UBSAN_RUN
-// status check adds CXX flag -fno-elide-constructors which fails this test.
-#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 
 class OptionsSettableTest : public testing::Test {
  public:
@@ -380,6 +378,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
+// status check adds CXX flag -fno-elide-constructors which fails this test.
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
