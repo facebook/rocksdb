@@ -546,6 +546,8 @@ static void DBGet(benchmark::State& state) {
   bool negative_query = state.range(4);
   bool enable_filter = state.range(5);
   bool mmap = state.range(6);
+  auto compression_type = static_cast<CompressionType>(state.range(7));
+  bool no_blockcache = state.range(8);
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
@@ -568,6 +570,12 @@ static void DBGet(benchmark::State& state) {
     table_options.no_block_cache = true;
     table_options.block_restart_interval = 1;
   }
+  options.compression = compression_type;
+  if (no_blockcache) {
+    table_options.no_block_cache = true;
+  } else {
+    table_options.block_cache = NewLRUCache(100 << 20);
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   auto rnd = Random(301 + state.thread_index());
@@ -588,7 +596,7 @@ static void DBGet(benchmark::State& state) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
-
+    // try no block-cache in db options?
     // Compact whole DB into one level, so each iteration will consider the same
     // number of files (one).
     Status s = db->CompactRange(CompactRangeOptions(), nullptr /* begin */,
@@ -647,8 +655,14 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
           for (bool negative_query : {false, true}) {
             for (bool enable_filter : {false, true}) {
               for (bool mmap : {false, true}) {
-                b->Args({comp_style, max_data, per_key_size, enable_statistics,
-                         negative_query, enable_filter, mmap});
+                for (int compression_type :
+                     {kNoCompression /* 0x0 */, kZSTD /* 0x7 */}) {
+                  for (bool no_blockcache : {false, true}) {
+                    b->Args({comp_style, max_data, per_key_size,
+                             enable_statistics, negative_query, enable_filter,
+                             mmap, compression_type, no_blockcache});
+                  }
+                }
               }
             }
           }
@@ -657,9 +671,11 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
     }
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics",
-               "negative_query", "enable_filter", "mmap"});
+               "negative_query", "enable_filter", "mmap", "compression_type",
+               "no_blockcache"});
 }
 
+// TODO: iterations?
 BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
 BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
 
