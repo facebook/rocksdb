@@ -675,9 +675,9 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "no_blockcache"});
 }
 
-// TODO: iterations?
-BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
+static const uint64_t DBGetNum = 10000l;
+BENCHMARK(DBGet)->Threads(1)->Iterations(DBGetNum)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->Iterations(DBGetNum / 8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
