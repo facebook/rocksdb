@@ -31,6 +31,7 @@
 #include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
@@ -49,6 +50,9 @@ DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
 DEFINE_uint64(ops_per_thread, 2000000U, "Number of operations per thread.");
 DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
+DEFINE_uint32(value_bytes_estimate, 0,
+              "If > 0, overrides estimated_entry_charge or "
+              "min_avg_entry_charge depending on cache_type.");
 
 DEFINE_uint32(skew, 5, "Degree of skew in key selection. 0 = no skew");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
@@ -82,6 +86,8 @@ DEFINE_bool(early_exit, false,
 
 DEFINE_bool(histograms, true,
             "Whether to track and print histogram statistics.");
+
+DEFINE_bool(report_problems, true, "Whether to ReportProblems() at the end.");
 
 DEFINE_uint32(seed, 0, "Hashing/random seed to use. 0 = choose at random");
 
@@ -299,11 +305,23 @@ class CacheBench {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache" ||
-               FLAGS_cache_type == "fixed_hyper_clock_cache") {
-      HyperClockCacheOptions opts(FLAGS_cache_size, FLAGS_value_bytes,
-                                  FLAGS_num_shard_bits);
+    } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+      HyperClockCacheOptions opts(
+          FLAGS_cache_size, /*estimated_entry_charge=*/0, FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
+          FLAGS_cache_type == "hyper_clock_cache") {
+        opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0
+                                          ? FLAGS_value_bytes_estimate
+                                          : FLAGS_value_bytes;
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+        if (FLAGS_value_bytes_estimate > 0) {
+          opts.min_avg_entry_charge = FLAGS_value_bytes_estimate;
+        }
+      } else {
+        fprintf(stderr, "Cache type not supported.");
+        exit(1);
+      }
       cache_ = opts.MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
@@ -454,7 +472,14 @@ class CacheBench {
         printf("%s", stats_hist.ToString().c_str());
       }
     }
-    printf("\n%s", stats_report.c_str());
+
+    if (FLAGS_report_problems) {
+      printf("\n");
+      std::shared_ptr<Logger> logger =
+          std::make_shared<StderrLogger>(InfoLogLevel::DEBUG_LEVEL);
+      cache_->ReportProblems(logger);
+    }
+    printf("%s", stats_report.c_str());
 
     return true;
   }
@@ -499,7 +524,7 @@ class CacheBench {
         for (;;) {
           if (shared->AllDone()) {
             std::ostringstream ostr;
-            ostr << "Most recent cache entry stats:\n"
+            ostr << "\nMost recent cache entry stats:\n"
                  << "Number of entries: " << total_entry_count << "\n"
                  << "Table occupancy: " << table_occupancy << " / "
                  << table_size << " = "
