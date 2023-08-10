@@ -155,10 +155,24 @@ class Comparator : public Customizable, public CompareInterface {
 // Return a builtin comparator that uses lexicographic byte-wise
 // ordering.  The result remains the property of this module and
 // must not be deleted.
-extern const Comparator* BytewiseComparator();
+const Comparator* BytewiseComparator();
 
 // Return a builtin comparator that uses reverse lexicographic byte-wise
 // ordering.
-extern const Comparator* ReverseBytewiseComparator();
+const Comparator* ReverseBytewiseComparator();
+
+// Returns a builtin comparator that enables user-defined timestamps (formatted
+// as uint64_t) while ordering the user key part without UDT with a
+// BytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
+const Comparator* BytewiseComparatorWithU64Ts();
+
+// Returns a builtin comparator that enables user-defined timestamps (formatted
+// as uint64_t) while ordering the user key part without UDT with a
+// ReverseBytewiseComparator.
+// For the same user key with different timestamps, larger (newer) timestamp
+// comes first.
+const Comparator* ReverseBytewiseComparatorWithU64Ts();
 
 }  // namespace ROCKSDB_NAMESPACE
