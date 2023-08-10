@@ -4207,10 +4207,9 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   assert(ucmp);
   size_t ts_sz = ucmp->timestamp_size();
 
-  Slice start, limit;
   // Add timestamp if needed
   std::string start_with_ts, limit_with_ts;
-  std::tie(start, limit) = MaybeAddTimestampsToRange(
+  auto [start, limit] = MaybeAddTimestampsToRange(
       range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   // Convert user_key into a corresponding internal key.
   InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
@@ -4245,11 +4244,9 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   for (int i = 0; i < n; i++) {
-    Slice start, limit;
-
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    std::tie(start, limit) = MaybeAddTimestampsToRange(
+    auto [start, limit] = MaybeAddTimestampsToRange(
         range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     // Convert user_key into a corresponding internal key.
     InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
