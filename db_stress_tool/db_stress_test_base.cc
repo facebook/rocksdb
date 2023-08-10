@@ -695,6 +695,7 @@ Status StressTest::ExecuteTransaction(
     std::function<Status(Transaction&)>&& ops) {
   std::unique_ptr<Transaction> txn;
   Status s = NewTxn(write_opts, &txn);
+  std::string try_again_messages;
   if (s.ok()) {
     for (int tries = 1;; ++tries) {
       s = ops(*txn);
@@ -705,11 +706,21 @@ Status StressTest::ExecuteTransaction(
         }
       }
       // Optimistic txn might return TryAgain, in which case rollback
-      // and try again. But that shouldn't happen too many times in a row.
+      // and try again.
       if (!s.IsTryAgain() || !FLAGS_use_optimistic_txn) {
         break;
       }
-      if (tries >= 5) {
+      // Record and report historical TryAgain messages for debugging
+      try_again_messages +=
+          std::to_string(SystemClock::Default()->NowMicros() / 1000);
+      try_again_messages += "ms ";
+      try_again_messages += s.getState();
+      try_again_messages += "\n";
+      // In theory, each Rollback after TryAgain should have an independent
+      // chance of success, so too many retries could indicate something is
+      // not working properly.
+      if (tries >= 10) {
+        s = Status::TryAgain(try_again_messages);
         break;
       }
       s = txn->Rollback();
