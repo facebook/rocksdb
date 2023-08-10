@@ -2217,6 +2217,69 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    keyExist
+ * Signature: (JJJ[BII)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyExist(JNIEnv* env, jobject,
+                                           jlong jdb_handle, jlong jcf_handle,
+                                           jlong jread_opts_handle,
+                                           jbyteArray jkey, jint jkey_offset,
+                                           jint jkey_len) {
+  std::string value;
+  bool value_found = false;
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  if (jcf_handle == 0) {
+    cf_handle = db->DefaultColumnFamily();
+  } else {
+    cf_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  }
+
+  ROCKSDB_NAMESPACE::ReadOptions read_opts =
+      jread_opts_handle == 0
+          ? ROCKSDB_NAMESPACE::ReadOptions()
+          : *(reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
+                jread_opts_handle));
+
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, jkey_offset, jkey_len, key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] key;
+    return JNI_FALSE;
+  }
+
+  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+  const bool may_exist =
+      db->KeyMayExist(read_opts, cf_handle, key_slice, &value, &value_found);
+
+  if (may_exist) {
+    ROCKSDB_NAMESPACE::Status s;
+    {
+      ROCKSDB_NAMESPACE::PinnableSlice pinnable_val;
+      s = db->Get(read_opts, cf_handle, key_slice, &pinnable_val);
+    }
+    delete[] key;
+    if (s.IsNotFound()) {
+      return JNI_FALSE;
+    } else if (s.ok()) {
+      return JNI_TRUE;
+    } else {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+      return JNI_FALSE;
+    }
+  } else {
+    delete[] key;
+    return JNI_FALSE;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    keyMayExist
  * Signature: (JJJ[BII)Z
  */

@@ -2435,6 +2435,58 @@ public class RocksDB extends RocksObject {
     return results;
   }
 
+  public boolean keyExist(final byte[] key) {
+    return keyExist(key, 0, key.length);
+  }
+  public boolean keyExist(final byte[] key, final int offset, final int len) {
+    return keyExist(null, null, key, offset, len);
+  }
+  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) {
+    return keyExist(columnFamilyHandle, key, 0, key.length);
+  }
+  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final int offset, final int len) {
+    return keyExist(columnFamilyHandle, null, key, offset, len);
+  }
+
+  public boolean keyExist(final ReadOptions readOptions, final byte[] key) {
+    return keyExist(readOptions, key, 0, key.length);
+  }
+  public boolean keyExist(
+      final ReadOptions readOptions, final byte[] key, final int offset, final int len) {
+    return keyExist(null, readOptions, key, offset, len);
+  }
+
+  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final byte[] key) {
+    return keyExist(columnFamilyHandle, readOptions, key, 0, key.length);
+  }
+
+  /**
+   * Check if key exist in database.
+   * This method is not lightweight as {@code keyMayExist} but ig give 100% guarantee
+   * that key exist in database.
+   *
+   * Internally it check if key may exist and then double check with read operation
+   * thant key exist. It crosses java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @param offset the offset of the "key" array to be used, must be
+   *    non-negative and no larger than "key".length
+   * @param len the length of the "key" array to be used, must be non-negative
+   *    and no larger than "key".length
+   * @return
+   */
+  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final byte[] key, final int offset, final int len) {
+    checkBounds(offset, len, key.length);
+    return keyExist(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, offset, len);
+  }
+
   /**
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
@@ -4558,6 +4610,9 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyHandles, final ByteBuffer[] keysArray, final int[] keyOffsets,
       final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
       final Status[] statusArray);
+
+  private native boolean keyExist(final long handle, final long cfHandle, final long readOptHandle,
+      final byte[] key, final int keyOffset, final int keyLength);
 
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
