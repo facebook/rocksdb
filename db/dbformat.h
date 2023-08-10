@@ -169,17 +169,17 @@ EntryType GetEntryType(ValueType value_type);
 
 // Append the serialization of "key" to *result.
 //
-// input [internal key]: user_key | seqno + type
-// output before:
-// output:               user_key | seqno + type
+// input [internal key]: <user_key | seqno + type>
+// output before: empty
+// output:               <user_key | seqno + type>
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 
 // Append the serialization of "key" to *result, replacing the original
 // timestamp with argument ts.
 //
-// input [internal key]:   user_provided_key | original_ts | seqno + type
-// output before:
-// output after:           user_provided_key | ts          | seqno + type
+// input [internal key]:   <user_provided_key | original_ts | seqno + type>
+// output before: empty
+// output after:           <user_provided_key | ts          | seqno + type>
 void AppendInternalKeyWithDifferentTimestamp(std::string* result,
                                              const ParsedInternalKey& key,
                                              const Slice& ts);
@@ -188,42 +188,42 @@ void AppendInternalKeyWithDifferentTimestamp(std::string* result,
 // This function appends the footer to *result, assuming that *result already
 // contains the user key at the end.
 //
-// output before: user_key
-// output after:  user_key | seqno + type
+// output before: <user_key>
+// output after:  <user_key | seqno + type>
 void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                              ValueType t);
 
 // Append the key and a minimal timestamp to *result
 //
-// input [user key without ts]:   user_provided_key
-// output before:
-// output after:                  user_provided_key | min_ts
+// input [user key without ts]:   <user_provided_key>
+// output before: empty
+// output after:                  <user_provided_key | min_ts>
 void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
                                size_t ts_sz);
 
 // Append the key and a maximal timestamp to *result
 //
-// input [user key without ts]:   user_provided_key
-// output before:
-// output after:                  user_provided_key | max_ts
+// input [user key without ts]:   <user_provided_key>
+// output before: empty
+// output after:                  <user_provided_key | max_ts>
 void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                size_t ts_sz);
 
 // `key` is a user key with timestamp. Append the user key without timestamp
 // and the minimum timestamp to *result.
 //
-// input [user key]:   user_provided_key | original_ts
-// output before:
-// output after:       user_provided_key | min_ts
+// input [user key]:   <user_provided_key | original_ts>
+// output before: empty
+// output after:       <user_provided_key | min_ts>
 void AppendUserKeyWithMinTimestamp(std::string* result, const Slice& key,
                                    size_t ts_sz);
 
 // `key` is a user key with timestamp. Append the user key without timestamp
 // and the maximal timestamp to *result.
 //
-// input [user key]:   user_provided_key | original_ts
-// output before:
-// output after:       user_provided_key | max_ts
+// input [user key]:   <user_provided_key | original_ts>
+// output before: empty
+// output after:       <user_provided_key | max_ts>
 void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                    size_t ts_sz);
 
@@ -231,9 +231,9 @@ void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
 // new key in *result by padding a min timestamp of size `ts_sz` to the user key
 // and copying the remaining internal key bytes.
 //
-// input [internal key]:   user_provided_key | seqno + type
-// output before:
-// output after:           user_provided_key | min_ts | seqno + type
+// input [internal key]:   <user_provided_key | seqno + type>
+// output before: empty
+// output after:           <user_provided_key | min_ts | seqno + type>
 void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
                                     size_t ts_sz);
 
@@ -241,9 +241,9 @@ void PadInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
 // `ts_sz`. Create a new internal key in *result by stripping the timestamp from
 // the user key and copying the remaining internal key bytes.
 //
-// input [internal key]:  user_provided_key | original_ts | seqno + type
-// output before:
-// output after:          user_provided_key | seqno + type
+// input [internal key]:  <user_provided_key | original_ts | seqno + type>
+// output before: empty
+// output after:          <user_provided_key | seqno + type>
 void StripTimestampFromInternalKey(std::string* result, const Slice& key,
                                    size_t ts_sz);
 
@@ -251,9 +251,9 @@ void StripTimestampFromInternalKey(std::string* result, const Slice& key,
 // `ts_sz`. Create a new internal key in *result while replace the original
 // timestamp with min timestamp.
 //
-// input [internal key]:  user_provided_key | original_ts | seqno + type
-// output before:
-// output after:          user_provided_key | min_ts      | seqno + type
+// input [internal key]:  <user_provided_key | original_ts | seqno + type>
+// output before: empty
+// output after:          <user_provided_key | min_ts      | seqno + type>
 void ReplaceInternalKeyWithMinTimestamp(std::string* result, const Slice& key,
                                         size_t ts_sz);
 
@@ -266,15 +266,15 @@ Status ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result,
 
 // Returns the user key portion of an internal key.
 //
-// input [internal key]: user_key | seqno + type
-// output:               user_key
+// input [internal key]: <user_key | seqno + type>
+// output:               <user_key>
 inline Slice ExtractUserKey(const Slice& internal_key) {
   assert(internal_key.size() >= kNumInternalBytes);
   return Slice(internal_key.data(), internal_key.size() - kNumInternalBytes);
 }
 
-// input [internal key]: user_provided_key | ts | seqno + type
-// output              : user_provided_key
+// input [internal key]: <user_provided_key | ts | seqno + type>
+// output              : <user_provided_key>
 inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
                                              size_t ts_sz) {
   Slice ret = internal_key;
@@ -282,23 +282,23 @@ inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
   return ret;
 }
 
-// input [user key]: user_provided_key | ts
-// output:           user_provided_key
+// input [user key]: <user_provided_key | ts>
+// output:           <user_provided_key>
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   Slice ret = user_key;
   ret.remove_suffix(ts_sz);
   return ret;
 }
 
-// input [user key]: user_provided_key | ts
-// output:                               ts
+// input [user key]: <user_provided_key | ts>
+// output:                               <ts>
 inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
 }
 
-// input [internal key]: user_provided_key | ts | seqno + type
-// output:                                   ts
+// input [internal key]: <user_provided_key | ts | seqno + type>
+// output:                                   <ts>
 inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
   const size_t key_size = internal_key.size();
   assert(key_size >= kNumInternalBytes + ts_sz);
@@ -306,16 +306,16 @@ inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
                ts_sz);
 }
 
-// input [internal key]: user_provided_key | ts | seqno + type
-// output:                                        seqno + type
+// input [internal key]: <user_provided_key | ts | seqno + type>
+// output:                                        <seqno + type>
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
   assert(internal_key.size() >= kNumInternalBytes);
   const size_t n = internal_key.size();
   return DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
 }
 
-// input [internal key]: user_provided_key | ts | seqno + type
-// output:                                                type
+// input [internal key]: <user_provided_key | ts | seqno + type>
+// output:                                                <type>
 inline ValueType ExtractValueType(const Slice& internal_key) {
   uint64_t num = ExtractInternalKeyFooter(internal_key);
   unsigned char c = num & 0xff;
