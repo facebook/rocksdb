@@ -671,7 +671,8 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
       // If we are reading a file with a global sequence number we should
       // expect that all encoded sequence numbers are zeros and any value
       // type is kTypeValue, kTypeMerge, kTypeDeletion,
-      // kTypeDeletionWithTimestamp, or kTypeRangeDeletion.
+      // kTypeDeletionWithTimestamp, kTypeRangeDeletion, or
+      // kTypeWideColumnEntity.
       uint64_t packed = ExtractInternalKeyFooter(raw_key_.GetKey());
       SequenceNumber seqno;
       ValueType value_type;
