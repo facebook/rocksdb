@@ -582,7 +582,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   for (int k = 1; k <= 30; k++) {
     ASSERT_OK(Put(Key(k), Key(k)));
     if (k % 10 == 0) {
-      Flush();
+      ASSERT_OK(Flush());
     }
   }
 

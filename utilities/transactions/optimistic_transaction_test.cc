@@ -704,6 +704,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   s = txn_db->Get(read_options, "AAA", &value);
   ASSERT_TRUE(s.IsNotFound());
   s = txn_db->Get(read_options, handles[2], "AAAZZZ", &value);
+  ASSERT_OK(s);
   ASSERT_EQ(value, "barbar");
 
   Slice key_slices[3] = {Slice("AAA"), Slice("ZZ"), Slice("Z")};
@@ -830,7 +831,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options);
     for (const auto& key : keys) {
-      txn->Put(handles[0], key, "blah");
+      ASSERT_OK(txn->Put(handles[0], key, "blah"));
     }
     ASSERT_OK(txn->Commit());
     // Sufficiently large hash coverage of the space
@@ -843,7 +844,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options, txn);
     for (const auto& key : keys) {
-      txn->Put(handles[0], key, "moo");
+      ASSERT_OK(txn->Put(handles[0], key, "moo"));
     }
     ASSERT_OK(txn->Commit());
     ASSERT_EQ(cur_seen.rolling_hash, base_seen.rolling_hash);
@@ -854,7 +855,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options, txn);
     for (const auto& key : keys) {
-      txn->Put(handles[1], key, "blah");
+      ASSERT_OK(txn->Put(handles[1], key, "blah"));
     }
     ASSERT_OK(txn->Commit());
     // Different access pattern (different hash seed)
@@ -871,7 +872,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options, txn);
     for (const auto& key : keys) {
-      txn->Put(handles[2], key, "blah");
+      ASSERT_OK(txn->Put(handles[2], key, "blah"));
     }
     ASSERT_OK(txn->Commit());
     // Different access pattern (different hash seed)
@@ -888,7 +889,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     delete txn;
     txn = shared_txn_db->BeginTransaction(write_options, txn_options);
     for (const auto& key : keys) {
-      txn->Put(key, "blah");
+      ASSERT_OK(txn->Put(key, "blah"));
     }
     ASSERT_OK(txn->Commit());
     // Different access pattern (different hash seed)
@@ -905,7 +906,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     delete txn;
     txn = nonshared_txn_db->BeginTransaction(write_options, txn_options);
     for (const auto& key : keys) {
-      txn->Put(key, "blah");
+      ASSERT_OK(txn->Put(key, "blah"));
     }
     ASSERT_OK(txn->Commit());
     // Different access pattern (different hash seed)
@@ -1422,7 +1423,7 @@ TEST_P(OptimisticTransactionTest, UndoGetForUpdateTest) {
   txn1->UndoGetForUpdate("A");
 
   Transaction* txn2 = txn_db->BeginTransaction(write_options);
-  txn2->Put("A", "x");
+  ASSERT_OK(txn2->Put("A", "x"));
   ASSERT_OK(txn2->Commit());
   delete txn2;
 

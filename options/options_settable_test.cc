@@ -378,6 +378,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
+// status check adds CXX flag -fno-elide-constructors which fails this test.
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -557,7 +559,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_cache=1M;"
       "memtable_protection_bytes_per_key=2;"
       "persist_user_defined_timestamps=true;"
-      "block_protection_bytes_per_key=1;",
+      "block_protection_bytes_per_key=1;"
+      "memtable_max_range_deletions=999999;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
@@ -640,6 +643,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_ASSERT_STATUS_CHECKED
 #endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN

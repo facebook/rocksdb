@@ -262,7 +262,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -1111,7 +1111,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 
   // Verify counters when reading from table files
-  db->Flush(FlushOptions());
+  ASSERT_OK(db->Flush(FlushOptions()));
 
   verify();
 }

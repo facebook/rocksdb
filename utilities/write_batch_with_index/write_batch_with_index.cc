@@ -531,7 +531,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   if (!callback) {
-    s = db->Get(read_options, column_family, key, pinnable_val);
+    s = static_cast_with_check<DBImpl>(db->GetRootDB())
+            ->GetImpl(read_options, column_family, key, pinnable_val);
   } else {
     DBImpl::GetImplOptions get_impl_options;
     get_impl_options.column_family = column_family;

@@ -746,6 +746,11 @@ size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
   return WriteBatchInternal::kHeader;
 }
 
+void WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
+    WriteBatch* wb, size_t default_cf_ts_sz) {
+  wb->default_cf_ts_sz_ = default_cf_ts_sz;
+}
+
 std::tuple<Status, uint32_t, size_t>
 WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
     WriteBatch* b, ColumnFamilyHandle* column_family) {

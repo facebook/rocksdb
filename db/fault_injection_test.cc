@@ -443,7 +443,7 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   options_.level0_stop_writes_trigger = 1 << 10;
   options_.level0_slowdown_writes_trigger = 1 << 10;
   options_.max_background_compactions = 1;
-  OpenDB();
+  ASSERT_OK(OpenDB());
 
   if (!sequential_order_) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({

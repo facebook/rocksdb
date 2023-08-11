@@ -222,7 +222,7 @@ TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
   sleeping_task_low.WaitUntilDone();
   ASSERT_EQ(0, num_flushes);
 
-  TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options));
   ASSERT_OK(Put(0, "key3", DummyString(8192)));
   ASSERT_OK(Flush(0));
   ASSERT_EQ(1, num_flushes);

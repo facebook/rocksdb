@@ -40,7 +40,7 @@ class DeleteSchedulerTest : public testing::Test {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     for (const auto& dummy_files_dir : dummy_files_dirs_) {
-      DestroyDir(env_, dummy_files_dir);
+      EXPECT_OK(DestroyDir(env_, dummy_files_dir));
     }
   }
 
@@ -82,11 +82,11 @@ class DeleteSchedulerTest : public testing::Test {
     std::string file_path =
         dummy_files_dirs_[dummy_files_dirs_idx] + "/" + file_name;
     std::unique_ptr<WritableFile> f;
-    env_->NewWritableFile(file_path, &f, EnvOptions());
+    EXPECT_OK(env_->NewWritableFile(file_path, &f, EnvOptions()));
     std::string data(size, 'A');
     EXPECT_OK(f->Append(data));
     EXPECT_OK(f->Close());
-    sst_file_mgr_->OnAddFile(file_path);
+    EXPECT_OK(sst_file_mgr_->OnAddFile(file_path));
     return file_path;
   }
 

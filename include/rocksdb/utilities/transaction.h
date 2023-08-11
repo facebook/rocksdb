@@ -335,8 +335,22 @@ class Transaction {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool /*sorted_input*/ = false) {
+    if (options.io_activity != Env::IOActivity::kUnknown &&
+        options.io_activity != Env::IOActivity::kMultiGet) {
+      Status s = Status::InvalidArgument(
+          "Can only call MultiGet with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+      for (size_t i = 0; i < num_keys; ++i) {
+        if (statuses[i].ok()) {
+          statuses[i] = s;
+        }
+      }
+      return;
+    }
+
     for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+      statuses[i] = GetImpl(options, column_family, keys[i], &values[i]);
     }
   }
 
@@ -671,6 +685,21 @@ class Transaction {
   virtual void SetId(uint64_t id) {
     assert(id_ == 0);
     id_ = id;
+  }
+
+  virtual Status GetImpl(const ReadOptions& /* options */,
+                         ColumnFamilyHandle* /* column_family */,
+                         const Slice& /* key */, std::string* /* value */) {
+    return Status::NotSupported("Not implemented");
+  }
+
+  virtual Status GetImpl(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = GetImpl(options, column_family, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
   }
 
   virtual uint64_t GetLastLogNumber() const { return log_number_; }

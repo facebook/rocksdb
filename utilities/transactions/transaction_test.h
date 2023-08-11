@@ -109,7 +109,7 @@ class TransactionTestBase : public ::testing::Test {
     delete db;
     db = nullptr;
     fault_fs->AssertNoOpenFile();
-    fault_fs->DropUnsyncedFileData();
+    EXPECT_OK(fault_fs->DropUnsyncedFileData());
     fault_fs->ResetState();
     Status s;
     if (use_stackable_db_ == false) {
@@ -130,7 +130,7 @@ class TransactionTestBase : public ::testing::Test {
     delete db;
     db = nullptr;
     fault_fs->AssertNoOpenFile();
-    fault_fs->DropUnsyncedFileData();
+    EXPECT_OK(fault_fs->DropUnsyncedFileData());
     fault_fs->ResetState();
     Status s;
     if (use_stackable_db_ == false) {
@@ -146,7 +146,7 @@ class TransactionTestBase : public ::testing::Test {
   Status ReOpen() {
     delete db;
     db = nullptr;
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     Status s;
     if (use_stackable_db_ == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);

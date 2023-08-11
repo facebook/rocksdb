@@ -3475,6 +3475,42 @@ TEST_F(DBRangeDelTest, NonBottommostCompactionDropRangetombstone) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, MemtableMaxRangeDeletions) {
+  // Tests option `memtable_max_range_deletions`.
+  Options options = CurrentOptions();
+  options.level_compaction_dynamic_file_size = false;
+  options.memtable_max_range_deletions = 50;
+  options.level0_file_num_compaction_trigger = 5;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 50; ++i) {
+    // Intentionally delete overlapping ranges to see if the option
+    // checks number of range tombstone fragments instead.
+    ASSERT_OK(Put(Key(i), "val1"));
+    ASSERT_OK(Put(Key(i + 1), "val2"));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(i), Key(i + 2)));
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  }
+  // One more write to trigger flush.
+  ASSERT_OK(Put(Key(50), "val"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // This should take effect for the next new memtable.
+  ASSERT_OK(db_->SetOptions({{"memtable_max_range_deletions", "1"}}));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(50), Key(100)));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  // One more write to trigger flush.
+  ASSERT_OK(Put(Key(50), "new val"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(3, NumTableFilesAtLevel(0));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

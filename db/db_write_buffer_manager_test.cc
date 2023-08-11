@@ -42,10 +42,10 @@ TEST_P(DBWriteBufferManagerTest, SharedBufferAcrossCFs1) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3".
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -84,10 +84,10 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
@@ -471,10 +471,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
 
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
-  Flush(3);
+  ASSERT_OK(Flush(3));
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
-  Flush(0);
+  ASSERT_OK(Flush(0));
 
   // Write to "Default", "cf2" and "cf3". No flush will be triggered.
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));

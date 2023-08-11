@@ -299,7 +299,8 @@ class CacheBench {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+    } else if (FLAGS_cache_type == "hyper_clock_cache" ||
+               FLAGS_cache_type == "fixed_hyper_clock_cache") {
       HyperClockCacheOptions opts(FLAGS_cache_size, FLAGS_value_bytes,
                                   FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
@@ -435,6 +436,10 @@ class CacheBench {
     printf("Thread ops/sec = %u\n", ops_per_sec);
 
     printf("Lookup hit ratio: %g\n", shared.GetLookupHitRatio());
+
+    size_t occ = cache_->GetOccupancyCount();
+    size_t slot = cache_->GetTableAddressCount();
+    printf("Final load factor: %g (%zu / %zu)\n", 1.0 * occ / slot, occ, slot);
 
     if (FLAGS_histograms) {
       printf("\nOperation latency (ns):\n");
@@ -676,6 +681,7 @@ class CacheBench {
 #endif
     printf("----------------------------\n");
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
+    printf("Cache impl name     : %s\n", cache_->Name());
     printf("DMutex impl name    : %s\n", DMutex::kName());
     printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
