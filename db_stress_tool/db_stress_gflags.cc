@@ -845,6 +845,9 @@ DEFINE_bool(
     "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
     "this flag will have the default value true.");
 
+DEFINE_bool(compression_checksum, false,
+            "Turn on zstd's checksum feature for detecting corruption.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
