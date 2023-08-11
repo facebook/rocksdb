@@ -201,6 +201,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
+      reject_new_background_jobs_(false),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -410,22 +411,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      s = AtomicFlushMemTables(flush_opts, context.flush_reason);
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        InstrumentedMutexUnlock u(&mutex_);
-        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
+    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -512,36 +498,14 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
-
-  for (uint8_t task_type = 0;
-       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
-    Status s = periodic_task_scheduler_.Unregister(
-        static_cast<PeriodicTaskType>(task_type));
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Failed to unregister periodic task %d, status: %s",
-                     task_type, s.ToString().c_str());
-    }
-  }
-
+  CancelPeriodicTaskScheduler();
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      Status s = AtomicFlushMemTables(FlushOptions(), FlushReason::kShutDown);
-      s.PermitUncheckedError();  //**TODO: What to do on error?
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          InstrumentedMutexUnlock u(&mutex_);
-          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-          s.PermitUncheckedError();  //**TODO: What to do on error?
-        }
-      }
-    }
+    Status s =
+        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
   shutting_down_.store(true, std::memory_order_release);
@@ -887,6 +851,21 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
         seqno_time_cadence);
   }
 
+  return s;
+}
+
+Status DBImpl::CancelPeriodicTaskScheduler() {
+  Status s = Status::OK();
+  for (uint8_t task_type = 0;
+       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    s = periodic_task_scheduler_.Unregister(
+        static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
+  }
   return s;
 }
 

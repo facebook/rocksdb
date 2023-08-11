@@ -155,15 +155,17 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
 
 class DBCompactionWaitForCompactTest
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   DBCompactionWaitForCompactTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
+    close_db_ = std::get<2>(GetParam());
   }
   bool abort_on_pause_;
   bool flush_;
+  bool close_db_;
   Options options_;
   WaitForCompactOptions wait_for_compact_options_;
 
@@ -179,6 +181,7 @@ class DBCompactionWaitForCompactTest
     wait_for_compact_options_ = WaitForCompactOptions();
     wait_for_compact_options_.abort_on_pause = abort_on_pause_;
     wait_for_compact_options_.flush = flush_;
+    wait_for_compact_options_.close_db = close_db_;
 
     DestroyAndReopen(options_);
 
@@ -3333,10 +3336,8 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
                         DBCompactionWaitForCompactTest,
-                        ::testing::Values(std::make_tuple(false, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(true, true)));
+                        ::testing::Combine(testing::Bool(), testing::Bool(),
+                                           testing::Bool()));
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3476,19 +3477,19 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
   ASSERT_EQ("2", FilesPerLevel());
 
   ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
-  if (flush_) {
-    ASSERT_EQ("1,2", FilesPerLevel());
-    ASSERT_EQ(1, compaction_finished);
-    ASSERT_EQ(1, flush_finished);
-  } else {
-    ASSERT_EQ(0, compaction_finished);
-    ASSERT_EQ(0, flush_finished);
-    ASSERT_EQ("2", FilesPerLevel());
+  ASSERT_EQ(flush_, compaction_finished);
+  ASSERT_EQ(flush_, flush_finished);
+
+  if (!close_db_) {
+    std::string expected_files_per_level = flush_ ? "1,2" : "2";
+    ASSERT_EQ(expected_files_per_level, FilesPerLevel());
   }
 
   compaction_finished = 0;
   flush_finished = 0;
-  Close();
+  if (!close_db_) {
+    Close();
+  }
   Reopen(options_);
 
   ASSERT_EQ(0, flush_finished);
@@ -3503,7 +3504,80 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactWithOptionToFlush) {
     ASSERT_EQ(1, compaction_finished);
   }
 
-  ASSERT_EQ("1,2", FilesPerLevel());
+  if (!close_db_) {
+    ASSERT_EQ("1,2", FilesPerLevel());
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBCompactionWaitForCompactTest,
+       WaitForCompactWithOptionToFlushAndCloseDB) {
+  // After creating enough L0 files that one more file will trigger the
+  // compaction, write some data in memtable (WAL disabled). Calls
+  // WaitForCompact. If flush option is true, WaitForCompact will flush the
+  // memtable to a new L0 file which will trigger compaction. We expect the
+  // no-op second flush upon closing because WAL is disabled
+  // (has_unpersisted_data_ true) Check to make sure there's no extra L0 file
+  // created from WAL. Re-opening DB won't trigger any flush or compaction
+
+  int compaction_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Finish",
+      [&](void*) { compaction_finished++; });
+
+  int flush_finished = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::End", [&](void*) { flush_finished++; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_FALSE(options_.avoid_flush_during_shutdown);
+
+  // write to memtable, but no flush is needed at this point.
+  WriteOptions write_without_wal;
+  write_without_wal.disableWAL = true;
+  ASSERT_OK(Put(Key(0), "some random string", write_without_wal));
+  ASSERT_EQ(0, compaction_finished);
+  ASSERT_EQ(0, flush_finished);
+  ASSERT_EQ("2", FilesPerLevel());
+
+  ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+
+  int expected_flush_count = flush_ || close_db_;
+  ASSERT_EQ(expected_flush_count, flush_finished);
+
+  if (!close_db_) {
+    // During CancelAllBackgroundWork(), a flush can be initiated due to
+    // unpersisted data (data that's still in the memtable when WAL is off).
+    // This results in an additional L0 file which can trigger a compaction.
+    // However, the compaction may not complete if the background thread's
+    // execution is slow enough for the front thread to set the 'shutting_down_'
+    // flag to true before the compaction job even starts.
+    ASSERT_EQ(expected_flush_count, compaction_finished);
+    Close();
+  }
+
+  // Because we had has_unpersisted_data_ = true, flush must have been triggered
+  // upon closing regardless of WaitForCompact. Reopen should have no flush
+  // debt.
+  flush_finished = 0;
+  Reopen(options_);
+  ASSERT_EQ(0, flush_finished);
+
+  // However, if db was closed directly by calling Close(), instead
+  // of WaitForCompact with close_db option or we are in the scenario commented
+  // above, it's possible that the last compaction triggered by flushing
+  // unpersisted data was cancelled. Call WaitForCompact() here again to finish
+  // the compaction
+  if (compaction_finished == 0) {
+    ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+  }
+  ASSERT_EQ(1, compaction_finished);
+  if (!close_db_) {
+    ASSERT_EQ("1,2", FilesPerLevel());
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
