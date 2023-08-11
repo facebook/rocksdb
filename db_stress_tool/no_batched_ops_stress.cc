@@ -1858,9 +1858,8 @@ class NonBatchedOpsStressTest : public StressTest {
         GetIntVal(iter->key().ToString(), &curr);
         if (static_cast<int64_t>(curr) < mid) {
           thread->shared->SetVerificationFailure();
-          fprintf(
-              stderr,
-              "TestIterateAgainstExpected found unexpectedly small key\n");
+          fprintf(stderr,
+                  "TestIterateAgainstExpected found unexpectedly small key\n");
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
           fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
@@ -1882,9 +1881,8 @@ class NonBatchedOpsStressTest : public StressTest {
         GetIntVal(iter->key().ToString(), &curr);
         if (mid < static_cast<int64_t>(curr)) {
           thread->shared->SetVerificationFailure();
-          fprintf(
-              stderr,
-              "TestIterateAgainstExpected found unexpectedly large key\n");
+          fprintf(stderr,
+                  "TestIterateAgainstExpected found unexpectedly large key\n");
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
           fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
