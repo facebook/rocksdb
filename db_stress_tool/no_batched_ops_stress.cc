@@ -1589,8 +1589,6 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const int64_t ub = lb + num_iter;
 
-    // Lock the whole range over which we might iterate to ensure it doesn't
-    // change under us.
     const int rand_column_family = rand_column_families[0];
 
     // Testing parallel read and write to the same key with user timestamp
