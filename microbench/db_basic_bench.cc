@@ -547,7 +547,8 @@ static void DBGet(benchmark::State& state) {
   bool enable_filter = state.range(5);
   bool mmap = state.range(6);
   auto compression_type = static_cast<CompressionType>(state.range(7));
-  bool no_blockcache = state.range(8);
+  bool compression_checksum = static_cast<bool>(state.range(8));
+  bool no_blockcache = state.range(9);
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
@@ -571,6 +572,7 @@ static void DBGet(benchmark::State& state) {
     table_options.block_restart_interval = 1;
   }
   options.compression = compression_type;
+  options.compression_opts.checksum = compression_checksum;
   if (no_blockcache) {
     table_options.no_block_cache = true;
   } else {
@@ -657,10 +659,13 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
               for (bool mmap : {false, true}) {
                 for (int compression_type :
                      {kNoCompression /* 0x0 */, kZSTD /* 0x7 */}) {
-                  for (bool no_blockcache : {false, true}) {
-                    b->Args({comp_style, max_data, per_key_size,
-                             enable_statistics, negative_query, enable_filter,
-                             mmap, compression_type, no_blockcache});
+                  for (bool compression_checksum : {false, true}) {
+                    for (bool no_blockcache : {false, true}) {
+                      b->Args({comp_style, max_data, per_key_size,
+                               enable_statistics, negative_query, enable_filter,
+                               mmap, compression_type, compression_checksum,
+                               no_blockcache});
+                    }
                   }
                 }
               }
@@ -672,7 +677,7 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics",
                "negative_query", "enable_filter", "mmap", "compression_type",
-               "no_blockcache"});
+               "compression_checksum", "no_blockcache"});
 }
 
 static const uint64_t DBGetNum = 10000l;
