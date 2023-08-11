@@ -100,6 +100,8 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 // A range of keys
 struct Range {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   Slice start;
   Slice limit;
 
@@ -108,6 +110,8 @@ struct Range {
 };
 
 struct RangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   const Slice* start;
   const Slice* limit;
 
@@ -1352,6 +1356,8 @@ class DB {
   // the files. In this case, client could set options.change_level to true, to
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
+  // In case of user_defined timestamp, if enabled, `start` and `end` should
+  // point to key without timestamp part.
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end) = 0;

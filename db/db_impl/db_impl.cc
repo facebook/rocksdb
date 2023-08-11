@@ -149,6 +149,24 @@ void DumpSupportInfo(Logger* logger) {
 
   ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
+
+// `start` is the inclusive lower user key bound without user-defined timestamp
+// `limit` is the exclusive upper user key bound without user-defined timestamp
+std::tuple<Slice, Slice> MaybeAddTimestampsToRange(const Slice& start,
+                                                   const Slice& limit,
+                                                   size_t ts_sz,
+                                                   std::string* start_with_ts,
+                                                   std::string* limit_with_ts) {
+  if (ts_sz == 0) {
+    return std::make_tuple(start, limit);
+  }
+  // Maximum timestamp means including all key with any timestamp
+  AppendKeyWithMaxTimestamp(start_with_ts, start, ts_sz);
+  // Append a maximum timestamp as the range limit is exclusive:
+  // [start, limit)
+  AppendKeyWithMaxTimestamp(limit_with_ts, limit, ts_sz);
+  return std::make_tuple(Slice(*start_with_ts), Slice(*limit_with_ts));
+}
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
@@ -4275,9 +4293,17 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
+  // Add timestamp if needed
+  std::string start_with_ts, limit_with_ts;
+  auto [start, limit] = MaybeAddTimestampsToRange(
+      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   // Convert user_key into a corresponding internal key.
-  InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
-  InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
   MemTable::MemTableStats memStats =
       sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
   MemTable::MemTableStats immStats =
@@ -4308,20 +4334,10 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   for (int i = 0; i < n; i++) {
-    Slice start = range[i].start;
-    Slice limit = range[i].limit;
-
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    if (ts_sz > 0) {
-      // Maximum timestamp means including all key with any timestamp
-      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
-      // Append a maximum timestamp as the range limit is exclusive:
-      // [start, limit)
-      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
-      start = start_with_ts;
-      limit = limit_with_ts;
-    }
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     // Convert user_key into a corresponding internal key.
     InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
