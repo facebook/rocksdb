@@ -7677,6 +7677,7 @@ TEST_F(DBTest2, ZSTDChecksum) {
   options.create_if_missing = true;
   options.compression = kZSTD;
   options.compression_opts.max_compressed_bytes_per_kb = 1024;
+  options.compression_opts.checksum = true;
   DestroyAndReopen(options);
   Random rnd(33);
   ASSERT_OK(Put(Key(0), rnd.RandomString(4 << 10)));

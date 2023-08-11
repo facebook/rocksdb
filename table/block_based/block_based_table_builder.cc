@@ -139,7 +139,7 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionOptions options;
-      CompressionContext context(c, options.level);
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -153,7 +153,7 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
       CompressionOptions options;
-      CompressionContext context(c, options.level);
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -527,7 +527,7 @@ struct BlockBasedTableBuilder::Rep {
 
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(
-          new CompressionContext(compression_type, compression_opts.level));
+          new CompressionContext(compression_type, compression_opts));
     }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {

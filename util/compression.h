@@ -378,7 +378,7 @@ class CompressionContext {
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
   }
 
-  void CreateNativeContext(CompressionType type, int level) {
+  void CreateNativeContext(CompressionType type, int level, bool checksum) {
     if (type == kZSTD || type == kZSTDNotFinalCompression) {
       zstd_ctx_ = CreateZSTDContext();
 #ifdef ZSTD_ADVANCED
@@ -394,15 +394,17 @@ class CompressionContext {
         ZSTD_freeCCtx(zstd_ctx_);
         zstd_ctx_ = CreateZSTDContext();
       }
-      // Always enable ZSTD checksum
-      err = ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_checksumFlag, 1);
-      if (ZSTD_isError(err)) {
-        assert(false);
-        ZSTD_freeCCtx(zstd_ctx_);
-        zstd_ctx_ = CreateZSTDContext();
+      if (checksum) {
+        err = ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_checksumFlag, 1);
+        if (ZSTD_isError(err)) {
+          assert(false);
+          ZSTD_freeCCtx(zstd_ctx_);
+          zstd_ctx_ = CreateZSTDContext();
+        }
       }
 #else
       (void)level;
+      (void)checksum;
 #endif
     }
   }
@@ -421,12 +423,14 @@ class CompressionContext {
 
 #else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  private:
-  void CreateNativeContext(CompressionType /* type */, int /* level */) {}
+  void CreateNativeContext(CompressionType /* type */, int /* level */,
+                           bool /* checksum */) {}
   void DestroyNativeContext() {}
 #endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  public:
-  explicit CompressionContext(CompressionType type, int level) {
-    CreateNativeContext(type, level);
+  explicit CompressionContext(CompressionType type,
+                              const CompressionOptions& options) {
+    CreateNativeContext(type, options.level, options.checksum);
   }
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;

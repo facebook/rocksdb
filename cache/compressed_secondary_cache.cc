@@ -144,7 +144,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
     PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, size);
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type,
-                                           compression_opts.level);
+                                           compression_opts);
     uint64_t sample_for_compression{0};
     CompressionInfo compression_info(
         compression_opts, compression_context, CompressionDict::GetEmptyDict(),
