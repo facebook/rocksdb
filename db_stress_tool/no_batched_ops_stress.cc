@@ -1856,7 +1856,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       } else if (iter->Valid()) {
         GetIntVal(iter->key().ToString(), &curr);
-        if (curr < mid) {
+        if (static_cast<int64_t>(curr) < mid) {
           thread->shared->SetVerificationFailure();
           fprintf(
               stderr,
@@ -1880,7 +1880,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       } else if (iter->Valid()) {
         GetIntVal(iter->key().ToString(), &curr);
-        if (mid < curr) {
+        if (mid < static_cast<int64_t>(curr)) {
           thread->shared->SetVerificationFailure();
           fprintf(
               stderr,
