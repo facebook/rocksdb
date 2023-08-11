@@ -674,13 +674,13 @@ else
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
-    # For portability compile for macOS 10.13 (2017) or newer
-    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.13"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.13"
+    # For portability compile for macOS 10.14 or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.14"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.14"
     # -mmacosx-version-min must come first here.
-    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.13 $PLATFORM_SHARED_LDFLAGS"
-    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13"
-    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.13"
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.14 $PLATFORM_SHARED_LDFLAGS"
+    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.14"
+    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.14"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CCFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CXXFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
