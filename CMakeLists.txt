@@ -52,8 +52,8 @@ function(do_fetch_photon)
     set(ENABLE_URING ON CACHE INTERNAL "Enable iouring")
     FetchContent_Declare(
             photon
-            GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-            GIT_TAG v0.6.3
+            GIT_REPOSITORY https://github.com/beef9999/PhotonLibOS.git
+            GIT_TAG backport-0.4
     )
     FetchContent_MakeAvailable(photon)
 endfunction()
