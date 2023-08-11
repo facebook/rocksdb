@@ -2850,7 +2850,7 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
 
 void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
-  if (reject_new_background_jobs_.load(std::memory_order_acquire)) {
+  if (reject_new_background_jobs_) {
     return;
   }
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
@@ -2882,7 +2882,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
 
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
-  if (reject_new_background_jobs_.load(std::memory_order_acquire)) {
+  if (reject_new_background_jobs_) {
     return;
   }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
@@ -2894,7 +2894,7 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
 void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                                   FileType type, uint64_t number, int job_id) {
   mutex_.AssertHeld();
-  if (reject_new_background_jobs_.load(std::memory_order_acquire)) {
+  if (reject_new_background_jobs_) {
     return;
   }
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
@@ -4127,12 +4127,12 @@ Status DBImpl::WaitForCompact(
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
     } else if (wait_for_compact_options.close_db) {
-      reject_new_background_jobs_.store(true, std::memory_order_release);
+      reject_new_background_jobs_ = true;
       mutex_.Unlock();
       Status s = Close();
       mutex_.Lock();
       if (!s.ok()) {
-        reject_new_background_jobs_.store(false, std::memory_order_release);
+        reject_new_background_jobs_ = false;
       }
       return s;
     } else {
