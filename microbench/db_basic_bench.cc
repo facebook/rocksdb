@@ -14,6 +14,7 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 
@@ -591,14 +592,15 @@ static void DBGet(benchmark::State& state) {
     // number.
     auto wo = WriteOptions();
     wo.disableWAL = true;
+    std::string val;
     for (uint64_t i = 0; i < key_num; i++) {
-      Status s = db->Put(wo, kg_seq.Next(),
-                         rnd.RandomString(static_cast<int>(per_key_size)));
+      test::CompressibleString(&rnd, 0.5, static_cast<int>(per_key_size), &val);
+      Status s = db->Put(wo, kg_seq.Next(), val);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
-    // try no block-cache in db options?
+
     // Compact whole DB into one level, so each iteration will consider the same
     // number of files (one).
     Status s = db->CompactRange(CompactRangeOptions(), nullptr /* begin */,
