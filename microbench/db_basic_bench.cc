@@ -649,7 +649,7 @@ static void DBGet(benchmark::State& state) {
 static void DBGetArguments(benchmark::internal::Benchmark* b) {
   for (int comp_style : {kCompactionStyleLevel, kCompactionStyleUniversal,
                          kCompactionStyleFIFO}) {
-    for (int64_t max_data : {128l << 20, 512l << 20}) {
+    for (int64_t max_data : {1l << 20, 128l << 20, 512l << 20}) {
       for (int64_t per_key_size : {256, 1024}) {
         for (bool enable_statistics : {false, true}) {
           for (bool negative_query : {false, true}) {
