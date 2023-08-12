@@ -498,13 +498,14 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
-  CancelPeriodicTaskScheduler();
+  Status s = CancelPeriodicTaskScheduler();
+  s.PermitUncheckedError();
+
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    Status s =
-        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
     s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
