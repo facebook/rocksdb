@@ -97,6 +97,9 @@ static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
+DEFINE_bool(use_jemalloc_no_dump_allocator, false,
+            "Whether to use JemallocNoDumpAllocator");
+
 // ## BEGIN stress_cache_key sub-tool options ##
 // See class StressCacheKey below.
 DEFINE_bool(stress_cache_key, false,
@@ -239,8 +242,8 @@ struct KeyGen {
   }
 };
 
-Cache::ObjectPtr createValue(Random64& rnd) {
-  char* rv = new char[FLAGS_value_bytes];
+Cache::ObjectPtr createValue(Random64& rnd, MemoryAllocator* alloc) {
+  char* rv = AllocateBlock(FLAGS_value_bytes, alloc).release();
   // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
@@ -266,8 +269,8 @@ Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
   return Status::OK();
 };
 
-void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
-  delete[] static_cast<char*>(value);
+void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* alloc) {
+  CustomDeleter{alloc}(static_cast<char*>(value));
 }
 
 Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
@@ -302,6 +305,10 @@ class CacheBench {
       exit(1);
     }
 
+    std::shared_ptr<MemoryAllocator> allocator;
+    if (FLAGS_use_jemalloc_no_dump_allocator) {
+      Status s = NewJemallocNodumpAllocator({}, &allocator);
+    }
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
@@ -309,6 +316,7 @@ class CacheBench {
       HyperClockCacheOptions opts(
           FLAGS_cache_size, /*estimated_entry_charge=*/0, FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      opts.memory_allocator = allocator;
       if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
           FLAGS_cache_type == "hyper_clock_cache") {
         opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0
@@ -328,6 +336,7 @@ class CacheBench {
                            false /* strict_capacity_limit */,
                            0.5 /* high_pri_pool_ratio */);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      opts.memory_allocator = allocator;
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -373,7 +382,8 @@ class CacheBench {
       keys_since_last_not_found = 0;
 
       Status s =
-          cache_->Insert(key, createValue(rnd), &helper1, FLAGS_value_bytes);
+          cache_->Insert(key, createValue(rnd, cache_->memory_allocator()),
+                         &helper1, FLAGS_value_bytes);
       assert(s.ok());
 
       handle = cache_->Lookup(key);
@@ -610,6 +620,7 @@ class CacheBench {
     const auto clock = SystemClock::Default().get();
     uint64_t start_time = clock->NowMicros();
     StopWatchNano timer(clock);
+    auto* alloc = cache_->memory_allocator();
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       Slice key = gen.GetRand(thread->rnd, max_key_, FLAGS_skew);
@@ -637,8 +648,8 @@ class CacheBench {
         } else {
           ++lookup_misses;
           // do insert
-          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
-                                    FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(key, createValue(thread->rnd, alloc),
+                                    &helper2, FLAGS_value_bytes, &handle);
           assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
@@ -647,8 +658,8 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
-                                  FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(key, createValue(thread->rnd, alloc),
+                                  &helper3, FLAGS_value_bytes, &handle);
         assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         if (handle) {

@@ -44,4 +44,13 @@ inline CacheAllocationPtr AllocateAndCopyBlock(const Slice& data,
   return cap;
 }
 
+template <class T, class... Params>
+T* AllocatorNew(MemoryAllocator* allocator, Params&&... params) {
+  if (allocator) {
+    auto mem = allocator->Allocate(sizeof(T));
+    return new (mem) T(std::forward<Params>(params)...);
+  }
+  return new T(std::forward<Params>(params)...);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

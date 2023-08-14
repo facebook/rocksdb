@@ -163,7 +163,7 @@ Status ReadAndParseBlockFromFile(
     s = block_fetcher.ReadBlockContents();
   }
   if (s.ok()) {
-    create_context.Create(result, std::move(contents));
+    create_context.Create(result, std::move(contents), memory_allocator);
   }
   return s;
 }
@@ -1361,9 +1361,11 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
       return s;
     }
     rep_->create_context.Create(&block_holder,
-                                std::move(uncompressed_block_contents));
+                                std::move(uncompressed_block_contents),
+                                memory_allocator);
   } else {
-    rep_->create_context.Create(&block_holder, std::move(block_contents));
+    rep_->create_context.Create(&block_holder, std::move(block_contents),
+                                memory_allocator);
   }
 
   // insert into uncompressed block cache

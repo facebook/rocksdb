@@ -8,52 +8,56 @@
 namespace ROCKSDB_NAMESPACE {
 
 void BlockCreateContext::Create(std::unique_ptr<Block_kData>* parsed_out,
-                                BlockContents&& block) {
-  parsed_out->reset(new Block_kData(
-      std::move(block), table_options->read_amp_bytes_per_bit, statistics));
+                                BlockContents&& block, MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<Block_kData>(
+      alloc, std::move(block), table_options->read_amp_bytes_per_bit,
+      statistics));
   parsed_out->get()->InitializeDataBlockProtectionInfo(protection_bytes_per_key,
                                                        raw_ucmp);
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
-                                BlockContents&& block) {
-  parsed_out->reset(new Block_kIndex(std::move(block),
-                                     /*read_amp_bytes_per_bit*/ 0, statistics));
+                                BlockContents&& block, MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<Block_kIndex>(alloc, std::move(block),
+                                               /*read_amp_bytes_per_bit*/ 0,
+                                               statistics));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
-    BlockContents&& block) {
-  parsed_out->reset(new Block_kFilterPartitionIndex(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+    BlockContents&& block, MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<Block_kFilterPartitionIndex>(
+      alloc, std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);
 }
 void BlockCreateContext::Create(
-    std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block) {
-  parsed_out->reset(new Block_kRangeDeletion(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+    std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block,
+    MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<Block_kRangeDeletion>(
+      alloc, std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
-                                BlockContents&& block) {
-  parsed_out->reset(new Block_kMetaIndex(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+                                BlockContents&& block, MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<Block_kMetaIndex>(
+      alloc, std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
   parsed_out->get()->InitializeMetaIndexBlockProtectionInfo(
       protection_bytes_per_key);
 }
 
 void BlockCreateContext::Create(
-    std::unique_ptr<ParsedFullFilterBlock>* parsed_out, BlockContents&& block) {
-  parsed_out->reset(new ParsedFullFilterBlock(
-      table_options->filter_policy.get(), std::move(block)));
+    std::unique_ptr<ParsedFullFilterBlock>* parsed_out, BlockContents&& block,
+    MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<ParsedFullFilterBlock>(
+      alloc, table_options->filter_policy.get(), std::move(block)));
 }
 
 void BlockCreateContext::Create(std::unique_ptr<UncompressionDict>* parsed_out,
-                                BlockContents&& block) {
-  parsed_out->reset(new UncompressionDict(
-      block.data, std::move(block.allocation), using_zstd));
+                                BlockContents&& block, MemoryAllocator* alloc) {
+  parsed_out->reset(AllocatorNew<UncompressionDict>(
+      alloc, block.data, std::move(block.allocation), using_zstd));
 }
 
 namespace {
