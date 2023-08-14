@@ -1580,12 +1580,14 @@ class DBImpl : public DB {
   friend class ForwardIterator;
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+#ifndef NDEBUG
   friend class DBTest_ConcurrentFlushWAL_Test;
   friend class DBTest_MixedSlowdownOptionsStop_Test;
   friend class DBCompactionTest_CompactBottomLevelFilesWithDeletions_Test;
   friend class DBCompactionTest_CompactionDuringShutdown_Test;
+  friend class DBCompactionTest_DelayCompactBottomLevelFilesWithDeletions_Test;
+  friend class DBCompactionTest_DisableCompactBottomLevelFiles_Test;
   friend class StatsHistoryTest_PersistentStatsCreateColumnFamilies_Test;
-#ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
   friend class WriteCallbackPTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;

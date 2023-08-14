@@ -2114,7 +2114,8 @@ VersionStorageInfo::VersionStorageInfo(
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
-    EpochNumberRequirement epoch_number_requirement)
+    EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
+    int64_t bottommost_file_compaction_delay)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2142,6 +2143,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_deletions_(0),
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
+      clock_(clock),
+      bottommost_file_compaction_delay_(bottommost_file_compaction_delay),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
       epoch_number_requirement_(epoch_number_requirement) {
@@ -2186,7 +2189,11 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
               ? nullptr
               : cfd_->current()->storage_info(),
           cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
-          epoch_number_requirement),
+          epoch_number_requirement,
+          cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
+          cfd_ == nullptr
+              ? 0
+              : mutable_cf_options.bottommost_file_compaction_delay),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -4178,14 +4185,44 @@ void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
 void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  if (bottommost_file_compaction_delay_ < 0) {
+    return;
+  }
+  int64_t creation_time_ub = 0;
+  bool needs_delay = bottommost_file_compaction_delay_ > 0;
+  if (needs_delay) {
+    clock_->GetCurrentTime(&creation_time_ub).PermitUncheckedError();
+    if (creation_time_ub >= bottommost_file_compaction_delay_) {
+      creation_time_ub -= bottommost_file_compaction_delay_;
+    } else {
+      needs_delay = false;
+    }
+  }
+
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
         level_and_file.second->fd.largest_seqno != 0) {
       // largest_seqno might be nonzero due to containing the final key in an
-      // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
-      // ensures the file really contains deleted or overwritten keys.
+      // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
-        bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        if (!needs_delay) {
+          bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        } else {
+          int64_t creation_time = static_cast<int64_t>(
+              level_and_file.second->TryGetFileCreationTime());
+          if (creation_time == kUnknownFileCreationTime ||
+              creation_time <= creation_time_ub) {
+            bottommost_files_marked_for_compaction_.push_back(level_and_file);
+          } else {
+            // Just ignore this file for both
+            // bottommost_files_marked_for_compaction_ and
+            // bottommost_files_mark_threshold_. The next time
+            // this method is called, it will try this file again. The method
+            // is called after a new Version creation (compaction, flush, etc.),
+            // after a compaction is picked, and after a snapshot newer than
+            // bottommost_files_mark_threshold_ is released.
+          }
+        }
       } else {
         bottommost_files_mark_threshold_ =
             std::min(bottommost_files_mark_threshold_,

@@ -210,6 +210,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_protection_bytes_per_key;
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
+  cf_opts->bottommost_file_compaction_delay =
+      moptions.bottommost_file_compaction_delay;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
