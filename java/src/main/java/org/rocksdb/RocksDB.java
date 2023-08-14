@@ -2435,31 +2435,31 @@ public class RocksDB extends RocksObject {
     return results;
   }
 
-  public boolean keyExist(final byte[] key) {
-    return keyExist(key, 0, key.length);
+  public boolean keyExists(final byte[] key) {
+    return keyExists(key, 0, key.length);
   }
-  public boolean keyExist(final byte[] key, final int offset, final int len) {
-    return keyExist(null, null, key, offset, len);
+  public boolean keyExists(final byte[] key, final int offset, final int len) {
+    return keyExists(null, null, key, offset, len);
   }
-  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) {
-    return keyExist(columnFamilyHandle, key, 0, key.length);
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) {
+    return keyExists(columnFamilyHandle, key, 0, key.length);
   }
-  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final int offset, final int len) {
-    return keyExist(columnFamilyHandle, null, key, offset, len);
+    return keyExists(columnFamilyHandle, null, key, offset, len);
   }
 
-  public boolean keyExist(final ReadOptions readOptions, final byte[] key) {
-    return keyExist(readOptions, key, 0, key.length);
+  public boolean keyExists(final ReadOptions readOptions, final byte[] key) {
+    return keyExists(readOptions, key, 0, key.length);
   }
-  public boolean keyExist(
+  public boolean keyExists(
       final ReadOptions readOptions, final byte[] key, final int offset, final int len) {
-    return keyExist(null, readOptions, key, offset, len);
+    return keyExists(null, readOptions, key, offset, len);
   }
 
-  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle,
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final byte[] key) {
-    return keyExist(columnFamilyHandle, readOptions, key, 0, key.length);
+    return keyExists(columnFamilyHandle, readOptions, key, 0, key.length);
   }
 
   /**
@@ -2477,14 +2477,48 @@ public class RocksDB extends RocksObject {
    *    non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *    and no larger than "key".length
-   * @return
+   * @return true if key exist in database, otherwise false.
    */
-  public boolean keyExist(final ColumnFamilyHandle columnFamilyHandle,
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final byte[] key, final int offset, final int len) {
     checkBounds(offset, len, key.length);
-    return keyExist(nativeHandle_,
+    return keyExists(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         readOptions == null ? 0 : readOptions.nativeHandle_, key, offset, len);
+  }
+
+  public boolean keyExists(final ByteBuffer key) {
+    return keyExists(null, null, key);
+  }
+
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key) {
+    return keyExists(columnFamilyHandle, null, key);
+  }
+  public boolean keyExists(final ReadOptions readOptions, final ByteBuffer key) {
+    return keyExists(null, readOptions, key);
+  }
+
+  /**
+   * Check if key exist in database.
+   * This method is not lightweight as {@code keyMayExist} but ig give 100% guarantee
+   * that key exist in database.
+   *
+   * Internally it check if key may exist and then double check with read operation
+   * thant key exist. It crosses java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param readOptions {@link ReadOptions} instance
+   * @param key ByteBuffer with key. Must be allocated as direct.
+   * @return true if key exist in database, otherwise false.
+   */
+  public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final ByteBuffer key) {
+    assert key != null : "key ByteBuffer parameter cannot be null";
+    assert key.isDirect() : "key parameter must be a direct ByteBuffer";
+
+    return keyExistsDirect(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.limit());
   }
 
   /**
@@ -4611,8 +4645,11 @@ public class RocksDB extends RocksObject {
       final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
       final Status[] statusArray);
 
-  private native boolean keyExist(final long handle, final long cfHandle, final long readOptHandle,
+  private native boolean keyExists(final long handle, final long cfHandle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength);
+
+  private native boolean keyExistsDirect(final long handle, final long cfHandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
 
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
