@@ -1665,6 +1665,8 @@ void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   log_sync_cv_.SignalAll();
 }
 
+// TODO(yuzhangyu): all sequence number source of truth coming from VersionSet,
+// no need for change on DBImpl level?
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }

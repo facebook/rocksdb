@@ -259,8 +259,12 @@ class CompactionJobTestBase : public testing::Test {
 
   std::string KeyStr(const std::string& user_key, const SequenceNumber seq_num,
                      const ValueType t, uint64_t ts = 0) {
+    SequenceNumber new_seq = seq_num;
+    if (seq_num != 0) {
+      new_seq = seq_num + 99;
+    }
     std::string user_key_with_ts = user_key + encode_u64_ts_(ts);
-    return InternalKey(user_key_with_ts, seq_num, t).Encode().ToString();
+    return InternalKey(user_key_with_ts, new_seq, t).Encode().ToString();
   }
 
   static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
@@ -477,9 +481,9 @@ class CompactionJobTestBase : public testing::Test {
   }
 
   void SetLastSequence(const SequenceNumber sequence_number) {
-    versions_->SetLastAllocatedSequence(sequence_number + 1);
-    versions_->SetLastPublishedSequence(sequence_number + 1);
-    versions_->SetLastSequence(sequence_number + 1);
+    versions_->SetLastAllocatedSequence(99 + sequence_number + 1);
+    versions_->SetLastPublishedSequence(99 + sequence_number + 1);
+    versions_->SetLastSequence(99 + sequence_number + 1);
   }
 
   // returns expected result after compaction
@@ -551,7 +555,7 @@ class CompactionJobTestBase : public testing::Test {
     VersionEdit new_db;
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
-    new_db.SetLastSequence(0);
+    new_db.SetLastSequence(99);
 
     const std::string manifest = DescriptorFileName(dbname_, 1);
     std::unique_ptr<WritableFileWriter> file_writer;
@@ -656,11 +660,15 @@ class CompactionJobTestBase : public testing::Test {
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     JobContext job_context(1, false /* create_superversion */);
+    std::vector<SequenceNumber> new_snapshots;
+    for (const auto& snapshot : snapshots) {
+      new_snapshots.push_back(snapshot + 99U);
+    }
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, &job_context,
+        nullptr, nullptr, &mutex_, &error_handler_, new_snapshots,
+        earliest_write_conflict_snapshot + 99U, snapshot_checker, &job_context,
         table_cache_, &event_logger, false, false, dbname_,
         &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,

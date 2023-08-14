@@ -5025,7 +5025,10 @@ VersionSet::VersionSet(const std::string& dbname,
       options_file_number_(0),
       options_file_size_(0),
       pending_manifest_file_number_(0),
-      last_sequence_(0),
+      // TODO(yuzhangyu): let's just change this to a differently hard coded
+      // number to run some stress test.
+//      last_sequence_(0),
+      last_sequence_(99),
       last_allocated_sequence_(0),
       last_published_sequence_(0),
       prev_log_number_(0),
@@ -5069,7 +5072,10 @@ void VersionSet::Reset() {
   manifest_file_number_ = 0;
   options_file_number_ = 0;
   pending_manifest_file_number_ = 0;
-  last_sequence_.store(0);
+  // TODO(yuzhangyu): let's just update this to a differently hard coded number
+  // to run some stress test.
+//  last_sequence_.store(0);
+  last_sequence_.store(99);
   last_allocated_sequence_.store(0);
   last_published_sequence_.store(0);
   prev_log_number_ = 0;

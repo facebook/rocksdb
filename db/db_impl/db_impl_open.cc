@@ -314,7 +314,10 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   }
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
-  new_db.SetLastSequence(0);
+  // TODO(yuzhangyu): update this to non 0, for a stress test, let's just update
+  // these to a differently hard coded value to start some stress test.
+//  new_db.SetLastSequence(0);
+  new_db.SetLastSequence(99);
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
