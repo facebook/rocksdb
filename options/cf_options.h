@@ -323,7 +323,7 @@ struct MutableCFOptions {
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
   uint32_t memtable_max_range_deletions;
-  int64_t bottommost_file_compaction_delay;
+  uint32_t bottommost_file_compaction_delay;
 
   // Derived options
   // Per-level target file size.

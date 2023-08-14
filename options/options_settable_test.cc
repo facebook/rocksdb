@@ -561,7 +561,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "persist_user_defined_timestamps=true;"
       "block_protection_bytes_per_key=1;"
       "memtable_max_range_deletions=999999;"
-      "bottommost_file_compaction_delay=-1;",
+      "bottommost_file_compaction_delay=7200;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

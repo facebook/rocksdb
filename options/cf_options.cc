@@ -509,7 +509,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"bottommost_file_compaction_delay",
          {offsetof(struct MutableCFOptions, bottommost_file_compaction_delay),
-          OptionType::kInt64T, OptionVerificationType::kNormal,
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"block_protection_bytes_per_key",
          {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
@@ -1121,7 +1121,7 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                       experimental_mempurge_threshold: %f",
                  experimental_mempurge_threshold);
-  ROCKS_LOG_INFO(log, "         bottommost_file_compaction_delay: %" PRIi64,
+  ROCKS_LOG_INFO(log, "         bottommost_file_compaction_delay: %" PRIu32,
                  bottommost_file_compaction_delay);
 
   // Universal Compaction Options

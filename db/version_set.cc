@@ -2115,7 +2115,7 @@ VersionStorageInfo::VersionStorageInfo(
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
-    int64_t bottommost_file_compaction_delay)
+    uint32_t bottommost_file_compaction_delay)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -4185,18 +4185,19 @@ void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
 void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-  if (bottommost_file_compaction_delay_ < 0) {
-    return;
-  }
+  // If a file's creation time is larger than creation_time_ub,
+  // it is too new to be marked for compaction.
   int64_t creation_time_ub = 0;
   bool needs_delay = bottommost_file_compaction_delay_ > 0;
   if (needs_delay) {
-    clock_->GetCurrentTime(&creation_time_ub).PermitUncheckedError();
-    if (creation_time_ub >= bottommost_file_compaction_delay_) {
-      creation_time_ub -= bottommost_file_compaction_delay_;
-    } else {
-      needs_delay = false;
-    }
+    int64_t current_time = 0;
+    clock_->GetCurrentTime(&current_time).PermitUncheckedError();
+    // Note that if GetCurrentTime() fails, current_time will be 0.
+    // We will treat it as is and treat all files as too new.
+    // Will not underflow since bottommost_file_compaction_delay_
+    // is of type uint32_t.
+    creation_time_ub =
+        current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
   }
 
   for (auto& level_and_file : bottommost_files_) {
@@ -4207,7 +4208,7 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
         if (!needs_delay) {
           bottommost_files_marked_for_compaction_.push_back(level_and_file);
-        } else {
+        } else if (creation_time_ub > 0) {
           int64_t creation_time = static_cast<int64_t>(
               level_and_file.second->TryGetFileCreationTime());
           if (creation_time == kUnknownFileCreationTime ||
@@ -4222,6 +4223,9 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
             // after a compaction is picked, and after a snapshot newer than
             // bottommost_files_mark_threshold_ is released.
           }
+        } else {
+          // creation_time_ub <= 0, all files are too new to be marked for
+          // compaction.
         }
       } else {
         bottommost_files_mark_threshold_ =

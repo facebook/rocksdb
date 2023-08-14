@@ -4226,51 +4226,6 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBCompactionTest, DisableCompactBottomLevelFiles) {
-  Options options = CurrentOptions();
-  env_->SetMockSleep();
-  options.bottommost_file_compaction_delay = -1;
-  DestroyAndReopen(options);
-  const int kNumKey = 100;
-  const int kValLen = 100;
-
-  std::atomic_int compaction_count = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "LevelCompactionPicker::PickCompaction:Return",
-      [&](void* /* arg */) { compaction_count++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  Random rnd(301);
-  for (int i = 0; i < kNumKey; ++i) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
-  }
-  const Snapshot* snapshot = db_->GetSnapshot();
-  for (int i = 0; i < kNumKey; i += 2) {
-    ASSERT_OK(Delete(Key(i)));
-  }
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
-
-  ASSERT_OK(Put(Key(0), "val"));
-  // With bottommost compaction disabled, bottommost_files_mark_threshold_
-  // for the CF is always kMaxSequenceNumber.
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-  // release snapshot will not trigger compaction.
-  db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, compaction_count);
-  // Now the file is old enough for compaction.
-  env_->MockSleepForSeconds(3600);
-  // Another flush will trigger re-computation of the compaction score.
-  ASSERT_OK(Flush());
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, compaction_count);
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-}
-
 TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
   // bottom-level files may contain deletions due to snapshots protecting the
   // deleted keys. Once the snapshot is released, we should see files with many

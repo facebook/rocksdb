@@ -1212,9 +1212,8 @@ struct AdvancedColumnFamilyOptions {
   // if it is at least "bottommost_file_compaction_delay" seconds old.
   //
   // Default: 0 (no delay)
-  // Negative value means disabling "BottommostFiles" compaction.
   // Dynamically changeable through the SetOptions() API.
-  int64_t bottommost_file_compaction_delay = 0;
+  uint32_t bottommost_file_compaction_delay = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

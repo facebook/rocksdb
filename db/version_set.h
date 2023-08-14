@@ -134,7 +134,7 @@ class VersionStorageInfo {
                      bool _force_consistency_checks,
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
-                     int64_t bottommost_file_compaction_delay);
+                     uint32_t bottommost_file_compaction_delay);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -751,7 +751,7 @@ class VersionStorageInfo {
 
   // Used for computing bottommost files marked for compaction.
   SystemClock* clock_;
-  int64_t bottommost_file_compaction_delay_;
+  uint32_t bottommost_file_compaction_delay_;
 
   bool finalized_;
 
