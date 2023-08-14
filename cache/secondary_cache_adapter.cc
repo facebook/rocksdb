@@ -120,8 +120,9 @@ bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
+      auto hit = target_->GetHit(handle);
       // Spill into secondary cache.
-      secondary_cache_->Insert(key, obj, helper).PermitUncheckedError();
+      secondary_cache_->Insert(key, obj, helper, hit).PermitUncheckedError();
     }
   }
   // Never takes ownership of obj

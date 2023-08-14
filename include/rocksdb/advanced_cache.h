@@ -361,6 +361,10 @@ class Cache {
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
 
+  // Returns true or false depending on whether the item got a hit while in
+  // cache
+  virtual bool GetHit(Handle* handle) const = 0;
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
@@ -593,6 +597,10 @@ class CacheWrapper : public Cache {
 
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
     return target_->GetCacheItemHelper(handle);
+  }
+
+  bool GetHit(Handle* handle) const override {
+    return target_->GetHit(handle);
   }
 
   void ApplyToAllEntries(

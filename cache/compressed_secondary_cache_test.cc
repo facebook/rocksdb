@@ -51,7 +51,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
     // A dummy handle is inserted if the item is inserted for the first time.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -62,7 +62,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the item k1 for the second time and advise erasing it.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
@@ -94,14 +94,14 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Insert and Lookup the item k2.
     std::string str2(rnd.RandomString(1000));
     TestItem item2(str2.data(), str2.length());
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 2);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
                           kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
@@ -183,15 +183,15 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
     // Insert a dummy handle.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     // Insert k1.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
     TestItem item2(str2.data(), str2.length());
     // Insert a dummy handle, k1 is not evicted.
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     bool kept_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
@@ -199,7 +199,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(handle1, nullptr);
 
     // Insert k2 and k1 is evicted.
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
                           kept_in_sec_cache);
@@ -210,7 +210,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
     // Insert k1 again and a dummy handle is inserted.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
@@ -228,8 +228,8 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str3 = rnd.RandomString(10);
     TestItem item3(str3.data(), str3.length());
     // The Status is OK because a dummy handle is inserted.
-    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelperFail()));
-    ASSERT_NOK(sec_cache->Insert(key3, &item3, GetHelperFail()));
+    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
+    ASSERT_NOK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
 
     sec_cache.reset();
   }
@@ -904,10 +904,10 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
     Slice ith_key = Slice(junk.data(), 16);
 
     get_perf_context()->Reset();
-    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role)));
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1U);
 
-    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role)));
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1U);
 
     bool kept_in_sec_cache{true};

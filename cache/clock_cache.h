@@ -762,6 +762,8 @@ class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
 
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
+  bool GetHit(Handle* /*handle*/) const override { return false; }
+
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;
 };

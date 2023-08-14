@@ -674,6 +674,11 @@ const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
   return h->helper;
 }
 
+bool LRUCache::GetHit(Handle* handle) const {
+  auto h = reinterpret_cast<const LRUHandle*>(handle);
+  return h->HasHit();
+}
+
 size_t LRUCache::TEST_GetLRUSize() {
   return SumOverShards([](LRUCacheShard& cs) { return cs.TEST_GetLRUSize(); });
 }

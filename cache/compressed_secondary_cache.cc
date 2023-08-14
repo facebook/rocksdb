@@ -109,20 +109,23 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
 Status CompressedSecondaryCache::Insert(const Slice& key,
                                         Cache::ObjectPtr value,
-                                        const Cache::CacheItemHelper* helper) {
+                                        const Cache::CacheItemHelper* helper,
+                                        bool force_insert) {
   if (value == nullptr) {
     return Status::InvalidArgument();
   }
 
-  Cache::Handle* lru_handle = cache_->Lookup(key);
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
-  if (lru_handle == nullptr) {
-    PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
-    // Insert a dummy handle if the handle is evicted for the first time.
-    return cache_->Insert(key, /*obj=*/nullptr, internal_helper,
-                          /*charge=*/0);
-  } else {
-    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  if (!force_insert) {
+    Cache::Handle* lru_handle = cache_->Lookup(key);
+    if (lru_handle == nullptr) {
+      PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
+      // Insert a dummy handle if the handle is evicted for the first time.
+      return cache_->Insert(key, /*obj=*/nullptr, internal_helper,
+                            /*charge=*/0);
+    } else {
+      cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+    }
   }
 
   size_t size = (*helper->size_cb)(value);

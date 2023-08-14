@@ -451,6 +451,7 @@ class LRUCache
   ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
+  bool GetHit(Handle* handle) const override;
 
   // Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
