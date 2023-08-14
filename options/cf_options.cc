@@ -604,6 +604,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"default_temperature",
+         {offsetof(struct ImmutableCFOptions, default_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever}},
         {"preclude_last_level_data_seconds",
          {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -950,6 +954,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      default_temperature(cf_options.default_temperature),
       preclude_last_level_data_seconds(
           cf_options.preclude_last_level_data_seconds),
       preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),

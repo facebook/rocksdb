@@ -72,6 +72,8 @@ struct ImmutableCFOptions {
 
   bool force_consistency_checks;
 
+  Temperature default_temperature;
+
   uint64_t preclude_last_level_data_seconds;
 
   uint64_t preserve_internal_time_seconds;
