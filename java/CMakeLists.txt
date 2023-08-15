@@ -434,6 +434,7 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
 else ()
   # Java 1.8 or newer prepare the JAR...
   message("Preparing Jar for JDK ${Java_VERSION_STRING}")
+  message("JAVA_TESTCLASSPATH=${JAVA_TESTCLASSPATH}")
   add_jar(
       rocksdbjni_classes
       SOURCES ${JAVA_MAIN_CLASSES}
