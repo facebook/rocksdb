@@ -349,7 +349,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
       std::string end_str;
       AppendUserKeyWithMaxTimestamp(
           &begin_str, file_to_ingest.smallest_internal_key.user_key(), ts_sz);
-      AppendKeyWithMinTimestamp(
+      AppendUserKeyWithMinTimestamp(
           &end_str, file_to_ingest.largest_internal_key.user_key(), ts_sz);
       keys.emplace_back(std::move(begin_str));
       keys.emplace_back(std::move(end_str));
