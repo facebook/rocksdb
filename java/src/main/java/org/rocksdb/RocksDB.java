@@ -2435,40 +2435,159 @@ public class RocksDB extends RocksObject {
     return results;
   }
 
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   * @param key byte array of a key to search for*
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final byte[] key) {
     return keyExists(key, 0, key.length);
   }
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   * @param key byte array of a key to search for
+   * @param offset the offset of the "key" array to be used, must be
+   *    non-negative and no larger than "key".length
+   * @param len the length of the "key" array to be used, must be non-negative
+   *    and no larger than "key".length
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final byte[] key, final int offset, final int len) {
     return keyExists(null, null, key, offset, len);
   }
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key byte array of a key to search for
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) {
     return keyExists(columnFamilyHandle, key, 0, key.length);
   }
+
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key byte array of a key to search for
+   * @param offset the offset of the "key" array to be used, must be
+   *    non-negative and no larger than "key".length
+   * @param len the length of the "key" array to be used, must be non-negative
+   *    and no larger than "key".length
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final int offset, final int len) {
     return keyExists(columnFamilyHandle, null, key, offset, len);
   }
 
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ReadOptions readOptions, final byte[] key) {
     return keyExists(readOptions, key, 0, key.length);
   }
+
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @param offset the offset of the "key" array to be used, must be
+   *    non-negative and no larger than "key".length
+   * @param len the length of the "key" array to be used, must be non-negative
+   *    and no larger than "key".length
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(
       final ReadOptions readOptions, final byte[] key, final int offset, final int len) {
     return keyExists(null, readOptions, key, offset, len);
   }
 
+  /**
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
+   *
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param readOptions {@link ReadOptions} instance
+   * @param key byte array of a key to search for
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final byte[] key) {
     return keyExists(columnFamilyHandle, readOptions, key, 0, key.length);
   }
 
   /**
-   * Check if key exist in database.
-   * This method is not lightweight as {@code keyMayExist} but ig give 100% guarantee
-   * that key exist in database.
+   *  Check if a key exists in the database.
+   *  This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   *  of a correct result, whether the key exists or not.
    *
-   * Internally it check if key may exist and then double check with read operation
-   * thant key exist. It crosses java/JNI boundary only once.
+   *  Internally it checks if the key may exist and then double checks with read operation
+   *  that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   *  a false positive.
+   *
+   *  The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param readOptions {@link ReadOptions} instance
@@ -2487,24 +2606,72 @@ public class RocksDB extends RocksObject {
         readOptions == null ? 0 : readOptions.nativeHandle_, key, offset, len);
   }
 
+  /**
+   * Check if a key exists in the database.
+   * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   * of a correct result, whether the key exists or not.
+   *
+   * Internally it checks if the key may exist and then double checks with read operation
+   * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   * a false positive.
+   *
+   * The code crosses the Java/JNI boundary only once.
+   *
+   * @param key ByteBuffer with key. Must be allocated as direct.
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ByteBuffer key) {
     return keyExists(null, null, key);
   }
 
+  /**
+   * Check if a key exists in the database.
+   * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   * of a correct result, whether the key exists or not.
+   *
+   * Internally it checks if the key may exist and then double checks with read operation
+   * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   * a false positive.
+   *
+   * The code crosses the Java/JNI boundary only once.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key ByteBuffer with key. Must be allocated as direct.
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key) {
     return keyExists(columnFamilyHandle, null, key);
   }
+
+  /**
+   * Check if a key exists in the database.
+   * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   * of a correct result, whether the key exists or not.
+   *
+   * Internally it checks if the key may exist and then double checks with read operation
+   * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   * a false positive.
+   *
+   * The code crosses the Java/JNI boundary only once.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param key ByteBuffer with key. Must be allocated as direct.
+   * @return true if key exist in database, otherwise false.
+   */
   public boolean keyExists(final ReadOptions readOptions, final ByteBuffer key) {
     return keyExists(null, readOptions, key);
   }
 
   /**
-   * Check if key exist in database.
-   * This method is not lightweight as {@code keyMayExist} but ig give 100% guarantee
-   * that key exist in database.
+   * Check if a key exists in the database.
+   * This method is not as lightweight as {@code keyMayExist} but it gives a 100% guarantee
+   * of a correct result, whether the key exists or not.
    *
-   * Internally it check if key may exist and then double check with read operation
-   * thant key exist. It crosses java/JNI boundary only once.
+   * Internally it checks if the key may exist and then double checks with read operation
+   * that confirms the key exists. This deals with the case where {@code keyMayExist} may return
+   * a false positive.
+   *
+   * The code crosses the Java/JNI boundary only once.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param readOptions {@link ReadOptions} instance

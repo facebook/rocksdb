@@ -66,6 +66,22 @@ public class KeyExistsTest {
   }
 
   @Test
+  public void keyExistsColumnFamilyReadOptions() throws RocksDBException {
+    try (final ReadOptions readOptions = new ReadOptions()) {
+      byte[] key1 = "keyBBCF0".getBytes(UTF_8);
+      byte[] key2 = "keyBBCF1".getBytes(UTF_8);
+      db.put(columnFamilyHandleList.get(0), key1, "valueBBCF0".getBytes(UTF_8));
+      db.put(columnFamilyHandleList.get(1), key2, "valueBBCF1".getBytes(UTF_8));
+
+      assertThat(db.keyExists(columnFamilyHandleList.get(0), readOptions, key1)).isTrue();
+      assertThat(db.keyExists(columnFamilyHandleList.get(0), readOptions, key2)).isFalse();
+
+      assertThat(db.keyExists(columnFamilyHandleList.get(1), readOptions, key1)).isFalse();
+      assertThat(db.keyExists(columnFamilyHandleList.get(1), readOptions, key2)).isTrue();
+    }
+  }
+
+  @Test
   public void keyExistsReadOptions() throws RocksDBException {
     try (final ReadOptions readOptions = new ReadOptions()) {
       db.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
@@ -113,6 +129,21 @@ public class KeyExistsTest {
   }
 
   @Test
+  public void keyExistsDirectByteBufferReadOptions() throws RocksDBException {
+    try (final ReadOptions readOptions = new ReadOptions()) {
+      byte[] key = "key".getBytes(UTF_8);
+
+      db.put(key, "value".getBytes(UTF_8));
+      ByteBuffer buff = ByteBuffer.allocateDirect(key.length);
+      buff.put(key);
+      buff.flip();
+
+      boolean exists = db.keyExists(buff);
+      assertThat(exists).isTrue();
+    }
+  }
+
+  @Test
   public void keyExistsDirectByteBufferAfterDelete() throws RocksDBException {
     byte[] key = "key".getBytes(UTF_8);
 
@@ -147,6 +178,29 @@ public class KeyExistsTest {
 
     assertThat(db.keyExists(columnFamilyHandleList.get(1), key1Buff)).isFalse();
     assertThat(db.keyExists(columnFamilyHandleList.get(1), key2Buff)).isTrue();
+  }
+
+  public void keyExistsDirectByteBufferColumnFamilyReadOptions() throws RocksDBException {
+    try (final ReadOptions readOptions = new ReadOptions()) {
+      byte[] key1 = "keyBBCF0".getBytes(UTF_8);
+      byte[] key2 = "keyBBCF1".getBytes(UTF_8);
+      db.put(columnFamilyHandleList.get(0), key1, "valueBBCF0".getBytes(UTF_8));
+      db.put(columnFamilyHandleList.get(1), key2, "valueBBCF1".getBytes(UTF_8));
+
+      ByteBuffer key1Buff = ByteBuffer.allocateDirect(key1.length);
+      key1Buff.put(key1);
+      key1Buff.flip();
+
+      ByteBuffer key2Buff = ByteBuffer.allocateDirect(key2.length);
+      key2Buff.put(key2);
+      key2Buff.flip();
+
+      assertThat(db.keyExists(columnFamilyHandleList.get(0), readOptions, key1Buff)).isTrue();
+      assertThat(db.keyExists(columnFamilyHandleList.get(0), readOptions, key2Buff)).isFalse();
+
+      assertThat(db.keyExists(columnFamilyHandleList.get(1), readOptions, key1Buff)).isFalse();
+      assertThat(db.keyExists(columnFamilyHandleList.get(1), readOptions, key2Buff)).isTrue();
+    }
   }
 
   @Test

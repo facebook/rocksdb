@@ -2215,8 +2215,8 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
   return exists;
 }
 
-jboolean key_exist_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
-                          jlong jread_opts_handle, char* key, jint jkey_len) {
+jboolean key_exists_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
+                           jlong jread_opts_handle, char* key, jint jkey_len) {
   std::string value;
   bool value_found = false;
 
@@ -2278,8 +2278,8 @@ jboolean Java_org_rocksdb_RocksDB_keyExists(JNIEnv* env, jobject,
     return JNI_FALSE;
   } else {
     jboolean key_exists =
-        key_exist_helper(env, jdb_handle, jcf_handle, jread_opts_handle,
-                         reinterpret_cast<char*>(key), jkey_len);
+        key_exists_helper(env, jdb_handle, jcf_handle, jread_opts_handle,
+                          reinterpret_cast<char*>(key), jkey_len);
     delete[] key;
     return key_exists;
   }
@@ -2313,8 +2313,8 @@ jboolean Java_org_rocksdb_RocksDB_keyExistsDirect(
     return JNI_FALSE;
   }
 
-  return key_exist_helper(env, jdb_handle, jcf_handle, jread_opts_handle, key,
-                          jkey_len);
+  return key_exists_helper(env, jdb_handle, jcf_handle, jread_opts_handle, key,
+                           jkey_len);
 }
 
 /*
