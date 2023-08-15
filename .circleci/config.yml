@@ -611,7 +611,7 @@ jobs:
       xcode: 14.3.1
     resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
