@@ -4126,11 +4126,6 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // files does not need to be preserved in case of a future snapshot.
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-  // release snapshot and wait for compactions to finish. Single-file
-  // compactions should be triggered, which reduce the size of each bottom-level
-  // file without changing file count.
-  db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
@@ -4138,6 +4133,11 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
                     CompactionReason::kBottommostFiles);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // release snapshot and wait for compactions to finish. Single-file
+  // compactions should be triggered, which reduce the size of each bottom-level
+  // file without changing file count.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   db_->GetLiveFilesMetaData(&post_release_metadata);
   ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
@@ -4181,13 +4181,6 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
   std::vector<LiveFileMetaData> pre_release_metadata;
   db_->GetLiveFilesMetaData(&pre_release_metadata);
   ASSERT_EQ(1, pre_release_metadata.size());
-  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
-  // files does not need to be preserved in case of a future snapshot.
-  ASSERT_OK(Put(Key(0), "val"));
-  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-  // release snapshot will not trigger compaction.
-  db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   std::atomic_int compaction_count = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
@@ -4197,6 +4190,13 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
         compaction_count++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
+  // files does not need to be preserved in case of a future snapshot.
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
+  // release snapshot will not trigger compaction.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, compaction_count);
   // Now the file is old enough for compaction.
