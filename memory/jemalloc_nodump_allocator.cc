@@ -124,7 +124,8 @@ uint32_t JemallocNodumpAllocator::GetArenaIndex() const {
   // to make Random thread-safe and prevent cacheline bouncing. Whether this is
   // worthwhile is still an open question.
   thread_local Random tl_random(next_seed.fetch_add(1));
-  return arena_indexes_[FastRange32(tl_random.Next(), arena_indexes_.size())];
+  return arena_indexes_[FastRange32(
+      tl_random.Next(), static_cast<uint32_t>(arena_indexes_.size()))];
 }
 
 Status JemallocNodumpAllocator::InitializeArenas() {
