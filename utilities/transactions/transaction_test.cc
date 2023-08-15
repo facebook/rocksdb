@@ -126,18 +126,18 @@ TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
   {
     std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
     // writes that should be observed by base_iterator_ in BaseDeltaIterator
-    txn->Put("a", "aa");
-    txn->Put("c", "cc");
-    txn->Put("e", "ee");
-    txn->Put("f", "ff");
+    ASSERT_OK(txn->Put("a", "aa"));
+    ASSERT_OK(txn->Put("c", "cc"));
+    ASSERT_OK(txn->Put("e", "ee"));
+    ASSERT_OK(txn->Put("f", "ff"));
     ASSERT_TRUE(txn->Commit().ok());
   }
 
   std::unique_ptr<Transaction> txn2(db->BeginTransaction(write_options));
   // writes that should be observed by delta_iterator_ in BaseDeltaIterator
-  txn2->Put("b", "bb");
-  txn2->Put("c", "cc");
-  txn2->Put("f", "ff");
+  ASSERT_OK(txn2->Put("b", "bb"));
+  ASSERT_OK(txn2->Put("c", "cc"));
+  ASSERT_OK(txn2->Put("f", "ff"));
 
   // delta_iterator_:   b c   f
   //  base_iterator_: a   c e f
