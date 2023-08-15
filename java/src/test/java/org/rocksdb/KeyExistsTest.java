@@ -180,6 +180,7 @@ public class KeyExistsTest {
     assertThat(db.keyExists(columnFamilyHandleList.get(1), key2Buff)).isTrue();
   }
 
+  @Test
   public void keyExistsDirectByteBufferColumnFamilyReadOptions() throws RocksDBException {
     try (final ReadOptions readOptions = new ReadOptions()) {
       byte[] key1 = "keyBBCF0".getBytes(UTF_8);
