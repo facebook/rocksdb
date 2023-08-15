@@ -88,6 +88,13 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
   result->append(kTsMax.data(), ts_sz);
 }
 
+void AppendUserKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(ts_sz > 0);
+  result->append(key.data(), key.size() - ts_sz);
+  result->append(ts_sz, static_cast<unsigned char>(0));
+}
+
 void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                    size_t ts_sz) {
   assert(ts_sz > 0);

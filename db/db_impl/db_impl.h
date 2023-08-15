@@ -1349,6 +1349,11 @@ class DBImpl : public DB {
 
   std::atomic<bool> shutting_down_;
 
+  // No new background jobs can be queued if true. This is used to prevent new
+  // background jobs from being queued after WaitForCompact() completes waiting
+  // all background jobs then attempts to close when close_db_ option is true.
+  bool reject_new_background_jobs_;
+
   // RecoveryContext struct stores the context about version edits along
   // with corresponding column_family_data and column_family_options.
   class RecoveryContext {
@@ -2125,6 +2130,9 @@ class DBImpl : public DB {
 
   // Schedule background tasks
   Status StartPeriodicTaskScheduler();
+
+  // Cancel scheduled periodic tasks
+  Status CancelPeriodicTaskScheduler();
 
   Status RegisterRecordSeqnoTimeWorker();
 

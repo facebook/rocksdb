@@ -2850,6 +2850,9 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
 
 void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
+  if (reject_new_background_jobs_) {
+    return;
+  }
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
     return;
   }
@@ -2879,6 +2882,9 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
 
 void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
+  if (reject_new_background_jobs_) {
+    return;
+  }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
     AddToCompactionQueue(cfd);
     ++unscheduled_compactions_;
@@ -2888,6 +2894,9 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
 void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                                   FileType type, uint64_t number, int job_id) {
   mutex_.AssertHeld();
+  if (reject_new_background_jobs_) {
+    return;
+  }
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
   purge_files_.insert({{number, std::move(file_info)}});
 }
@@ -4095,6 +4104,14 @@ Status DBImpl::WaitForCompact(
     if (!s.ok()) {
       return s;
     }
+  } else if (wait_for_compact_options.close_db &&
+             has_unpersisted_data_.load(std::memory_order_relaxed) &&
+             !mutable_db_options_.avoid_flush_during_shutdown) {
+    Status s =
+        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    if (!s.ok()) {
+      return s;
+    }
   }
   TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
   for (;;) {
@@ -4106,9 +4123,18 @@ Status DBImpl::WaitForCompact(
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || unscheduled_compactions_ ||
-         unscheduled_flushes_) &&
+         unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
       bg_cv_.Wait();
+    } else if (wait_for_compact_options.close_db) {
+      reject_new_background_jobs_ = true;
+      mutex_.Unlock();
+      Status s = Close();
+      mutex_.Lock();
+      if (!s.ok()) {
+        reject_new_background_jobs_ = false;
+      }
+      return s;
     } else {
       return error_handler_.GetBGError();
     }

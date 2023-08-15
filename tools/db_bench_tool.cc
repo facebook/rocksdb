@@ -3039,22 +3039,29 @@ class Benchmark {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache" ||
-               FLAGS_cache_type == "fixed_hyper_clock_cache") {
-      HyperClockCacheOptions hcco{
-          static_cast<size_t>(capacity),
-          static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,
-          FLAGS_cache_numshardbits};
-      hcco.hash_seed = GetCacheHashSeed();
-      if (use_tiered_cache) {
-        TieredVolatileCacheOptions opts;
-        hcco.capacity += secondary_cache_opts.capacity;
-        opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
-        opts.cache_opts = &hcco;
-        opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(opts);
+    } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+      size_t estimated_entry_charge;
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
+          FLAGS_cache_type == "hyper_clock_cache") {
+        estimated_entry_charge = FLAGS_block_size;
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+        estimated_entry_charge = 0;
       } else {
-        return hcco.MakeSharedCache();
+        fprintf(stderr, "Cache type not supported.");
+        exit(1);
+      }
+      HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
+                                  FLAGS_cache_numshardbits);
+      opts.hash_seed = GetCacheHashSeed();
+      if (use_tiered_cache) {
+        TieredVolatileCacheOptions tiered_opts;
+        opts.capacity += secondary_cache_opts.capacity;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredVolatileCache(tiered_opts);
+      } else {
+        return opts.MakeSharedCache();
       }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(

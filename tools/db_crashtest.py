@@ -123,7 +123,10 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["lru_cache", "hyper_clock_cache"]),
+    "cache_type": lambda: random.choice(
+        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
+         "auto_hyper_clock_cache"]
+    ),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
@@ -346,7 +349,7 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
-    "verify_iterator_with_expected_state_one_in": 5,  # this locks a range of keys
+    "verify_iterator_with_expected_state_one_in": 5,
 }
 
 blackbox_simple_default_params = {
