@@ -101,6 +101,18 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   // Update the buffer offset and size.
   bufs_[index].offset_ = rounddown_start;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
+
+  /*
+  Akanksha: Remove this section.
+  if (getenv("PRINT")) {
+    total_bytes_prefetched_so_far += result.size();
+    printf(
+        "Chunk len: %lu, Total bytes prefetched: %lu Read len: %lu, "
+        "actually_read: %lu, total_bytes_till_upper_bound_:%lu\n",
+        chunk_len, total_bytes_prefetched_so_far, read_len, result.size(),
+        total_bytes_till_upper_bound_);
+  }
+  */
   return s;
 }
 
@@ -159,6 +171,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
 
   Status s = Read(opts, reader, read_len, chunk_len, rounddown_offset, curr_);
+
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
     RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
   }
@@ -629,6 +642,15 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     return false;
   }
 
+  /*
+  Akanksha: Remove this section.
+  if (getenv("PRINT")) {
+    total_bytes_read_till_upper_bound_ += n;
+    printf("Bytes to be read till now: %lu, offset: %lu \n",
+           total_bytes_read_till_upper_bound_, offset);
+  }
+  */
+
   // If the buffer contains only a few of the requested bytes:
   //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
@@ -650,6 +672,14 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
             return false;
           }
         }
+        // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
+        // set.
+        if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
+          if (upper_bound_offset_ < offset + n + readahead_size_) {
+            readahead_size_ = (upper_bound_offset_ - offset) - n;
+          }
+        }
+
         s = Prefetch(opts, reader, offset, n + readahead_size_);
       }
       if (!s.ok()) {

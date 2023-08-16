@@ -79,6 +79,16 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
+  if (read_options_.tune_readahead_size && read_options_.iterate_upper_bound &&
+      !read_options_.async_io) {
+    FindReadAheadSizeUpperBound();
+    if (target) {
+      index_iter_->Seek(*target);
+    } else {
+      index_iter_->SeekToFirst();
+    }
+  }
+
   IndexValue v = index_iter_->value();
   const bool same_block = block_iter_points_to_real_block_ &&
                           v.handle.offset() == prev_block_offset_;
@@ -496,5 +506,52 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
                                    ? BlockUpperBound::kUpperBoundBeyondCurBlock
                                    : BlockUpperBound::kUpperBoundInCurBlock;
   }
+}
+
+void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
+  size_t total_bytes_till_upper_bound = 0;
+  size_t count = 0;
+  size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
+  uint64_t start_offset = index_iter_->value().handle.offset();
+
+  do {
+    BlockHandle block_handle = index_iter_->value().handle;
+    total_bytes_till_upper_bound += block_handle.size();
+    total_bytes_till_upper_bound += footer;
+
+    // Can't figure out for current block if current block
+    // is out of bound. But for next block we can find that.
+    // If curr block's index key >= iterate_upper_bound, it
+    // means all the keys in next block or above are out of
+    // bound.
+    bool next_block_out_of_bound =
+        (user_comparator_.CompareWithoutTimestamp(
+             index_iter_->user_key(),
+             /*b_has_ts=*/true, *read_options_.iterate_upper_bound,
+             /*a_has_ts=*/false) >= 0
+             ? true
+             : false);
+
+    if (next_block_out_of_bound) {
+      break;
+    }
+
+    // Since next block is not out of bound, iterate to that
+    // index block and add it's Data block size to
+    // readahead_size.
+    index_iter_->Next();
+    count++;
+
+    if (!index_iter_->Valid()) {
+      break;
+    }
+
+  } while (true);
+
+  // printf("Data blocks: %lu, Bytes till upper_bound: %lu, offset: %lu\n",
+  // count,
+  //       total_bytes_till_upper_bound, start_offset);
+  block_prefetcher_.SetUpperBoundOffset(start_offset +
+                                        total_bytes_till_upper_bound);
 }
 }  // namespace ROCKSDB_NAMESPACE

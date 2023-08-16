@@ -87,7 +87,8 @@ class FilePrefetchBuffer {
       size_t readahead_size = 0, size_t max_readahead_size = 0,
       bool enable = true, bool track_min_offset = false,
       bool implicit_auto_readahead = false, uint64_t num_file_reads = 0,
-      uint64_t num_file_reads_for_auto_readahead = 0, FileSystem* fs = nullptr,
+      uint64_t num_file_reads_for_auto_readahead = 0,
+      uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
@@ -106,7 +107,8 @@ class FilePrefetchBuffer {
         fs_(fs),
         clock_(clock),
         stats_(stats),
-        usage_(usage) {
+        usage_(usage),
+        upper_bound_offset_(upper_bound_offset) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
     // If ReadOptions.async_io is enabled, data is asynchronously filled in
@@ -171,6 +173,9 @@ class FilePrefetchBuffer {
           }
         }
       }
+
+      // Akanksha: Remove this printf.
+      // printf("Discarded bytes: %lu\n", bytes_discarded);
     }
 
     for (uint32_t i = 0; i < 2; i++) {
@@ -319,6 +324,11 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
+    /*
+    Akanksha: Remove this section.
+    total_bytes_prefetched_so_far = 0;
+    total_bytes_till_upper_bound_ = 0;
+    */
   }
 
   // Called in case of implicit auto prefetching.
@@ -457,5 +467,16 @@ class FilePrefetchBuffer {
   Statistics* stats_;
 
   FilePrefetchBufferUsage usage_;
+
+  // upper_bound_offset_ is set when ReadOptions.iterate_upper_bound and
+  // ReadOptions.tune_readahead_size are set to trim readahead_size upto
+  // upper_bound_offset_ during prefetching.
+  uint64_t upper_bound_offset_ = 0;
+
+  /*
+  Akanksha: Remove this section
+  size_t total_bytes_read_till_upper_bound_ = 0;
+  size_t total_bytes_prefetched_so_far = 0;
+  */
 };
 }  // namespace ROCKSDB_NAMESPACE
