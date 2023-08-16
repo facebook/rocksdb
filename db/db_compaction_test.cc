@@ -4156,8 +4156,8 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
 
 TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
   // bottom-level files may contain deletions due to snapshots protecting the
-  // deleted keys. Once the snapshot is released, we should see files with many
-  // such deletions undergo single-file compactions.
+  // deleted keys. Once the snapshot is released and the files are old enough,
+  // we should see them undergo single-file compactions.
   Options options = CurrentOptions();
   env_->SetMockSleep();
   options.bottommost_file_compaction_delay = 3600;
@@ -4202,7 +4202,7 @@ TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
   // Now the file is old enough for compaction.
   env_->MockSleepForSeconds(3600);
   // Another flush will trigger re-computation of the compaction score
-  // to find that the file is qualified for compaction.
+  // to find out that the file is qualified for compaction.
   ASSERT_OK(Flush());
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());

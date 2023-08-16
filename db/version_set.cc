@@ -4194,8 +4194,8 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
     clock_->GetCurrentTime(&current_time).PermitUncheckedError();
     // Note that if GetCurrentTime() fails, current_time will be 0.
     // We will treat it as is and treat all files as too new.
-    // Will not underflow since bottommost_file_compaction_delay_
-    // is of type uint32_t.
+    // The subtraction will not underflow since
+    // bottommost_file_compaction_delay_ is of type uint32_t.
     creation_time_ub =
         current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
   }
