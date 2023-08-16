@@ -323,10 +323,14 @@ blackbox_default_params = {
 }
 
 whitebox_default_params = {
-    # TODO: enable this once we figure out how to adjust kill odds for WAL-
-    # disabled runs, and either (1) separate full `db_stress` runs out of
-    # whitebox crash or (2) support verification at end of `db_stress` runs
-    # that ran with WAL disabled.
+    # TODO: enable this at random once we figure out two things. First, we need
+    # to ensure the kill odds in WAL-disabled runs result in regular crashing
+    # before the fifteen minute timeout. When WAL is disabled there are very few
+    # calls to write functions since writes to SST files are buffered and other
+    # writes (e.g., MANIFEST) are infrequent. Crashing in reasonable time might
+    # currently assume killpoints in write functions are reached frequently.
+    #
+    # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
