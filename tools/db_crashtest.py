@@ -325,13 +325,7 @@ whitebox_default_params = {
     # writes (e.g., MANIFEST) are infrequent. Crashing in reasonable time might
     # currently assume killpoints in write functions are reached frequently.
     #
-    # Second, we need to make sure disabling WAL actually makes a difference for
-    # `db_stress` runs where it is disabled. In particular, the full `db_stress`
-    # runs in the second half of the whitebox crash test need to run with
-    # `-reopen > 0` in order for `-wal_disabled` to make any difference.
-    # However, `-wal_disabled=1` is currently unsupported with any reopening.
-    # This issue could be resolved by adding the reopening support, or by moving
-    # the full `db_stress` runs out of the whitebox crash test.
+    # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
