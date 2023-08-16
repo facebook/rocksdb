@@ -3341,8 +3341,16 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
 INSTANTIATE_TEST_CASE_P(
     DBCompactionWaitForCompactTest, DBCompactionWaitForCompactTest,
-    ::testing::Combine(testing::Bool(), testing::Bool(), testing::Bool(),
-                       testing::Values(0, 5 * 60 * 1000000ULL)));  // 5 minutes
+    ::testing::Combine(
+        testing::Bool() /* abort_on_pause */, testing::Bool() /* flush */,
+        testing::Bool() /* close_db */,
+        testing::Values(
+            0,
+            60 * 60 *
+                1000000ULL /* timeout_micros */)));  // 1 hour (long enough to
+                                                     // make sure that tests
+                                                     // don't fail unexpectedly
+                                                     // when running slow)
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
