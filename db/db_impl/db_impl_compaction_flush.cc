@@ -4125,7 +4125,14 @@ Status DBImpl::WaitForCompact(
          bg_flush_scheduled_ || unscheduled_compactions_ ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
-      bg_cv_.Wait();
+      if (wait_for_compact_options.timeout_micros) {
+        if (bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() +
+                             wait_for_compact_options.timeout_micros)) {
+          return Status::TimedOut();
+        }
+      } else {
+        bg_cv_.Wait();
+      }
     } else if (wait_for_compact_options.close_db) {
       reject_new_background_jobs_ = true;
       mutex_.Unlock();

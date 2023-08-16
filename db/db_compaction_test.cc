@@ -153,19 +153,23 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
   DBCompactionDirectIOTest() : DBCompactionTest() {}
 };
 
+// Params: See WaitForCompactOptions for details
 class DBCompactionWaitForCompactTest
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<bool, bool, bool, uint64_t>> {
  public:
   DBCompactionWaitForCompactTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
     close_db_ = std::get<2>(GetParam());
+    timeout_micros_ = std::get<3>(GetParam());
   }
   bool abort_on_pause_;
   bool flush_;
   bool close_db_;
+  uint64_t timeout_micros_;
   Options options_;
   WaitForCompactOptions wait_for_compact_options_;
 
@@ -182,6 +186,7 @@ class DBCompactionWaitForCompactTest
     wait_for_compact_options_.abort_on_pause = abort_on_pause_;
     wait_for_compact_options_.flush = flush_;
     wait_for_compact_options_.close_db = close_db_;
+    wait_for_compact_options_.timeout_micros = timeout_micros_;
 
     DestroyAndReopen(options_);
 
@@ -3337,7 +3342,8 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
                         DBCompactionWaitForCompactTest,
                         ::testing::Combine(testing::Bool(), testing::Bool(),
-                                           testing::Bool()));
+                                           testing::Bool(),
+                                           testing::Values(0, 5000000)));
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3578,6 +3584,50 @@ TEST_P(DBCompactionWaitForCompactTest,
   if (!close_db_) {
     ASSERT_EQ("1,2", FilesPerLevel());
   }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBCompactionWaitForCompactTest, WaitForCompactToTimeout) {
+  // Triggers a compaction. Before the compaction finishes, mock enough seconds
+  // to trigger timeout if wait_for_compact_options_.timeout_micros > 0, we
+  // expect WaitForCompact to return Status::TimedOut
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WaitForCompact:StartWaiting",
+        "DBCompactionTest::WaitForCompactTimedOut:0"},
+       {"DBCompactionTest::WaitForCompactTimedOut:1",
+        "CompactionJob::Run():Start"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Now trigger L0 compaction by adding a file
+  Random rnd(123);
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  // Wait for Compaction in another thread
+  auto waiting_for_compaction_thread = port::Thread([this]() {
+    Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
+    if (wait_for_compact_options_.timeout_micros) {
+      ASSERT_NOK(s);
+      ASSERT_TRUE(s.IsTimedOut());
+    } else {
+      // When timeout_micros=0, WaitForCompact will wait indefinitely. In this
+      // test, compaction finishes eventually.
+      ASSERT_OK(s);
+    }
+  });
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactTimedOut:0");
+
+  // Waiting has started, but compaction job hasn't. mock sleep to trigger
+  // timeout
+  env_->SleepForMicroseconds(wait_for_compact_options_.timeout_micros + 100);
+
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactTimedOut:1");
+
+  waiting_for_compaction_thread.join();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();

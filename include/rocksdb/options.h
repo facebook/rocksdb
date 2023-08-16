@@ -2132,6 +2132,10 @@ struct WaitForCompactOptions {
   // returned Aborted status due to unreleased snapshots in the system. See
   // comments in DB::Close() for details.
   bool close_db = false;
+
+  // Timeout in microseconds for waiting for compaction to complete.
+  // Status::TimedOut will be returned if timeout expires.
+  uint64_t timeout_micros = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
