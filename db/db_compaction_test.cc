@@ -3339,11 +3339,10 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
-                        DBCompactionWaitForCompactTest,
-                        ::testing::Combine(testing::Bool(), testing::Bool(),
-                                           testing::Bool(),
-                                           testing::Values(0, 5000000)));
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionWaitForCompactTest, DBCompactionWaitForCompactTest,
+    ::testing::Combine(testing::Bool(), testing::Bool(), testing::Bool(),
+                       testing::Values(0, 5 * 60 * 1000000ULL)));  // 5 minutes
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3590,14 +3589,19 @@ TEST_P(DBCompactionWaitForCompactTest,
 }
 
 TEST_P(DBCompactionWaitForCompactTest, WaitForCompactToTimeout) {
-  // Triggers a compaction. Before the compaction finishes, mock enough seconds
-  // to trigger timeout if wait_for_compact_options_.timeout_micros > 0, we
-  // expect WaitForCompact to return Status::TimedOut
+  // When timeout_micros is set, this test makes CompactionJob hangs forever
+  // using sync point. This test also sets the timeout to be 1 second for
+  // WaitForCompact to time out early. WaitForCompact() is expected to return
+  // Status::TimedOut.
+  // When timeout_micros is not set, we expect WaitForCompact() to wait
+  // indefinitely. We don't want the test to hang forever. When timeout_micros =
+  // 0, this test is not much different from
+  // WaitForCompactWaitsOnCompactionToFinish
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::WaitForCompact:StartWaiting",
-        "DBCompactionTest::WaitForCompactTimedOut:0"},
-       {"DBCompactionTest::WaitForCompactTimedOut:1",
+        "DBCompactionTest::WaitForCompactToTimeout:0"},
+       {"DBCompactionTest::WaitForCompactToTimeout:1",
         "CompactionJob::Run():Start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -3609,24 +3613,23 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactToTimeout) {
 
   // Wait for Compaction in another thread
   auto waiting_for_compaction_thread = port::Thread([this]() {
+    if (wait_for_compact_options_.timeout_micros) {
+      // Make timeout shorter to finish test early
+      wait_for_compact_options_.timeout_micros = 1000000;
+    } else {
+      // if timeout is not set, WaitForCompact() will wait forever. We don't
+      // want test to hang forever. Just let compaction go through
+      TEST_SYNC_POINT("DBCompactionTest::WaitForCompactToTimeout:1");
+    }
     Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
     if (wait_for_compact_options_.timeout_micros) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsTimedOut());
     } else {
-      // When timeout_micros=0, WaitForCompact will wait indefinitely. In this
-      // test, compaction finishes eventually.
       ASSERT_OK(s);
     }
   });
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactTimedOut:0");
-
-  // Waiting has started, but compaction job hasn't. mock sleep to trigger
-  // timeout
-  env_->SleepForMicroseconds(wait_for_compact_options_.timeout_micros + 100);
-
-  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactTimedOut:1");
-
+  TEST_SYNC_POINT("DBCompactionTest::WaitForCompactToTimeout:0");
   waiting_for_compaction_thread.join();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
