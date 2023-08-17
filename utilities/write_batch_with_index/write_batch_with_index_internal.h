@@ -51,8 +51,6 @@ class BaseDeltaIterator : public Iterator {
   Slice key() const override;
   Slice value() const override;
   Status status() const override;
-  Status Refresh(const Snapshot*) override;
-  using Iterator::Refresh;
   void Invalidate(Status s);
 
  private:

@@ -187,10 +187,6 @@ Status BaseDeltaIterator::status() const {
   return delta_iterator_->status();
 }
 
-Status BaseDeltaIterator::Refresh(const Snapshot* snap) {
-  return base_iterator_->Refresh(snap);
-}
-
 void BaseDeltaIterator::Invalidate(Status s) { status_ = s; }
 
 void BaseDeltaIterator::AssertInvariants() {
