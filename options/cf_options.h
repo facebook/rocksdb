@@ -176,7 +176,9 @@ struct MutableCFOptions {
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level),
-        memtable_max_range_deletions(options.memtable_max_range_deletions) {
+        memtable_max_range_deletions(options.memtable_max_range_deletions),
+        bottommost_file_compaction_delay(
+            options.bottommost_file_compaction_delay) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -321,6 +323,7 @@ struct MutableCFOptions {
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
   uint32_t memtable_max_range_deletions;
+  uint32_t bottommost_file_compaction_delay;
 
   // Derived options
   // Per-level target file size.

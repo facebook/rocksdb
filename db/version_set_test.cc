@@ -130,7 +130,9 @@ class VersionStorageInfoTestBase : public testing::Test {
         mutable_cf_options_(options_),
         vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel,
                   /*src_vstorage=*/nullptr,
-                  /*_force_consistency_checks=*/false) {}
+                  /*_force_consistency_checks=*/false,
+                  EpochNumberRequirement::kMustPresent, ioptions_.clock,
+                  mutable_cf_options_.bottommost_file_compaction_delay) {}
 
   ~VersionStorageInfoTestBase() override {
     for (int i = 0; i < vstorage_.num_levels(); ++i) {

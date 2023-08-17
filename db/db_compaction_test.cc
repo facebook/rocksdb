@@ -4126,11 +4126,6 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   // files does not need to be preserved in case of a future snapshot.
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
-  // release snapshot and wait for compactions to finish. Single-file
-  // compactions should be triggered, which reduce the size of each bottom-level
-  // file without changing file count.
-  db_->ReleaseSnapshot(snapshot);
-  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
@@ -4138,6 +4133,11 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
                     CompactionReason::kBottommostFiles);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // release snapshot and wait for compactions to finish. Single-file
+  // compactions should be triggered, which reduce the size of each bottom-level
+  // file without changing file count.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   db_->GetLiveFilesMetaData(&post_release_metadata);
   ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
@@ -4151,6 +4151,78 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
     // deletion markers/deleted keys.
     ASSERT_LT(post_file.size, pre_file.size);
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, DelayCompactBottomLevelFilesWithDeletions) {
+  // bottom-level files may contain deletions due to snapshots protecting the
+  // deleted keys. Once the snapshot is released and the files are old enough,
+  // we should see them undergo single-file compactions.
+  Options options = CurrentOptions();
+  env_->SetMockSleep();
+  options.bottommost_file_compaction_delay = 3600;
+  DestroyAndReopen(options);
+  CreateColumnFamilies({"one"}, options);
+  const int kNumKey = 100;
+  const int kValLen = 100;
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKey; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
+  }
+  const Snapshot* snapshot = db_->GetSnapshot();
+  for (int i = 0; i < kNumKey; i += 2) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  std::vector<LiveFileMetaData> pre_release_metadata;
+  db_->GetLiveFilesMetaData(&pre_release_metadata);
+  ASSERT_EQ(1, pre_release_metadata.size());
+  std::atomic_int compaction_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->compaction_reason() ==
+                    CompactionReason::kBottommostFiles);
+        compaction_count++;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
+  // files does not need to be preserved in case of a future snapshot.
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_NE(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
+  // release snapshot will not trigger compaction.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_EQ(kMaxSequenceNumber, dbfull()->bottommost_files_mark_threshold_);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(0, compaction_count);
+  // Now the file is old enough for compaction.
+  env_->MockSleepForSeconds(3600);
+  // Another flush will trigger re-computation of the compaction score
+  // to find out that the file is qualified for compaction.
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(1, compaction_count);
+
+  std::vector<LiveFileMetaData> post_release_metadata;
+  db_->GetLiveFilesMetaData(&post_release_metadata);
+  ASSERT_EQ(2, post_release_metadata.size());
+
+  const auto& pre_file = pre_release_metadata[0];
+  // Get the L1 (bottommost level) file.
+  const auto& post_file = post_release_metadata[0].level == 0
+                              ? post_release_metadata[1]
+                              : post_release_metadata[0];
+
+  ASSERT_EQ(1, pre_file.level);
+  ASSERT_EQ(1, post_file.level);
+  // the file is smaller than it was before as it was rewritten without
+  // deletion markers/deleted keys.
+  ASSERT_LT(post_file.size, pre_file.size);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 

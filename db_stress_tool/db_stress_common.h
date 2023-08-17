@@ -330,6 +330,8 @@ DECLARE_bool(enable_thread_tracking);
 
 DECLARE_uint32(memtable_max_range_deletions);
 
+DECLARE_uint32(bottommost_file_compaction_delay);
+
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);

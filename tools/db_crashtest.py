@@ -213,6 +213,8 @@ default_params = {
     "min_write_buffer_number_to_merge": lambda: random.choice([1, 2]),
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
+    # 0 (disable) is the default and more commonly used value.
+    "bottommost_file_compaction_delay": lambda: random.choice([0, 0, 0, 600, 3600, 86400]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"

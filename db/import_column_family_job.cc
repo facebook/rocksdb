@@ -185,7 +185,8 @@ Status ImportColumnFamilyJob::Run() {
       &cfd_->internal_comparator(), cfd_->user_comparator(),
       cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
       nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
-      EpochNumberRequirement::kMightMissing);
+      EpochNumberRequirement::kMightMissing, cfd_->ioptions()->clock,
+      cfd_->GetLatestMutableCFOptions()->bottommost_file_compaction_delay);
   Status s;
 
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {

@@ -1136,6 +1136,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_protection_bytes_per_key = 0;
 
   // UNDER CONSTRUCTION -- DO NOT USE
@@ -1199,7 +1200,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint8_t block_protection_bytes_per_key = 0;
+
+  // For leveled compaction, RocksDB may compact a file at the bottommost level
+  // if it can compact away data that were protected by some snapshot.
+  // The compaction reason in LOG for this kind of compactions is
+  // "BottommostFiles". Usually such compaction can happen as soon as a
+  // relevant snapshot is released. This option allows user to delay
+  // such compactions. A file is qualified for "BottommostFiles" compaction
+  // if it is at least "bottommost_file_compaction_delay" seconds old.
+  //
+  // Default: 0 (no delay)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t bottommost_file_compaction_delay = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

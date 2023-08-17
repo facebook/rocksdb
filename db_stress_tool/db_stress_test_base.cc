@@ -3331,6 +3331,9 @@ void InitializeOptionsFromFlags(
   options.enable_thread_tracking = FLAGS_enable_thread_tracking;
 
   options.memtable_max_range_deletions = FLAGS_memtable_max_range_deletions;
+
+  options.bottommost_file_compaction_delay =
+      FLAGS_bottommost_file_compaction_delay;
 }
 
 void InitializeOptionsGeneral(

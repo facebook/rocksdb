@@ -1113,4 +1113,8 @@ DEFINE_uint32(memtable_max_range_deletions, 0,
               "If nonzero, RocksDB will try to flush the current memtable"
               "after the number of range deletions is >= this limit");
 
+DEFINE_uint32(bottommost_file_compaction_delay, 0,
+              "Delay kBottommostFiles compaction by this amount of seconds."
+              "See more in option comment.");
+
 #endif  // GFLAGS
