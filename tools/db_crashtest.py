@@ -106,7 +106,6 @@ default_params = {
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
-    "post_verification_only": 0,
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -136,6 +135,7 @@ default_params = {
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "value_size_mult": 32,
+    "verification_only": 0,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -818,7 +818,7 @@ def blackbox_crash_main(args, unknown_args):
     # We should run the test one more time with VerifyOnly setup and no-timeout
     # Only do this if the tests are not failed for total-duration
     print("Running final time for verification")
-    cmd_params.update({"post_verification_only": 1})
+    cmd_params.update({"verification_only": 1})
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )

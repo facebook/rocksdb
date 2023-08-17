@@ -19,7 +19,7 @@ void ThreadBody(void* v) {
   SharedState* shared = thread->shared;
 
   if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning() &&
-      !FLAGS_post_verification_only) {
+      !FLAGS_verification_only) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -32,7 +32,7 @@ void ThreadBody(void* v) {
       shared->GetCondVar()->Wait();
     }
   }
-  if (!FLAGS_post_verification_only) {
+  if (!FLAGS_verification_only) {
     thread->shared->GetStressTest()->OperateDb(thread);
   }
   {
@@ -64,7 +64,7 @@ bool RunStressTestImpl(SharedState* shared) {
   StressTest* stress = shared->GetStressTest();
 
   if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes &&
-      !FLAGS_post_verification_only) {
+      !FLAGS_verification_only) {
     Status s = InitUnverifiedSubdir(FLAGS_db);
     if (s.ok() && !FLAGS_expected_values_dir.empty()) {
       s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
@@ -127,7 +127,7 @@ bool RunStressTestImpl(SharedState* shared) {
     while (!shared->AllInitialized()) {
       shared->GetCondVar()->Wait();
     }
-    if (shared->ShouldVerifyAtBeginning()) {
+    if (shared->ShouldVerifyAtBeginning() && !FLAGS_verification_only) {
       if (shared->HasVerificationFailedYet()) {
         fprintf(stderr, "Crash-recovery verification failed :(\n");
       } else {
@@ -150,7 +150,7 @@ bool RunStressTestImpl(SharedState* shared) {
       stress->TrackExpectedState(shared);
     }
 
-    if (!FLAGS_post_verification_only) {
+    if (!FLAGS_verification_only) {
       now = clock->NowMicros();
       fprintf(stdout, "%s Starting database operations\n",
               clock->TimeToString(now / 1000000).c_str());
@@ -183,14 +183,14 @@ bool RunStressTestImpl(SharedState* shared) {
     }
   }
 
-  // If we are running post_verification_only
+  // If we are running verification_only
   // stats will be empty and trying to report them will
   // emit no ops or writes error. To avoid this, merging and reporting stats
-  // are not executed when running with post_verification_only
+  // are not executed when running with verification_only
   // TODO: We need to create verification stats (e.g. how many keys
   // are verified by which method) and report them here instead of operation
   // stats.
-  if (!FLAGS_post_verification_only) {
+  if (!FLAGS_verification_only) {
     for (unsigned int i = 1; i < n; i++) {
       threads[0]->stats.Merge(threads[i]->stats);
     }
@@ -208,7 +208,7 @@ bool RunStressTestImpl(SharedState* shared) {
             clock->TimeToString(now / 1000000).c_str());
   }
 
-  if (!FLAGS_post_verification_only) {
+  if (!FLAGS_verification_only) {
     stress->PrintStatistics();
   }
 
