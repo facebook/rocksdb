@@ -2468,28 +2468,28 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
     iter->Seek(Key(1));
     verify_iter(1, 3);
     // Refresh to same snapshot
-    iter->Refresh(snapshot);
+    ASSERT_OK(iter->Refresh(snapshot));
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
     iter->Seek(Key(3));
     verify_iter(3, 6);
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
 
     // Refresh to a newer snapshot
-    iter->Refresh(snapshot2);
+    ASSERT_OK(iter->Refresh(snapshot2));
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
     iter->SeekToFirst();
     verify_iter(0, 4, /*new_key2=*/true);
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
 
     // Refresh to an older snapshot
-    iter->Refresh(snapshot);
+    ASSERT_OK(iter->Refresh(snapshot));
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
     iter->Seek(Key(3));
     verify_iter(3, 6);
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
 
     // Refresh to no snapshot
-    iter->Refresh();
+    ASSERT_OK(iter->Refresh());
     ASSERT_TRUE(iter->status().ok() && !iter->Valid());
     iter->Seek(Key(2));
     verify_iter(2, 4, /*new_key2=*/true);
@@ -2500,7 +2500,7 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
     ASSERT_OK(Flush());
 
     // Refresh back to original snapshot
-    iter->Refresh(snapshot);
+    ASSERT_OK(iter->Refresh(snapshot));
   }
 
   delete iter;
