@@ -28,8 +28,8 @@ namespace ROCKSDB_NAMESPACE {
  * presented to the callback. This could be revisited in future
  * if performance is lacking.
  */
-class TransactionNotifierJniCallback: public JniCallback,
-    public TransactionNotifier {
+class TransactionNotifierJniCallback : public JniCallback,
+                                       public TransactionNotifier {
  public:
   TransactionNotifierJniCallback(JNIEnv* env, jobject jtransaction_notifier);
   virtual void SnapshotCreated(const Snapshot* newSnapshot);

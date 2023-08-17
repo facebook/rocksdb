@@ -66,7 +66,7 @@ public class Options extends RocksObject
       final ColumnFamilyOptions columnFamilyOptions) {
     super(newOptions(dbOptions.nativeHandle_,
         columnFamilyOptions.nativeHandle_));
-    env_ = Env.getDefault();
+    env_ = dbOptions.getEnv() != null ? dbOptions.getEnv() : Env.getDefault();
   }
 
   /**

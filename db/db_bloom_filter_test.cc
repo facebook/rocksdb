@@ -43,7 +43,7 @@ const std::string kStandard128Ribbon =
     test::Standard128RibbonFilterPolicy::kClassName();
 const std::string kAutoBloom = BloomFilterPolicy::kClassName();
 const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
-}  // namespace
+}  // anonymous namespace
 
 // DB tests related to bloom filter.
 
@@ -622,7 +622,7 @@ class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
   bool skip_;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   constexpr int maxKey = 10;
@@ -767,10 +767,10 @@ INSTANTIATE_TEST_CASE_P(
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
-    ::testing::Values(
-        std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
-        std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
-        std::make_tuple(kAutoRibbon, false, kLatestFormatVersion)));
+    ::testing::Values(std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
+                      std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
+                      std::make_tuple(kAutoRibbon, false,
+                                      kLatestFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -840,7 +840,7 @@ std::vector<CompatibilityConfig> kCompatibilityConfigs = {
      BlockBasedTableOptions().format_version},
     {kCompatibilityRibbonPolicy, true, BlockBasedTableOptions().format_version},
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   Options options = CurrentOptions();
@@ -1229,7 +1229,7 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
      *
      *  The test is designed in a way such that the reservation for (p1 - b')
      *  will trigger at least another dummy entry insertion
-     *  (or equivelantly to saying, creating another peak).
+     *  (or equivalently to saying, creating another peak).
      *
      * kStandard128Ribbon + FullFilter +
      * detect_filter_construct_corruption
@@ -1678,7 +1678,7 @@ class TestingContextCustomFilterPolicy
  private:
   mutable std::string test_report_;
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
   auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
@@ -2186,16 +2186,14 @@ INSTANTIATE_TEST_CASE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
                             std::make_tuple(false, 2),
                             std::make_tuple(false, 3),
                             std::make_tuple(false, 4),
-                            std::make_tuple(false, 5),
-                            std::make_tuple(true, 2),
-                            std::make_tuple(true, 3),
-                            std::make_tuple(true, 4),
+                            std::make_tuple(false, 5), std::make_tuple(true, 2),
+                            std::make_tuple(true, 3), std::make_tuple(true, 4),
                             std::make_tuple(true, 5)));
 
 #ifndef ROCKSDB_LITE
 namespace {
 static const std::string kPlainTable = "test_PlainTableBloom";
-}  // namespace
+}  // anonymous namespace
 
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
@@ -2408,7 +2406,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     dbtest->Flush();
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, PrefixScan) {
   while (ChangeFilterOptions()) {
@@ -2620,8 +2618,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
       BottommostLevelCompaction::kSkip;
   compact_options.change_level = true;
   compact_options.target_level = 7;
-  ASSERT_TRUE(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr)
-                  .IsNotSupported());
+  ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
 
   ASSERT_EQ(trivial_move, 1);
   ASSERT_EQ(non_trivial_move, 0);
@@ -3219,7 +3216,7 @@ std::pair<uint64_t, uint64_t> CheckedAndUseful(uint64_t checked,
                                                uint64_t useful) {
   return {checked, useful};
 }
-}  // namespace
+}  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
 // one of the old obsolete, unnecessary axioms of prefix extraction:
@@ -3427,7 +3424,7 @@ class NonIdempotentFixed4Transform : public SliceTransform {
 
   bool InDomain(const Slice& src) const override { return src.size() >= 5; }
 };
-}  // namespace
+}  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
 // two of the old obsolete, unnecessary axioms of prefix extraction:

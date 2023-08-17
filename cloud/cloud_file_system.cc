@@ -84,10 +84,6 @@ void CloudFileSystemOptions::Dump(Logger* log) const {
     Header(log, "          COptions.cloud_file_deletion_delay: %ld",
            cloud_file_deletion_delay->count());
   }
-  if (sst_file_cache != nullptr) {
-    Header(log, "           COptions.sst_file_cache size: %ld bytes",
-           sst_file_cache->GetCapacity());
-  }
 }
 
 bool CloudFileSystemOptions::GetNameFromEnvironment(const char* name,

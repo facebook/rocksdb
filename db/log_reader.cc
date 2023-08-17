@@ -21,8 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace log {
 
-Reader::Reporter::~Reporter() {
-}
+Reader::Reporter::~Reporter() {}
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
@@ -241,9 +240,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         FALLTHROUGH_INTENDED;
 
       case kBadRecordChecksum:
-        if (recycled_ &&
-            wal_recovery_mode ==
-                WALRecoveryMode::kTolerateCorruptedTailRecords) {
+        if (recycled_ && wal_recovery_mode ==
+                             WALRecoveryMode::kTolerateCorruptedTailRecords) {
           scratch->clear();
           return false;
         }
@@ -297,9 +295,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   return false;
 }
 
-uint64_t Reader::LastRecordOffset() {
-  return last_record_offset_;
-}
+uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
 
 uint64_t Reader::LastRecordEnd() {
   return end_of_buffer_offset_ - buffer_.size();
@@ -361,11 +357,11 @@ void Reader::UnmarkEOFInternal() {
   if (read_buffer.data() != backing_store_ + eof_offset_) {
     // Read did not write to backing_store_
     memmove(backing_store_ + eof_offset_, read_buffer.data(),
-      read_buffer.size());
+            read_buffer.size());
   }
 
   buffer_ = Slice(backing_store_ + consumed_bytes,
-    eof_offset_ + added - consumed_bytes);
+                  eof_offset_ + added - consumed_bytes);
 
   if (added < remaining) {
     eof_ = true;
@@ -385,7 +381,7 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
   }
 }
 
-bool Reader::ReadMore(size_t* drop_size, int *error) {
+bool Reader::ReadMore(size_t* drop_size, int* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
@@ -519,10 +515,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
 
       size_t uncompressed_size = 0;
       int remaining = 0;
+      const char* input = header + header_size;
       do {
-        remaining = uncompress_->Uncompress(header + header_size, length,
-                                            uncompressed_buffer_.get(),
-                                            &uncompressed_size);
+        remaining = uncompress_->Uncompress(
+            input, length, uncompressed_buffer_.get(), &uncompressed_size);
+        input = nullptr;
         if (remaining < 0) {
           buffer_.clear();
           return kBadRecord;
@@ -834,10 +831,11 @@ bool FragmentBufferedReader::TryReadFragment(
     uncompressed_record_.clear();
     size_t uncompressed_size = 0;
     int remaining = 0;
+    const char* input = header + header_size;
     do {
-      remaining = uncompress_->Uncompress(header + header_size, length,
-                                          uncompressed_buffer_.get(),
-                                          &uncompressed_size);
+      remaining = uncompress_->Uncompress(
+          input, length, uncompressed_buffer_.get(), &uncompressed_size);
+      input = nullptr;
       if (remaining < 0) {
         buffer_.clear();
         *fragment_type_or_err = kBadRecord;

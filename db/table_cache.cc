@@ -31,16 +31,6 @@
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
-namespace ROCKSDB_NAMESPACE {
-namespace {
-template <class T>
-static void DeleteEntry(const Slice& /*key*/, void* value) {
-  T* typed_value = reinterpret_cast<T*>(value);
-  delete typed_value;
-}
-}  // namespace
-}  // namespace ROCKSDB_NAMESPACE
-
 // Generate the regular and coroutine versions of some methods by
 // including table_cache_sync_and_async.h twice
 // Macros in the header will expand differently based on whether
@@ -58,12 +48,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-static void UnrefEntry(void* arg1, void* arg2) {
-  Cache* cache = reinterpret_cast<Cache*>(arg1);
-  Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
-  cache->Release(h);
-}
-
 static Slice GetSliceForFileNumber(const uint64_t* file_number) {
   return Slice(reinterpret_cast<const char*>(file_number),
                sizeof(*file_number));
@@ -79,7 +63,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace
+}  // anonymous namespace
 
 const int kLoadConcurency = 128;
 
@@ -103,16 +87,7 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
   }
 }
 
-TableCache::~TableCache() {
-}
-
-TableReader* TableCache::GetTableReaderFromHandle(Cache::Handle* handle) {
-  return reinterpret_cast<TableReader*>(cache_->Value(handle));
-}
-
-void TableCache::ReleaseHandle(Cache::Handle* handle) {
-  cache_->Release(handle);
-}
+TableCache::~TableCache() {}
 
 Status TableCache::GetTableReader(
     const ReadOptions& ro, const FileOptions& file_options,
@@ -128,6 +103,8 @@ Status TableCache::GetTableReader(
   FileOptions fopts = file_options;
   fopts.temperature = file_temperature;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
+  TEST_SYNC_POINT_CALLBACK("TableCache::GetTableReader:BeforeOpenFile",
+                           const_cast<Status*>(&s));
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
@@ -177,17 +154,10 @@ Status TableCache::GetTableReader(
   return s;
 }
 
-void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
-  ReleaseHandle(handle);
-  uint64_t number = fd.GetNumber();
-  Slice key = GetSliceForFileNumber(&number);
-  cache_->Erase(key);
-}
-
 Status TableCache::FindTable(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator,
-    const FileMetaData& file_meta, Cache::Handle** handle,
+    const FileMetaData& file_meta, TypedHandle** handle,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool no_io, bool record_read_stats, HistogramImpl* file_read_hist,
     bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
@@ -195,7 +165,7 @@ Status TableCache::FindTable(
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = file_meta.fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
-  *handle = cache_->Lookup(key);
+  *handle = cache_.Lookup(key);
   TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:0",
                            const_cast<bool*>(&no_io));
 
@@ -205,7 +175,7 @@ Status TableCache::FindTable(
     }
     MutexLock load_lock(loader_mutex_.get(key));
     // We check the cache again under loading mutex
-    *handle = cache_->Lookup(key);
+    *handle = cache_.Lookup(key);
     if (*handle != nullptr) {
       return Status::OK();
     }
@@ -223,8 +193,7 @@ Status TableCache::FindTable(
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      s = cache_->Insert(key, table_reader.get(), 1, &DeleteEntry<TableReader>,
-                         handle);
+      s = cache_.Insert(key, table_reader.get(), 1, handle);
       if (s.ok()) {
         // Release ownership of table reader.
         table_reader.release();
@@ -250,7 +219,7 @@ InternalIterator* TableCache::NewIterator(
 
   Status s;
   TableReader* table_reader = nullptr;
-  Cache::Handle* handle = nullptr;
+  TypedHandle* handle = nullptr;
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
@@ -265,7 +234,7 @@ InternalIterator* TableCache::NewIterator(
         level, true /* prefetch_index_and_filter_in_cache */,
         max_file_size_for_l0_meta_pin, file_meta.temperature);
     if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(handle);
+      table_reader = cache_.Value(handle);
     }
   }
   InternalIterator* result = nullptr;
@@ -279,7 +248,7 @@ InternalIterator* TableCache::NewIterator(
           file_options.compaction_readahead_size, allow_unprepared_value);
     }
     if (handle != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, handle);
+      cache_.RegisterReleaseAsCleanup(handle, *result);
       handle = nullptr;  // prevent from releasing below
     }
 
@@ -329,7 +298,7 @@ InternalIterator* TableCache::NewIterator(
   }
 
   if (handle != nullptr) {
-    ReleaseHandle(handle);
+    cache_.Release(handle);
   }
   if (!s.ok()) {
     assert(result == nullptr);
@@ -347,12 +316,12 @@ Status TableCache::GetRangeTombstoneIterator(
   const FileDescriptor& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
+  TypedHandle* handle = nullptr;
   if (t == nullptr) {
     s = FindTable(options, file_options_, internal_comparator, file_meta,
                   &handle);
     if (s.ok()) {
-      t = GetTableReaderFromHandle(handle);
+      t = cache_.Value(handle);
     }
   }
   if (s.ok()) {
@@ -361,9 +330,9 @@ Status TableCache::GetRangeTombstoneIterator(
   }
   if (handle) {
     if (*out_iter) {
-      (*out_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
+      cache_.RegisterReleaseAsCleanup(handle, **out_iter);
     } else {
-      ReleaseHandle(handle);
+      cache_.Release(handle);
     }
   }
   return s;
@@ -410,16 +379,10 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
   bool found = false;
 
   row_cache_key.TrimAppend(prefix_size, user_key.data(), user_key.size());
-  if (auto row_handle =
-          ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
+  RowCacheInterface row_cache{ioptions_.row_cache.get()};
+  if (auto row_handle = row_cache.Lookup(row_cache_key.GetUserKey())) {
     // Cleanable routine to release the cache entry
     Cleanable value_pinner;
-    auto release_cache_entry_func = [](void* cache_to_clean,
-                                       void* cache_handle) {
-      ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
-    };
-    auto found_row_cache_entry =
-        static_cast<const std::string*>(ioptions_.row_cache->Value(row_handle));
     // If it comes here value is located on the cache.
     // found_row_cache_entry points to the value on cache,
     // and value_pinner has cleanup procedure for the cached entry.
@@ -428,9 +391,8 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
     // cleanup routine under value_pinner will be delegated to
     // get_context.pinnable_slice_. Cache entry is released when
     // get_context.pinnable_slice_ is reset.
-    value_pinner.RegisterCleanup(release_cache_entry_func,
-                                 ioptions_.row_cache.get(), row_handle);
-    replayGetContextLog(*found_row_cache_entry, user_key, get_context,
+    row_cache.RegisterReleaseAsCleanup(row_handle, value_pinner);
+    replayGetContextLog(*row_cache.Value(row_handle), user_key, get_context,
                         &value_pinner);
     RecordTick(ioptions_.stats, ROW_CACHE_HIT);
     found = true;
@@ -469,7 +431,7 @@ Status TableCache::Get(
 #endif  // ROCKSDB_LITE
   Status s;
   TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
+  TypedHandle* handle = nullptr;
   if (!done) {
     assert(s.ok());
     if (t == nullptr) {
@@ -480,7 +442,7 @@ Status TableCache::Get(
                     level, true /* prefetch_index_and_filter_in_cache */,
                     max_file_size_for_l0_meta_pin, file_meta.temperature);
       if (s.ok()) {
-        t = GetTableReaderFromHandle(handle);
+        t = cache_.Value(handle);
       }
     }
     SequenceNumber* max_covering_tombstone_seq =
@@ -516,18 +478,17 @@ Status TableCache::Get(
 #ifndef ROCKSDB_LITE
   // Put the replay log in row cache only if something was found.
   if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
+    RowCacheInterface row_cache{ioptions_.row_cache.get()};
     size_t charge = row_cache_entry->capacity() + sizeof(std::string);
-    void* row_ptr = new std::string(std::move(*row_cache_entry));
+    auto row_ptr = new std::string(std::move(*row_cache_entry));
     // If row cache is full, it's OK to continue.
-    ioptions_.row_cache
-        ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                 &DeleteEntry<std::string>)
+    row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge)
         .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
-    ReleaseHandle(handle);
+    cache_.Release(handle);
   }
   return s;
 }
@@ -560,7 +521,7 @@ Status TableCache::MultiGetFilter(
     const FileMetaData& file_meta,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     HistogramImpl* file_read_hist, int level,
-    MultiGetContext::Range* mget_range, Cache::Handle** table_handle) {
+    MultiGetContext::Range* mget_range, TypedHandle** table_handle) {
   auto& fd = file_meta.fd;
 #ifndef ROCKSDB_LITE
   IterKey row_cache_key;
@@ -576,7 +537,7 @@ Status TableCache::MultiGetFilter(
 #endif  // ROCKSDB_LITE
   Status s;
   TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
+  TypedHandle* handle = nullptr;
   MultiGetContext::Range tombstone_range(*mget_range, mget_range->begin(),
                                          mget_range->end());
   if (t == nullptr) {
@@ -587,7 +548,7 @@ Status TableCache::MultiGetFilter(
         level, true /* prefetch_index_and_filter_in_cache */,
         /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature);
     if (s.ok()) {
-      t = GetTableReaderFromHandle(handle);
+      t = cache_.Value(handle);
     }
     *table_handle = handle;
   }
@@ -601,7 +562,7 @@ Status TableCache::MultiGetFilter(
     UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
   }
   if (mget_range->empty() && handle) {
-    ReleaseHandle(handle);
+    cache_.Release(handle);
     *table_handle = nullptr;
   }
 
@@ -622,16 +583,16 @@ Status TableCache::GetTableProperties(
     return Status::OK();
   }
 
-  Cache::Handle* table_handle = nullptr;
+  TypedHandle* table_handle = nullptr;
   Status s = FindTable(ReadOptions(), file_options, internal_comparator,
                        file_meta, &table_handle, prefix_extractor, no_io);
   if (!s.ok()) {
     return s;
   }
   assert(table_handle);
-  auto table = GetTableReaderFromHandle(table_handle);
+  auto table = cache_.Value(table_handle);
   *properties = table->GetTableProperties();
-  ReleaseHandle(table_handle);
+  cache_.Release(table_handle);
   return s;
 }
 
@@ -640,18 +601,18 @@ Status TableCache::ApproximateKeyAnchors(
     const FileMetaData& file_meta, std::vector<TableReader::Anchor>& anchors) {
   Status s;
   TableReader* t = file_meta.fd.table_reader;
-  Cache::Handle* handle = nullptr;
+  TypedHandle* handle = nullptr;
   if (t == nullptr) {
     s = FindTable(ro, file_options_, internal_comparator, file_meta, &handle);
     if (s.ok()) {
-      t = GetTableReaderFromHandle(handle);
+      t = cache_.Value(handle);
     }
   }
   if (s.ok() && t != nullptr) {
     s = t->ApproximateKeyAnchors(ro, anchors);
   }
   if (handle != nullptr) {
-    ReleaseHandle(handle);
+    cache_.Release(handle);
   }
   return s;
 }
@@ -667,27 +628,17 @@ size_t TableCache::GetMemoryUsageByTableReader(
     return table_reader->ApproximateMemoryUsage();
   }
 
-  Cache::Handle* table_handle = nullptr;
+  TypedHandle* table_handle = nullptr;
   Status s = FindTable(ReadOptions(), file_options, internal_comparator,
                        file_meta, &table_handle, prefix_extractor, true);
   if (!s.ok()) {
     return 0;
   }
   assert(table_handle);
-  auto table = GetTableReaderFromHandle(table_handle);
+  auto table = cache_.Value(table_handle);
   auto ret = table->ApproximateMemoryUsage();
-  ReleaseHandle(table_handle);
+  cache_.Release(table_handle);
   return ret;
-}
-
-bool TableCache::HasEntry(Cache* cache, uint64_t file_number) {
-  Cache::Handle* handle = cache->Lookup(GetSliceForFileNumber(&file_number));
-  if (handle) {
-    cache->Release(handle);
-    return true;
-  } else {
-    return false;
-  }
 }
 
 void TableCache::Evict(Cache* cache, uint64_t file_number) {
@@ -700,7 +651,7 @@ uint64_t TableCache::ApproximateOffsetOf(
     const std::shared_ptr<const SliceTransform>& prefix_extractor) {
   uint64_t result = 0;
   TableReader* table_reader = file_meta.fd.table_reader;
-  Cache::Handle* table_handle = nullptr;
+  TypedHandle* table_handle = nullptr;
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
     Status s =
@@ -708,7 +659,7 @@ uint64_t TableCache::ApproximateOffsetOf(
                   &table_handle, prefix_extractor, false /* no_io */,
                   !for_compaction /* record_read_stats */);
     if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(table_handle);
+      table_reader = cache_.Value(table_handle);
     }
   }
 
@@ -716,7 +667,7 @@ uint64_t TableCache::ApproximateOffsetOf(
     result = table_reader->ApproximateOffsetOf(key, caller);
   }
   if (table_handle != nullptr) {
-    ReleaseHandle(table_handle);
+    cache_.Release(table_handle);
   }
 
   return result;
@@ -728,7 +679,7 @@ uint64_t TableCache::ApproximateSize(
     const std::shared_ptr<const SliceTransform>& prefix_extractor) {
   uint64_t result = 0;
   TableReader* table_reader = file_meta.fd.table_reader;
-  Cache::Handle* table_handle = nullptr;
+  TypedHandle* table_handle = nullptr;
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
     Status s =
@@ -736,7 +687,7 @@ uint64_t TableCache::ApproximateSize(
                   &table_handle, prefix_extractor, false /* no_io */,
                   !for_compaction /* record_read_stats */);
     if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(table_handle);
+      table_reader = cache_.Value(table_handle);
     }
   }
 
@@ -744,7 +695,7 @@ uint64_t TableCache::ApproximateSize(
     result = table_reader->ApproximateSize(start, end, caller);
   }
   if (table_handle != nullptr) {
-    ReleaseHandle(table_handle);
+    cache_.Release(table_handle);
   }
 
   return result;

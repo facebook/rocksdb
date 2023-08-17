@@ -20,7 +20,7 @@ class TimeSetClock : public SystemClockWrapper {
   uint64_t now_micros_ = 6666;
   uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };
-}  // namespace
+}  // anonymous namespace
 class WriteControllerTest : public testing::Test {
  public:
   WriteControllerTest() { clock_ = std::make_shared<TimeSetClock>(); }

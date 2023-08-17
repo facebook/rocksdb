@@ -399,7 +399,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
   // Write rows with keys 00000, 00002, 00004 etc.
   for (int i = 0; i < NROWS; ++i) {
     char buf[100];
-    snprintf(buf, sizeof(buf), "%05d", 2*i);
+    snprintf(buf, sizeof(buf), "%05d", 2 * i);
     std::string key(buf);
     std::string value("value");
     ASSERT_OK(db_->Put(WriteOptions(), key, value));
@@ -539,7 +539,6 @@ TEST_P(DBTestTailingIterator, SeekWithUpperBoundBug) {
   const Slice upper_bound("cc", 3);
   read_options.iterate_upper_bound = &upper_bound;
 
-
   // 1st L0 file
   ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
   ASSERT_OK(Flush());
@@ -564,7 +563,6 @@ TEST_P(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
   }
   const Slice upper_bound("cc", 3);
   read_options.iterate_upper_bound = &upper_bound;
-
 
   // 1st L0 file
   ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
@@ -599,8 +597,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
-  (void) argc;
-  (void) argv;
+  (void)argc;
+  (void)argv;
   return 0;
 #endif
 }

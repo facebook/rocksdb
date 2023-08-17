@@ -150,6 +150,7 @@ DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
+DECLARE_bool(fifo_allow_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);
 DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
@@ -508,8 +509,8 @@ extern inline std::string Key(int64_t val) {
     if (offset < weight) {
       // Use the bottom 3 bits of offset as the number of trailing 'x's in the
       // key. If the next key is going to be of the next level, then skip the
-      // trailer as it would break ordering. If the key length is already at max,
-      // skip the trailer.
+      // trailer as it would break ordering. If the key length is already at
+      // max, skip the trailer.
       if (offset < weight - 1 && level < levels - 1) {
         size_t trailer_len = offset & 0x7;
         key.append(trailer_len, 'x');

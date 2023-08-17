@@ -1137,7 +1137,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
  private:
   DBTestBase* db_test;
 };
-}  // namespace
+}  // anonymous namespace
 
 #ifndef ROCKSDB_LITE
 
@@ -1205,6 +1205,8 @@ void CheckColumnFamilyMeta(
                 file_meta_from_files.file_creation_time);
       ASSERT_GE(file_meta_from_cf.file_creation_time, start_time);
       ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
+      ASSERT_EQ(file_meta_from_cf.epoch_number,
+                file_meta_from_files.epoch_number);
       ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
       ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
       // More from FileStorageInfo
@@ -1255,6 +1257,7 @@ void CheckLiveFilesMeta(
     ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
     ASSERT_EQ(meta.oldest_blob_file_number,
               expected_meta.oldest_blob_file_number);
+    ASSERT_EQ(meta.epoch_number, expected_meta.epoch_number);
 
     // More from FileStorageInfo
     ASSERT_EQ(meta.file_type, kTableFile);
@@ -1492,7 +1495,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   }
   return true;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
@@ -2845,7 +2848,7 @@ static void MTThreadBody(void* arg) {
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
 
-}  // namespace
+}  // anonymous namespace
 
 class MultiThreadedDBTest
     : public DBTest,
@@ -2931,7 +2934,7 @@ static void GCThreadBody(void* arg) {
   t->done = true;
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, GroupCommitTest) {
   do {
@@ -3076,6 +3079,11 @@ class ModelDB : public DB {
       return s;
     }
     return Write(o, &batch);
+  }
+  Status Merge(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+               const Slice& /*k*/, const Slice& /*ts*/,
+               const Slice& /*value*/) override {
+    return Status::NotSupported();
   }
   using DB::Get;
   Status Get(const ReadOptions& /*options*/, ColumnFamilyHandle* /*cf*/,
@@ -4667,7 +4675,7 @@ void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
   }
   ASSERT_EQ(op_count, expected_count);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, GetThreadStatus) {
   Options options;

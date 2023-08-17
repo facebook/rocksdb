@@ -11,7 +11,9 @@
 
 #include <memory>
 
+#include "db/version_edit.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/slice_transform.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -69,4 +71,22 @@ class BaseReferencedVersionBuilder {
   Version* version_;
 };
 
+class NewestFirstBySeqNo {
+ public:
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+    }
+
+    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+  }
+};
 }  // namespace ROCKSDB_NAMESPACE

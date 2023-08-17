@@ -161,9 +161,8 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
 
   // Update cur_compactions_reserved_size_ so concurrent compaction
   // don't max out space
-  size_t needed_headroom =
-      cur_compactions_reserved_size_ + size_added_by_compaction +
-      compaction_buffer_size_;
+  size_t needed_headroom = cur_compactions_reserved_size_ +
+                           size_added_by_compaction + compaction_buffer_size_;
   if (max_allowed_space_ != 0 &&
       (needed_headroom + total_files_size_ > max_allowed_space_)) {
     return false;
@@ -415,13 +414,12 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
   return false;
 }
 
-Status SstFileManagerImpl::ScheduleFileDeletion(
-    const std::string& file_path, const std::string& path_to_sync,
-    const bool force_bg) {
+Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path,
+                                                const std::string& path_to_sync,
+                                                const bool force_bg) {
   TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::ScheduleFileDeletion",
                            const_cast<std::string*>(&file_path));
-  return delete_scheduler_.DeleteFile(file_path, path_to_sync,
-                                      force_bg);
+  return delete_scheduler_.DeleteFile(file_path, path_to_sync, force_bg);
 }
 
 void SstFileManagerImpl::WaitForEmptyTrash() {

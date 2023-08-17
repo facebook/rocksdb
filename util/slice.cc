@@ -128,7 +128,7 @@ class CappedPrefixTransform : public SliceTransform {
 
 class NoopTransform : public SliceTransform {
  public:
-  explicit NoopTransform() { }
+  explicit NoopTransform() {}
 
   static const char* kClassName() { return "rocksdb.Noop"; }
   const char* Name() const override { return kClassName(); }

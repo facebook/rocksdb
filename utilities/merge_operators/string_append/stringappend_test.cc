@@ -10,7 +10,7 @@
  *
  * @author Deon Nicholas (dnicholas@fb.com)
  * Copyright 2013 Facebook, Inc.
-*/
+ */
 
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -26,7 +26,6 @@
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
-
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -73,18 +72,15 @@ std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
 /// Supports Append(list, string) and Get(list)
 class StringLists {
  public:
-
-  //Constructor: specifies the rocksdb db
+  // Constructor: specifies the rocksdb db
   /* implicit */
   StringLists(std::shared_ptr<DB> db)
-      : db_(db),
-        merge_option_(),
-        get_option_() {
+      : db_(db), merge_option_(), get_option_() {
     assert(db);
   }
 
   // Append string val onto the list defined by key; return true on success
-  bool Append(const std::string& key, const std::string& val){
+  bool Append(const std::string& key, const std::string& val) {
     Slice valSlice(val.data(), val.size());
     auto s = db_->Merge(merge_option_, key, valSlice);
 
@@ -97,8 +93,8 @@ class StringLists {
   }
 
   // Returns the list of strings associated with key (or "" if does not exist)
-  bool Get(const std::string& key, std::string* const result){
-    assert(result != nullptr); // we should have a place to store the result
+  bool Get(const std::string& key, std::string* const result) {
+    assert(result != nullptr);  // we should have a place to store the result
     auto s = db_->Get(get_option_, key, result);
 
     if (s.ok()) {
@@ -106,10 +102,10 @@ class StringLists {
     }
 
     // Either key does not exist, or there is some error.
-    *result = "";       // Always return empty string (just for convention)
+    *result = "";  // Always return empty string (just for convention)
 
-    //NotFound is okay; just return empty (similar to std::map)
-    //But network or db errors, etc, should fail the test (or at least yell)
+    // NotFound is okay; just return empty (similar to std::map)
+    // But network or db errors, etc, should fail the test (or at least yell)
     if (!s.IsNotFound()) {
       std::cerr << "ERROR " << s.ToString() << std::endl;
     }
@@ -118,14 +114,11 @@ class StringLists {
     return false;
   }
 
-
  private:
   std::shared_ptr<DB> db_;
   WriteOptions merge_option_;
   ReadOptions get_option_;
-
 };
-
 
 // The class for unit-testing
 class StringAppendOperatorTest : public testing::Test,
@@ -153,14 +146,13 @@ class StringAppendOperatorTest : public testing::Test,
 
   // Allows user to open databases with different configurations.
   // e.g.: Can open a DB or a TtlDB, etc.
-  static void SetOpenDbFunction(OpenFuncPtr func) {
-    OpenDb = func;
-  }
+  static void SetOpenDbFunction(OpenFuncPtr func) { OpenDb = func; }
 
  protected:
   static OpenFuncPtr OpenDb;
 };
-StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb = nullptr;
+StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb =
+    nullptr;
 
 // THE TEST CASES BEGIN HERE
 
@@ -206,7 +198,6 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
     }
   }
 
-
   // Should release the snapshot and be aware of the new stuff now
   it.reset(db_->NewIterator(ReadOptions()));
   first = true;
@@ -236,7 +227,7 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
   it.reset(db_->NewIterator(ReadOptions()));
   first = true;
   std::string k3("k3");
-  for(it->Seek(k2); it->Valid(); it->Next()) {
+  for (it->Seek(k2); it->Valid(); it->Next()) {
     res = it->value().ToString();
     if (first) {
       ASSERT_EQ(res, "a1,a2,a3,a4");
@@ -245,7 +236,7 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
       ASSERT_EQ(res, "g1");
     }
   }
-  for(it->Seek(k3); it->Valid(); it->Next()) {
+  for (it->Seek(k3); it->Valid(); it->Next()) {
     res = it->value().ToString();
     if (first) {
       // should not be hit
@@ -353,7 +344,7 @@ TEST_P(StringAppendOperatorTest, VariousKeys) {
   sb = slists.Get("b", &b);
   sc = slists.Get("c", &c);
 
-  ASSERT_TRUE(sa && sb && sc); // All three keys should have been found
+  ASSERT_TRUE(sa && sb && sc);  // All three keys should have been found
 
   ASSERT_EQ(a, "x\nt\nr");
   ASSERT_EQ(b, "y\n2");
@@ -367,22 +358,23 @@ TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
 
   // Generate a list of random keys and values
   const int kWordCount = 15;
-  std::string words[] = {"sdasd", "triejf", "fnjsdfn", "dfjisdfsf", "342839",
-                         "dsuha", "mabuais", "sadajsid", "jf9834hf", "2d9j89",
-                         "dj9823jd", "a", "dk02ed2dh", "$(jd4h984$(*", "mabz"};
+  std::string words[] = {"sdasd",     "triejf",       "fnjsdfn",  "dfjisdfsf",
+                         "342839",    "dsuha",        "mabuais",  "sadajsid",
+                         "jf9834hf",  "2d9j89",       "dj9823jd", "a",
+                         "dk02ed2dh", "$(jd4h984$(*", "mabz"};
   const int kKeyCount = 6;
-  std::string keys[] = {"dhaiusdhu", "denidw", "daisda", "keykey", "muki",
-                        "shzassdianmd"};
+  std::string keys[] = {"dhaiusdhu", "denidw", "daisda",
+                        "keykey",    "muki",   "shzassdianmd"};
 
   // Will store a local copy of all data in order to verify correctness
   std::map<std::string, std::string> parallel_copy;
 
   // Generate a bunch of random queries (Append and Get)!
-  enum query_t  { APPEND_OP, GET_OP, NUM_OPS };
-  Random randomGen(1337);       //deterministic seed; always get same results!
+  enum query_t { APPEND_OP, GET_OP, NUM_OPS };
+  Random randomGen(1337);  // deterministic seed; always get same results!
 
   const int kNumQueries = 30;
-  for (int q=0; q<kNumQueries; ++q) {
+  for (int q = 0; q < kNumQueries; ++q) {
     // Generate a random query (Append or Get) and random parameters
     query_t query = (query_t)randomGen.Uniform((int)NUM_OPS);
     std::string key = keys[randomGen.Uniform((int)kKeyCount)];
@@ -390,9 +382,8 @@ TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
 
     // Apply the query and any checks.
     if (query == APPEND_OP) {
-
       // Apply the rocksdb test-harness Append defined above
-      slists.Append(key, word);  //apply the rocksdb append
+      slists.Append(key, word);  // apply the rocksdb append
 
       // Apply the similar "Append" to the parallel copy
       if (parallel_copy[key].size() > 0) {
@@ -407,7 +398,6 @@ TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
       slists.Get(key, &res);
       ASSERT_EQ(res, parallel_copy[key]);
     }
-
   }
 }
 
@@ -417,32 +407,32 @@ TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
 
   // Generate a list of random keys and values
   const int kWordCount = 15;
-  std::string words[] = {"sdasd", "triejf", "fnjsdfn", "dfjisdfsf", "342839",
-                         "dsuha", "mabuais", "sadajsid", "jf9834hf", "2d9j89",
-                         "dj9823jd", "a", "dk02ed2dh", "$(jd4h984$(*", "mabz"};
+  std::string words[] = {"sdasd",     "triejf",       "fnjsdfn",  "dfjisdfsf",
+                         "342839",    "dsuha",        "mabuais",  "sadajsid",
+                         "jf9834hf",  "2d9j89",       "dj9823jd", "a",
+                         "dk02ed2dh", "$(jd4h984$(*", "mabz"};
   const int kKeyCount = 6;
-  std::string keys[] = {"dhaiusdhu", "denidw", "daisda", "keykey", "muki",
-                        "shzassdianmd"};
+  std::string keys[] = {"dhaiusdhu", "denidw", "daisda",
+                        "keykey",    "muki",   "shzassdianmd"};
 
   // Will store a local copy of all data in order to verify correctness
   std::map<std::string, std::string> parallel_copy;
 
   // Generate a bunch of random queries (Append and Get)!
-  enum query_t  { APPEND_OP, GET_OP, NUM_OPS };
-  Random randomGen(9138204);       // deterministic seed
+  enum query_t { APPEND_OP, GET_OP, NUM_OPS };
+  Random randomGen(9138204);  // deterministic seed
 
   const int kNumQueries = 1000;
-  for (int q=0; q<kNumQueries; ++q) {
+  for (int q = 0; q < kNumQueries; ++q) {
     // Generate a random query (Append or Get) and random parameters
     query_t query = (query_t)randomGen.Uniform((int)NUM_OPS);
     std::string key = keys[randomGen.Uniform((int)kKeyCount)];
     std::string word = words[randomGen.Uniform((int)kWordCount)];
 
-    //Apply the query and any checks.
+    // Apply the query and any checks.
     if (query == APPEND_OP) {
-
       // Apply the rocksdb test-harness Append defined above
-      slists.Append(key, word);  //apply the rocksdb append
+      slists.Append(key, word);  // apply the rocksdb append
 
       // Apply the similar "Append" to the parallel copy
       if (parallel_copy[key].size() > 0) {
@@ -457,7 +447,6 @@ TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
       slists.Get(key, &res);
       ASSERT_EQ(res, parallel_copy[key]);
     }
-
   }
 }
 
@@ -578,7 +567,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     ASSERT_TRUE(slists.Get("a", &a));
     ASSERT_EQ(a, "x\nt\nr");
 
-    //Append, Compact, Get
+    // Append, Compact, Get
     slists.Append("c", "bbnagnagsx");
     slists.Append("a", "sa");
     slists.Append("b", "df");
@@ -629,8 +618,8 @@ TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   ASSERT_TRUE(slists.Get("k1", &res));
 
   // Construct the desired string. Default constructor doesn't like '\0' chars.
-  std::string checker("v1,v2,v3");    // Verify that the string is right size.
-  checker[2] = '\0';                  // Use null delimiter instead of comma.
+  std::string checker("v1,v2,v3");  // Verify that the string is right size.
+  checker[2] = '\0';                // Use null delimiter instead of comma.
   checker[5] = '\0';
   ASSERT_EQ(checker.size(), 8);  // Verify it is still the correct size
 

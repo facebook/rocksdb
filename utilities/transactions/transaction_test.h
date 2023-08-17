@@ -223,12 +223,10 @@ class TransactionTestBase : public ::testing::Test {
   std::atomic<size_t> expected_commits = {0};
   // Without Prepare, the commit does not write to WAL
   std::atomic<size_t> with_empty_commits = {0};
-  std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
-                                                               Status exp_s) {
+  void TestTxn0(size_t index) {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
-    WriteOptions wopts;
-    auto s = db->Put(wopts, "key" + std::to_string(index), "value");
-    ASSERT_EQ(exp_s, s);
+    auto s = db->Put(WriteOptions(), "key" + std::to_string(index), "value");
+    ASSERT_OK(s);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq++;
@@ -241,11 +239,9 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     with_empty_commits++;
-  };
-  std::function<void(size_t)> txn_t0 = [&](size_t index) {
-    return txn_t0_with_status(index, Status::OK());
-  };
-  std::function<void(size_t)> txn_t1 = [&](size_t index) {
+  }
+
+  void TestTxn1(size_t index) {
     // Testing directly writing a write batch. Functionality-wise it is
     // equivalent to commit without prepare.
     WriteBatch wb;
@@ -253,8 +249,7 @@ class TransactionTestBase : public ::testing::Test {
     ASSERT_OK(wb.Put("k1" + istr, "v1"));
     ASSERT_OK(wb.Put("k2" + istr, "v2"));
     ASSERT_OK(wb.Put("k3" + istr, "v3"));
-    WriteOptions wopts;
-    auto s = db->Write(wopts, &wb);
+    auto s = db->Write(WriteOptions(), &wb);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 3;
@@ -268,12 +263,12 @@ class TransactionTestBase : public ::testing::Test {
     }
     ASSERT_OK(s);
     with_empty_commits++;
-  };
-  std::function<void(size_t)> txn_t2 = [&](size_t index) {
+  }
+
+  void TestTxn2(size_t index) {
     // Commit without prepare. It should write to DB without a commit marker.
-    TransactionOptions txn_options;
-    WriteOptions write_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
     auto istr = std::to_string(index);
     ASSERT_OK(txn->SetName("xid" + istr));
     ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
@@ -301,12 +296,12 @@ class TransactionTestBase : public ::testing::Test {
     }
     delete txn;
     with_empty_commits++;
-  };
-  std::function<void(size_t)> txn_t3 = [&](size_t index) {
+  }
+
+  void TestTxn3(size_t index) {
     // A full 2pc txn that also involves a commit marker.
-    TransactionOptions txn_options;
-    WriteOptions write_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
     auto istr = std::to_string(index);
     ASSERT_OK(txn->SetName("xid" + istr));
     ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
@@ -334,12 +329,12 @@ class TransactionTestBase : public ::testing::Test {
       exp_seq++;
     }
     delete txn;
-  };
-  std::function<void(size_t)> txn_t4 = [&](size_t index) {
+  }
+
+  void TestTxn4(size_t index) {
     // A full 2pc txn that also involves a commit marker.
-    TransactionOptions txn_options;
-    WriteOptions write_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    Transaction* txn =
+        db->BeginTransaction(WriteOptions(), TransactionOptions());
     auto istr = std::to_string(index);
     ASSERT_OK(txn->SetName("xid" + istr));
     ASSERT_OK(txn->Put(Slice("foo" + istr), Slice("bar")));
@@ -375,7 +370,7 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     delete txn;
-  };
+  }
 
   // Test that we can change write policy after a clean shutdown (which would
   // empty the WAL)

@@ -109,6 +109,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      RandomAccessFileReader* reader,
                                      uint64_t read_len,
                                      uint64_t rounddown_start, uint32_t index) {
+  TEST_SYNC_POINT("FilePrefetchBuffer::ReadAsync");
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
@@ -247,10 +248,14 @@ void FilePrefetchBuffer::AbortAllIOs() {
   // Release io_handles.
   if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
     DestroyAndClearIOHandle(curr_);
+  } else {
+    bufs_[curr_].async_read_in_progress_ = false;
   }
 
   if (bufs_[second].io_handle_ != nullptr && bufs_[second].del_fn_ != nullptr) {
     DestroyAndClearIOHandle(second);
+  } else {
+    bufs_[second].async_read_in_progress_ = false;
   }
 }
 
@@ -325,7 +330,16 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     uint64_t& tmp_offset, size_t& tmp_length) {
   Status s;
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
-  uint32_t second = curr_ ^ 1;
+  uint32_t second;
+
+  // Check if the first buffer has the required offset and the async read is
+  // still in progress. This should only happen if a prefetch was initiated
+  // by Seek, but the next access is at another offset.
+  if (bufs_[curr_].async_read_in_progress_ &&
+      IsOffsetInBufferWithAsyncProgress(offset, curr_)) {
+    PollAndUpdateBuffersIfNeeded(offset);
+  }
+  second = curr_ ^ 1;
 
   // If data is overlapping over two buffers, copy the data from curr_ and
   // call ReadAsync on curr_.

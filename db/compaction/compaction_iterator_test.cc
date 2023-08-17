@@ -203,7 +203,8 @@ class TestSnapshotChecker : public SnapshotChecker {
  public:
   explicit TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
-      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {{}})
+      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots =
+          {{}})
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 
@@ -811,6 +812,8 @@ TEST_P(PerKeyPlacementCompIteratorTest, SplitLastLevelData) {
   c_iter_->Next();
   ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(PerKeyPlacementCompIteratorTest, SnapshotData) {
@@ -876,6 +879,8 @@ TEST_P(PerKeyPlacementCompIteratorTest, ConflictWithSnapshot) {
   // output_to_penultimate_level.
   c_iter_->Next();
   ASSERT_TRUE(c_iter_->status().IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompIteratorTest,
@@ -1038,7 +1043,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        NotRemoveDeletionIfValuePresentToEarlierSnapshot) {
-  AddSnapshot(2,1);
+  AddSnapshot(2, 1);
   RunTest({test::KeyStr("a", 4, kTypeDeletion),
            test::KeyStr("a", 1, kTypeValue), test::KeyStr("b", 3, kTypeValue)},
           {"", "", ""},
@@ -1250,6 +1255,31 @@ TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
   }
 }
 
+TEST_P(CompactionIteratorTsGcTest, NoMergeEligibleForGc) {
+  constexpr char user_key[] = "a";
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(10002, user_key, 102, kTypeMerge),
+      test::KeyStr(10001, user_key, 101, kTypeMerge),
+      test::KeyStr(10000, user_key, 100, kTypeValue)};
+  const std::vector<std::string> input_values = {"2", "1", "a0"};
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendTESTOperator();
+  const std::vector<std::string>& expected_keys = input_keys;
+  const std::vector<std::string>& expected_values = input_values;
+  const std::vector<std::pair<bool, bool>> params = {
+      {false, false}, {false, true}, {true, true}};
+  for (const auto& param : params) {
+    const bool bottommost_level = param.first;
+    const bool key_not_exists_beyond_output_level = param.second;
+    RunTest(input_keys, input_values, expected_keys, expected_values,
+            /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+            /*compaction_filter=*/nullptr, bottommost_level,
+            /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+            key_not_exists_beyond_output_level,
+            /*full_history_ts_low=*/nullptr);
+  }
+}
+
 TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
   constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
   const std::vector<std::string> input_keys = {
@@ -1300,6 +1330,91 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
             /*bottommost_level=*/false,
             /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
             /*key_not_exists_beyond_output_level=*/true, &full_history_ts_low);
+  }
+}
+
+TEST_P(CompactionIteratorTsGcTest, SomeMergesOlderThanThreshold) {
+  constexpr char user_key[][2] = {"a", "f"};
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeMerge),
+      test::KeyStr(/*ts=*/19000, user_key[0], /*seq=*/2300, kTypeMerge),
+      test::KeyStr(/*ts=*/18000, user_key[0], /*seq=*/1800, kTypeMerge),
+      test::KeyStr(/*ts=*/16000, user_key[0], /*seq=*/1600, kTypeValue),
+      test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeMerge),
+      test::KeyStr(/*ts=*/17000, user_key[1], /*seq=*/1700, kTypeMerge),
+      test::KeyStr(/*ts=*/15000, user_key[1], /*seq=*/1600,
+                   kTypeDeletionWithTimestamp)};
+  const std::vector<std::string> input_values = {"25", "19", "18", "16",
+                                                 "19", "17", ""};
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendTESTOperator();
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 20000);
+
+  const std::vector<std::pair<bool, bool>> params = {
+      {false, false}, {false, true}, {true, true}};
+
+  {
+    AddSnapshot(1600);
+    AddSnapshot(1900);
+    const std::vector<std::string> expected_keys = {
+        test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeMerge),
+        test::KeyStr(/*ts=*/19000, user_key[0], /*seq=*/2300, kTypeMerge),
+        test::KeyStr(/*ts=*/18000, user_key[0], /*seq=*/1800, kTypeMerge),
+        test::KeyStr(/*ts=*/16000, user_key[0], /*seq=*/1600, kTypeValue),
+        test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeMerge),
+        test::KeyStr(/*ts=*/17000, user_key[1], /*seq=*/1700, kTypeMerge),
+        test::KeyStr(/*ts=*/15000, user_key[1], /*seq=*/1600,
+                     kTypeDeletionWithTimestamp)};
+    const std::vector<std::string> expected_values = {"25", "19", "18", "16",
+                                                      "19", "17", ""};
+    for (const auto& param : params) {
+      const bool bottommost_level = param.first;
+      const bool key_not_exists_beyond_output_level = param.second;
+      auto expected_keys_copy = expected_keys;
+      auto expected_values_copy = expected_values;
+      if (bottommost_level || key_not_exists_beyond_output_level) {
+        // the kTypeDeletionWithTimestamp will be dropped
+        expected_keys_copy.pop_back();
+        expected_values_copy.pop_back();
+        if (bottommost_level) {
+          // seq zero
+          expected_keys_copy[3] =
+              test::KeyStr(/*ts=*/0, user_key[0], /*seq=*/0, kTypeValue);
+        }
+      }
+      RunTest(input_keys, input_values, expected_keys_copy,
+              expected_values_copy,
+              /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+              /*compaction_filter=*/nullptr, bottommost_level,
+              /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+              key_not_exists_beyond_output_level, &full_history_ts_low);
+    }
+    ClearSnapshots();
+  }
+
+  // No snapshots
+  {
+    const std::vector<std::string> expected_keys = {
+        test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeValue),
+        test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeValue)};
+    const std::vector<std::string> expected_values = {"16,18,19,25", "17,19"};
+    for (const auto& param : params) {
+      const bool bottommost_level = param.first;
+      const bool key_not_exists_beyond_output_level = param.second;
+      auto expected_keys_copy = expected_keys;
+      auto expected_values_copy = expected_values;
+      if (bottommost_level) {
+        expected_keys_copy[1] =
+            test::KeyStr(/*ts=*/0, user_key[1], /*seq=*/0, kTypeValue);
+      }
+      RunTest(input_keys, input_values, expected_keys_copy,
+              expected_values_copy,
+              /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+              /*compaction_filter=*/nullptr, bottommost_level,
+              /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+              key_not_exists_beyond_output_level, &full_history_ts_low);
+    }
   }
 }
 

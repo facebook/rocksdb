@@ -11,6 +11,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cstdint>
+#include <forward_list>
 #include <functional>
 #include <map>
 #include <string>
@@ -23,6 +24,8 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BackupEngineReadOnlyBase;
+class BackupEngine;
 
 // The default DB file checksum function name.
 constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
@@ -270,6 +273,28 @@ inline BackupEngineOptions::ShareFilesNaming operator|(
   return static_cast<BackupEngineOptions::ShareFilesNaming>(l | r);
 }
 
+// Identifying information about a backup shared file that is (or might be)
+// excluded from a backup using exclude_files_callback.
+struct BackupExcludedFileInfo {
+  explicit BackupExcludedFileInfo(const std::string& _relative_file)
+      : relative_file(_relative_file) {}
+
+  // File name and path relative to the backup dir.
+  std::string relative_file;
+};
+
+// An auxiliary structure for exclude_files_callback
+struct MaybeExcludeBackupFile {
+  explicit MaybeExcludeBackupFile(BackupExcludedFileInfo&& _info)
+      : info(std::move(_info)) {}
+
+  // Identifying information about a backup shared file that could be excluded
+  const BackupExcludedFileInfo info;
+
+  // API user sets to true if the file should be excluded from this backup
+  bool exclude_decision = false;
+};
+
 struct CreateBackupOptions {
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
@@ -278,10 +303,31 @@ struct CreateBackupOptions {
 
   // Callback for reporting progress, based on callback_trigger_interval_size.
   //
-  // RocksDB callbacks are NOT exception-safe. A callback completing with an
-  // exception can lead to undefined behavior in RocksDB, including data loss,
-  // unreported corruption, deadlocks, and more.
-  std::function<void()> progress_callback = []() {};
+  // An exception thrown from the callback will result in Status::Aborted from
+  // the operation.
+  std::function<void()> progress_callback = {};
+
+  // A callback that allows the API user to select files for exclusion, such
+  // as if the files are known to exist in an alternate backup directory.
+  // Only "shared" files can be excluded from backups. This is an advanced
+  // feature because the BackupEngine user is trusted to keep track of files
+  // such that the DB can be restored.
+  //
+  // Input to the callback is a [begin,end) range of sharable files live in
+  // the DB being backed up, and the callback implementation sets
+  // exclude_decision=true for files to exclude. A callback offers maximum
+  // flexibility, e.g. if remote files are unavailable at backup time but
+  // whose existence has been recorded somewhere. In case of an empty or
+  // no-op callback, all files are included in the backup .
+  //
+  // To restore the DB, RestoreOptions::alternate_dirs must be used to provide
+  // the excluded files.
+  //
+  // An exception thrown from the callback will result in Status::Aborted from
+  // the operation.
+  std::function<void(MaybeExcludeBackupFile* files_begin,
+                     MaybeExcludeBackupFile* files_end)>
+      exclude_files_callback = {};
 
   // If false, background_thread_cpu_priority is ignored.
   // Otherwise, the cpu priority can be decreased,
@@ -299,6 +345,11 @@ struct RestoreOptions {
   // persisting in-memory databases.
   // Default: false
   bool keep_log_files;
+
+  // For backups that were created using exclude_files_callback, this
+  // option enables restoring those backups by providing BackupEngines on
+  // directories known to contain the required files.
+  std::forward_list<BackupEngineReadOnlyBase*> alternate_dirs;
 
   explicit RestoreOptions(bool _keep_log_files = false)
       : keep_log_files(_keep_log_files) {}
@@ -324,8 +375,14 @@ struct BackupInfo {
   // Backup API user metadata
   std::string app_metadata;
 
-  // Backup file details, if requested with include_file_details=true
+  // Backup file details, if requested with include_file_details=true.
+  // Does not include excluded_files.
   std::vector<BackupFileInfo> file_details;
+
+  // Identifying information about shared files that were excluded from the
+  // created backup. See exclude_files_callback and alternate_dirs.
+  // This information is only provided if include_file_details=true.
+  std::vector<BackupExcludedFileInfo> excluded_files;
 
   // DB "name" (a directory in the backup_env) for opening this backup as a
   // read-only DB. This should also be used as the DBOptions::wal_dir, such
@@ -348,8 +405,8 @@ struct BackupInfo {
 
   BackupInfo() {}
 
-  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
-             uint32_t _number_files, const std::string& _app_metadata)
+  explicit BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
+                      uint32_t _number_files, const std::string& _app_metadata)
       : backup_id(_backup_id),
         timestamp(_timestamp),
         size(_size),
@@ -364,8 +421,8 @@ class BackupStatistics {
     number_fail_backup = 0;
   }
 
-  BackupStatistics(uint32_t _number_success_backup,
-                   uint32_t _number_fail_backup)
+  explicit BackupStatistics(uint32_t _number_success_backup,
+                            uint32_t _number_fail_backup)
       : number_success_backup(_number_success_backup),
         number_fail_backup(_number_fail_backup) {}
 
@@ -462,6 +519,9 @@ class BackupEngineReadOnlyBase {
   // Returns Status::OK() if all checks are good
   virtual IOStatus VerifyBackup(BackupID backup_id,
                                 bool verify_with_checksum = false) const = 0;
+
+  // Internal use only
+  virtual BackupEngine* AsBackupEngine() = 0;
 };
 
 // Append-only functions of a BackupEngine. See BackupEngine comment for

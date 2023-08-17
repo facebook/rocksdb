@@ -128,7 +128,7 @@ class LogTest
     size_t dropped_bytes_;
     std::string message_;
 
-    ReportCollector() : dropped_bytes_(0) { }
+    ReportCollector() : dropped_bytes_(0) {}
     void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
@@ -185,9 +185,7 @@ class LogTest
     ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
-  size_t WrittenBytes() const {
-    return dest_contents().size();
-  }
+  size_t WrittenBytes() const { return dest_contents().size(); }
 
   std::string Read(const WALRecoveryMode wal_recovery_mode =
                        WALRecoveryMode::kTolerateCorruptedTailRecords) {
@@ -235,13 +233,9 @@ class LogTest
     source_->force_error_position_ = position;
   }
 
-  size_t DroppedBytes() const {
-    return report_.dropped_bytes_;
-  }
+  size_t DroppedBytes() const { return report_.dropped_bytes_; }
 
-  std::string ReportMessage() const {
-    return report_.message_;
-  }
+  std::string ReportMessage() const { return report_.message_; }
 
   void ForceEOF(size_t position = 0) {
     source_->force_eof_ = true;
@@ -389,7 +383,7 @@ TEST_P(LogTest, BadRecordType) {
 
 TEST_P(LogTest, TruncatedTrailingRecordIsIgnored) {
   Write("foo");
-  ShrinkSize(4);   // Drop all payload as well as a header byte
+  ShrinkSize(4);  // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
   // Truncated last record is ignored, not treated as an error
   ASSERT_EQ(0U, DroppedBytes());
@@ -581,7 +575,7 @@ TEST_P(LogTest, ErrorJoinsRecords) {
   Write("correct");
 
   // Wipe the middle block
-  for (unsigned int offset = kBlockSize; offset < 2*kBlockSize; offset++) {
+  for (unsigned int offset = kBlockSize; offset < 2 * kBlockSize; offset++) {
     SetByte(offset, 'x');
   }
 
@@ -985,6 +979,38 @@ TEST_P(CompressionLogTest, Fragmentation) {
   ASSERT_EQ("EOF", Read());
 }
 
+TEST_P(CompressionLogTest, AlignedFragmentation) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  Random rnd(301);
+  int num_filler_records = 0;
+  // Keep writing small records until the next record will be aligned at the
+  // beginning of the block.
+  while ((WrittenBytes() & (kBlockSize - 1)) >= kHeaderSize) {
+    char entry = 'a';
+    ASSERT_OK(writer_->AddRecord(Slice(&entry, 1)));
+    num_filler_records++;
+  }
+  const std::vector<std::string> wal_entries = {
+      rnd.RandomBinaryString(3 * kBlockSize),
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    Write(wal_entry);
+  }
+
+  for (int i = 0; i < num_filler_records; ++i) {
+    ASSERT_EQ("a", Read());
+  }
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
 INSTANTIATE_TEST_CASE_P(
     Compression, CompressionLogTest,
     ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
@@ -1032,10 +1058,11 @@ TEST_P(StreamingCompressionTest, Basic) {
   for (int i = 0; i < (int)compressed_buffers.size(); i++) {
     // Call uncompress till either the entire input is consumed or the output
     // buffer size is equal to the allocated output buffer size.
+    const char* input = compressed_buffers[i].c_str();
     do {
-      ret_val = uncompress->Uncompress(compressed_buffers[i].c_str(),
-                                       compressed_buffers[i].size(),
+      ret_val = uncompress->Uncompress(input, compressed_buffers[i].size(),
                                        uncompressed_output_buffer, &output_pos);
+      input = nullptr;
       if (output_pos > 0) {
         std::string uncompressed_fragment;
         uncompressed_fragment.assign(uncompressed_output_buffer, output_pos);

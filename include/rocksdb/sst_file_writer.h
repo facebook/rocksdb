@@ -68,9 +68,9 @@ struct ExternalSstFileInfo {
   std::string largest_range_del_key;  // largest range deletion user key in file
   std::string file_checksum;          // sst file checksum;
   std::string file_checksum_func_name;  // The name of file checksum function
-  SequenceNumber sequence_number;     // sequence number of all keys in file
-  uint64_t file_size;                 // file size in bytes
-  uint64_t num_entries;               // number of entries in file
+  SequenceNumber sequence_number;       // sequence number of all keys in file
+  uint64_t file_size;                   // file size in bytes
+  uint64_t num_entries;                 // number of entries in file
   uint64_t num_range_del_entries;  // number of range deletion entries in file
   int32_t version;                 // file version
 };

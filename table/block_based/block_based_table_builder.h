@@ -122,9 +122,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
   // Directly write data to the file.
-  void WriteMaybeCompressedBlock(const Slice& data, CompressionType,
-                                 BlockHandle* handle, BlockType block_type,
-                                 const Slice* raw_data = nullptr);
+  void WriteMaybeCompressedBlock(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 

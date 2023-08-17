@@ -6,9 +6,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef  OS_WIN
+#ifndef OS_WIN
 #include <unistd.h>
-#endif // ! OS_WIN
+#endif  // ! OS_WIN
 
 #include <atomic>
 #include <list>
@@ -45,7 +45,8 @@ class BlockCacheTier : public PersistentCacheTier {
       : opt_(opt),
         insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
-        writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
+        writer_(this, opt_.writer_qdepth,
+                static_cast<size_t>(opt_.writer_dispatch_size)) {
     Info(opt_.log, "Initializing allocator. size=%d B count=%" ROCKSDB_PRIszt,
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
@@ -147,7 +148,7 @@ class BlockCacheTier : public PersistentCacheTier {
   ThreadedWriter writer_;                       // Writer threads
   BlockCacheTierMetadata metadata_;             // Cache meta data manager
   std::atomic<uint64_t> size_{0};               // Size of the cache
-  Statistics stats_;                                 // Statistics
+  Statistics stats_;                            // Statistics
 };
 
 }  // namespace ROCKSDB_NAMESPACE

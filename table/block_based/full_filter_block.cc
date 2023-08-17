@@ -121,8 +121,7 @@ Slice FullFilterBlockBuilder::Finish(
 FullFilterBlockReader::FullFilterBlockReader(
     const BlockBasedTable* t,
     CachableEntry<ParsedFullFilterBlock>&& filter_block)
-    : FilterBlockReaderCommon(t, std::move(filter_block)) {
-}
+    : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
                                         const Slice* const /*const_ikey_ptr*/,
@@ -148,7 +147,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
                                      nullptr /* get_context */, lookup_context,
-                                     &filter_block, BlockType::kFilter);
+                                     &filter_block);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -178,9 +177,8 @@ bool FullFilterBlockReader::MayMatch(
     Env::IOPriority rate_limiter_priority) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block,
-                           BlockType::kFilter, rate_limiter_priority);
+  const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+                                        &filter_block, rate_limiter_priority);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -229,9 +227,9 @@ void FullFilterBlockReader::MayMatch(
     Env::IOPriority rate_limiter_priority) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s = GetOrReadFilterBlock(
-      no_io, range->begin()->get_context, lookup_context, &filter_block,
-      BlockType::kFilter, rate_limiter_priority);
+  const Status s =
+      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
+                           &filter_block, rate_limiter_priority);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

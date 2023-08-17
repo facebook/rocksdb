@@ -18,14 +18,14 @@ namespace ROCKSDB_NAMESPACE {
 class HistogramTest : public testing::Test {};
 
 namespace {
-  const double kIota = 0.1;
-  const HistogramBucketMapper bucketMapper;
-  std::shared_ptr<MockSystemClock> clock =
-      std::make_shared<MockSystemClock>(SystemClock::Default());
-}
+const double kIota = 0.1;
+const HistogramBucketMapper bucketMapper;
+std::shared_ptr<MockSystemClock> clock =
+    std::make_shared<MockSystemClock>(SystemClock::Default());
+}  // namespace
 
-void PopulateHistogram(Histogram& histogram,
-             uint64_t low, uint64_t high, uint64_t loop = 1) {
+void PopulateHistogram(Histogram& histogram, uint64_t low, uint64_t high,
+                       uint64_t loop = 1) {
   Random rnd(test::RandomSeed());
   for (; loop > 0; loop--) {
     for (uint64_t i = low; i <= high; i++) {
@@ -39,7 +39,7 @@ void PopulateHistogram(Histogram& histogram,
 }
 
 void BasicOperation(Histogram& histogram) {
-  PopulateHistogram(histogram, 1, 110, 10); // fill up to bucket [70, 110)
+  PopulateHistogram(histogram, 1, 110, 10);  // fill up to bucket [70, 110)
 
   HistogramData data;
   histogram.Data(&data);
@@ -47,8 +47,8 @@ void BasicOperation(Histogram& histogram) {
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 110.0), kIota);
   ASSERT_LE(fabs(data.percentile99 - 108.9), kIota);  // 99 * 110 / 100
   ASSERT_LE(fabs(data.percentile95 - 104.5), kIota);  // 95 * 110 / 100
-  ASSERT_LE(fabs(data.median - 55.0), kIota);  // 50 * 110 / 100
-  ASSERT_EQ(data.average, 55.5);  // (1 + 110) / 2
+  ASSERT_LE(fabs(data.median - 55.0), kIota);         // 50 * 110 / 100
+  ASSERT_EQ(data.average, 55.5);                      // (1 + 110) / 2
 }
 
 void MergeHistogram(Histogram& histogram, Histogram& other) {
@@ -62,8 +62,8 @@ void MergeHistogram(Histogram& histogram, Histogram& other) {
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 250.0), kIota);
   ASSERT_LE(fabs(data.percentile99 - 247.5), kIota);  // 99 * 250 / 100
   ASSERT_LE(fabs(data.percentile95 - 237.5), kIota);  // 95 * 250 / 100
-  ASSERT_LE(fabs(data.median - 125.0), kIota);  // 50 * 250 / 100
-  ASSERT_EQ(data.average, 125.5);  // (1 + 250) / 2
+  ASSERT_LE(fabs(data.median - 125.0), kIota);        // 50 * 250 / 100
+  ASSERT_EQ(data.average, 125.5);                     // (1 + 250) / 2
 }
 
 void EmptyHistogram(Histogram& histogram) {
@@ -139,8 +139,8 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   int micros_per_window = 1000000;
   uint64_t min_num_per_window = 0;
 
-  HistogramWindowingImpl
-      histogramWindowing(num_windows, micros_per_window, min_num_per_window);
+  HistogramWindowingImpl histogramWindowing(num_windows, micros_per_window,
+                                            min_num_per_window);
   histogramWindowing.TEST_UpdateClock(clock);
   PopulateHistogram(histogramWindowing, 1, 1, 100);
   clock->SleepForMicroseconds(micros_per_window);
@@ -190,10 +190,10 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   int micros_per_window = 1000000;
   uint64_t min_num_per_window = 0;
 
-  HistogramWindowingImpl
-      histogramWindowing(num_windows, micros_per_window, min_num_per_window);
-  HistogramWindowingImpl
-      otherWindowing(num_windows, micros_per_window, min_num_per_window);
+  HistogramWindowingImpl histogramWindowing(num_windows, micros_per_window,
+                                            min_num_per_window);
+  HistogramWindowingImpl otherWindowing(num_windows, micros_per_window,
+                                        min_num_per_window);
   histogramWindowing.TEST_UpdateClock(clock);
   otherWindowing.TEST_UpdateClock(clock);
 

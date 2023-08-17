@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 const uint64_t CACHE_LINE_MASK = ~((uint64_t)CACHE_LINE_SIZE - 1);
 const uint32_t kInvalidIndex = std::numeric_limits<uint32_t>::max();
-}
+}  // namespace
 
 extern const uint64_t kCuckooTableMagicNumber;
 
@@ -87,26 +87,26 @@ CuckooTableReader::CuckooTableReader(
     status_ = Status::Corruption("User key length not found");
     return;
   }
-  user_key_length_ = *reinterpret_cast<const uint32_t*>(
-      user_key_len->second.data());
+  user_key_length_ =
+      *reinterpret_cast<const uint32_t*>(user_key_len->second.data());
 
   auto value_length = user_props.find(CuckooTablePropertyNames::kValueLength);
   if (value_length == user_props.end()) {
     status_ = Status::Corruption("Value length not found");
     return;
   }
-  value_length_ = *reinterpret_cast<const uint32_t*>(
-      value_length->second.data());
+  value_length_ =
+      *reinterpret_cast<const uint32_t*>(value_length->second.data());
   bucket_length_ = key_length_ + value_length_;
 
-  auto hash_table_size = user_props.find(
-      CuckooTablePropertyNames::kHashTableSize);
+  auto hash_table_size =
+      user_props.find(CuckooTablePropertyNames::kHashTableSize);
   if (hash_table_size == user_props.end()) {
     status_ = Status::Corruption("Hash table size not found");
     return;
   }
-  table_size_ = *reinterpret_cast<const uint64_t*>(
-      hash_table_size->second.data());
+  table_size_ =
+      *reinterpret_cast<const uint64_t*>(hash_table_size->second.data());
 
   auto is_last_level = user_props.find(CuckooTablePropertyNames::kIsLastLevel);
   if (is_last_level == user_props.end()) {
@@ -115,31 +115,31 @@ CuckooTableReader::CuckooTableReader(
   }
   is_last_level_ = *reinterpret_cast<const bool*>(is_last_level->second.data());
 
-  auto identity_as_first_hash = user_props.find(
-      CuckooTablePropertyNames::kIdentityAsFirstHash);
+  auto identity_as_first_hash =
+      user_props.find(CuckooTablePropertyNames::kIdentityAsFirstHash);
   if (identity_as_first_hash == user_props.end()) {
     status_ = Status::Corruption("identity as first hash not found");
     return;
   }
-  identity_as_first_hash_ = *reinterpret_cast<const bool*>(
-      identity_as_first_hash->second.data());
+  identity_as_first_hash_ =
+      *reinterpret_cast<const bool*>(identity_as_first_hash->second.data());
 
-  auto use_module_hash = user_props.find(
-      CuckooTablePropertyNames::kUseModuleHash);
+  auto use_module_hash =
+      user_props.find(CuckooTablePropertyNames::kUseModuleHash);
   if (use_module_hash == user_props.end()) {
     status_ = Status::Corruption("hash type is not found");
     return;
   }
-  use_module_hash_ = *reinterpret_cast<const bool*>(
-      use_module_hash->second.data());
-  auto cuckoo_block_size = user_props.find(
-      CuckooTablePropertyNames::kCuckooBlockSize);
+  use_module_hash_ =
+      *reinterpret_cast<const bool*>(use_module_hash->second.data());
+  auto cuckoo_block_size =
+      user_props.find(CuckooTablePropertyNames::kCuckooBlockSize);
   if (cuckoo_block_size == user_props.end()) {
     status_ = Status::Corruption("Cuckoo block size not found");
     return;
   }
-  cuckoo_block_size_ = *reinterpret_cast<const uint32_t*>(
-      cuckoo_block_size->second.data());
+  cuckoo_block_size_ =
+      *reinterpret_cast<const uint32_t*>(cuckoo_block_size->second.data());
   cuckoo_block_bytes_minus_one_ = cuckoo_block_size_ * bucket_length_ - 1;
   // TODO: rate limit reads of whole cuckoo tables.
   status_ =
@@ -154,9 +154,10 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
   assert(key.size() == key_length_ + (is_last_level_ ? 8 : 0));
   Slice user_key = ExtractUserKey(key);
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
-    uint64_t offset = bucket_length_ * CuckooHash(
-        user_key, hash_cnt, use_module_hash_, table_size_,
-        identity_as_first_hash_, get_slice_hash_);
+    uint64_t offset =
+        bucket_length_ * CuckooHash(user_key, hash_cnt, use_module_hash_,
+                                    table_size_, identity_as_first_hash_,
+                                    get_slice_hash_);
     const char* bucket = &file_data_.data()[offset];
     for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
          ++block_idx, bucket += bucket_length_) {
@@ -195,9 +196,10 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
 void CuckooTableReader::Prepare(const Slice& key) {
   // Prefetch the first Cuckoo Block.
   Slice user_key = ExtractUserKey(key);
-  uint64_t addr = reinterpret_cast<uint64_t>(file_data_.data()) +
-    bucket_length_ * CuckooHash(user_key, 0, use_module_hash_, table_size_,
-                                identity_as_first_hash_, nullptr);
+  uint64_t addr =
+      reinterpret_cast<uint64_t>(file_data_.data()) +
+      bucket_length_ * CuckooHash(user_key, 0, use_module_hash_, table_size_,
+                                  identity_as_first_hash_, nullptr);
   uint64_t end_addr = addr + cuckoo_block_bytes_minus_one_;
   for (addr &= CACHE_LINE_MASK; addr < end_addr; addr += CACHE_LINE_SIZE) {
     PREFETCH(reinterpret_cast<const char*>(addr), 0, 3);
@@ -228,21 +230,22 @@ class CuckooTableIterator : public InternalIterator {
     BucketComparator(const Slice& file_data, const Comparator* ucomp,
                      uint32_t bucket_len, uint32_t user_key_len,
                      const Slice& target = Slice())
-      : file_data_(file_data),
-        ucomp_(ucomp),
-        bucket_len_(bucket_len),
-        user_key_len_(user_key_len),
-        target_(target) {}
+        : file_data_(file_data),
+          ucomp_(ucomp),
+          bucket_len_(bucket_len),
+          user_key_len_(user_key_len),
+          target_(target) {}
     bool operator()(const uint32_t first, const uint32_t second) const {
-      const char* first_bucket =
-        (first == kInvalidIndex) ? target_.data() :
-                                   &file_data_.data()[first * bucket_len_];
+      const char* first_bucket = (first == kInvalidIndex)
+                                     ? target_.data()
+                                     : &file_data_.data()[first * bucket_len_];
       const char* second_bucket =
-        (second == kInvalidIndex) ? target_.data() :
-                                    &file_data_.data()[second * bucket_len_];
+          (second == kInvalidIndex) ? target_.data()
+                                    : &file_data_.data()[second * bucket_len_];
       return ucomp_->Compare(Slice(first_bucket, user_key_len_),
                              Slice(second_bucket, user_key_len_)) < 0;
     }
+
    private:
     const Slice file_data_;
     const Comparator* ucomp_;
@@ -264,11 +267,11 @@ class CuckooTableIterator : public InternalIterator {
 };
 
 CuckooTableIterator::CuckooTableIterator(CuckooTableReader* reader)
-  : bucket_comparator_(reader->file_data_, reader->ucomp_,
-                       reader->bucket_length_, reader->user_key_length_),
-    reader_(reader),
-    initialized_(false),
-    curr_key_idx_(kInvalidIndex) {
+    : bucket_comparator_(reader->file_data_, reader->ucomp_,
+                         reader->bucket_length_, reader->user_key_length_),
+      reader_(reader),
+      initialized_(false),
+      curr_key_idx_(kInvalidIndex) {
   sorted_bucket_ids_.clear();
   curr_value_.clear();
   curr_key_.Clear();
@@ -278,7 +281,8 @@ void CuckooTableIterator::InitIfNeeded() {
   if (initialized_) {
     return;
   }
-  sorted_bucket_ids_.reserve(static_cast<size_t>(reader_->GetTableProperties()->num_entries));
+  sorted_bucket_ids_.reserve(
+      static_cast<size_t>(reader_->GetTableProperties()->num_entries));
   uint64_t num_buckets = reader_->table_size_ + reader_->cuckoo_block_size_ - 1;
   assert(num_buckets < kInvalidIndex);
   const char* bucket = reader_->file_data_.data();
@@ -289,7 +293,7 @@ void CuckooTableIterator::InitIfNeeded() {
     bucket += reader_->bucket_length_;
   }
   assert(sorted_bucket_ids_.size() ==
-      reader_->GetTableProperties()->num_entries);
+         reader_->GetTableProperties()->num_entries);
   std::sort(sorted_bucket_ids_.begin(), sorted_bucket_ids_.end(),
             bucket_comparator_);
   curr_key_idx_ = kInvalidIndex;
@@ -311,13 +315,11 @@ void CuckooTableIterator::SeekToLast() {
 void CuckooTableIterator::Seek(const Slice& target) {
   InitIfNeeded();
   const BucketComparator seek_comparator(
-      reader_->file_data_, reader_->ucomp_,
-      reader_->bucket_length_, reader_->user_key_length_,
-      ExtractUserKey(target));
-  auto seek_it = std::lower_bound(sorted_bucket_ids_.begin(),
-      sorted_bucket_ids_.end(),
-      kInvalidIndex,
-      seek_comparator);
+      reader_->file_data_, reader_->ucomp_, reader_->bucket_length_,
+      reader_->user_key_length_, ExtractUserKey(target));
+  auto seek_it =
+      std::lower_bound(sorted_bucket_ids_.begin(), sorted_bucket_ids_.end(),
+                       kInvalidIndex, seek_comparator);
   curr_key_idx_ =
       static_cast<uint32_t>(std::distance(sorted_bucket_ids_.begin(), seek_it));
   PrepareKVAtCurrIdx();
@@ -339,12 +341,12 @@ void CuckooTableIterator::PrepareKVAtCurrIdx() {
     return;
   }
   uint32_t id = sorted_bucket_ids_[curr_key_idx_];
-  const char* offset = reader_->file_data_.data() +
-                       id * reader_->bucket_length_;
+  const char* offset =
+      reader_->file_data_.data() + id * reader_->bucket_length_;
   if (reader_->is_last_level_) {
     // Always return internal key.
-    curr_key_.SetInternalKey(Slice(offset, reader_->user_key_length_),
-                             0, kTypeValue);
+    curr_key_.SetInternalKey(Slice(offset, reader_->user_key_length_), 0,
+                             kTypeValue);
   } else {
     curr_key_.SetInternalKey(Slice(offset, reader_->key_length_));
   }
@@ -388,8 +390,7 @@ InternalIterator* CuckooTableReader::NewIterator(
     const ReadOptions& /*read_options*/,
     const SliceTransform* /* prefix_extractor */, Arena* arena,
     bool /*skip_filters*/, TableReaderCaller /*caller*/,
-    size_t /*compaction_readahead_size*/,
-    bool /* allow_unprepared_value */) {
+    size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   if (!status().ok()) {
     return NewErrorInternalIterator<Slice>(
         Status::Corruption("CuckooTableReader status is not okay."), arena);

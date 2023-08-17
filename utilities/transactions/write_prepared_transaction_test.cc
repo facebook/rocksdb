@@ -1684,22 +1684,23 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     expected_commits = 0;
     std::vector<port::Thread> threads;
 
-    linked = 0;
+    linked.store(0, std::memory_order_release);
     std::atomic<bool> batch_formed(false);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::EnterAsBatchGroupLeader:End",
         [&](void* /*arg*/) { batch_formed = true; });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
-          linked++;
-          if (linked == 1) {
+          size_t orig_linked = linked.fetch_add(1, std::memory_order_acq_rel);
+          if (orig_linked == 0) {
             // Wait until the others are linked too.
-            while (linked < first_group_size) {
+            while (linked.load(std::memory_order_acquire) < first_group_size) {
             }
-          } else if (linked == 1 + first_group_size) {
+          } else if (orig_linked == first_group_size) {
             // Make the 2nd batch of the rest of writes plus any followup
             // commits from the first batch
-            while (linked < txn_cnt + commit_writes) {
+            while (linked.load(std::memory_order_acquire) <
+                   txn_cnt + commit_writes) {
             }
           }
           // Then we will have one or more batches consisting of follow-up
@@ -1713,32 +1714,33 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       size_t d = (n % base[bi + 1]) / base[bi];
       switch (d) {
         case 0:
-          threads.emplace_back(txn_t0, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn0, this, bi);
           break;
         case 1:
-          threads.emplace_back(txn_t1, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn1, this, bi);
           break;
         case 2:
-          threads.emplace_back(txn_t2, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn2, this, bi);
           break;
         case 3:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         case 4:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         default:
           FAIL();
       }
       // wait to be linked
-      while (linked.load() <= bi) {
+      while (linked.load(std::memory_order_acquire) <= bi) {
       }
       // after a queue of size first_group_size
       if (bi + 1 == first_group_size) {
         while (!batch_formed) {
         }
         // to make it more deterministic, wait until the commits are linked
-        while (linked.load() <= bi + expected_commits) {
+        while (linked.load(std::memory_order_acquire) <=
+               bi + expected_commits) {
         }
       }
     }
@@ -1792,7 +1794,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(ReOpen());
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
-  txn_t0(0);
+  TestTxn0(0);
 
   TransactionOptions txn_options;
   WriteOptions write_options;
@@ -1807,7 +1809,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_0 = txn0->GetId();
 
-  txn_t1(0);
+  TestTxn1(0);
 
   index++;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
@@ -1820,7 +1822,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_1 = txn1->GetId();
 
-  txn_t2(0);
+  TestTxn2(0);
 
   ReadOptions ropt;
   PinnableSlice pinnable_val;
@@ -1856,7 +1858,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
 
-  txn_t3(0);
+  TestTxn3(0);
 
   // Test that a recovered txns will be properly marked committed for the next
   // recovery
@@ -2120,7 +2122,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshot) {
           seq++;
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
-        } else {                                     // else commit it
+        } else {  // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
           wp_db->RemovePrepared(cur_txn);
@@ -3427,9 +3429,8 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
     auto* txn = db->BeginTransaction(WriteOptions());
 
     for (int i = 0; i < 2; i++) {
-      Iterator* iter = (i == 0)
-          ? db->NewIterator(ReadOptions())
-          : txn->GetIterator(ReadOptions());
+      Iterator* iter = (i == 0) ? db->NewIterator(ReadOptions())
+                                : txn->GetIterator(ReadOptions());
       // Seek
       iter->Seek("foo");
       verify_state(iter, "foo", expected_val);

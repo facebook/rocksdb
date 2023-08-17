@@ -315,6 +315,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     log_write_mutex_.Unlock();
     mutex_.Unlock();
+    TEST_SYNC_POINT_CALLBACK("FindObsoleteFiles::PostMutexUnlock", nullptr);
     log_write_mutex_.Lock();
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
@@ -360,6 +361,8 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion",
                            &file_deletion_status);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion2",
+                           const_cast<std::string*>(&fname));
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,

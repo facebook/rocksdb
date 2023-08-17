@@ -2490,7 +2490,7 @@ TEST_P(TransactionTest, FlushTest2) {
     ASSERT_OK(s);
     ASSERT_EQ("z", value);
 
-  delete txn;
+    delete txn;
   }
 }
 
@@ -2967,9 +2967,9 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> statuses(keys.size());
 
-  wb.MultiGetFromBatchAndDB(db, snapshot_read_options, handles[1], keys.size(), keys.data(),
-                values.data(), statuses.data(), false);
-  for (size_t i =0; i < keys.size(); ++i) {
+  wb.MultiGetFromBatchAndDB(db, snapshot_read_options, handles[1], keys.size(),
+                            keys.data(), values.data(), statuses.data(), false);
+  for (size_t i = 0; i < keys.size(); ++i) {
     if (i == 1) {
       ASSERT_TRUE(statuses[1].IsNotFound());
     } else if (i == 2) {
@@ -4674,7 +4674,7 @@ TEST_P(TransactionTest, TimeoutTest) {
   ASSERT_OK(s);
 
   TransactionOptions txn_options0;
-  txn_options0.expiration = 100;  // 100ms
+  txn_options0.expiration = 100;   // 100ms
   txn_options0.lock_timeout = 50;  // txn timeout no longer infinite
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options0);
 
@@ -5619,7 +5619,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     size_t branch = 0;
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
-    txn_t0(0);
+    TestTxn0(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
@@ -5637,28 +5637,11 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     }
 
     // Doing it twice might detect some bugs
-    txn_t0(1);
+    TestTxn0(1);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
-    txn_t1(0);
-    seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      ASSERT_OK(db_impl->Flush(fopt));
-      seq = db_impl->TEST_GetLastVisibleSequence();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (!short_test && branch_do(n, &branch)) {
-      ASSERT_OK(db_impl->FlushWAL(true));
-      ASSERT_OK(ReOpenNoDelete());
-      db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t3(0);
+    TestTxn1(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
@@ -5675,7 +5658,24 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t4(0);
+    TestTxn3(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      ASSERT_OK(db_impl->Flush(fopt));
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      ASSERT_OK(db_impl->FlushWAL(true));
+      ASSERT_OK(ReOpenNoDelete());
+      db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    TestTxn4(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
 
     ASSERT_EQ(exp_seq, seq);
@@ -5693,7 +5693,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t2(0);
+    TestTxn2(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
@@ -6528,6 +6528,117 @@ TEST_P(TransactionTest, WriteWithBulkCreatedColumnFamilies) {
     delete h;
   }
   cf_handles.clear();
+}
+
+TEST_P(TransactionTest, LockWal) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (TxnDBWritePolicy::WRITE_COMMITTED != write_policy) {
+    ROCKSDB_GTEST_BYPASS("Test only write-committed for now");
+    return;
+  }
+  ASSERT_OK(ReOpen());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"TransactionTest::LockWal:AfterLockWal",
+        "TransactionTest::LockWal:BeforePrepareTxn2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<Transaction> txn0;
+  WriteOptions wopts;
+  wopts.no_slowdown = true;
+  txn0.reset(db->BeginTransaction(wopts, TransactionOptions()));
+  ASSERT_OK(txn0->SetName("txn0"));
+  ASSERT_OK(txn0->Put("foo", "v0"));
+
+  std::unique_ptr<Transaction> txn1;
+  txn1.reset(db->BeginTransaction(wopts, TransactionOptions()));
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn1->Put("dummy", "v0"));
+  ASSERT_OK(txn1->Prepare());
+
+  std::unique_ptr<Transaction> txn2;
+  port::Thread worker([&]() {
+    txn2.reset(db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn2->SetName("txn2"));
+    ASSERT_OK(txn2->Put("bar", "v0"));
+    TEST_SYNC_POINT("TransactionTest::LockWal:BeforePrepareTxn2");
+    ASSERT_OK(txn2->Prepare());
+    ASSERT_OK(txn2->Commit());
+  });
+  ASSERT_OK(db->LockWAL());
+  // txn0 cannot prepare
+  Status s = txn0->Prepare();
+  ASSERT_TRUE(s.IsIncomplete());
+  // txn1 cannot commit
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsIncomplete());
+
+  TEST_SYNC_POINT("TransactionTest::LockWal:AfterLockWal");
+
+  ASSERT_OK(db->UnlockWAL());
+  txn0.reset();
+
+  txn0.reset(db->BeginTransaction(wopts, TransactionOptions()));
+  ASSERT_OK(txn0->SetName("txn0_1"));
+  ASSERT_OK(txn0->Put("foo", "v1"));
+  ASSERT_OK(txn0->Prepare());
+  ASSERT_OK(txn0->Commit());
+  worker.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_P(TransactionTest, StallTwoWriteQueues) {
+  // There was a two_write_queues bug in which both write thread leaders (for
+  // each queue) would attempt to own the stopping of writes in the primary
+  // write queue. This nearly worked but could lead to some broken assertions
+  // and a kind of deadlock in the test below. (Would resume if someone
+  // eventually signalled bg_cv_ again.)
+  if (!options.two_write_queues) {
+    ROCKSDB_GTEST_BYPASS("Test only needed with two_write_queues");
+    return;
+  }
+
+  // Stop writes
+  ASSERT_OK(db->LockWAL());
+
+  WriteOptions wopts;
+  wopts.sync = true;
+  wopts.disableWAL = false;
+
+  // Create one write thread that blocks in the primary write queue and one
+  // that blocks in the nonmem queue.
+  bool t1_completed = false;
+  bool t2_completed = false;
+  port::Thread t1{[&]() {
+    ASSERT_OK(db->Put(wopts, "x", "y"));
+    t1_completed = true;
+  }};
+  port::Thread t2{[&]() {
+    std::unique_ptr<Transaction> txn0{db->BeginTransaction(wopts, {})};
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Prepare());  // nonmem
+    ASSERT_OK(txn0->Commit());
+    t2_completed = true;
+  }};
+
+  // Sleep long enough to that above threads can usually reach a waiting point,
+  // to usually reveal deadlock if the bug is present.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Ensure proper test setup
+  ASSERT_FALSE(t1_completed);
+  ASSERT_FALSE(t2_completed);
+
+  // Resume writes
+  ASSERT_OK(db->UnlockWAL());
+
+  // Wait for writes to finish
+  t1.join();
+  t2.join();
+  // Ensure proper test setup
+  ASSERT_TRUE(t1_completed);
+  ASSERT_TRUE(t2_completed);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

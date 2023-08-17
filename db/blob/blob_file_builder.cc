@@ -13,6 +13,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blob/blob_source.h"
 #include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -393,7 +394,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
                                                  uint64_t blob_offset) const {
   Status s = Status::OK();
 
-  auto blob_cache = immutable_options_->blob_cache;
+  BlobSource::SharedCacheInterface blob_cache{immutable_options_->blob_cache};
   auto statistics = immutable_options_->statistics.get();
   bool warm_cache =
       prepopulate_blob_cache_ == PrepopulateBlobCache::kFlushOnly &&
@@ -407,34 +408,12 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     const Cache::Priority priority = Cache::Priority::BOTTOM;
 
-    // Objects to be put into the cache have to be heap-allocated and
-    // self-contained, i.e. own their contents. The Cache has to be able to
-    // take unique ownership of them.
-    CacheAllocationPtr allocation =
-        AllocateBlock(blob.size(), blob_cache->memory_allocator());
-    memcpy(allocation.get(), blob.data(), blob.size());
-    std::unique_ptr<BlobContents> buf =
-        BlobContents::Create(std::move(allocation), blob.size());
-
-    Cache::CacheItemHelper* const cache_item_helper =
-        BlobContents::GetCacheItemHelper();
-    assert(cache_item_helper);
-
-    if (immutable_options_->lowest_used_cache_tier ==
-        CacheTier::kNonVolatileBlockTier) {
-      s = blob_cache->Insert(key, buf.get(), cache_item_helper,
-                             buf->ApproximateMemoryUsage(),
-                             nullptr /* cache_handle */, priority);
-    } else {
-      s = blob_cache->Insert(key, buf.get(), buf->ApproximateMemoryUsage(),
-                             cache_item_helper->del_cb,
-                             nullptr /* cache_handle */, priority);
-    }
+    s = blob_cache.InsertSaved(key, blob, nullptr /*context*/, priority,
+                               immutable_options_->lowest_used_cache_tier);
 
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
-      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());
-      buf.release();
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, blob.size());
     } else {
       RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
     }

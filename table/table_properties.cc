@@ -21,32 +21,25 @@ const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
     std::numeric_limits<int32_t>::max();
 
 namespace {
-  void AppendProperty(
-      std::string& props,
-      const std::string& key,
-      const std::string& value,
-      const std::string& prop_delim,
-      const std::string& kv_delim) {
-    props.append(key);
-    props.append(kv_delim);
-    props.append(value);
-    props.append(prop_delim);
-  }
-
-  template <class TValue>
-  void AppendProperty(
-      std::string& props,
-      const std::string& key,
-      const TValue& value,
-      const std::string& prop_delim,
-      const std::string& kv_delim) {
-    AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
-  }
+void AppendProperty(std::string& props, const std::string& key,
+                    const std::string& value, const std::string& prop_delim,
+                    const std::string& kv_delim) {
+  props.append(key);
+  props.append(kv_delim);
+  props.append(value);
+  props.append(prop_delim);
 }
 
-std::string TableProperties::ToString(
-    const std::string& prop_delim,
-    const std::string& kv_delim) const {
+template <class TValue>
+void AppendProperty(std::string& props, const std::string& key,
+                    const TValue& value, const std::string& prop_delim,
+                    const std::string& kv_delim) {
+  AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
+}
+}  // namespace
+
+std::string TableProperties::ToString(const std::string& prop_delim,
+                                      const std::string& kv_delim) const {
   std::string result;
   result.reserve(1024);
 
@@ -81,8 +74,8 @@ std::string TableProperties::ToString(
   if (index_partitions != 0) {
     AppendProperty(result, "# index partitions", index_partitions, prop_delim,
                    kv_delim);
-    AppendProperty(result, "top-level index size", top_level_index_size, prop_delim,
-                   kv_delim);
+    AppendProperty(result, "top-level index size", top_level_index_size,
+                   prop_delim, kv_delim);
   }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
                  kv_delim);
@@ -256,10 +249,8 @@ const std::string TablePropertiesNames::kDbHostId =
     "rocksdb.creating.host.identity";
 const std::string TablePropertiesNames::kOriginalFileNumber =
     "rocksdb.original.file.number";
-const std::string TablePropertiesNames::kDataSize  =
-    "rocksdb.data.size";
-const std::string TablePropertiesNames::kIndexSize =
-    "rocksdb.index.size";
+const std::string TablePropertiesNames::kDataSize = "rocksdb.data.size";
+const std::string TablePropertiesNames::kIndexSize = "rocksdb.index.size";
 const std::string TablePropertiesNames::kIndexPartitions =
     "rocksdb.index.partitions";
 const std::string TablePropertiesNames::kTopLevelIndexSize =
@@ -268,16 +259,13 @@ const std::string TablePropertiesNames::kIndexKeyIsUserKey =
     "rocksdb.index.key.is.user.key";
 const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
     "rocksdb.index.value.is.delta.encoded";
-const std::string TablePropertiesNames::kFilterSize =
-    "rocksdb.filter.size";
-const std::string TablePropertiesNames::kRawKeySize =
-    "rocksdb.raw.key.size";
+const std::string TablePropertiesNames::kFilterSize = "rocksdb.filter.size";
+const std::string TablePropertiesNames::kRawKeySize = "rocksdb.raw.key.size";
 const std::string TablePropertiesNames::kRawValueSize =
     "rocksdb.raw.value.size";
 const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
-const std::string TablePropertiesNames::kNumEntries =
-    "rocksdb.num.entries";
+const std::string TablePropertiesNames::kNumEntries = "rocksdb.num.entries";
 const std::string TablePropertiesNames::kNumFilterEntries =
     "rocksdb.num.filter_entries";
 const std::string TablePropertiesNames::kDeletedKeys = "rocksdb.deleted.keys";
@@ -285,8 +273,7 @@ const std::string TablePropertiesNames::kMergeOperands =
     "rocksdb.merge.operands";
 const std::string TablePropertiesNames::kNumRangeDeletions =
     "rocksdb.num.range-deletions";
-const std::string TablePropertiesNames::kFilterPolicy =
-    "rocksdb.filter.policy";
+const std::string TablePropertiesNames::kFilterPolicy = "rocksdb.filter.policy";
 const std::string TablePropertiesNames::kFormatVersion =
     "rocksdb.format.version";
 const std::string TablePropertiesNames::kFixedKeyLen =

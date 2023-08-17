@@ -471,7 +471,7 @@ namespace {
 // a buffer size used for temp string buffers
 const int kTmpStrBufferSize = 200;
 
-} // namespace
+}  // namespace
 
 std::string StatisticsImpl::ToString() const {
   MutexLock lock(&aggregate_lock_);

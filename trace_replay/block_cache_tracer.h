@@ -129,11 +129,11 @@ class BlockCacheTraceWriterImpl : public BlockCacheTraceWriter {
   // Pass Slice references to avoid copy.
   Status WriteBlockAccess(const BlockCacheTraceRecord& record,
                           const Slice& block_key, const Slice& cf_name,
-                          const Slice& referenced_key);
+                          const Slice& referenced_key) override;
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
-  Status WriteHeader();
+  Status WriteHeader() override;
 
  private:
   SystemClock* clock_;

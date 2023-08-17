@@ -9,6 +9,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.stream.Stream;
 import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -29,7 +33,6 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setCacheIndexAndFilterBlocks(true);
     assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocks()).
         isTrue();
-
   }
 
   @Test
@@ -93,6 +96,76 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kxxHash64);
     blockBasedTableConfig.setChecksumType(ChecksumType.kXXH3);
     assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kXXH3);
+  }
+
+  @Test
+  public void jniPortal() throws Exception {
+    // Verifies that the JNI layer is correctly translating options.
+    // Since introspecting the options requires creating a database, the checks
+    // cover multiple options at the same time.
+
+    final BlockBasedTableConfig tableConfig = new BlockBasedTableConfig();
+
+    tableConfig.setIndexType(IndexType.kBinarySearch);
+    tableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
+    tableConfig.setChecksumType(ChecksumType.kNoChecksum);
+    try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
+      String opts = getOptionAsString(options);
+      assertThat(opts).contains("index_type=kBinarySearch");
+      assertThat(opts).contains("data_block_index_type=kDataBlockBinarySearch");
+      assertThat(opts).contains("checksum=kNoChecksum");
+    }
+
+    tableConfig.setIndexType(IndexType.kHashSearch);
+    tableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash);
+    tableConfig.setChecksumType(ChecksumType.kCRC32c);
+    try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
+      options.useCappedPrefixExtractor(1); // Needed to use kHashSearch
+      String opts = getOptionAsString(options);
+      assertThat(opts).contains("index_type=kHashSearch");
+      assertThat(opts).contains("data_block_index_type=kDataBlockBinaryAndHash");
+      assertThat(opts).contains("checksum=kCRC32c");
+    }
+
+    tableConfig.setIndexType(IndexType.kTwoLevelIndexSearch);
+    tableConfig.setChecksumType(ChecksumType.kxxHash);
+    try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
+      String opts = getOptionAsString(options);
+      assertThat(opts).contains("index_type=kTwoLevelIndexSearch");
+      assertThat(opts).contains("checksum=kxxHash");
+    }
+
+    tableConfig.setIndexType(IndexType.kBinarySearchWithFirstKey);
+    tableConfig.setChecksumType(ChecksumType.kxxHash64);
+    try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
+      String opts = getOptionAsString(options);
+      assertThat(opts).contains("index_type=kBinarySearchWithFirstKey");
+      assertThat(opts).contains("checksum=kxxHash64");
+    }
+
+    tableConfig.setChecksumType(ChecksumType.kXXH3);
+    try (final Options options = new Options().setTableFormatConfig(tableConfig)) {
+      String opts = getOptionAsString(options);
+      assertThat(opts).contains("checksum=kXXH3");
+    }
+  }
+
+  private String getOptionAsString(Options options) throws Exception {
+    options.setCreateIfMissing(true);
+    String dbPath = dbFolder.getRoot().getAbsolutePath();
+    String result;
+    try (final RocksDB db = RocksDB.open(options, dbPath);
+         final Stream<Path> pathStream = Files.walk(Paths.get(dbPath))) {
+      Path optionsPath =
+          pathStream
+              .filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
+              .findAny()
+              .orElseThrow(() -> new AssertionError("Missing options file"));
+      byte[] optionsData = Files.readAllBytes(optionsPath);
+      result = new String(optionsData, StandardCharsets.UTF_8);
+    }
+    RocksDB.destroyDB(dbPath, options);
+    return result;
   }
 
   @Test

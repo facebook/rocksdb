@@ -779,7 +779,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
-  co.capacity = 2 << 20; // 2MB
+  co.capacity = 2 << 20;  // 2MB
   co.num_shard_bits = 2;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   auto backing_cache = NewLRUCache(co);

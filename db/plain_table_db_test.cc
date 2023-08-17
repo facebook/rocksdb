@@ -38,7 +38,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 class PlainTableKeyDecoderTest : public testing::Test {};
 
@@ -148,9 +147,7 @@ class PlainTableDBTest : public testing::Test,
 
   DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
-  void Reopen(Options* options = nullptr) {
-    ASSERT_OK(TryReopen(options));
-  }
+  void Reopen(Options* options = nullptr) { ASSERT_OK(TryReopen(options)); }
 
   void Close() {
     delete db_;
@@ -160,7 +157,7 @@ class PlainTableDBTest : public testing::Test,
   bool mmap_mode() const { return mmap_mode_; }
 
   void DestroyAndReopen(Options* options = nullptr) {
-    //Destroy using last options
+    // Destroy using last options
     Destroy(&last_options_);
     ASSERT_OK(TryReopen(options));
   }
@@ -200,9 +197,7 @@ class PlainTableDBTest : public testing::Test,
     return db_->Put(WriteOptions(), k, v);
   }
 
-  Status Delete(const std::string& k) {
-    return db_->Delete(WriteOptions(), k);
-  }
+  Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
     ReadOptions options;
@@ -216,7 +211,6 @@ class PlainTableDBTest : public testing::Test,
     }
     return result;
   }
-
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
@@ -448,98 +442,99 @@ TEST_P(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom = -1; bloom <= 117; bloom += 117) {
-      const int bloom_bits = std::max(bloom, 0);
-      const bool full_scan_mode = bloom < 0;
-      for (int total_order = 0; total_order <= 1; total_order++) {
-        for (int store_index_in_file = 0; store_index_in_file <= 1;
-             ++store_index_in_file) {
-          Options options = CurrentOptions();
-          options.create_if_missing = true;
-          // Set only one bucket to force bucket conflict.
-          // Test index interval for the same prefix to be 1, 2 and 4
-          if (total_order) {
-            options.prefix_extractor.reset();
+      for (int bloom = -1; bloom <= 117; bloom += 117) {
+        const int bloom_bits = std::max(bloom, 0);
+        const bool full_scan_mode = bloom < 0;
+        for (int total_order = 0; total_order <= 1; total_order++) {
+          for (int store_index_in_file = 0; store_index_in_file <= 1;
+               ++store_index_in_file) {
+            Options options = CurrentOptions();
+            options.create_if_missing = true;
+            // Set only one bucket to force bucket conflict.
+            // Test index interval for the same prefix to be 1, 2 and 4
+            if (total_order) {
+              options.prefix_extractor.reset();
 
-            PlainTableOptions plain_table_options;
-            plain_table_options.user_key_len = 0;
-            plain_table_options.bloom_bits_per_key = bloom_bits;
-            plain_table_options.hash_table_ratio = 0;
-            plain_table_options.index_sparseness = 2;
-            plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
-            plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = full_scan_mode;
-            plain_table_options.store_index_in_file = store_index_in_file;
+              PlainTableOptions plain_table_options;
+              plain_table_options.user_key_len = 0;
+              plain_table_options.bloom_bits_per_key = bloom_bits;
+              plain_table_options.hash_table_ratio = 0;
+              plain_table_options.index_sparseness = 2;
+              plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+              plain_table_options.encoding_type = encoding_type;
+              plain_table_options.full_scan_mode = full_scan_mode;
+              plain_table_options.store_index_in_file = store_index_in_file;
 
-            options.table_factory.reset(
-                NewPlainTableFactory(plain_table_options));
-          } else {
-            PlainTableOptions plain_table_options;
-            plain_table_options.user_key_len = 0;
-            plain_table_options.bloom_bits_per_key = bloom_bits;
-            plain_table_options.hash_table_ratio = 0.75;
-            plain_table_options.index_sparseness = 16;
-            plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
-            plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = full_scan_mode;
-            plain_table_options.store_index_in_file = store_index_in_file;
-
-            options.table_factory.reset(
-                NewPlainTableFactory(plain_table_options));
-          }
-          DestroyAndReopen(&options);
-          uint64_t int_num;
-          ASSERT_TRUE(dbfull()->GetIntProperty(
-              "rocksdb.estimate-table-readers-mem", &int_num));
-          ASSERT_EQ(int_num, 0U);
-
-          ASSERT_OK(Put("1000000000000foo", "v1"));
-          ASSERT_OK(Put("0000000000000bar", "v2"));
-          ASSERT_OK(Put("1000000000000foo", "v3"));
-          ASSERT_OK(dbfull()->TEST_FlushMemTable());
-
-          ASSERT_TRUE(dbfull()->GetIntProperty(
-              "rocksdb.estimate-table-readers-mem", &int_num));
-          ASSERT_GT(int_num, 0U);
-
-          TablePropertiesCollection ptc;
-          ASSERT_OK(
-              reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
-          ASSERT_EQ(1U, ptc.size());
-          auto row = ptc.begin();
-          auto tp = row->second;
-
-          if (full_scan_mode) {
-            // Does not support Get/Seek
-            std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
-            iter->SeekToFirst();
-            ASSERT_TRUE(iter->Valid());
-            ASSERT_EQ("0000000000000bar", iter->key().ToString());
-            ASSERT_EQ("v2", iter->value().ToString());
-            iter->Next();
-            ASSERT_TRUE(iter->Valid());
-            ASSERT_EQ("1000000000000foo", iter->key().ToString());
-            ASSERT_EQ("v3", iter->value().ToString());
-            iter->Next();
-            ASSERT_TRUE(!iter->Valid());
-            ASSERT_TRUE(iter->status().ok());
-          } else {
-            if (!store_index_in_file) {
-              ASSERT_EQ(total_order ? "4" : "12",
-                        (tp->user_collected_properties)
-                            .at("plain_table_hash_table_size"));
-              ASSERT_EQ("0", (tp->user_collected_properties)
-                                 .at("plain_table_sub_index_size"));
+              options.table_factory.reset(
+                  NewPlainTableFactory(plain_table_options));
             } else {
-              ASSERT_EQ("0", (tp->user_collected_properties)
-                                 .at("plain_table_hash_table_size"));
-              ASSERT_EQ("0", (tp->user_collected_properties)
-                                 .at("plain_table_sub_index_size"));
+              PlainTableOptions plain_table_options;
+              plain_table_options.user_key_len = 0;
+              plain_table_options.bloom_bits_per_key = bloom_bits;
+              plain_table_options.hash_table_ratio = 0.75;
+              plain_table_options.index_sparseness = 16;
+              plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+              plain_table_options.encoding_type = encoding_type;
+              plain_table_options.full_scan_mode = full_scan_mode;
+              plain_table_options.store_index_in_file = store_index_in_file;
+
+              options.table_factory.reset(
+                  NewPlainTableFactory(plain_table_options));
             }
-            ASSERT_EQ("v3", Get("1000000000000foo"));
-            ASSERT_EQ("v2", Get("0000000000000bar"));
+            DestroyAndReopen(&options);
+            uint64_t int_num;
+            ASSERT_TRUE(dbfull()->GetIntProperty(
+                "rocksdb.estimate-table-readers-mem", &int_num));
+            ASSERT_EQ(int_num, 0U);
+
+            ASSERT_OK(Put("1000000000000foo", "v1"));
+            ASSERT_OK(Put("0000000000000bar", "v2"));
+            ASSERT_OK(Put("1000000000000foo", "v3"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+            ASSERT_TRUE(dbfull()->GetIntProperty(
+                "rocksdb.estimate-table-readers-mem", &int_num));
+            ASSERT_GT(int_num, 0U);
+
+            TablePropertiesCollection ptc;
+            ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(
+                &ptc));
+            ASSERT_EQ(1U, ptc.size());
+            auto row = ptc.begin();
+            auto tp = row->second;
+
+            if (full_scan_mode) {
+              // Does not support Get/Seek
+              std::unique_ptr<Iterator> iter(
+                  dbfull()->NewIterator(ReadOptions()));
+              iter->SeekToFirst();
+              ASSERT_TRUE(iter->Valid());
+              ASSERT_EQ("0000000000000bar", iter->key().ToString());
+              ASSERT_EQ("v2", iter->value().ToString());
+              iter->Next();
+              ASSERT_TRUE(iter->Valid());
+              ASSERT_EQ("1000000000000foo", iter->key().ToString());
+              ASSERT_EQ("v3", iter->value().ToString());
+              iter->Next();
+              ASSERT_TRUE(!iter->Valid());
+              ASSERT_TRUE(iter->status().ok());
+            } else {
+              if (!store_index_in_file) {
+                ASSERT_EQ(total_order ? "4" : "12",
+                          (tp->user_collected_properties)
+                              .at("plain_table_hash_table_size"));
+                ASSERT_EQ("0", (tp->user_collected_properties)
+                                   .at("plain_table_sub_index_size"));
+              } else {
+                ASSERT_EQ("0", (tp->user_collected_properties)
+                                   .at("plain_table_hash_table_size"));
+                ASSERT_EQ("0", (tp->user_collected_properties)
+                                   .at("plain_table_sub_index_size"));
+              }
+              ASSERT_EQ("v3", Get("1000000000000foo"));
+              ASSERT_EQ("v2", Get("0000000000000bar"));
+            }
           }
-        }
         }
       }
     }
@@ -550,79 +545,79 @@ TEST_P(PlainTableDBTest, Flush2) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-      for (int total_order = 0; total_order <= 1; total_order++) {
-        for (int store_index_in_file = 0; store_index_in_file <= 1;
-             ++store_index_in_file) {
-          if (encoding_type == kPrefix && total_order) {
-            continue;
+      for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+        for (int total_order = 0; total_order <= 1; total_order++) {
+          for (int store_index_in_file = 0; store_index_in_file <= 1;
+               ++store_index_in_file) {
+            if (encoding_type == kPrefix && total_order) {
+              continue;
+            }
+            if (!bloom_bits && store_index_in_file) {
+              continue;
+            }
+            if (total_order && store_index_in_file) {
+              continue;
+            }
+            bool expect_bloom_not_match = false;
+            Options options = CurrentOptions();
+            options.create_if_missing = true;
+            // Set only one bucket to force bucket conflict.
+            // Test index interval for the same prefix to be 1, 2 and 4
+            PlainTableOptions plain_table_options;
+            if (total_order) {
+              options.prefix_extractor = nullptr;
+              plain_table_options.hash_table_ratio = 0;
+              plain_table_options.index_sparseness = 2;
+            } else {
+              plain_table_options.hash_table_ratio = 0.75;
+              plain_table_options.index_sparseness = 16;
+            }
+            plain_table_options.user_key_len = kPlainTableVariableLength;
+            plain_table_options.bloom_bits_per_key = bloom_bits;
+            plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+            plain_table_options.encoding_type = encoding_type;
+            plain_table_options.store_index_in_file = store_index_in_file;
+            options.table_factory.reset(new TestPlainTableFactory(
+                &expect_bloom_not_match, plain_table_options,
+                0 /* column_family_id */, kDefaultColumnFamilyName));
+
+            DestroyAndReopen(&options);
+            ASSERT_OK(Put("0000000000000bar", "b"));
+            ASSERT_OK(Put("1000000000000foo", "v1"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+            ASSERT_OK(Put("1000000000000foo", "v2"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+            ASSERT_EQ("v2", Get("1000000000000foo"));
+
+            ASSERT_OK(Put("0000000000000eee", "v3"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+            ASSERT_EQ("v3", Get("0000000000000eee"));
+
+            ASSERT_OK(Delete("0000000000000bar"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+            ASSERT_EQ("NOT_FOUND", Get("0000000000000bar"));
+
+            ASSERT_OK(Put("0000000000000eee", "v5"));
+            ASSERT_OK(Put("9000000000000eee", "v5"));
+            ASSERT_OK(dbfull()->TEST_FlushMemTable());
+            ASSERT_EQ("v5", Get("0000000000000eee"));
+
+            // Test Bloom Filter
+            if (bloom_bits > 0) {
+              // Neither key nor value should exist.
+              expect_bloom_not_match = true;
+              ASSERT_EQ("NOT_FOUND", Get("5_not00000000bar"));
+              // Key doesn't exist any more but prefix exists.
+              if (total_order) {
+                ASSERT_EQ("NOT_FOUND", Get("1000000000000not"));
+                ASSERT_EQ("NOT_FOUND", Get("0000000000000not"));
+              }
+              expect_bloom_not_match = false;
+            }
           }
-          if (!bloom_bits && store_index_in_file) {
-            continue;
-          }
-          if (total_order && store_index_in_file) {
-          continue;
-        }
-        bool expect_bloom_not_match = false;
-        Options options = CurrentOptions();
-        options.create_if_missing = true;
-        // Set only one bucket to force bucket conflict.
-        // Test index interval for the same prefix to be 1, 2 and 4
-        PlainTableOptions plain_table_options;
-        if (total_order) {
-          options.prefix_extractor = nullptr;
-          plain_table_options.hash_table_ratio = 0;
-          plain_table_options.index_sparseness = 2;
-        } else {
-          plain_table_options.hash_table_ratio = 0.75;
-          plain_table_options.index_sparseness = 16;
-        }
-        plain_table_options.user_key_len = kPlainTableVariableLength;
-        plain_table_options.bloom_bits_per_key = bloom_bits;
-        plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
-        plain_table_options.encoding_type = encoding_type;
-        plain_table_options.store_index_in_file = store_index_in_file;
-        options.table_factory.reset(new TestPlainTableFactory(
-            &expect_bloom_not_match, plain_table_options,
-            0 /* column_family_id */, kDefaultColumnFamilyName));
-
-        DestroyAndReopen(&options);
-        ASSERT_OK(Put("0000000000000bar", "b"));
-        ASSERT_OK(Put("1000000000000foo", "v1"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-
-        ASSERT_OK(Put("1000000000000foo", "v2"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-        ASSERT_EQ("v2", Get("1000000000000foo"));
-
-        ASSERT_OK(Put("0000000000000eee", "v3"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-        ASSERT_EQ("v3", Get("0000000000000eee"));
-
-        ASSERT_OK(Delete("0000000000000bar"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-        ASSERT_EQ("NOT_FOUND", Get("0000000000000bar"));
-
-        ASSERT_OK(Put("0000000000000eee", "v5"));
-        ASSERT_OK(Put("9000000000000eee", "v5"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-        ASSERT_EQ("v5", Get("0000000000000eee"));
-
-        // Test Bloom Filter
-        if (bloom_bits > 0) {
-          // Neither key nor value should exist.
-          expect_bloom_not_match = true;
-          ASSERT_EQ("NOT_FOUND", Get("5_not00000000bar"));
-          // Key doesn't exist any more but prefix exists.
-          if (total_order) {
-            ASSERT_EQ("NOT_FOUND", Get("1000000000000not"));
-            ASSERT_EQ("NOT_FOUND", Get("0000000000000not"));
-          }
-          expect_bloom_not_match = false;
         }
       }
-      }
-    }
     }
   }
 }
@@ -675,128 +670,128 @@ TEST_P(PlainTableDBTest, Iterator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-      for (int total_order = 0; total_order <= 1; total_order++) {
-        if (encoding_type == kPrefix && total_order == 1) {
-          continue;
-        }
-        bool expect_bloom_not_match = false;
-        Options options = CurrentOptions();
-        options.create_if_missing = true;
-        // Set only one bucket to force bucket conflict.
-        // Test index interval for the same prefix to be 1, 2 and 4
-        if (total_order) {
-          options.prefix_extractor = nullptr;
+      for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+        for (int total_order = 0; total_order <= 1; total_order++) {
+          if (encoding_type == kPrefix && total_order == 1) {
+            continue;
+          }
+          bool expect_bloom_not_match = false;
+          Options options = CurrentOptions();
+          options.create_if_missing = true;
+          // Set only one bucket to force bucket conflict.
+          // Test index interval for the same prefix to be 1, 2 and 4
+          if (total_order) {
+            options.prefix_extractor = nullptr;
 
-          PlainTableOptions plain_table_options;
-          plain_table_options.user_key_len = 16;
-          plain_table_options.bloom_bits_per_key = bloom_bits;
-          plain_table_options.hash_table_ratio = 0;
-          plain_table_options.index_sparseness = 2;
-          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
-          plain_table_options.encoding_type = encoding_type;
+            PlainTableOptions plain_table_options;
+            plain_table_options.user_key_len = 16;
+            plain_table_options.bloom_bits_per_key = bloom_bits;
+            plain_table_options.hash_table_ratio = 0;
+            plain_table_options.index_sparseness = 2;
+            plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+            plain_table_options.encoding_type = encoding_type;
 
-          options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, plain_table_options,
-              0 /* column_family_id */, kDefaultColumnFamilyName));
-        } else {
-          PlainTableOptions plain_table_options;
-          plain_table_options.user_key_len = 16;
-          plain_table_options.bloom_bits_per_key = bloom_bits;
-          plain_table_options.hash_table_ratio = 0.75;
-          plain_table_options.index_sparseness = 16;
-          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
-          plain_table_options.encoding_type = encoding_type;
+            options.table_factory.reset(new TestPlainTableFactory(
+                &expect_bloom_not_match, plain_table_options,
+                0 /* column_family_id */, kDefaultColumnFamilyName));
+          } else {
+            PlainTableOptions plain_table_options;
+            plain_table_options.user_key_len = 16;
+            plain_table_options.bloom_bits_per_key = bloom_bits;
+            plain_table_options.hash_table_ratio = 0.75;
+            plain_table_options.index_sparseness = 16;
+            plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+            plain_table_options.encoding_type = encoding_type;
 
-          options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, plain_table_options,
-              0 /* column_family_id */, kDefaultColumnFamilyName));
-        }
-        DestroyAndReopen(&options);
+            options.table_factory.reset(new TestPlainTableFactory(
+                &expect_bloom_not_match, plain_table_options,
+                0 /* column_family_id */, kDefaultColumnFamilyName));
+          }
+          DestroyAndReopen(&options);
 
-        ASSERT_OK(Put("1000000000foo002", "v_2"));
-        ASSERT_OK(Put("0000000000000bar", "random"));
-        ASSERT_OK(Put("1000000000foo001", "v1"));
-        ASSERT_OK(Put("3000000000000bar", "bar_v"));
-        ASSERT_OK(Put("1000000000foo003", "v__3"));
-        ASSERT_OK(Put("1000000000foo004", "v__4"));
-        ASSERT_OK(Put("1000000000foo005", "v__5"));
-        ASSERT_OK(Put("1000000000foo007", "v__7"));
-        ASSERT_OK(Put("1000000000foo008", "v__8"));
-        ASSERT_OK(dbfull()->TEST_FlushMemTable());
-        ASSERT_EQ("v1", Get("1000000000foo001"));
-        ASSERT_EQ("v__3", Get("1000000000foo003"));
-        Iterator* iter = dbfull()->NewIterator(ReadOptions());
-        iter->Seek("1000000000foo000");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo001", iter->key().ToString());
-        ASSERT_EQ("v1", iter->value().ToString());
+          ASSERT_OK(Put("1000000000foo002", "v_2"));
+          ASSERT_OK(Put("0000000000000bar", "random"));
+          ASSERT_OK(Put("1000000000foo001", "v1"));
+          ASSERT_OK(Put("3000000000000bar", "bar_v"));
+          ASSERT_OK(Put("1000000000foo003", "v__3"));
+          ASSERT_OK(Put("1000000000foo004", "v__4"));
+          ASSERT_OK(Put("1000000000foo005", "v__5"));
+          ASSERT_OK(Put("1000000000foo007", "v__7"));
+          ASSERT_OK(Put("1000000000foo008", "v__8"));
+          ASSERT_OK(dbfull()->TEST_FlushMemTable());
+          ASSERT_EQ("v1", Get("1000000000foo001"));
+          ASSERT_EQ("v__3", Get("1000000000foo003"));
+          Iterator* iter = dbfull()->NewIterator(ReadOptions());
+          iter->Seek("1000000000foo000");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo001", iter->key().ToString());
+          ASSERT_EQ("v1", iter->value().ToString());
 
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo002", iter->key().ToString());
-        ASSERT_EQ("v_2", iter->value().ToString());
+          iter->Next();
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo002", iter->key().ToString());
+          ASSERT_EQ("v_2", iter->value().ToString());
 
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo003", iter->key().ToString());
-        ASSERT_EQ("v__3", iter->value().ToString());
+          iter->Next();
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo003", iter->key().ToString());
+          ASSERT_EQ("v__3", iter->value().ToString());
 
-        iter->Next();
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo004", iter->key().ToString());
-        ASSERT_EQ("v__4", iter->value().ToString());
+          iter->Next();
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo004", iter->key().ToString());
+          ASSERT_EQ("v__4", iter->value().ToString());
 
-        iter->Seek("3000000000000bar");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("3000000000000bar", iter->key().ToString());
-        ASSERT_EQ("bar_v", iter->value().ToString());
-
-        iter->Seek("1000000000foo000");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo001", iter->key().ToString());
-        ASSERT_EQ("v1", iter->value().ToString());
-
-        iter->Seek("1000000000foo005");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo005", iter->key().ToString());
-        ASSERT_EQ("v__5", iter->value().ToString());
-
-        iter->Seek("1000000000foo006");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo007", iter->key().ToString());
-        ASSERT_EQ("v__7", iter->value().ToString());
-
-        iter->Seek("1000000000foo008");
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ("1000000000foo008", iter->key().ToString());
-        ASSERT_EQ("v__8", iter->value().ToString());
-
-        if (total_order == 0) {
-          iter->Seek("1000000000foo009");
+          iter->Seek("3000000000000bar");
           ASSERT_TRUE(iter->Valid());
           ASSERT_EQ("3000000000000bar", iter->key().ToString());
-        }
+          ASSERT_EQ("bar_v", iter->value().ToString());
 
-        // Test Bloom Filter
-        if (bloom_bits > 0) {
-          if (!total_order) {
-            // Neither key nor value should exist.
-            expect_bloom_not_match = true;
-            iter->Seek("2not000000000bar");
-            ASSERT_TRUE(!iter->Valid());
-            ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
-            expect_bloom_not_match = false;
-          } else {
-            expect_bloom_not_match = true;
-            ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
-            expect_bloom_not_match = false;
+          iter->Seek("1000000000foo000");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo001", iter->key().ToString());
+          ASSERT_EQ("v1", iter->value().ToString());
+
+          iter->Seek("1000000000foo005");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo005", iter->key().ToString());
+          ASSERT_EQ("v__5", iter->value().ToString());
+
+          iter->Seek("1000000000foo006");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo007", iter->key().ToString());
+          ASSERT_EQ("v__7", iter->value().ToString());
+
+          iter->Seek("1000000000foo008");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("1000000000foo008", iter->key().ToString());
+          ASSERT_EQ("v__8", iter->value().ToString());
+
+          if (total_order == 0) {
+            iter->Seek("1000000000foo009");
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("3000000000000bar", iter->key().ToString());
           }
+
+          // Test Bloom Filter
+          if (bloom_bits > 0) {
+            if (!total_order) {
+              // Neither key nor value should exist.
+              expect_bloom_not_match = true;
+              iter->Seek("2not000000000bar");
+              ASSERT_TRUE(!iter->Valid());
+              ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+              expect_bloom_not_match = false;
+            } else {
+              expect_bloom_not_match = true;
+              ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+              expect_bloom_not_match = false;
+            }
+          }
+          ASSERT_OK(iter->status());
+          delete iter;
         }
-        ASSERT_OK(iter->status());
-        delete iter;
       }
-    }
     }
   }
 }
@@ -863,7 +858,7 @@ namespace {
 std::string MakeLongKey(size_t length, char c) {
   return std::string(length, c);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
@@ -878,15 +873,10 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   options.prefix_extractor.reset();
   DestroyAndReopen(&options);
 
-  std::string key_list[] = {
-      MakeLongKey(30, '0'),
-      MakeLongKey(16, '1'),
-      MakeLongKey(32, '2'),
-      MakeLongKey(60, '3'),
-      MakeLongKey(90, '4'),
-      MakeLongKey(50, '5'),
-      MakeLongKey(26, '6')
-  };
+  std::string key_list[] = {MakeLongKey(30, '0'), MakeLongKey(16, '1'),
+                            MakeLongKey(32, '2'), MakeLongKey(60, '3'),
+                            MakeLongKey(90, '4'), MakeLongKey(50, '5'),
+                            MakeLongKey(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
     ASSERT_OK(Put(key_list[i], std::to_string(i)));
@@ -913,7 +903,7 @@ namespace {
 std::string MakeLongKeyWithPrefix(size_t length, char c) {
   return "00000000" + std::string(length - 8, c);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   Options options = CurrentOptions();
@@ -1275,7 +1265,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   Random rnd(301);
 
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
-      num++) {
+       num++) {
     std::vector<std::string> values;
     // Write 120KB (10 values, each 12K)
     for (int i = 0; i < 10; i++) {
@@ -1287,7 +1277,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
 
-  //generate one more file in level-0, and should trigger level-0 compaction
+  // generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
   for (int i = 0; i < 12; i++) {
     values.push_back(rnd.RandomString(10000));
@@ -1315,8 +1305,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   options.create_if_missing = false;
   std::shared_ptr<TableFactory> block_based_factory(
       NewBlockBasedTableFactory());
-  std::shared_ptr<TableFactory> plain_table_factory(
-      NewPlainTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(NewPlainTableFactory());
   std::shared_ptr<TableFactory> dummy_factory;
   options.table_factory.reset(NewAdaptiveTableFactory(
       block_based_factory, block_based_factory, plain_table_factory));

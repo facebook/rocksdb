@@ -11,8 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class TimedEnvTest : public testing::Test {
-};
+class TimedEnvTest : public testing::Test {};
 
 TEST_F(TimedEnvTest, BasicTest) {
   SetPerfLevel(PerfLevel::kEnableTime);

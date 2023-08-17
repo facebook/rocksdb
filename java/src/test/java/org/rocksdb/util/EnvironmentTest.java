@@ -4,28 +4,32 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.is;
+
+import java.lang.reflect.Field;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.lang.reflect.Field;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class EnvironmentTest {
   private final static String ARCH_FIELD_NAME = "ARCH";
   private final static String OS_FIELD_NAME = "OS";
+
+  private final static String MUSL_ENVIRONMENT_FIELD_NAME = "MUSL_ENVIRONMENT";
   private final static String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
 
   private static String INITIAL_OS;
   private static String INITIAL_ARCH;
-  private static boolean INITIAL_MUSL_LIBC;
+  private static String INITIAL_MUSL_ENVIRONMENT;
+  private static Boolean INITIAL_MUSL_LIBC;
 
   @BeforeClass
   public static void saveState() {
     INITIAL_ARCH = getEnvironmentClassField(ARCH_FIELD_NAME);
     INITIAL_OS = getEnvironmentClassField(OS_FIELD_NAME);
     INITIAL_MUSL_LIBC = getEnvironmentClassField(MUSL_LIBC_FIELD_NAME);
+    INITIAL_MUSL_ENVIRONMENT = getEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME);
   }
 
   @Test
@@ -236,6 +240,21 @@ public class EnvironmentTest {
     setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, false);
   }
 
+  @Test
+  public void resolveIsMuslLibc() {
+    setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, null);
+    setEnvironmentClassFields("win", "anyarch");
+    assertThat(Environment.isUnix()).isFalse();
+
+    // with user input, will resolve to true if set as true. Even on OSs that appear absurd for
+    // musl. Users choice
+    assertThat(Environment.initIsMuslLibc()).isFalse();
+    setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "true");
+    assertThat(Environment.initIsMuslLibc()).isTrue();
+    setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "false");
+    assertThat(Environment.initIsMuslLibc()).isFalse();
+  }
+
   private void setEnvironmentClassFields(String osName,
       String osArch) {
     setEnvironmentClassField(OS_FIELD_NAME, osName);
@@ -246,6 +265,7 @@ public class EnvironmentTest {
   public static void restoreState() {
     setEnvironmentClassField(OS_FIELD_NAME, INITIAL_OS);
     setEnvironmentClassField(ARCH_FIELD_NAME, INITIAL_ARCH);
+    setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, INITIAL_MUSL_ENVIRONMENT);
     setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, INITIAL_MUSL_LIBC);
   }
 

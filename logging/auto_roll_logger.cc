@@ -90,8 +90,8 @@ void AutoRollLogger::RollLogFile() {
   uint64_t now = clock_->NowMicros();
   std::string old_fname;
   do {
-    old_fname = OldInfoLogFileName(
-      dbname_, now, db_absolute_path_, db_log_dir_);
+    old_fname =
+        OldInfoLogFileName(dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
   } while (fs_->FileExists(old_fname, io_options_, &io_context_).ok());
   // Wait for logger_ reference count to turn to 1 as it might be pinned by
@@ -173,7 +173,7 @@ std::string AutoRollLogger::ValistToString(const char* format,
   char buffer[MAXBUFFERSIZE];
 
   int count = vsnprintf(buffer, MAXBUFFERSIZE, format, args);
-  (void) count;
+  (void)count;
   assert(count >= 0);
 
   return buffer;

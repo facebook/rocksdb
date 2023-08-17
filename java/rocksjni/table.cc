@@ -72,9 +72,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.cache_index_and_filter_blocks_with_high_priority =
       static_cast<bool>(jcache_index_and_filter_blocks_with_high_priority);
   options.pin_l0_filter_and_index_blocks_in_cache =
-    static_cast<bool>(jpin_l0_filter_and_index_blocks_in_cache);
+      static_cast<bool>(jpin_l0_filter_and_index_blocks_in_cache);
   options.pin_top_level_index_and_filter =
-    static_cast<bool>(jpin_top_level_index_and_filter);
+      static_cast<bool>(jpin_top_level_index_and_filter);
   options.index_type =
       ROCKSDB_NAMESPACE::IndexTypeJni::toCppIndexType(jindex_type_value);
   options.data_block_index_type =
@@ -131,7 +131,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.block_size = static_cast<size_t>(jblock_size);
   options.block_size_deviation = static_cast<int>(jblock_size_deviation);
   options.block_restart_interval = static_cast<int>(jblock_restart_interval);
-  options.index_block_restart_interval = static_cast<int>(jindex_block_restart_interval);
+  options.index_block_restart_interval =
+      static_cast<int>(jindex_block_restart_interval);
   options.metadata_block_size = static_cast<uint64_t>(jmetadata_block_size);
   options.partition_filters = static_cast<bool>(jpartition_filters);
   options.optimize_filters_for_memory =
@@ -145,9 +146,11 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   }
   options.whole_key_filtering = static_cast<bool>(jwhole_key_filtering);
   options.verify_compression = static_cast<bool>(jverify_compression);
-  options.read_amp_bytes_per_bit = static_cast<uint32_t>(jread_amp_bytes_per_bit);
+  options.read_amp_bytes_per_bit =
+      static_cast<uint32_t>(jread_amp_bytes_per_bit);
   options.format_version = static_cast<uint32_t>(jformat_version);
-  options.enable_index_compression = static_cast<bool>(jenable_index_compression);
+  options.enable_index_compression =
+      static_cast<bool>(jenable_index_compression);
   options.block_align = static_cast<bool>(jblock_align);
   options.index_shortening =
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(

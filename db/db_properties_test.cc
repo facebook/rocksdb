@@ -270,7 +270,8 @@ void GetExpectedTableProperties(
   const int kDeletionCount = kTableCount * kDeletionsPerTable;
   const int kMergeCount = kTableCount * kMergeOperandsPerTable;
   const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
-  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
+  const int kKeyCount =
+      kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
   expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
@@ -281,7 +282,8 @@ void GetExpectedTableProperties(
   expected_tp->num_merge_operands = kMergeCount;
   expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =
-      kTableCount * (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
+      kTableCount *
+      (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
       kBlockSize;
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
@@ -1120,7 +1122,8 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
-        {"CountingUserTblPropCollector", message_}, {"Count", encoded},
+        {"CountingUserTblPropCollector", message_},
+        {"Count", encoded},
     };
     return Status::OK();
   }
@@ -1845,8 +1848,8 @@ TEST_F(DBPropertiesTest, BlobCacheProperties) {
 
   // Insert unpinned blob to the cache and check size.
   constexpr size_t kSize1 = 70;
-  ASSERT_OK(blob_cache->Insert("blob1", nullptr /*value*/, kSize1,
-                               nullptr /*deleter*/));
+  ASSERT_OK(blob_cache->Insert("blob1", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize1));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
@@ -1858,8 +1861,8 @@ TEST_F(DBPropertiesTest, BlobCacheProperties) {
   // Insert pinned blob to the cache and check size.
   constexpr size_t kSize2 = 60;
   Cache::Handle* blob2 = nullptr;
-  ASSERT_OK(blob_cache->Insert("blob2", nullptr /*value*/, kSize2,
-                               nullptr /*deleter*/, &blob2));
+  ASSERT_OK(blob_cache->Insert("blob2", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize2, &blob2));
   ASSERT_NE(nullptr, blob2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -1873,8 +1876,8 @@ TEST_F(DBPropertiesTest, BlobCacheProperties) {
   // Insert another pinned blob to make the cache over-sized.
   constexpr size_t kSize3 = 80;
   Cache::Handle* blob3 = nullptr;
-  ASSERT_OK(blob_cache->Insert("blob3", nullptr /*value*/, kSize3,
-                               nullptr /*deleter*/, &blob3));
+  ASSERT_OK(blob_cache->Insert("blob3", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize3, &blob3));
   ASSERT_NE(nullptr, blob3);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -1953,8 +1956,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 
   // Insert unpinned item to the cache and check size.
   constexpr size_t kSize1 = 50;
-  ASSERT_OK(block_cache->Insert("item1", nullptr /*value*/, kSize1,
-                                nullptr /*deleter*/));
+  ASSERT_OK(block_cache->Insert("item1", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize1));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
@@ -1966,8 +1969,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert pinned item to the cache and check size.
   constexpr size_t kSize2 = 30;
   Cache::Handle* item2 = nullptr;
-  ASSERT_OK(block_cache->Insert("item2", nullptr /*value*/, kSize2,
-                                nullptr /*deleter*/, &item2));
+  ASSERT_OK(block_cache->Insert("item2", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize2, &item2));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -1980,8 +1983,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert another pinned item to make the cache over-sized.
   constexpr size_t kSize3 = 80;
   Cache::Handle* item3 = nullptr;
-  ASSERT_OK(block_cache->Insert("item3", nullptr /*value*/, kSize3,
-                                nullptr /*deleter*/, &item3));
+  ASSERT_OK(block_cache->Insert("item3", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize3, &item3));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -2122,7 +2125,7 @@ std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   }
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
   // This is to detect unexpected churn in metaindex block keys. This is more

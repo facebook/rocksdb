@@ -6,11 +6,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/utilities/checkpoint.h"
-
 #include <string>
+
 #include "file/filename.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/checkpoint.h"
 
 namespace ROCKSDB_NAMESPACE {
 

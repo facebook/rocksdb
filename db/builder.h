@@ -13,6 +13,7 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
+#include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
@@ -70,7 +71,7 @@ extern Status BuildTable(
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,
     BlobFileCompletionCallback* blob_callback = nullptr,
-    uint64_t* num_input_entries = nullptr,
+    Version* version = nullptr, uint64_t* num_input_entries = nullptr,
     uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr);
 

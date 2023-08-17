@@ -221,6 +221,13 @@ class CompactionOutputs {
     }
   }
 
+  // Updates states related to file cutting for TTL.
+  // Returns a boolean value indicating whether the current
+  // compaction output file should be cut before `internal_key`.
+  //
+  // @param internal_key the current key to be added to output.
+  bool UpdateFilesToCutForTTLStates(const Slice& internal_key);
+
   // update tracked grandparents information like grandparent index, if it's
   // in the gap between 2 grandparent files, accumulated grandparent files size
   // etc.

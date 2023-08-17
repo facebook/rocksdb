@@ -209,8 +209,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr ||
-      save_points_->empty()) {
+  if (save_points_ == nullptr || save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();

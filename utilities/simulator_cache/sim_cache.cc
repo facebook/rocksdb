@@ -165,8 +165,8 @@ class SimCacheImpl : public SimCache {
   }
 
   using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value), Handle** handle,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge, Handle** handle,
                 Priority priority) override {
     // The handle and value passed in are for real cache, so we pass nullptr
     // to key_only_cache_ for both instead. Also, the deleter function pointer
@@ -176,9 +176,8 @@ class SimCacheImpl : public SimCache {
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
       // TODO: Check for error here?
-      auto s = key_only_cache_->Insert(
-          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-          priority);
+      auto s = key_only_cache_->Insert(key, nullptr, &kNoopCacheItemHelper,
+                                       charge, nullptr, priority);
       s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
@@ -188,26 +187,18 @@ class SimCacheImpl : public SimCache {
     if (!cache_) {
       return Status::OK();
     }
-    return cache_->Insert(key, value, charge, deleter, handle, priority);
+    return cache_->Insert(key, value, helper, charge, handle, priority);
   }
 
-  using Cache::Lookup;
-  Handle* Lookup(const Slice& key, Statistics* stats) override {
-    Handle* h = key_only_cache_->Lookup(key);
-    if (h != nullptr) {
-      key_only_cache_->Release(h);
-      inc_hit_counter();
-      RecordTick(stats, SIM_BLOCK_CACHE_HIT);
-    } else {
-      inc_miss_counter();
-      RecordTick(stats, SIM_BLOCK_CACHE_MISS);
-    }
-
-    cache_activity_logger_.ReportLookup(key);
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 CreateContext* create_context,
+                 Priority priority = Priority::LOW, bool wait = true,
+                 Statistics* stats = nullptr) override {
+    HandleLookup(key, stats);
     if (!cache_) {
       return nullptr;
     }
-    return cache_->Lookup(key, stats);
+    return cache_->Lookup(key, helper, create_context, priority, wait, stats);
   }
 
   bool Ref(Handle* handle) override { return cache_->Ref(handle); }
@@ -222,7 +213,9 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->Erase(key);
   }
 
-  void* Value(Handle* handle) override { return cache_->Value(handle); }
+  Cache::ObjectPtr Value(Handle* handle) override {
+    return cache_->Value(handle);
+  }
 
   uint64_t NewId() override { return cache_->NewId(); }
 
@@ -242,8 +235,8 @@ class SimCacheImpl : public SimCache {
     return cache_->GetCharge(handle);
   }
 
-  DeleterFn GetDeleter(Handle* handle) const override {
-    return cache_->GetDeleter(handle);
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
+    return cache_->GetCacheItemHelper(handle);
   }
 
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
@@ -253,15 +246,9 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->DisownData();
   }
 
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override {
-    // only apply to _cache since key_only_cache doesn't hold value
-    cache_->ApplyToAllCacheEntries(callback, thread_safe);
-  }
-
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     cache_->ApplyToAllEntries(callback, opts);
   }
@@ -338,6 +325,19 @@ class SimCacheImpl : public SimCache {
     miss_times_.fetch_add(1, std::memory_order_relaxed);
   }
   void inc_hit_counter() { hit_times_.fetch_add(1, std::memory_order_relaxed); }
+
+  void HandleLookup(const Slice& key, Statistics* stats) {
+    Handle* h = key_only_cache_->Lookup(key);
+    if (h != nullptr) {
+      key_only_cache_->Release(h);
+      inc_hit_counter();
+      RecordTick(stats, SIM_BLOCK_CACHE_HIT);
+    } else {
+      inc_miss_counter();
+      RecordTick(stats, SIM_BLOCK_CACHE_MISS);
+    }
+    cache_activity_logger_.ReportLookup(key);
+  }
 };
 
 }  // end anonymous namespace

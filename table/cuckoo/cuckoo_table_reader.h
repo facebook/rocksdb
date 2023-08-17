@@ -9,8 +9,8 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include <string>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -25,7 +25,7 @@ class Arena;
 class TableReader;
 struct ImmutableOptions;
 
-class CuckooTableReader: public TableReader {
+class CuckooTableReader : public TableReader {
  public:
   CuckooTableReader(const ImmutableOptions& ioptions,
                     std::unique_ptr<RandomAccessFileReader>&& file,
@@ -93,7 +93,7 @@ class CuckooTableReader: public TableReader {
   uint64_t table_size_;
   const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
-      uint64_t max_num_buckets);
+                              uint64_t max_num_buckets);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -57,8 +57,8 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
   return Status::OK();
 }
 
-Status GetLatestOptionsFileName(const std::string& dbpath,
-                                Env* env, std::string* options_file_name) {
+Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
+                                std::string* options_file_name) {
   Status s;
   std::string latest_file_name;
   uint64_t latest_time_stamp = 0;

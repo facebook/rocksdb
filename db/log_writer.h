@@ -100,7 +100,7 @@ class Writer {
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
-  size_t block_offset_;       // Current offset in block
+  size_t block_offset_;  // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
 

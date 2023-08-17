@@ -7,8 +7,8 @@
 #include <string>
 
 #include "rocksdb/db.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::Options;

@@ -13,8 +13,8 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
+#include "cache/typed_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -366,9 +366,7 @@ class PersistentCacheFromCache : public PersistentCache {
     }
     std::unique_ptr<char[]> copy{new char[size]};
     std::copy_n(data, size, copy.get());
-    Status s = cache_->Insert(
-        key, copy.get(), size,
-        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kMisc>());
+    Status s = cache_.Insert(key, copy.get(), size);
     if (s.ok()) {
       copy.release();
     }
@@ -377,13 +375,13 @@ class PersistentCacheFromCache : public PersistentCache {
 
   Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                 size_t* size) override {
-    auto handle = cache_->Lookup(key);
+    auto handle = cache_.Lookup(key);
     if (handle) {
-      char* ptr = static_cast<char*>(cache_->Value(handle));
-      *size = cache_->GetCharge(handle);
+      char* ptr = cache_.Value(handle);
+      *size = cache_.get()->GetCharge(handle);
       data->reset(new char[*size]);
       std::copy_n(ptr, *size, data->get());
-      cache_->Release(handle);
+      cache_.Release(handle);
       return Status::OK();
     } else {
       return Status::NotFound();
@@ -396,10 +394,10 @@ class PersistentCacheFromCache : public PersistentCache {
 
   std::string GetPrintableOptions() const override { return ""; }
 
-  uint64_t NewId() override { return cache_->NewId(); }
+  uint64_t NewId() override { return cache_.get()->NewId(); }
 
  private:
-  std::shared_ptr<Cache> cache_;
+  BasicTypedSharedCacheInterface<char[], CacheEntryRole::kMisc> cache_;
   bool read_only_;
 };
 
@@ -407,14 +405,14 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
   using CacheWrapper::CacheWrapper;
 
   using Cache::Insert;
-  Status Insert(const Slice& /*key*/, void* /*value*/, size_t /*charge*/,
-                void (*)(const Slice& key, void* value) /*deleter*/,
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
+                const CacheItemHelper* /*helper*/, size_t /*charge*/,
                 Handle** /*handle*/, Priority /*priority*/) override {
     return Status::NotSupported();
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBlockCacheTest, TestWithSameCompressed) {
   auto table_options = GetTableOptions();
@@ -828,16 +826,15 @@ class MockCache : public LRUCache {
 
   using ShardedCache::Insert;
 
-  Status Insert(const Slice& key, void* value,
-                const Cache::CacheItemHelper* helper_cb, size_t charge,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
+                const Cache::CacheItemHelper* helper, size_t charge,
                 Handle** handle, Priority priority) override {
-    DeleterFn delete_cb = helper_cb->del_cb;
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, charge, delete_cb, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority);
   }
 };
 
@@ -917,7 +914,10 @@ class LookupLiarCache : public CacheWrapper {
       : CacheWrapper(std::move(target)) {}
 
   using Cache::Lookup;
-  Handle* Lookup(const Slice& key, Statistics* stats) override {
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
+                 CreateContext* create_context = nullptr,
+                 Priority priority = Priority::LOW, bool wait = true,
+                 Statistics* stats = nullptr) override {
     if (nth_lookup_not_found_ == 1) {
       nth_lookup_not_found_ = 0;
       return nullptr;
@@ -925,7 +925,8 @@ class LookupLiarCache : public CacheWrapper {
     if (nth_lookup_not_found_ > 1) {
       --nth_lookup_not_found_;
     }
-    return CacheWrapper::Lookup(key, stats);
+    return CacheWrapper::Lookup(key, helper, create_context, priority, wait,
+                                stats);
   }
 
   // 1 == next lookup, 2 == after next, etc.
@@ -944,10 +945,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
             capacity,
             BlockBasedTableOptions().block_size /*estimated_value_size*/,
             num_shard_bits)
-            .MakeSharedCache(),
-        NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                        false /*strict_capacity_limit*/,
-                        kDefaultCacheMetadataChargePolicy)}) {
+            .MakeSharedCache()}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1279,12 +1277,11 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 }
 
 static void ClearCache(Cache* cache) {
-  auto roles = CopyCacheDeleterRoleMap();
   std::deque<std::string> keys;
   Cache::ApplyToAllEntriesOptions opts;
-  auto callback = [&](const Slice& key, void* /*value*/, size_t /*charge*/,
-                      Cache::DeleterFn deleter) {
-    if (roles.find(deleter) == roles.end()) {
+  auto callback = [&](const Slice& key, Cache::ObjectPtr, size_t /*charge*/,
+                      const Cache::CacheItemHelper* helper) {
+    if (helper && helper->role == CacheEntryRole::kMisc) {
       // Keep the stats collector
       return;
     }
@@ -1306,11 +1303,6 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
               capacity,
               BlockBasedTableOptions().block_size /*estimated_value_size*/)
               .MakeSharedCache()}) {
-      if (!cache) {
-        // Skip clock cache when not supported
-        continue;
-      }
-
       ++iterations_tested;
 
       Options options = CurrentOptions();
@@ -1459,14 +1451,13 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ClearCache(cache.get());
       Cache::Handle* h = nullptr;
       if (strcmp(cache->Name(), "LRUCache") == 0) {
-        ASSERT_OK(cache->Insert("Fill-it-up", nullptr, capacity + 1,
-                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
-                                &h, Cache::Priority::HIGH));
+        ASSERT_OK(cache->Insert("Fill-it-up", nullptr, &kNoopCacheItemHelper,
+                                capacity + 1, &h, Cache::Priority::HIGH));
       } else {
         // For ClockCache we use a 16-byte key.
-        ASSERT_OK(cache->Insert("Fill-it-up-xxxxx", nullptr, capacity + 1,
-                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
-                                &h, Cache::Priority::HIGH));
+        ASSERT_OK(cache->Insert("Fill-it-up-xxxxx", nullptr,
+                                &kNoopCacheItemHelper, capacity + 1, &h,
+                                Cache::Priority::HIGH));
       }
       ASSERT_GT(cache->GetUsage(), cache->GetCapacity());
       expected = {};
@@ -1541,6 +1532,124 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
     }
     EXPECT_GE(iterations_tested, 1);
   }
+}
+
+namespace {
+
+void DummyFillCache(Cache& cache, size_t entry_size,
+                    std::vector<CacheHandleGuard<void>>& handles) {
+  // fprintf(stderr, "Entry size: %zu\n", entry_size);
+  handles.clear();
+  cache.EraseUnRefEntries();
+  void* fake_value = &cache;
+  size_t capacity = cache.GetCapacity();
+  OffsetableCacheKey ck{"abc", "abc", 42};
+  for (size_t my_usage = 0; my_usage < capacity;) {
+    size_t charge = std::min(entry_size, capacity - my_usage);
+    Cache::Handle* handle;
+    Status st = cache.Insert(ck.WithOffset(my_usage).AsSlice(), fake_value,
+                             &kNoopCacheItemHelper, charge, &handle);
+    ASSERT_OK(st);
+    handles.emplace_back(&cache, handle);
+    my_usage += charge;
+  }
+}
+
+class CountingLogger : public Logger {
+ public:
+  ~CountingLogger() override {}
+  using Logger::Logv;
+  void Logv(const InfoLogLevel log_level, const char* format,
+            va_list /*ap*/) override {
+    if (std::strstr(format, "HyperClockCache") == nullptr) {
+      // Not a match
+      return;
+    }
+    // static StderrLogger debug;
+    // debug.Logv(log_level, format, ap);
+    if (log_level == InfoLogLevel::INFO_LEVEL) {
+      ++info_count_;
+    } else if (log_level == InfoLogLevel::WARN_LEVEL) {
+      ++warn_count_;
+    } else if (log_level == InfoLogLevel::ERROR_LEVEL) {
+      ++error_count_;
+    }
+  }
+
+  std::array<int, 3> PopCounts() {
+    std::array<int, 3> rv{{info_count_, warn_count_, error_count_}};
+    info_count_ = warn_count_ = error_count_ = 0;
+    return rv;
+  }
+
+ private:
+  int info_count_{};
+  int warn_count_{};
+  int error_count_{};
+};
+
+}  // namespace
+
+TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
+  size_t capacity = 1024 * 1024;
+  size_t value_size_est = 8 * 1024;
+  HyperClockCacheOptions hcc_opts{capacity, value_size_est};
+  hcc_opts.num_shard_bits = 2;  // 4 shards
+  hcc_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = hcc_opts.MakeSharedCache();
+  std::shared_ptr<CountingLogger> logger = std::make_shared<CountingLogger>();
+
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  table_options.block_cache = cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.info_log = logger;
+  // Going to sample more directly
+  options.stats_dump_period_sec = 0;
+  Reopen(options);
+
+  std::vector<CacheHandleGuard<void>> handles;
+
+  // Clear anything from DB startup
+  logger->PopCounts();
+
+  // Fill cache based on expected size and check that when we
+  // don't report anything relevant in periodic stats dump
+  DummyFillCache(*cache, value_size_est, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  // Same, within reasonable bounds
+  DummyFillCache(*cache, value_size_est - value_size_est / 4, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  DummyFillCache(*cache, value_size_est + value_size_est / 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  // Estimate too high (value size too low) eventually reports ERROR
+  DummyFillCache(*cache, value_size_est / 2, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
+
+  DummyFillCache(*cache, value_size_est / 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 1}}));
+
+  // Estimate too low (value size too high) starts with INFO
+  // and is only WARNING in the worst case
+  DummyFillCache(*cache, value_size_est * 2, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{1, 0, 0}}));
+
+  DummyFillCache(*cache, value_size_est * 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
+
+  DummyFillCache(*cache, value_size_est * 20, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
 }
 
 #endif  // ROCKSDB_LITE
@@ -1973,7 +2082,7 @@ struct CacheKeyDecoder {
                                    DownwardInvolution(decoded_session_counter));
   }
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(CacheKeyTest, Encodings) {
   // This test primarily verifies this claim from cache_key.cc:

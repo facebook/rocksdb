@@ -16,6 +16,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -206,6 +207,9 @@ class DBImpl : public DB {
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override;
+
   using DB::Delete;
   Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
                 const Slice& key) override;
@@ -477,12 +481,6 @@ class DBImpl : public DB {
   Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
-
-  // If immutable_db_options_.best_efforts_recovery is true, and
-  // RocksDbFileChecksumsVerificationEnabledOnRecovery is defined and returns
-  // true, and immutable_db_options_.file_checksum_gen_factory is not nullptr,
-  // then call VerifyFileChecksums().
-  Status MaybeVerifyFileChecksums();
 
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
@@ -1209,7 +1207,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
@@ -1431,7 +1429,7 @@ class DBImpl : public DB {
 
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
-                          int job_id);
+                          int job_id, FlushReason flush_reason);
 
   void NotifyOnFlushCompleted(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
@@ -1723,12 +1721,17 @@ class DBImpl : public DB {
   // Argument required by background flush thread.
   struct BGFlushArg {
     BGFlushArg()
-        : cfd_(nullptr), max_memtable_id_(0), superversion_context_(nullptr) {}
+        : cfd_(nullptr),
+          max_memtable_id_(0),
+          superversion_context_(nullptr),
+          flush_reason_(FlushReason::kOthers) {}
     BGFlushArg(ColumnFamilyData* cfd, uint64_t max_memtable_id,
-               SuperVersionContext* superversion_context)
+               SuperVersionContext* superversion_context,
+               FlushReason flush_reason)
         : cfd_(cfd),
           max_memtable_id_(max_memtable_id),
-          superversion_context_(superversion_context) {}
+          superversion_context_(superversion_context),
+          flush_reason_(flush_reason) {}
 
     // Column family to flush.
     ColumnFamilyData* cfd_;
@@ -1739,6 +1742,7 @@ class DBImpl : public DB {
     // installs a new superversion for the column family. This operation
     // requires a SuperVersionContext object (currently embedded in JobContext).
     SuperVersionContext* superversion_context_;
+    FlushReason flush_reason_;
   };
 
   // Argument passed to flush thread.
@@ -1867,7 +1871,7 @@ class DBImpl : public DB {
   // installs a new super version for the column family.
   Status FlushMemTableToOutputFile(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      bool* madeProgress, JobContext* job_context,
+      bool* madeProgress, JobContext* job_context, FlushReason flush_reason,
       SuperVersionContext* superversion_context,
       std::vector<SequenceNumber>& snapshot_seqs,
       SequenceNumber earliest_write_conflict_snapshot,
@@ -1913,7 +1917,8 @@ class DBImpl : public DB {
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
-  Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
+  Status DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
+                    const WriteOptions& write_options);
 
   // Begin stalling of writes when memory usage increases beyond a certain
   // threshold.
@@ -2087,32 +2092,28 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
-
-  // Wait for current IngestExternalFile() calls to finish.
-  // REQUIRES: mutex_ held
-  void WaitForIngestFile();
-#else
-  // IngestExternalFile is not supported in ROCKSDB_LITE so this function
-  // will be no-op
-  void WaitForIngestFile() {}
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
 
-  // A flush request specifies the column families to flush as well as the
-  // largest memtable id to persist for each column family. Once all the
-  // memtables whose IDs are smaller than or equal to this per-column-family
-  // specified value, this flush request is considered to have completed its
-  // work of flushing this column family. After completing the work for all
-  // column families in this request, this flush is considered complete.
-  using FlushRequest = std::vector<std::pair<ColumnFamilyData*, uint64_t>>;
+  struct FlushRequest {
+    FlushReason flush_reason;
+    // A map from column family to flush to largest memtable id to persist for
+    // each column family. Once all the memtables whose IDs are smaller than or
+    // equal to this per-column-family specified value, this flush request is
+    // considered to have completed its work of flushing this column family.
+    // After completing the work for all column families in this request, this
+    // flush is considered complete.
+    std::unordered_map<ColumnFamilyData*, uint64_t>
+        cfd_to_max_mem_id_to_persist;
+  };
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
-                            FlushRequest* req);
+                            FlushReason flush_reason, FlushRequest* req);
 
-  void SchedulePendingFlush(const FlushRequest& req, FlushReason flush_reason);
+  void SchedulePendingFlush(const FlushRequest& req);
 
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
@@ -2761,6 +2762,10 @@ class DBImpl : public DB {
   // seqno_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
   SeqnoToTimeMapping seqno_time_mapping_;
+
+  // stop write token that is acquired when LockWal() is called. Destructed
+  // when UnlockWal() is called.
+  std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

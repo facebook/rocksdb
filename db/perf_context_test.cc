@@ -39,31 +39,31 @@ const std::string kDbName =
 namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<DB> OpenDb(bool read_only = false) {
-    DB* db;
-    Options options;
-    options.create_if_missing = true;
-    options.max_open_files = -1;
-    options.write_buffer_size = FLAGS_write_buffer_size;
-    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
-    options.min_write_buffer_number_to_merge =
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  options.max_open_files = -1;
+  options.write_buffer_size = FLAGS_write_buffer_size;
+  options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+  options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
 
-    if (FLAGS_use_set_based_memetable) {
+  if (FLAGS_use_set_based_memetable) {
 #ifndef ROCKSDB_LITE
-      options.prefix_extractor.reset(
-          ROCKSDB_NAMESPACE::NewFixedPrefixTransform(0));
-      options.memtable_factory.reset(NewHashSkipListRepFactory());
+    options.prefix_extractor.reset(
+        ROCKSDB_NAMESPACE::NewFixedPrefixTransform(0));
+    options.memtable_factory.reset(NewHashSkipListRepFactory());
 #endif  // ROCKSDB_LITE
-    }
+  }
 
-    Status s;
-    if (!read_only) {
-      s = DB::Open(options, kDbName, &db);
-    } else {
-      s = DB::OpenForReadOnly(options, kDbName, &db);
-    }
-    EXPECT_OK(s);
-    return std::shared_ptr<DB>(db);
+  Status s;
+  if (!read_only) {
+    s = DB::Open(options, kDbName, &db);
+  } else {
+    s = DB::OpenForReadOnly(options, kDbName, &db);
+  }
+  EXPECT_OK(s);
+  return std::shared_ptr<DB>(db);
 }
 
 class PerfContextTest : public testing::Test {};
@@ -81,7 +81,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_OK(db->Put(write_options, key, value));
   }
 
-  for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
+  for (int i = 0; i < FLAGS_total_keys - 1; ++i) {
     std::string key = "k" + std::to_string(i);
     ASSERT_OK(db->Delete(write_options, key));
   }
@@ -103,8 +103,9 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Get user key comparison: \n" << hist_get.ToString()
-              << "Get time: \n" << hist_get_time.ToString();
+    std::cout << "Get user key comparison: \n"
+              << hist_get.ToString() << "Get time: \n"
+              << hist_get_time.ToString();
   }
 
   {
@@ -139,7 +140,8 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     hist_seek.Add(get_perf_context()->user_key_comparison_count);
     if (FLAGS_verbose) {
       std::cout << "seek cmp: " << get_perf_context()->user_key_comparison_count
-                << " ikey skipped " << get_perf_context()->internal_key_skipped_count
+                << " ikey skipped "
+                << get_perf_context()->internal_key_skipped_count
                 << " idelete skipped "
                 << get_perf_context()->internal_delete_skipped_count
                 << " elapsed: " << elapsed_nanos << "ns\n";
@@ -322,7 +324,8 @@ void ProfileQueries(bool enabled_time = false) {
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
-    hist_mget_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_mget_num_memtable_checked.Add(
+        get_perf_context()->get_from_memtable_count);
     hist_mget_post_process.Add(get_perf_context()->get_post_process_time);
     hist_mget.Add(get_perf_context()->user_key_comparison_count);
   }
@@ -337,12 +340,14 @@ void ProfileQueries(bool enabled_time = false) {
               << hist_write_wal_time.ToString() << "\n"
               << " Writing Mem Table time: \n"
               << hist_write_memtable_time.ToString() << "\n"
-              << " Write Delay: \n" << hist_write_delay_time.ToString() << "\n"
+              << " Write Delay: \n"
+              << hist_write_delay_time.ToString() << "\n"
               << " Waiting for Batch time: \n"
               << hist_write_thread_wait_nanos.ToString() << "\n"
               << " Scheduling Flushes and Compactions Time: \n"
               << hist_write_scheduling_time.ToString() << "\n"
-              << " Total DB mutex nanos: \n" << total_db_mutex_nanos << "\n";
+              << " Total DB mutex nanos: \n"
+              << total_db_mutex_nanos << "\n";
 
     std::cout << "Get(): Time to get snapshot: \n"
               << hist_get_snapshot.ToString()
@@ -352,8 +357,8 @@ void ProfileQueries(bool enabled_time = false) {
               << hist_get_files.ToString() << "\n"
               << " Number of memtables checked: \n"
               << hist_num_memtable_checked.ToString() << "\n"
-              << " Time to post process: \n" << hist_get_post_process.ToString()
-              << "\n";
+              << " Time to post process: \n"
+              << hist_get_post_process.ToString() << "\n";
 
     std::cout << "MultiGet(): Time to get snapshot: \n"
               << hist_mget_snapshot.ToString()
@@ -440,7 +445,8 @@ void ProfileQueries(bool enabled_time = false) {
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
-    hist_mget_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_mget_num_memtable_checked.Add(
+        get_perf_context()->get_from_memtable_count);
     hist_mget_post_process.Add(get_perf_context()->get_post_process_time);
     hist_mget.Add(get_perf_context()->user_key_comparison_count);
   }
@@ -459,8 +465,8 @@ void ProfileQueries(bool enabled_time = false) {
               << hist_get_files.ToString() << "\n"
               << " Number of memtables checked: \n"
               << hist_num_memtable_checked.ToString() << "\n"
-              << " Time to post process: \n" << hist_get_post_process.ToString()
-              << "\n";
+              << " Time to post process: \n"
+              << hist_get_post_process.ToString() << "\n";
 
     std::cout << "ReadOnly MultiGet(): Time to get snapshot: \n"
               << hist_mget_snapshot.ToString()
@@ -556,7 +562,8 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Put time:\n" << hist_put_time.ToString() << "WAL time:\n"
+    std::cout << "Put time:\n"
+              << hist_put_time.ToString() << "WAL time:\n"
               << hist_wal_time.ToString() << "time diff:\n"
               << hist_time_diff.ToString();
   }
@@ -584,7 +591,8 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   }
   ASSERT_OK(iter->status());
   if (FLAGS_verbose) {
-    std::cout << "Seek:\n" << hist_seek.ToString() << "Next:\n"
+    std::cout << "Seek:\n"
+              << hist_seek.ToString() << "Next:\n"
               << hist_next.ToString();
   }
 }
@@ -614,7 +622,7 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
       SystemClock::Default()->SleepForMicroseconds(100);
       mutex.Unlock();
       child_thread.join();
-  }
+    }
   }
 }
 
@@ -806,14 +814,18 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
                    .bloom_filter_full_positive);
   ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[2]
                    .bloom_filter_full_true_positive);
-  ASSERT_EQ(1, (*(get_perf_context()->level_to_perf_context))[0]
-                  .block_cache_hit_count);
-  ASSERT_EQ(5, (*(get_perf_context()->level_to_perf_context))[2]
-                  .block_cache_hit_count);
-  ASSERT_EQ(2, (*(get_perf_context()->level_to_perf_context))[3]
-                  .block_cache_miss_count);
-  ASSERT_EQ(4, (*(get_perf_context()->level_to_perf_context))[1]
-                  .block_cache_miss_count);
+  ASSERT_EQ(
+      1,
+      (*(get_perf_context()->level_to_perf_context))[0].block_cache_hit_count);
+  ASSERT_EQ(
+      5,
+      (*(get_perf_context()->level_to_perf_context))[2].block_cache_hit_count);
+  ASSERT_EQ(
+      2,
+      (*(get_perf_context()->level_to_perf_context))[3].block_cache_miss_count);
+  ASSERT_EQ(
+      4,
+      (*(get_perf_context()->level_to_perf_context))[1].block_cache_miss_count);
   std::string zero_excluded = get_perf_context()->ToString(true);
   ASSERT_NE(std::string::npos,
             zero_excluded.find("bloom_filter_useful = 1@level5, 2@level7"));

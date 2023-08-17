@@ -40,7 +40,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 void VerifyInitializationOfCompactionJobStats(
-      const CompactionJobStats& compaction_job_stats) {
+    const CompactionJobStats& compaction_job_stats) {
 #if !defined(IOS_CROSS_COMPILE)
   ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
 
@@ -380,11 +380,14 @@ class CompactionJobTestBase : public testing::Test {
     }
 
     VersionEdit edit;
-    edit.AddFile(level, file_number, 0, file_size, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
-                 oldest_blob_file_number, kUnknownOldestAncesterTime,
-                 kUnknownFileCreationTime, kUnknownFileChecksum,
-                 kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+    edit.AddFile(
+        level, file_number, 0, file_size, smallest_key, largest_key,
+        smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+        oldest_blob_file_number, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime,
+        versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+        0);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -499,8 +502,7 @@ class CompactionJobTestBase : public testing::Test {
 
         // This is how the key will look like once it's written in bottommost
         // file
-        InternalKey bottommost_internal_key(
-            key, 0, kTypeValue);
+        InternalKey bottommost_internal_key(key, 0, kTypeValue);
 
         if (corrupt_id(k)) {
           test::CorruptKeyType(&internal_key);
@@ -620,7 +622,7 @@ class CompactionJobTestBase : public testing::Test {
       CompactionInputFiles compaction_level;
       compaction_level.level = input_levels[i];
       compaction_level.files.insert(compaction_level.files.end(),
-          level_files.begin(), level_files.end());
+                                    level_files.begin(), level_files.end());
       compaction_input_files.push_back(compaction_level);
       num_input_files += level_files.size();
     }
@@ -1656,7 +1658,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX),
-        rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
+        rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));

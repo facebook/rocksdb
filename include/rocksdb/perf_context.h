@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
 #include <string>
 
@@ -68,7 +69,7 @@ struct PerfContext {
   uint64_t block_read_count;           // total number of block reads (with IO)
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
-  uint64_t block_cache_index_hit_count;   // total number of index block hits
+  uint64_t block_cache_index_hit_count;  // total number of index block hits
   // total number of standalone handles lookup from secondary cache
   uint64_t block_cache_standalone_handle_count;
   // total number of real handles lookup from secondary cache that are inserted

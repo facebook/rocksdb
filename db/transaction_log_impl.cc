@@ -41,7 +41,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   current_status_.PermitUncheckedError();  // Clear on start
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
-  SeekToStartSequence(); // Seek till starting sequence
+  SeekToStartSequence();  // Seek till starting sequence
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
@@ -62,8 +62,7 @@ Status TransactionLogIteratorImpl::OpenLogFile(
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-      s = fs->NewSequentialFile(fname, optimized_env_options,
-                                &file, nullptr);
+      s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
     }
   }
   if (s.ok()) {
@@ -74,7 +73,7 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   return s;
 }
 
-BatchResult TransactionLogIteratorImpl::GetBatch()  {
+BatchResult TransactionLogIteratorImpl::GetBatch() {
   assert(is_valid_);  //  cannot call in a non valid state.
   BatchResult result;
   result.sequence = current_batch_seq_;
@@ -124,8 +123,8 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   }
   while (RestrictedRead(&record)) {
     if (record.size() < WriteBatchInternal::kHeader) {
-      reporter_.Corruption(
-        record.size(), Status::Corruption("very small log record"));
+      reporter_.Corruption(record.size(),
+                           Status::Corruption("very small log record"));
       continue;
     }
     UpdateCurrentWriteBatch(record);
@@ -137,11 +136,12 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
         reporter_.Info(current_status_.ToString().c_str());
         return;
       } else if (strict) {
-        reporter_.Info("Could seek required sequence number. Iterator will "
-                       "continue.");
+        reporter_.Info(
+            "Could seek required sequence number. Iterator will "
+            "continue.");
       }
       is_valid_ = true;
-      started_ = true; // set started_ as we could seek till starting sequence
+      started_ = true;  // set started_ as we could seek till starting sequence
       return;
     } else {
       is_valid_ = false;
@@ -182,15 +182,15 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     // Runs every time until we can seek to the start sequence
     SeekToStartSequence();
   }
-  while(true) {
+  while (true) {
     assert(current_log_reader_);
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
     while (RestrictedRead(&record)) {
       if (record.size() < WriteBatchInternal::kHeader) {
-        reporter_.Corruption(
-          record.size(), Status::Corruption("very small log record"));
+        reporter_.Corruption(record.size(),
+                             Status::Corruption("very small log record"));
         continue;
       } else {
         // started_ should be true if called by application

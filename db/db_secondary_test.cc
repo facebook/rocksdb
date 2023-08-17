@@ -499,7 +499,7 @@ class TraceFileEnv : public EnvWrapper {
  private:
   std::atomic<int> files_closed_{0};
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   Options options;

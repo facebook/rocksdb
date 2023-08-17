@@ -5,6 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
+
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "tools/ldb_cmd_impl.h"
 

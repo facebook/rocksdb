@@ -17,7 +17,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 namespace {
 
@@ -249,7 +248,7 @@ class TwoStrComparator : public Comparator {
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
 };
-}  // namespace
+}  // anonymous namespace
 
 class ComparatorDBTest
     : public testing::Test,
@@ -470,7 +469,7 @@ void VerifySuccessor(const Slice& s, const Slice& t) {
   ASSERT_FALSE(rbc->IsSameLengthImmediateSuccessor(t, s));
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(ComparatorDBTest, IsSameLengthImmediateSuccessor) {
   {

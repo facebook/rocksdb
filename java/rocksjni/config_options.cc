@@ -85,5 +85,6 @@ void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv *, jclass,
 void Java_org_rocksdb_ConfigOptions_setSanityLevel(JNIEnv *, jclass,
                                                    jlong handle, jbyte level) {
   auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
-  cfg_opt->sanity_level = ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
+  cfg_opt->sanity_level =
+      ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
 }

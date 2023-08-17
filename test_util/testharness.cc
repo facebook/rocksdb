@@ -28,8 +28,7 @@ std::string GetPidStr() { return std::to_string(getpid()); }
   if (s.ok()) {
     return ::testing::AssertionSuccess();
   } else {
-    return ::testing::AssertionFailure() << s_expr << std::endl
-                                         << s.ToString();
+    return ::testing::AssertionFailure() << s_expr << std::endl << s.ToString();
   }
 }
 

@@ -317,7 +317,9 @@ class DBIter final : public Iterator {
     wide_columns_.clear();
   }
 
-  Status Merge(const Slice* val, const Slice& user_key);
+  // If user-defined timestamp is enabled, `user_key` includes timestamp.
+  bool Merge(const Slice* val, const Slice& user_key);
+  bool MergeEntity(const Slice& entity, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;

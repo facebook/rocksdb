@@ -502,7 +502,7 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
   size_t ts_sz_;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 std::unique_ptr<FragmentedRangeTombstoneIterator>
 CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,

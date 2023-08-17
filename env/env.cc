@@ -633,8 +633,7 @@ Env::Env(const std::shared_ptr<FileSystem>& fs,
          const std::shared_ptr<SystemClock>& clock)
     : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
 
-Env::~Env() {
-}
+Env::~Env() {}
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
@@ -841,14 +840,11 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-SequentialFile::~SequentialFile() {
-}
+SequentialFile::~SequentialFile() {}
 
-RandomAccessFile::~RandomAccessFile() {
-}
+RandomAccessFile::~RandomAccessFile() {}
 
-WritableFile::~WritableFile() {
-}
+WritableFile::~WritableFile() {}
 
 MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
 
@@ -865,16 +861,15 @@ Status Logger::Close() {
 
 Status Logger::CloseImpl() { return Status::NotSupported(); }
 
-FileLock::~FileLock() {
-}
+FileLock::~FileLock() {}
 
-void LogFlush(Logger *info_log) {
+void LogFlush(Logger* info_log) {
   if (info_log) {
     info_log->Flush();
   }
 }
 
-static void Logv(Logger *info_log, const char* format, va_list ap) {
+static void Logv(Logger* info_log, const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
     info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
@@ -887,9 +882,10 @@ void Log(Logger* info_log, const char* format, ...) {
   va_end(ap);
 }
 
-void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
-  static const char* kInfoLogLevelNames[5] = { "DEBUG", "INFO", "WARN",
-    "ERROR", "FATAL" };
+void Logger::Logv(const InfoLogLevel log_level, const char* format,
+                  va_list ap) {
+  static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN", "ERROR",
+                                              "FATAL"};
   if (log_level < log_level_) {
     return;
   }
@@ -906,7 +902,7 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
   } else {
     char new_format[500];
     snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
-      kInfoLogLevelNames[log_level], format);
+             kInfoLogLevelNames[log_level], format);
     Logv(new_format, ap);
   }
 
@@ -919,7 +915,8 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
   }
 }
 
-static void Logv(const InfoLogLevel log_level, Logger *info_log, const char *format, va_list ap) {
+static void Logv(const InfoLogLevel log_level, Logger* info_log,
+                 const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= log_level) {
     if (log_level == InfoLogLevel::HEADER_LEVEL) {
       info_log->LogHeader(format, ap);
@@ -937,7 +934,7 @@ void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
   va_end(ap);
 }
 
-static void Headerv(Logger *info_log, const char *format, va_list ap) {
+static void Headerv(Logger* info_log, const char* format, va_list ap) {
   if (info_log) {
     info_log->LogHeader(format, ap);
   }
@@ -1106,7 +1103,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   options.env->SanitizeEnvOptions(env_options);
 }
 
-}
+}  // namespace
 
 EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
                                     const DBOptions& db_options) const {

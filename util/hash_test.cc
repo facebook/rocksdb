@@ -547,7 +547,7 @@ TEST(FastRangeGenericTest, Values) {
             uint16_t{6234});
   // Not recommended for typical use because for example this could fail on
   // some platforms and pass on others:
-  //EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
+  // EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
   //                           uint16_t{12468}),
   //          uint16_t{6234});
 }
@@ -843,7 +843,7 @@ TEST(MathTest, CodingGeneric) {
   EXPECT_EQ(std::string("_12"), std::string(out));
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   fprintf(stderr, "NPHash64 id: %x\n",
           static_cast<int>(ROCKSDB_NAMESPACE::GetSliceNPHash64("RocksDB")));
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

@@ -188,8 +188,8 @@ class PlainTableIndexBuilder {
              num_records_in_current_group_;
     }
     IndexRecord* At(size_t index) {
-      return &(groups_[index / kNumRecordsPerGroup]
-                      [index % kNumRecordsPerGroup]);
+      return &(
+          groups_[index / kNumRecordsPerGroup][index % kNumRecordsPerGroup]);
     }
 
    private:

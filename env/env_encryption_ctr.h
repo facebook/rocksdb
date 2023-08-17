@@ -87,8 +87,8 @@ class CTREncryptionProvider : public EncryptionProvider {
 
   Status AddCipher(const std::string& descriptor, const char* /*cipher*/,
                    size_t /*len*/, bool /*for_write*/) override;
- protected:
 
+ protected:
   // PopulateSecretPrefixPart initializes the data into a new prefix block
   // that will be encrypted. This function will store the data in plain text.
   // It will be encrypted later (before written to disk).

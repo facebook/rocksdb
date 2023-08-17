@@ -338,8 +338,7 @@ class FaultInjectionTest
                      FaultInjectionTest::kValExpectNoError));
   }
 
-  void NoWriteTestPreFault() {
-  }
+  void NoWriteTestPreFault() {}
 
   void NoWriteTestReopenWithFault(ResetMethod reset_method) {
     CloseDB();

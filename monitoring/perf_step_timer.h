@@ -26,9 +26,7 @@ class PerfStepTimer {
         metric_(metric),
         statistics_(statistics) {}
 
-  ~PerfStepTimer() {
-    Stop();
-  }
+  ~PerfStepTimer() { Stop(); }
 
   void Start() {
     if (perf_counter_enabled_ || statistics_ != nullptr) {

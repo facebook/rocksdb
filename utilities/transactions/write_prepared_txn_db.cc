@@ -309,7 +309,6 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   handle_map_.reset(handle_map);
 }
 
-
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -608,7 +607,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {
-  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(std::memory_order_acquire);
+  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(
+      std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;
 }
@@ -617,8 +617,9 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
-  CommitEntry64b evicted_entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
-      new_entry_64b, std::memory_order_acq_rel);
+  CommitEntry64b evicted_entry_64b =
+      commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
+          new_entry_64b, std::memory_order_acq_rel);
   bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
   return valid;
 }

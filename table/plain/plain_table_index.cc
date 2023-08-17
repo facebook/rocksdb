@@ -19,7 +19,7 @@ inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
   assert(num_buckets > 0);
   return hash % num_buckets;
 }
-}
+}  // namespace
 
 Status PlainTableIndex::InitFromRawData(Slice data) {
   if (!GetVarint32(&data, &index_size_)) {
@@ -114,7 +114,7 @@ void PlainTableIndexBuilder::AllocateIndex() {
   } else {
     double hash_table_size_multipier = 1.0 / hash_table_ratio_;
     index_size_ =
-      static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
+        static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
     assert(index_size_ > 0);
   }
 }
@@ -180,7 +180,8 @@ Slice PlainTableIndexBuilder::FillIndexes(
         break;
       default:
         // point to second level indexes.
-        PutUnaligned(index + i, sub_index_offset | PlainTableIndex::kSubIndexMask);
+        PutUnaligned(index + i,
+                     sub_index_offset | PlainTableIndex::kSubIndexMask);
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
         sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);

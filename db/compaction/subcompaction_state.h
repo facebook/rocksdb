@@ -196,8 +196,11 @@ class SubcompactionState {
                               const CompactionFileCloseFunc& close_file_func) {
     // Call FinishCompactionOutputFile() even if status is not ok: it needs to
     // close the output file.
+    // CloseOutput() may open new compaction output files.
+    is_current_penultimate_level_ = true;
     Status s = penultimate_level_outputs_.CloseOutput(
         curr_status, open_file_func, close_file_func);
+    is_current_penultimate_level_ = false;
     s = compaction_outputs_.CloseOutput(s, open_file_func, close_file_func);
     return s;
   }

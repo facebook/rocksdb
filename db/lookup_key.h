@@ -10,6 +10,7 @@
 #pragma once
 #include <string>
 #include <utility>
+
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
 
@@ -35,7 +36,9 @@ class LookupKey {
     return Slice(kstart_, static_cast<size_t>(end_ - kstart_));
   }
 
-  // Return the user key
+  // Return the user key.
+  // If user-defined timestamp is enabled, then timestamp is included in the
+  // result.
   Slice user_key() const {
     return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
   }

@@ -60,11 +60,9 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      // Note: Merge/GetMergeOperands is currently not supported for wide-column
-      // entities
       const VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
-              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
+              (FLAGS_user_timestamp_size > 0) ? num_methods - 1 : num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
@@ -702,6 +700,11 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t count = 0;
     Status s;
 
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
@@ -735,13 +738,20 @@ class NonBatchedOpsStressTest : public StressTest {
       s = iter->status();
     }
 
-    if (!s.ok()) {
+    uint64_t error_count = 0;
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+    if (!s.ok() && (!fault_fs_guard || (fault_fs_guard && !error_count))) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
 
       return s;
     }
 
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
     thread->stats.AddPrefixes(1, count);
 
     return Status::OK();
@@ -808,7 +818,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
-        s = db_->Merge(write_opts, cfh, k, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Merge(write_opts, cfh, k, v);
+        } else {
+          s = db_->Merge(write_opts, cfh, k, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;

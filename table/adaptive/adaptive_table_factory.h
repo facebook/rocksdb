@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 

@@ -93,8 +93,9 @@ class TransactionBaseImpl : public Transaction {
   std::vector<Status> MultiGet(const ReadOptions& options,
                                const std::vector<Slice>& keys,
                                std::vector<std::string>* values) override {
-    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), db_->DefaultColumnFamily()),
+    return MultiGet(options,
+                    std::vector<ColumnFamilyHandle*>(
+                        keys.size(), db_->DefaultColumnFamily()),
                     keys, values);
   }
 

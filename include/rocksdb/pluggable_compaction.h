@@ -98,15 +98,18 @@ struct FilesInOneLevel {
 struct OutputFile {
   std::string pathname;
   TableProperties table_properties;
-  uint64_t file_size;
-  uint64_t num_entries;
-  uint64_t num_deletions;
-  uint64_t raw_key_size;
-  uint64_t raw_value_size;
+  uint64_t file_size{0};
+  uint64_t num_entries{0};
+  uint64_t num_deletions{0};
+  uint64_t raw_key_size{0};
+  uint64_t raw_value_size{0};
   std::string smallest_internal_key;
   std::string largest_internal_key;
   SequenceNumber smallest_seqno;
   SequenceNumber largest_seqno;
+  uint64_t unique_id_lo{0};
+  uint64_t unique_id_hi{0};
+  uint64_t epoch_number{0};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

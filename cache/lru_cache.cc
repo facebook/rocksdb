@@ -22,20 +22,28 @@
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
 
+namespace {
 // A distinct pointer value for marking "dummy" cache entries
-void* const kDummyValueMarker = const_cast<char*>("kDummyValueMarker");
+struct DummyValue {
+  char val[12] = "kDummyValue";
+};
+DummyValue kDummyValue{};
+}  // namespace
 
-LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
+LRUHandleTable::LRUHandleTable(int max_upper_hash_bits,
+                               MemoryAllocator* allocator)
     : length_bits_(/* historical starting size*/ 4),
       list_(new LRUHandle* [size_t{1} << length_bits_] {}),
       elems_(0),
-      max_length_bits_(max_upper_hash_bits) {}
+      max_length_bits_(max_upper_hash_bits),
+      allocator_(allocator) {}
 
 LRUHandleTable::~LRUHandleTable() {
+  auto alloc = allocator_;
   ApplyToEntriesRange(
-      [](LRUHandle* h) {
+      [alloc](LRUHandle* h) {
         if (!h->HasRefs()) {
-          h->Free();
+          h->Free(alloc);
         }
       },
       0, size_t{1} << length_bits_);
@@ -118,6 +126,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double low_pri_pool_ratio, bool use_adaptive_mutex,
                              CacheMetadataChargePolicy metadata_charge_policy,
                              int max_upper_hash_bits,
+                             MemoryAllocator* allocator,
                              SecondaryCache* secondary_cache)
     : CacheShardBase(metadata_charge_policy),
       capacity_(0),
@@ -128,7 +137,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
       high_pri_pool_capacity_(0),
       low_pri_pool_ratio_(low_pri_pool_ratio),
       low_pri_pool_capacity_(0),
-      table_(max_upper_hash_bits),
+      table_(max_upper_hash_bits, allocator),
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex),
@@ -159,13 +168,14 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 
   for (auto entry : last_reference_list) {
-    entry->Free();
+    entry->Free(table_.GetAllocator());
   }
 }
 
 void LRUCacheShard::ApplyToSomeEntries(
-    const std::function<void(const Slice& key, void* value, size_t charge,
-                             DeleterFn deleter)>& callback,
+    const std::function<void(const Slice& key, Cache::ObjectPtr value,
+                             size_t charge,
+                             const Cache::CacheItemHelper* helper)>& callback,
     size_t average_entries_per_lock, size_t* state) {
   // The state is essentially going to be the starting hash, which works
   // nicely even if we resize between calls because we use upper-most
@@ -192,11 +202,8 @@ void LRUCacheShard::ApplyToSomeEntries(
   table_.ApplyToEntriesRange(
       [callback,
        metadata_charge_policy = metadata_charge_policy_](LRUHandle* h) {
-        DeleterFn deleter = h->IsSecondaryCacheCompatible()
-                                ? h->info_.helper->del_cb
-                                : h->info_.deleter;
         callback(h->key(), h->value, h->GetCharge(metadata_charge_policy),
-                 deleter);
+                 h->helper);
       },
       index_begin, index_end);
 }
@@ -339,11 +346,11 @@ void LRUCacheShard::TryInsertIntoSecondaryCache(
   for (auto entry : evicted_handles) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
-      secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
+      secondary_cache_->Insert(entry->key(), entry->value, entry->helper)
           .PermitUncheckedError();
     }
     // Free the entries here outside of mutex for performance reasons.
-    entry->Free();
+    entry->Free(table_.GetAllocator());
   }
 }
 
@@ -464,7 +471,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       TryInsertIntoSecondaryCache(last_reference_list);
       if (free_standalone_handle) {
         e->Unref();
-        e->Free();
+        e->Free(table_.GetAllocator());
         e = nullptr;
       } else {
         PERF_COUNTER_ADD(block_cache_standalone_handle_count, 1);
@@ -476,9 +483,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // rare case that one exists
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      s = Insert(e->key(), e->hash, kDummyValueMarker, /*charge=*/0,
-                 /*deleter=*/nullptr, /*helper=*/nullptr, /*handle=*/nullptr,
-                 priority);
+      s = Insert(e->key(), e->hash, &kDummyValue, &kNoopCacheItemHelper,
+                 /*charge=*/0,
+                 /*handle=*/nullptr, priority);
     } else {
       e->SetInCache(true);
       LRUHandle* handle = e;
@@ -508,7 +515,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
 
 LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
                                  const Cache::CacheItemHelper* helper,
-                                 const Cache::CreateCallback& create_cb,
+                                 Cache::CreateContext* create_context,
                                  Cache::Priority priority, bool wait,
                                  Statistics* stats) {
   LRUHandle* e = nullptr;
@@ -518,7 +525,7 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
     e = table_.Lookup(key, hash);
     if (e != nullptr) {
       assert(e->InCache());
-      if (e->value == kDummyValueMarker) {
+      if (e->value == &kDummyValue) {
         // For a dummy handle, if it was retrieved from secondary cache,
         // it may still exist in secondary cache.
         // If the handle exists in secondary cache, the value should be
@@ -547,24 +554,17 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
   // standalone handle is returned to the caller. Only if the block is hit
   // again, we erase it from CompressedSecondaryCache and add it into the
   // primary cache.
-  if (!e && secondary_cache_ && helper && helper->saveto_cb) {
-    // For objects from the secondary cache, we expect the caller to provide
-    // a way to create/delete the primary cache object. The only case where
-    // a deleter would not be required is for dummy entries inserted for
-    // accounting purposes, which we won't demote to the secondary cache
-    // anyway.
-    assert(create_cb && helper->del_cb);
+  if (!e && secondary_cache_ && helper && helper->create_cb) {
     bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
-        secondary_cache_->Lookup(key, create_cb, wait, found_dummy_entry,
-                                 is_in_sec_cache);
+        secondary_cache_->Lookup(key, helper, create_context, wait,
+                                 found_dummy_entry, is_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
       e->m_flags = 0;
       e->im_flags = 0;
-      e->SetSecondaryCacheCompatible(true);
-      e->info_.helper = helper;
+      e->helper = helper;
       e->key_length = key.size();
       e->hash = hash;
       e->refs = 0;
@@ -585,7 +585,7 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
           if (!e->value) {
             // The secondary cache returned a handle, but the lookup failed.
             e->Unref();
-            e->Free();
+            e->Free(table_.GetAllocator());
             e = nullptr;
           } else {
             PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
@@ -669,16 +669,18 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
 
   // Free the entry here outside of mutex for performance reasons.
   if (last_reference) {
-    e->Free();
+    e->Free(table_.GetAllocator());
   }
   return last_reference;
 }
 
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge,
-                             void (*deleter)(const Slice& key, void* value),
+Status LRUCacheShard::Insert(const Slice& key, uint32_t hash,
+                             Cache::ObjectPtr value,
                              const Cache::CacheItemHelper* helper,
-                             LRUHandle** handle, Cache::Priority priority) {
+                             size_t charge, LRUHandle** handle,
+                             Cache::Priority priority) {
+  assert(helper);
+
   // Allocate the memory here outside of the mutex.
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
@@ -688,17 +690,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->value = value;
   e->m_flags = 0;
   e->im_flags = 0;
-  if (helper) {
-    // Use only one of the two parameters
-    assert(deleter == nullptr);
-    // value == nullptr is reserved for indicating failure for when secondary
-    // cache compatible
-    assert(value != nullptr);
-    e->SetSecondaryCacheCompatible(true);
-    e->info_.helper = helper;
-  } else {
-    e->info_.deleter = deleter;
-  }
+  e->helper = helper;
   e->key_length = key.size();
   e->hash = hash;
   e->refs = 0;
@@ -707,6 +699,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
   e->CalcTotalCharge(charge, metadata_charge_policy_);
+
+  // value == nullptr is reserved for indicating failure for when secondary
+  // cache compatible
+  assert(!(e->IsSecondaryCacheCompatible() && value == nullptr));
 
   return InsertItem(e, handle, /* free_handle_on_fail */ true);
 }
@@ -733,7 +729,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
   // Free the entry here outside of mutex for performance reasons.
   // last_reference will only be true if e != nullptr.
   if (last_reference) {
-    e->Free();
+    e->Free(table_.GetAllocator());
   }
 }
 
@@ -793,18 +789,19 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
       secondary_cache_(std::move(_secondary_cache)) {
   size_t per_shard = GetPerShardCapacity();
   SecondaryCache* secondary_cache = secondary_cache_.get();
+  MemoryAllocator* alloc = memory_allocator();
   InitShards([=](LRUCacheShard* cs) {
     new (cs) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
         low_pri_pool_ratio, use_adaptive_mutex, metadata_charge_policy,
-        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
+        /* max_upper_hash_bits */ 32 - num_shard_bits, alloc, secondary_cache);
   });
 }
 
-void* LRUCache::Value(Handle* handle) {
+Cache::ObjectPtr LRUCache::Value(Handle* handle) {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
   assert(!h->IsPending() || h->value == nullptr);
-  assert(h->value != kDummyValueMarker);
+  assert(h->value != &kDummyValue);
   return h->value;
 }
 
@@ -813,13 +810,10 @@ size_t LRUCache::GetCharge(Handle* handle) const {
       GetShard(0).metadata_charge_policy_);
 }
 
-Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
+const Cache::CacheItemHelper* LRUCache::GetCacheItemHelper(
+    Handle* handle) const {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
-  if (h->IsSecondaryCacheCompatible()) {
-    return h->info_.helper->del_cb;
-  } else {
-    return h->info_.deleter;
-  }
+  return h->helper;
 }
 
 size_t LRUCache::TEST_GetLRUSize() {

@@ -110,9 +110,7 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
 
   void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
 
-  void Add(const Slice& s) {
-    bits_builder_->AddKey(s);
-  }
+  void Add(const Slice& s) { bits_builder_->AddKey(s); }
 
   void OpenRaw(const Slice& s) {
     bits_reader_.reset(policy_->GetFilterBitsReader(s));
@@ -124,9 +122,7 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
     filter_size_ = filter.size();
   }
 
-  size_t FilterSize() const {
-    return filter_size_;
-  }
+  size_t FilterSize() const { return filter_size_; }
 
   Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
@@ -319,7 +315,7 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     double rate = FalsePositiveRate();
     if (kVerbose >= 1) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
+              rate * 100.0, length, static_cast<int>(FilterSize()));
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(rate, 0.02);  // Must not be over 2%
@@ -331,8 +327,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
   }
   if (kVerbose >= 1) {
-    fprintf(stderr, "Filters: %d good, %d mediocre\n",
-            good_filters, mediocre_filters);
+    fprintf(stderr, "Filters: %d good, %d mediocre\n", good_filters,
+            mediocre_filters);
   }
   EXPECT_LE(mediocre_filters, good_filters / 5);
 }
@@ -810,14 +806,14 @@ TEST_P(FullBloomTest, Schema) {
 struct RawFilterTester {
   // Buffer, from which we always return a tail Slice, so the
   // last five bytes are always the metadata bytes.
-  std::array<char, 3000> data_;
+  std::array<char, 3000> data_{};
   // Points five bytes from the end
   char* metadata_ptr_;
 
   RawFilterTester() : metadata_ptr_(&*(data_.end() - 5)) {}
 
   Slice ResetNoFill(uint32_t len_without_metadata, uint32_t num_lines,
-                     uint32_t num_probes) {
+                    uint32_t num_probes) {
     metadata_ptr_[0] = static_cast<char>(num_probes);
     EncodeFixed32(metadata_ptr_ + 1, num_lines);
     uint32_t len = len_without_metadata + /*metadata*/ 5;
@@ -826,13 +822,13 @@ struct RawFilterTester {
   }
 
   Slice Reset(uint32_t len_without_metadata, uint32_t num_lines,
-               uint32_t num_probes, bool fill_ones) {
+              uint32_t num_probes, bool fill_ones) {
     data_.fill(fill_ones ? 0xff : 0);
     return ResetNoFill(len_without_metadata, num_lines, num_probes);
   }
 
   Slice ResetWeirdFill(uint32_t len_without_metadata, uint32_t num_lines,
-                        uint32_t num_probes) {
+                       uint32_t num_probes) {
     for (uint32_t i = 0; i < data_.size(); ++i) {
       data_[i] = static_cast<char>(0x7b7b >> (i % 7));
     }

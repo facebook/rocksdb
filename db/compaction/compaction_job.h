@@ -268,12 +268,12 @@ class CompactionJob {
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
   void UpdateCompactionJobStats(
-    const InternalStats::CompactionStats& stats) const;
+      const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
 
-  void UpdateCompactionInputStatsHelper(
-      int* num_files, uint64_t* bytes_read, int input_level);
+  void UpdateCompactionInputStatsHelper(int* num_files, uint64_t* bytes_read,
+                                        int input_level);
 
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 
@@ -409,6 +409,7 @@ struct CompactionServiceOutputFile {
   std::string largest_internal_key;
   uint64_t oldest_ancester_time;
   uint64_t file_creation_time;
+  uint64_t epoch_number;
   uint64_t paranoid_hash;
   bool marked_for_compaction;
   UniqueId64x2 unique_id;
@@ -418,8 +419,8 @@ struct CompactionServiceOutputFile {
       const std::string& name, SequenceNumber smallest, SequenceNumber largest,
       std::string _smallest_internal_key, std::string _largest_internal_key,
       uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _paranoid_hash, bool _marked_for_compaction,
-      UniqueId64x2 _unique_id)
+      uint64_t _epoch_number, uint64_t _paranoid_hash,
+      bool _marked_for_compaction, UniqueId64x2 _unique_id)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -427,6 +428,7 @@ struct CompactionServiceOutputFile {
         largest_internal_key(std::move(_largest_internal_key)),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
+        epoch_number(_epoch_number),
         paranoid_hash(_paranoid_hash),
         marked_for_compaction(_marked_for_compaction),
         unique_id(std::move(_unique_id)) {}

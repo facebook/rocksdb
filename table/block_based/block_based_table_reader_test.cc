@@ -50,7 +50,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         // Internal key is constructed directly from this key,
         // and internal key size is required to be >= 8 bytes,
         // so use %08u as the format string.
-        sprintf(k, "%08u", key);
+        snprintf(k, sizeof(k), "%08u", key);
         std::string v;
         if (mixed_with_human_readable_string_value) {
           v = (block % 2) ? rnd.HumanReadableString(256)

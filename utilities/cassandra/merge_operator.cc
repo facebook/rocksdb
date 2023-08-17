@@ -44,9 +44,8 @@ bool CassandraValueMergeOperator::FullMergeV2(
   merge_out->new_value.clear();
   std::vector<RowValue> row_values;
   if (merge_in.existing_value) {
-    row_values.push_back(
-      RowValue::Deserialize(merge_in.existing_value->data(),
-                            merge_in.existing_value->size()));
+    row_values.push_back(RowValue::Deserialize(
+        merge_in.existing_value->data(), merge_in.existing_value->size()));
   }
 
   for (auto& operand : merge_in.operand_list) {
@@ -78,6 +77,6 @@ bool CassandraValueMergeOperator::PartialMergeMulti(
   return true;
 }
 
-} // namespace cassandra
+}  // namespace cassandra
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -157,8 +157,7 @@ Status DBImplSecondary::MaybeInitLogReader(
     {
       std::unique_ptr<FSSequentialFile> file;
       Status status = fs_->NewSequentialFile(
-          fname, fs_->OptimizeForLogRead(file_options_), &file,
-          nullptr);
+          fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
       if (!status.ok()) {
         *log_reader = nullptr;
         return status;
@@ -200,7 +199,7 @@ Status DBImplSecondary::RecoverLogFiles(
     assert(reader != nullptr);
   }
   for (auto log_number : log_numbers) {
-    auto it  = log_readers_.find(log_number);
+    auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
     Status* wal_read_status = it->second->status_;

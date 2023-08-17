@@ -6,6 +6,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"

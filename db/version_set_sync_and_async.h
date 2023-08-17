@@ -16,7 +16,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 (const ReadOptions& read_options, MultiGetRange file_range, int hit_file_level,
  bool skip_filters, bool skip_range_deletions, FdWithKeyRange* f,
  std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
- Cache::Handle* table_handle, uint64_t& num_filter_read,
+ TableCache::TypedHandle* table_handle, uint64_t& num_filter_read,
  uint64_t& num_index_read, uint64_t& num_sst_read) {
   bool timer_enabled = GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
                        get_perf_context()->per_level_perf_context_enabled;
@@ -139,11 +139,6 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        file_range.MarkKeyDone(iter);
-        continue;
-      case GetContext::kUnexpectedWideColumnEntity:
-        *status =
-            Status::NotSupported("Encountered unexpected wide-column entity");
         file_range.MarkKeyDone(iter);
         continue;
     }

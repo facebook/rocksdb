@@ -158,6 +158,8 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
+    ClearSavedValue();
+
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
       const Slice prefix = prefix_.GetUserKey();
@@ -523,11 +525,13 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
     }
-    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
+    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
+        kTypeDeletionWithTimestamp == ikey.type) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
@@ -542,8 +546,7 @@ bool DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
-      Status s = Merge(&val, ikey.user_key);
-      if (!s.ok()) {
+      if (!Merge(&val, ikey.user_key)) {
         return false;
       }
       // iter_ is positioned after put
@@ -572,8 +575,7 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       valid_ = true;
-      Status s = Merge(&blob_value_, ikey.user_key);
-      if (!s.ok()) {
+      if (!Merge(&blob_value_, ikey.user_key)) {
         return false;
       }
 
@@ -587,11 +589,18 @@ bool DBIter::MergeValuesNewToOld() {
       }
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      if (!MergeEntity(iter_.value(), ikey.user_key)) {
+        return false;
+      }
+
+      // iter_ is positioned after put
+      iter_.Next();
+      if (!iter_.status().ok()) {
+        valid_ = false;
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -610,8 +619,7 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  Status s = Merge(nullptr, saved_key_.GetUserKey());
-  if (!s.ok()) {
+  if (!Merge(nullptr, saved_key_.GetUserKey())) {
     return false;
   }
   assert(status_.ok());
@@ -634,6 +642,8 @@ void DBIter::Prev() {
     }
   }
   if (ok) {
+    ClearSavedValue();
+
     Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
@@ -956,9 +966,9 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion) {
-        s = Merge(nullptr, saved_key_.GetUserKey());
-        if (!s.ok()) {
+          last_not_merge_type == kTypeSingleDeletion ||
+          last_not_merge_type == kTypeDeletionWithTimestamp) {
+        if (!Merge(nullptr, saved_key_.GetUserKey())) {
           return false;
         }
         return true;
@@ -973,8 +983,7 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
         valid_ = true;
-        s = Merge(&blob_value_, saved_key_.GetUserKey());
-        if (!s.ok()) {
+        if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
           return false;
         }
 
@@ -982,15 +991,14 @@ bool DBIter::FindValueForCurrentKey() {
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
-        // TODO: support wide-column entities
-        status_ = Status::NotSupported(
-            "Merge currently not supported for wide-column entities");
-        valid_ = false;
-        return false;
+        if (!MergeEntity(pinned_value_, saved_key_.GetUserKey())) {
+          return false;
+        }
+
+        return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
-        s = Merge(&pinned_value_, saved_key_.GetUserKey());
-        if (!s.ok()) {
+        if (!Merge(&pinned_value_, saved_key_.GetUserKey())) {
           return false;
         }
         return true;
@@ -1159,10 +1167,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
       break;
     }
-    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+        ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
     if (!iter_.PrepareValue()) {
@@ -1172,8 +1182,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     if (ikey.type == kTypeValue) {
       const Slice val = iter_.value();
-      Status s = Merge(&val, saved_key_.GetUserKey());
-      if (!s.ok()) {
+      if (!Merge(&val, saved_key_.GetUserKey())) {
         return false;
       }
       return true;
@@ -1192,8 +1201,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
       valid_ = true;
-      Status s = Merge(&blob_value_, saved_key_.GetUserKey());
-      if (!s.ok()) {
+      if (!Merge(&blob_value_, saved_key_.GetUserKey())) {
         return false;
       }
 
@@ -1201,11 +1209,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      if (!MergeEntity(iter_.value(), saved_key_.GetUserKey())) {
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -1215,8 +1223,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
   }
 
-  Status s = Merge(nullptr, saved_key_.GetUserKey());
-  if (!s.ok()) {
+  if (!Merge(nullptr, saved_key_.GetUserKey())) {
     return false;
   }
 
@@ -1239,21 +1246,47 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   return true;
 }
 
-Status DBIter::Merge(const Slice* val, const Slice& user_key) {
+bool DBIter::Merge(const Slice* val, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, val, merge_context_.GetOperands(),
-      &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+      &saved_value_, logger_, statistics_, clock_, &pinned_value_,
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;
-    return s;
+    return false;
   }
 
   SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
                                                    : saved_value_);
 
   valid_ = true;
-  return s;
+  return true;
+}
+
+bool DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  Status s = MergeHelper::TimedFullMergeWithEntity(
+      merge_operator_, user_key, entity, merge_context_.GetOperands(),
+      &saved_value_, logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
+  if (!s.ok()) {
+    valid_ = false;
+    status_ = s;
+    return false;
+  }
+
+  if (!SetValueAndColumnsFromEntity(saved_value_)) {
+    return false;
+  }
+
+  valid_ = true;
+  return true;
 }
 
 // Move backwards until the key smaller than saved_key_.

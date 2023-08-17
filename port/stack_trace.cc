@@ -24,13 +24,13 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #else
 
+#include <cxxabi.h>
 #include <execinfo.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <cxxabi.h>
 
 #if defined(OS_FREEBSD)
 #include <sys/sysctl.h>

@@ -31,6 +31,7 @@ public class DBOptions extends RocksObject
   public DBOptions() {
     super(newDBOptions());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
+    env_ = Env.getDefault();
   }
 
   /**

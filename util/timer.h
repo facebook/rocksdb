@@ -194,7 +194,6 @@ class Timer {
 #endif  // NDEBUG
 
  private:
-
   void Run() {
     InstrumentedMutexLock l(&mutex_);
 
@@ -302,9 +301,7 @@ class Timer {
           repeat_every_us(_repeat_every_us),
           valid(true) {}
 
-    void Cancel() {
-      valid = false;
-    }
+    void Cancel() { valid = false; }
 
     bool IsValid() const { return valid; }
   };
@@ -318,8 +315,7 @@ class Timer {
   }
 
   struct RunTimeOrder {
-    bool operator()(const FunctionInfo* f1,
-                    const FunctionInfo* f2) {
+    bool operator()(const FunctionInfo* f1, const FunctionInfo* f2) {
       return f1->next_run_time_us > f2->next_run_time_us;
     }
   };
@@ -333,9 +329,8 @@ class Timer {
   bool running_;
   bool executing_task_;
 
-  std::priority_queue<FunctionInfo*,
-                      std::vector<FunctionInfo*>,
-                      RunTimeOrder> heap_;
+  std::priority_queue<FunctionInfo*, std::vector<FunctionInfo*>, RunTimeOrder>
+      heap_;
 
   // In addition to providing a mapping from a function name to a function,
   // it is also responsible for memory management.

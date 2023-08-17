@@ -392,7 +392,7 @@ struct ReferenceIterator {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 // Use an internal iterator that sometimes returns errors and sometimes
 // adds/removes entries on the fly. Do random operations on a DBIter and
@@ -482,12 +482,11 @@ TEST_F(DBIteratorStressTest, StressTest) {
                 std::cout << "entries:";
                 for (size_t i = 0; i < data.entries.size(); ++i) {
                   Entry& e = data.entries[i];
-                  std::cout
-                      << "\n  idx " << i << ": \"" << e.key << "\": \""
-                      << e.value << "\" seq: " << e.sequence << " type: "
-                      << (e.type == kTypeValue
-                              ? "val"
-                              : e.type == kTypeDeletion ? "del" : "merge");
+                  std::cout << "\n  idx " << i << ": \"" << e.key << "\": \""
+                            << e.value << "\" seq: " << e.sequence << " type: "
+                            << (e.type == kTypeValue      ? "val"
+                                : e.type == kTypeDeletion ? "del"
+                                                          : "merge");
                 }
                 std::cout << std::endl;
               }

@@ -6,9 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <algorithm>
 #include <mutex>
 #include <vector>
-#include <algorithm>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"

@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db_impl.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <iomanip>
@@ -1023,9 +1024,8 @@ Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
   return PutUntil(options, key, value, kNoExpiration);
 }
 
-Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
-                              const Slice& key, const Slice& value,
-                              uint64_t ttl) {
+Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
+                              const Slice& value, uint64_t ttl) {
   uint64_t now = EpochNow();
   uint64_t expiration = kNoExpiration - now > ttl ? now + ttl : kNoExpiration;
   return PutUntil(options, key, value, expiration);
@@ -1385,9 +1385,9 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   return s;
 }
 
-std::vector<Status> BlobDBImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
+                                         const std::vector<Slice>& keys,
+                                         std::vector<std::string>* values) {
   StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we

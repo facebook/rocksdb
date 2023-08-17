@@ -203,8 +203,6 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-
-  bool is_mutable_;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;

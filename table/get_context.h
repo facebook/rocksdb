@@ -75,8 +75,6 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
-    // TODO: remove once wide-column entities are supported by Get/MultiGet
-    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 
@@ -185,6 +183,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
+  void MergeWithEntity(Slice entity);
   bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
 
   const Comparator* ucmp_;

@@ -124,6 +124,9 @@ CompactionIterator::CompactionIterator(
          timestamp_size_ == full_history_ts_low_->size());
 #endif
   input_.SetPinnedItersMgr(&pinned_iters_mgr_);
+  // The default `merge_until_status_` does not need to be checked since it is
+  // overwritten as soon as `MergeUntil()` is called
+  merge_until_status_.PermitUncheckedError();
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
 
@@ -168,11 +171,30 @@ void CompactionIterator::Next() {
       }
 
       // Keep current_key_ in sync.
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      if (0 == timestamp_size_) {
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      } else {
+        Slice ts = ikey_.GetTimestamp(timestamp_size_);
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type, &ts);
+      }
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
     } else {
+      if (merge_until_status_.IsMergeInProgress()) {
+        // `Status::MergeInProgress()` tells us that the previous `MergeUntil()`
+        // produced only merge operands. Those merge operands were accessed and
+        // written out using `merge_out_iter_`. Since `merge_out_iter_` is
+        // exhausted at this point, all merge operands have been written out.
+        //
+        // Still, there may be a base value (PUT, DELETE, SINGLEDEL, etc.) that
+        // needs to be written out. Normally, `CompactionIterator` would skip it
+        // on the basis that it has already output something in the same
+        // snapshot stripe. To prevent this, we reset `has_current_user_key_` to
+        // trick the future iteration from finding out the snapshot stripe is
+        // unchanged.
+        has_current_user_key_ = false;
+      }
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
       // MergeHelper moves the iterator to the first record after the merged
@@ -825,8 +847,8 @@ void CompactionIterator::NextFromInput() {
                  cmp_with_history_ts_low_ < 0)) &&
                bottommost_level_) {
       // Handle the case where we have a delete key at the bottom most level
-      // We can skip outputting the key iff there are no subsequent puts for this
-      // key
+      // We can skip outputting the key iff there are no subsequent puts for
+      // this key
       assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
                                  ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
@@ -853,8 +875,8 @@ void CompactionIterator::NextFromInput() {
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
-      // If you find you still need to output a row with this key, we need to output the
-      // delete too
+      // If you find you still need to output a row with this key, we need to
+      // output the delete too
       if (input_.Valid() &&
           (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
@@ -875,14 +897,15 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(
+      merge_until_status_ = merge_helper_->MergeUntil(
           &input_, range_del_agg_, prev_snapshot, bottommost_level_,
-          allow_data_in_errors_, blob_fetcher_.get(), prefetch_buffers_.get(),
-          &iter_stats_);
+          allow_data_in_errors_, blob_fetcher_.get(), full_history_ts_low_,
+          prefetch_buffers_.get(), &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
-      if (!s.ok() && !s.IsMergeInProgress()) {
-        status_ = s;
+      if (!merge_until_status_.ok() &&
+          !merge_until_status_.IsMergeInProgress()) {
+        status_ = merge_until_status_;
         return;
       } else if (merge_out_iter_.Valid()) {
         // NOTE: key, value, and ikey_ refer to old entries.
@@ -1214,8 +1237,8 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     ROCKS_LOG_FATAL(info_log_,
                     "No snapshot left in findEarliestVisibleSnapshot");
   }
-  auto snapshots_iter = std::lower_bound(
-      snapshots_->begin(), snapshots_->end(), in);
+  auto snapshots_iter =
+      std::lower_bound(snapshots_->begin(), snapshots_->end(), in);
   assert(prev_snapshot != nullptr);
   if (snapshots_iter == snapshots_->begin()) {
     *prev_snapshot = 0;
@@ -1230,8 +1253,8 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     }
   }
   if (snapshot_checker_ == nullptr) {
-    return snapshots_iter != snapshots_->end()
-      ? *snapshots_iter : kMaxSequenceNumber;
+    return snapshots_iter != snapshots_->end() ? *snapshots_iter
+                                               : kMaxSequenceNumber;
   }
   bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
 
+#include "block_cache.h"
 #include "file/random_access_file_reader.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
@@ -186,7 +187,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /*wait=*/true, /*for_compaction=*/false, &block, BlockType::kIndex,
+        /*wait=*/true, /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
         /*async_read=*/false);
 

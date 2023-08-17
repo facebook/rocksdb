@@ -15,8 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 // the delay for debugging purpose.
 static std::atomic<int> states_delay[ThreadStatus::NUM_STATE_TYPES];
 
-void ThreadStatusUtil::TEST_SetStateDelay(
-    const ThreadStatus::StateType state, int micro) {
+void ThreadStatusUtil::TEST_SetStateDelay(const ThreadStatus::StateType state,
+                                          int micro) {
   states_delay[state].store(micro, std::memory_order_relaxed);
 }
 

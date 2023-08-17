@@ -243,12 +243,6 @@ class CloudFileSystemImpl : public CloudFileSystem {
   Status ValidateOptions(const DBOptions& /*db_opts*/,
                          const ColumnFamilyOptions& /*cf_opts*/) const override;
 
-  void FileCacheDeleter(const std::string& fname);
-  void FileCacheErase(const std::string& fname);
-  void FileCachePurge();
-  uint64_t FileCacheGetCharge();
-  uint64_t FileCacheGetNumItems();
-
   std::string CloudManifestFile(const std::string& dbname);
 
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
@@ -348,10 +342,6 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus FetchCloudManifest(const std::string& local_dbname);
 
   IOStatus RollNewEpoch(const std::string& local_dbname);
-
-  // helper methods to access the file cache
-  void FileCacheAccess(const std::string& fname);
-  void FileCacheInsert(const std::string& fname, uint64_t filesize);
 
   // The dbid of the source database that is cloned
   std::string src_dbid_;

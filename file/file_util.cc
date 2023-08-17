@@ -5,8 +5,8 @@
 //
 #include "file/file_util.h"
 
-#include <string>
 #include <algorithm>
+#include <string>
 
 #include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"

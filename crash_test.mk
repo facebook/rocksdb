@@ -8,7 +8,7 @@ DB_STRESS_CMD?=./db_stress
 include common.mk
 
 CRASHTEST_MAKE=$(MAKE) -f crash_test.mk
-CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD)
+CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD) --cleanup_cmd='$(DB_CLEANUP_CMD)'
 
 .PHONY: crash_test crash_test_with_atomic_flush crash_test_with_txn \
 	crash_test_with_best_efforts_recovery crash_test_with_ts \

@@ -49,7 +49,8 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery();
+// In case defined by Windows headers
+#undef small
 
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
@@ -219,9 +220,7 @@ class SpecialEnv : public EnvWrapper {
       Env::IOPriority GetIOPriority() override {
         return base_->GetIOPriority();
       }
-      bool use_direct_io() const override {
-        return base_->use_direct_io();
-      }
+      bool use_direct_io() const override { return base_->use_direct_io(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
@@ -874,17 +873,34 @@ class FlushCounterListener : public EventListener {
 #endif
 
 // A test merge operator mimics put but also fails if one of merge operands is
-// "corrupted".
+// "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
+    static const std::map<std::string, MergeOperator::OpFailureScope>
+        bad_operand_to_op_failure_scope = {
+            {"corrupted", MergeOperator::OpFailureScope::kDefault},
+            {"corrupted_try_merge", MergeOperator::OpFailureScope::kTryMerge},
+            {"corrupted_must_merge",
+             MergeOperator::OpFailureScope::kMustMerge}};
+    auto check_operand =
+        [](Slice operand_val,
+           MergeOperator::OpFailureScope* op_failure_scope) -> bool {
+      auto iter = bad_operand_to_op_failure_scope.find(operand_val.ToString());
+      if (iter != bad_operand_to_op_failure_scope.end()) {
+        *op_failure_scope = iter->second;
+        return false;
+      }
+      return true;
+    };
     if (merge_in.existing_value != nullptr &&
-        *(merge_in.existing_value) == "corrupted") {
+        !check_operand(*merge_in.existing_value,
+                       &merge_out->op_failure_scope)) {
       return false;
     }
     for (auto value : merge_in.operand_list) {
-      if (value == "corrupted") {
+      if (!check_operand(value, &merge_out->op_failure_scope)) {
         return false;
       }
     }
@@ -904,17 +920,18 @@ class CacheWrapper : public Cache {
 
   const char* Name() const override { return target_->Name(); }
 
-  using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, charge, deleter, handle, priority);
+    return target_->Insert(key, value, helper, charge, handle, priority);
   }
 
-  using Cache::Lookup;
-  Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
-    return target_->Lookup(key, stats);
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 CreateContext* create_context,
+                 Priority priority = Priority::LOW, bool wait = true,
+                 Statistics* stats = nullptr) override {
+    return target_->Lookup(key, helper, create_context, priority, wait, stats);
   }
 
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
@@ -924,7 +941,7 @@ class CacheWrapper : public Cache {
     return target_->Release(handle, erase_if_last_ref);
   }
 
-  void* Value(Handle* handle) override { return target_->Value(handle); }
+  ObjectPtr Value(Handle* handle) override { return target_->Value(handle); }
 
   void Erase(const Slice& key) override { target_->Erase(key); }
   uint64_t NewId() override { return target_->NewId(); }
@@ -953,18 +970,13 @@ class CacheWrapper : public Cache {
     return target_->GetCharge(handle);
   }
 
-  DeleterFn GetDeleter(Handle* handle) const override {
-    return target_->GetDeleter(handle);
-  }
-
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override {
-    target_->ApplyToAllCacheEntries(callback, thread_safe);
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
+    return target_->GetCacheItemHelper(handle);
   }
 
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     target_->ApplyToAllEntries(callback, opts);
   }
@@ -992,9 +1004,8 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
   explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
 
-  using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override;
 
@@ -1010,7 +1021,7 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
   }
 
  private:
-  static const Cache::DeleterFn kNoopDeleter;
+  static const Cache::CacheItemHelper* kCrmHelper;
 
   std::size_t cur_cache_charge_;
   std::size_t cache_charge_peak_;

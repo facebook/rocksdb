@@ -195,7 +195,7 @@ struct KeyMaker {
       len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
-    char * data = buf_.get() + start;
+    char *data = buf_.get() + start;
     // Populate key data such that all data makes it into a key of at
     // least 8 bytes. We also don't want all the within-filter key
     // variance confined to a contiguous 32 bits, because then a 32 bit
@@ -378,9 +378,9 @@ void FilterBench::Go() {
                                     FLAGS_average_keys_per_filter);
   const uint32_t variance_offset = variance_range / 2;
 
-  const std::vector<TestMode> &testModes =
-      FLAGS_best_case ? bestCaseTestModes
-                      : FLAGS_quick ? quickTestModes : allTestModes;
+  const std::vector<TestMode> &testModes = FLAGS_best_case ? bestCaseTestModes
+                                           : FLAGS_quick   ? quickTestModes
+                                                           : allTestModes;
 
   m_queries_ = FLAGS_m_queries;
   double working_mem_size_mb = FLAGS_working_mem_size_mb;

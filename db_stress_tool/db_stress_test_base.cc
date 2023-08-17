@@ -12,7 +12,6 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
-#include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -124,10 +123,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                                   FLAGS_block_size /*estimated_entry_charge*/,
                                   num_shard_bits)
         .MakeSharedCache();
-  } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                           num_shard_bits, false /*strict_capacity_limit*/,
-                           kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
@@ -522,9 +517,18 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
       shared->Put(cf_idx, k, value_base, true /* pending */);
 
+      std::string ts;
+      if (FLAGS_user_timestamp_size > 0) {
+        ts = GetNowNanos();
+      }
+
       if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
-          s = db_->Merge(write_opts, cfh, key, v);
+          if (FLAGS_user_timestamp_size > 0) {
+            s = db_->Merge(write_opts, cfh, key, ts, v);
+          } else {
+            s = db_->Merge(write_opts, cfh, key, v);
+          }
         } else {
 #ifndef ROCKSDB_LITE
           Transaction* txn;
@@ -543,7 +547,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
       } else {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
-            const std::string ts = GetNowNanos();
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
             s = db_->Put(write_opts, cfh, key, v);
@@ -1043,9 +1046,11 @@ void StressTest::OperateDb(ThreadState* thread) {
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
                                      rand_keys);
         } else {
-          int num_seeks = static_cast<int>(
-              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                       FLAGS_ops_per_thread - i - 1));
+          int num_seeks = static_cast<int>(std::min(
+              std::max(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       static_cast<uint64_t>(1)),
+              std::max(static_cast<uint64_t>(FLAGS_ops_per_thread - i - 1),
+                       static_cast<uint64_t>(1))));
           rand_keys = GenerateNKeys(thread, num_seeks, i);
           i += num_seeks - 1;
           TestIterate(thread, read_opts, rand_column_families, rand_keys);
@@ -1487,10 +1492,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const Slice value_base_slice = GetValueBaseSlice(iter->value());
-
-    const WideColumns expected_columns = GenerateExpectedWideColumns(
-        GetValueBase(value_base_slice), iter->value());
+    const WideColumns expected_columns =
+        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
     if (iter->columns() != expected_columns) {
       fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
               DebugString(iter->value(), iter->columns(), expected_columns)
@@ -2967,7 +2970,8 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
 
-  if (!thread->rand.OneInOpt(3)) {
+  // TODO (yanqin): support Merge with iter_start_ts
+  if (!thread->rand.OneInOpt(3) || FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     return;
   }
 
@@ -2986,10 +2990,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     fprintf(stderr,
             "Only -user_timestamp_size=%d is supported in stress test.\n",
             static_cast<int>(cmp->timestamp_size()));
-    exit(1);
-  }
-  if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
-    fprintf(stderr, "Merge does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_use_txn) {
@@ -3027,7 +3027,7 @@ bool InitializeOptionsFromFile(Options& options) {
               FLAGS_options_file.c_str(), s.ToString().c_str());
       exit(1);
     }
-    db_options.env = new DbStressEnvWrapper(db_stress_env);
+    db_options.env = new CompositeEnvWrapper(db_stress_env);
     options = Options(db_options, cf_descriptors[0].options);
     return true;
   }
@@ -3123,6 +3123,11 @@ void InitializeOptionsFromFlags(
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
+  if (options.compaction_style ==
+      ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
+    options.compaction_options_fifo.allow_compaction =
+        FLAGS_fifo_allow_compaction;
+  }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
   options.num_levels = FLAGS_num_levels;

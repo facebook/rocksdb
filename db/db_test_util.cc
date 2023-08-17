@@ -28,10 +28,6 @@
 #include "util/random.h"
 #include "logging/logging.h"
 
-extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery() {
-  return true;
-}
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -40,7 +36,7 @@ int64_t MaybeCurrentTime(Env* env) {
   env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
-}  // namespace
+}  // anonymous namespace
 
 // Special Env used to delay background operations
 
@@ -171,54 +167,54 @@ DBTestBase::~DBTestBase() {
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 #ifdef ROCKSDB_LITE
-    // These options are not supported in ROCKSDB_LITE
-    if (option_config == kHashSkipList ||
-        option_config == kPlainTableFirstBytePrefix ||
-        option_config == kPlainTableCappedPrefix ||
-        option_config == kPlainTableCappedPrefixNonMmap ||
-        option_config == kPlainTableAllBytesPrefix ||
-        option_config == kVectorRep || option_config == kHashLinkList ||
-        option_config == kUniversalCompaction ||
-        option_config == kUniversalCompactionMultiLevel ||
-        option_config == kUniversalSubcompactions ||
-        option_config == kFIFOCompaction ||
-        option_config == kConcurrentSkipList) {
-      return true;
-    }
+  // These options are not supported in ROCKSDB_LITE
+  if (option_config == kHashSkipList ||
+      option_config == kPlainTableFirstBytePrefix ||
+      option_config == kPlainTableCappedPrefix ||
+      option_config == kPlainTableCappedPrefixNonMmap ||
+      option_config == kPlainTableAllBytesPrefix ||
+      option_config == kVectorRep || option_config == kHashLinkList ||
+      option_config == kUniversalCompaction ||
+      option_config == kUniversalCompactionMultiLevel ||
+      option_config == kUniversalSubcompactions ||
+      option_config == kFIFOCompaction ||
+      option_config == kConcurrentSkipList) {
+    return true;
+  }
 #endif
 
-    if ((skip_mask & kSkipUniversalCompaction) &&
-        (option_config == kUniversalCompaction ||
-         option_config == kUniversalCompactionMultiLevel ||
-         option_config == kUniversalSubcompactions)) {
-      return true;
-    }
-    if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
-      return true;
-    }
-    if ((skip_mask & kSkipNoSeekToLast) &&
-        (option_config == kHashLinkList || option_config == kHashSkipList)) {
-      return true;
-    }
-    if ((skip_mask & kSkipPlainTable) &&
-        (option_config == kPlainTableAllBytesPrefix ||
-         option_config == kPlainTableFirstBytePrefix ||
-         option_config == kPlainTableCappedPrefix ||
-         option_config == kPlainTableCappedPrefixNonMmap)) {
-      return true;
-    }
-    if ((skip_mask & kSkipHashIndex) &&
-        (option_config == kBlockBasedTableWithPrefixHashIndex ||
-         option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
-      return true;
-    }
-    if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
-      return true;
-    }
-    if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
-      return true;
-    }
-    return false;
+  if ((skip_mask & kSkipUniversalCompaction) &&
+      (option_config == kUniversalCompaction ||
+       option_config == kUniversalCompactionMultiLevel ||
+       option_config == kUniversalSubcompactions)) {
+    return true;
+  }
+  if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
+    return true;
+  }
+  if ((skip_mask & kSkipNoSeekToLast) &&
+      (option_config == kHashLinkList || option_config == kHashSkipList)) {
+    return true;
+  }
+  if ((skip_mask & kSkipPlainTable) &&
+      (option_config == kPlainTableAllBytesPrefix ||
+       option_config == kPlainTableFirstBytePrefix ||
+       option_config == kPlainTableCappedPrefix ||
+       option_config == kPlainTableCappedPrefixNonMmap)) {
+    return true;
+  }
+  if ((skip_mask & kSkipHashIndex) &&
+      (option_config == kBlockBasedTableWithPrefixHashIndex ||
+       option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
+    return true;
+  }
+  if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
+    return true;
+  }
+  if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
+    return true;
+  }
+  return false;
 }
 
 bool DBTestBase::ShouldSkipAwsOptions(int option_config) {
@@ -491,13 +487,13 @@ Options DBTestBase::GetOptions(
       options.allow_concurrent_memtable_write = false;
       options.unordered_write = false;
       break;
-      case kDirectIO: {
-        options.use_direct_reads = true;
-        options.use_direct_io_for_flush_and_compaction = true;
-        options.compaction_readahead_size = 2 * 1024 * 1024;
-        SetupSyncPointsToMockDirectIO();
-        break;
-      }
+    case kDirectIO: {
+      options.use_direct_reads = true;
+      options.use_direct_io_for_flush_and_compaction = true;
+      options.compaction_readahead_size = 2 * 1024 * 1024;
+      SetupSyncPointsToMockDirectIO();
+      break;
+    }
 #endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
@@ -1441,12 +1437,14 @@ void DBTestBase::GetSstFiles(Env* env, std::string path,
                              std::vector<std::string>* files) {
   EXPECT_OK(env->GetChildren(path, files));
 
-  files->erase(
-      std::remove_if(files->begin(), files->end(), [](std::string name) {
-        uint64_t number;
-        FileType type;
-        return !(ParseFileName(name, &number, &type) && type == kTableFile);
-      }), files->end());
+  files->erase(std::remove_if(files->begin(), files->end(),
+                              [](std::string name) {
+                                uint64_t number;
+                                FileType type;
+                                return !(ParseFileName(name, &number, &type) &&
+                                         type == kTableFile);
+                              }),
+               files->end());
 }
 
 int DBTestBase::GetSstFileCount(std::string path) {
@@ -1716,8 +1714,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_iter, true_data.end())
+        << iter_cnt << " / " << true_data.size();
     delete iter;
 
     // Verify Iterator::Prev()
@@ -1739,8 +1737,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_rev, true_data.rend()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_rev, true_data.rend())
+        << iter_cnt << " / " << true_data.size();
 
     // Verify Iterator::Seek()
     for (auto kv : true_data) {
@@ -1770,8 +1768,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_iter, true_data.end())
+        << iter_cnt << " / " << true_data.size();
 
     // Verify ForwardIterator::Seek()
     for (auto kv : true_data) {
@@ -1854,12 +1852,13 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(
-    const Slice& key, void* value, size_t charge,
-    void (*deleter)(const Slice& key, void* value), Handle** handle,
-    Priority priority) {
-  Status s = target_->Insert(key, value, charge, deleter, handle, priority);
-  if (deleter == kNoopDeleter) {
+Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
+                                                 ObjectPtr value,
+                                                 const CacheItemHelper* helper,
+                                                 size_t charge, Handle** handle,
+                                                 Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+  if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;
       cache_charge_increment_ = 0;
@@ -1878,8 +1877,8 @@ Status TargetCacheChargeTrackingCache<R>::Insert(
 template <CacheEntryRole R>
 bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
                                                 bool erase_if_last_ref) {
-  auto deleter = GetDeleter(handle);
-  if (deleter == kNoopDeleter) {
+  auto helper = GetCacheItemHelper(handle);
+  if (helper == kCrmHelper) {
     if (!last_peak_tracked_) {
       cache_charge_peaks_.push_back(cache_charge_peak_);
       cache_charge_increments_sum_ += cache_charge_increment_;
@@ -1892,8 +1891,8 @@ bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
 }
 
 template <CacheEntryRole R>
-const Cache::DeleterFn TargetCacheChargeTrackingCache<R>::kNoopDeleter =
-    CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole();
+const Cache::CacheItemHelper* TargetCacheChargeTrackingCache<R>::kCrmHelper =
+    CacheReservationManagerImpl<R>::TEST_GetCacheItemHelperForRole();
 
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;

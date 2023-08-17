@@ -54,7 +54,8 @@ class DuplicateDetector {
           db_->immutable_db_options().info_log,
           "Recovering an entry from the dropped column family %" PRIu32
           ". WAL must must have been emptied before dropping the column "
-          "family", cf);
+          "family",
+          cf);
 #ifndef ROCKSDB_LITE
       throw std::runtime_error(
           "Recovering an entry from a dropped column family. "
