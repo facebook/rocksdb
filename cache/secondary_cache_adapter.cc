@@ -73,9 +73,11 @@ Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
 //
 CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     std::shared_ptr<Cache> target,
-    std::shared_ptr<SecondaryCache> secondary_cache, bool distribute_cache_res)
+    std::shared_ptr<SecondaryCache> secondary_cache,
+    TieredAdmissionPolicy adm_policy, bool distribute_cache_res)
     : CacheWrapper(std::move(target)),
       secondary_cache_(std::move(secondary_cache)),
+      adm_policy_(adm_policy),
       distribute_cache_res_(distribute_cache_res) {
   target_->SetEvictionCallback([this](const Slice& key, Handle* handle) {
     return EvictionHandler(key, handle);
@@ -120,7 +122,10 @@ bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
-      auto hit = target_->GetHit(handle);
+      bool hit = false;
+      if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyWhitelistCacheHits) {
+        hit = target_->GetHit(handle);
+      }
       // Spill into secondary cache.
       secondary_cache_->Insert(key, obj, helper, hit).PermitUncheckedError();
     }
@@ -411,6 +416,10 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
     return nullptr;
   }
 
+  if (opts.adm_policy >= TieredAdmissionPolicy::kAdmPolicyMax) {
+    return nullptr;
+  }
+
   std::shared_ptr<Cache> cache;
   if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
     LRUCacheOptions cache_opts =
@@ -422,6 +431,7 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
     HyperClockCacheOptions cache_opts =
         *(static_cast_with_check<HyperClockCacheOptions, ShardedCacheOptions>(
             opts.cache_opts));
+    cache_opts.capacity += opts.comp_cache_opts.capacity;
     cache = cache_opts.MakeSharedCache();
   } else {
     return nullptr;
@@ -429,6 +439,7 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
   std::shared_ptr<SecondaryCache> sec_cache;
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
 
-  return std::make_shared<CacheWithSecondaryAdapter>(cache, sec_cache, true);
+  return std::make_shared<CacheWithSecondaryAdapter>(
+      cache, sec_cache, opts.adm_policy, /*distribute_cache_res=*/true);
 }
 }  // namespace ROCKSDB_NAMESPACE

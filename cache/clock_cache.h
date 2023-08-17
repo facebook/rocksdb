@@ -305,11 +305,11 @@ struct ClockHandle : public ClockHandleBasicData {
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
   // -----------------------------------------------------------------------
-  // | acquire counter          | release counter           | state marker |
+  // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
   // For reading or updating counters in meta word.
-  static constexpr uint8_t kCounterNumBits = 30;
+  static constexpr uint8_t kCounterNumBits = 29;
   static constexpr uint64_t kCounterMask = (uint64_t{1} << kCounterNumBits) - 1;
 
   static constexpr uint8_t kAcquireCounterShift = 0;
@@ -319,8 +319,13 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint64_t kReleaseIncrement = uint64_t{1}
                                                 << kReleaseCounterShift;
 
+  // For setting the hit bit
+  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
+  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+  ;
+
   // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = 2U * kCounterNumBits;
+  static constexpr uint8_t kStateShift = kHitBitShift + 1;
 
   // Bits contribution to state marker.
   // Occupied means any state other than empty
@@ -762,7 +767,7 @@ class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
 
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
-  bool GetHit(Handle* /*handle*/) const override { return false; }
+  bool GetHit(Handle* /*handle*/) const override;
 
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;

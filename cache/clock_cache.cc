@@ -118,6 +118,7 @@ inline bool ClockUpdate(ClockHandle& h) {
     // not aggressively
     uint64_t new_meta =
         (uint64_t{ClockHandle::kStateVisible} << ClockHandle::kStateShift) |
+        (meta & ClockHandle::kHitBitMask) |
         (new_count << ClockHandle::kReleaseCounterShift) |
         (new_count << ClockHandle::kAcquireCounterShift);
     h.meta.compare_exchange_strong(meta, new_meta, std::memory_order_relaxed);
@@ -125,10 +126,11 @@ inline bool ClockUpdate(ClockHandle& h) {
   }
   // Otherwise, remove entry (either unreferenced invisible or
   // unreferenced and expired visible).
-  if (h.meta.compare_exchange_strong(
-          meta,
-          uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
-          std::memory_order_acquire)) {
+  if (h.meta.compare_exchange_strong(meta,
+                                     (uint64_t{ClockHandle::kStateConstruction}
+                                      << ClockHandle::kStateShift) |
+                                         (meta & ClockHandle::kHitBitMask),
+                                     std::memory_order_acquire)) {
     // Took ownership.
     return true;
   } else {
@@ -825,6 +827,11 @@ FixedHyperClockTable::HandleImpl* FixedHyperClockTable::Lookup(
           // Acquired a read reference
           if (h->hashed_key == hashed_key) {
             // Match
+            // Update the hit bit
+            if (eviction_callback_) {
+              h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
+                               std::memory_order_relaxed);
+            }
             return true;
           } else {
             // Mismatch. Pretend we never took the reference
@@ -1395,6 +1402,12 @@ template <class Table>
 size_t BaseHyperClockCache<Table>::GetCharge(Handle* handle) const {
   return reinterpret_cast<const typename Table::HandleImpl*>(handle)
       ->GetTotalCharge();
+}
+
+bool FixedHyperClockCache::GetHit(Handle* handle) const {
+  return reinterpret_cast<const HandleImpl*>(handle)->meta.load(
+             std::memory_order_relaxed) &
+         ClockHandle::kHitBitMask;
 }
 
 template <class Table>
