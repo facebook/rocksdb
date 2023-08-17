@@ -4114,6 +4114,8 @@ Status DBImpl::WaitForCompact(
     }
   }
   TEST_SYNC_POINT("DBImpl::WaitForCompact:StartWaiting");
+  const auto deadline = immutable_db_options_.clock->NowMicros() +
+                        wait_for_compact_options.timeout.count();
   for (;;) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
@@ -4125,9 +4127,8 @@ Status DBImpl::WaitForCompact(
          bg_flush_scheduled_ || unscheduled_compactions_ ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {
-      if (wait_for_compact_options.timeout_micros) {
-        if (bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() +
-                             wait_for_compact_options.timeout_micros)) {
+      if (wait_for_compact_options.timeout.count()) {
+        if (bg_cv_.TimedWait(deadline)) {
           return Status::TimedOut();
         }
       } else {

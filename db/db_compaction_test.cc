@@ -157,19 +157,19 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
 class DBCompactionWaitForCompactTest
     : public DBTestBase,
       public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, uint64_t>> {
+          std::tuple<bool, bool, bool, std::chrono::microseconds>> {
  public:
   DBCompactionWaitForCompactTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
     close_db_ = std::get<2>(GetParam());
-    timeout_micros_ = std::get<3>(GetParam());
+    timeout_ = std::get<3>(GetParam());
   }
   bool abort_on_pause_;
   bool flush_;
   bool close_db_;
-  uint64_t timeout_micros_;
+  std::chrono::microseconds timeout_;
   Options options_;
   WaitForCompactOptions wait_for_compact_options_;
 
@@ -186,7 +186,7 @@ class DBCompactionWaitForCompactTest
     wait_for_compact_options_.abort_on_pause = abort_on_pause_;
     wait_for_compact_options_.flush = flush_;
     wait_for_compact_options_.close_db = close_db_;
-    wait_for_compact_options_.timeout_micros = timeout_micros_;
+    wait_for_compact_options_.timeout = timeout_;
 
     DestroyAndReopen(options_);
 
@@ -3345,12 +3345,13 @@ INSTANTIATE_TEST_CASE_P(
         testing::Bool() /* abort_on_pause */, testing::Bool() /* flush */,
         testing::Bool() /* close_db */,
         testing::Values(
-            0,
-            60 * 60 *
-                1000000ULL /* timeout_micros */)));  // 1 hour (long enough to
-                                                     // make sure that tests
-                                                     // don't fail unexpectedly
-                                                     // when running slow)
+            std::chrono::microseconds::zero(),
+            std::chrono::microseconds{
+                60 * 60 *
+                1000000ULL} /* timeout */)));  // 1 hour (long enough to
+                                               // make sure that tests
+                                               // don't fail unexpectedly
+                                               // when running slow)
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3621,16 +3622,16 @@ TEST_P(DBCompactionWaitForCompactTest, WaitForCompactToTimeout) {
 
   // Wait for Compaction in another thread
   auto waiting_for_compaction_thread = port::Thread([this]() {
-    if (wait_for_compact_options_.timeout_micros) {
+    if (wait_for_compact_options_.timeout.count()) {
       // Make timeout shorter to finish test early
-      wait_for_compact_options_.timeout_micros = 1000000;
+      wait_for_compact_options_.timeout = std::chrono::microseconds{1000000};
     } else {
       // if timeout is not set, WaitForCompact() will wait forever. We don't
       // want test to hang forever. Just let compaction go through
       TEST_SYNC_POINT("DBCompactionTest::WaitForCompactToTimeout:1");
     }
     Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
-    if (wait_for_compact_options_.timeout_micros) {
+    if (wait_for_compact_options_.timeout.count()) {
       ASSERT_NOK(s);
       ASSERT_TRUE(s.IsTimedOut());
     } else {

@@ -2135,7 +2135,8 @@ struct WaitForCompactOptions {
 
   // Timeout in microseconds for waiting for compaction to complete.
   // Status::TimedOut will be returned if timeout expires.
-  uint64_t timeout_micros = 0;
+  // when timeout == 0, WaitForCompact() will wait indefinitely.
+  std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
 }  // namespace ROCKSDB_NAMESPACE
