@@ -1590,11 +1590,12 @@ Status CompactionJob::FinishCompactionOutputFile(
     outputs.UpdateTableProperties();
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
-                   " keys, %" PRIu64 " bytes%s, temperature: %s",
+                   " keys, %" PRIu64 " bytes%s, temperature: %s, epoch number: %" PRIu64,
                    cfd->GetName().c_str(), job_id_, output_number,
                    current_entries, meta->fd.file_size,
                    meta->marked_for_compaction ? " (need compaction)" : "",
-                   temperature_to_string[meta->temperature].c_str());
+                   temperature_to_string[meta->temperature].c_str(),
+                   meta->epoch_number);
   }
   std::string fname;
   FileDescriptor output_fd;

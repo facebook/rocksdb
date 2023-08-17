@@ -5760,8 +5760,10 @@ Status VersionSet::Recover(
       }
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Column family [%s] (ID %" PRIu32
-                     "), log number is %" PRIu64 "\n",
-                     cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
+                     "), log number is %" PRIu64
+                     ", next epoch number is %" PRIu64 "\n",
+                     cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber(),
+                     cfd->GetNextEpochNumber());
     }
   }
 

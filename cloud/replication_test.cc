@@ -224,6 +224,11 @@ class ReplicationTest : public testing::Test {
   DB* currentLeader() const {
     return leader_db_.get();
   }
+
+  DBImpl* leaderFull() const {
+    return static_cast_with_check<DBImpl>(currentLeader());
+  }
+
   DB* currentFollower() const {
     return follower_db_.get();
   }
@@ -265,12 +270,39 @@ class ReplicationTest : public testing::Test {
       return keys;
   }
 
+  // verify that the current log structured merge tree of two CFs to be the same
+  void verifyLSMTEqual(ColumnFamilyHandle* h1, ColumnFamilyHandle* h2) {
+    auto cf1 = static_cast_with_check<ColumnFamilyHandleImpl>(h1)->cfd(),
+         cf2 = static_cast_with_check<ColumnFamilyHandleImpl>(h2)->cfd();
+    ASSERT_EQ(cf1->NumberLevels(), cf2->NumberLevels())
+        << h1->GetName() << ", " << h2->GetName();
+
+    for (int level = 0; level < cf1->NumberLevels(); level++) {
+        auto files1 = cf1->current()->storage_info()->LevelFiles(level),
+             files2 = cf2->current()->storage_info()->LevelFiles(level);
+        ASSERT_EQ(files1.size(), files2.size())
+          << "mismatched number of files at level: " << level
+          << " between cf: " << cf1->GetName()
+          << " and cf: " << cf2->GetName();
+        for (size_t i = 0; i < files1.size(); i++) {
+          auto f1 = files1[i], f2 = files2[i];
+          ASSERT_EQ(f1->fd.file_size, f2->fd.file_size);
+          ASSERT_EQ(f1->fd.smallest_seqno, f2->fd.smallest_seqno);
+          ASSERT_EQ(f1->fd.largest_seqno, f2->fd.largest_seqno);
+          ASSERT_EQ(f1->epoch_number, f2->epoch_number);
+          ASSERT_EQ(f1->file_checksum, f2->file_checksum);
+          ASSERT_EQ(f1->unique_id, f2->unique_id);
+        }
+    }
+  }
+
   void verifyEqual() {
     ASSERT_EQ(leader_cfs_.size(), follower_cfs_.size());
     auto leader = leader_db_.get(), follower = follower_db_.get();
     for (auto& [name, cf1]: leader_cfs_) {
       auto cf2 = followerCF(name);
       verifyNextLogNumAndReplSeqConsistency(name);
+      verifyLSMTEqual(cf1.get(), cf2);
 
       auto itrLeader = std::unique_ptr<Iterator>(
           leader->NewIterator(ReadOptions(), cf1.get()));
@@ -290,6 +322,7 @@ class ReplicationTest : public testing::Test {
 
 protected:
   std::shared_ptr<Logger> info_log_;
+  bool replicate_epoch_number_{true};
   void resetFollowerSequence(int new_seq) {
     followerSequence_ = new_seq;
   }
@@ -420,6 +453,12 @@ size_t ReplicationTest::catchUpFollower(
   MutexLock lock(&log_records_mutex_);
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
+  unsigned flags = DB::AR_EVICT_OBSOLETE_FILES;
+  if (replicate_epoch_number_) {
+    flags |= DB::AR_REPLICATE_EPOCH_NUM;
+  } else {
+    flags |= DB::AR_RESET_IF_EPOCH_MISMATCH;
+  }
   for (; followerSequence_ < (int)log_records_.size(); ++followerSequence_) {
     if (num_records && ret >= *num_records) {
       break;
@@ -430,8 +469,9 @@ size_t ReplicationTest::catchUpFollower(
         [this](Slice) {
           return ColumnFamilyOptions(follower_db_->GetOptions());
         },
-        allow_new_manifest_writes, &info, DB::AR_EVICT_OBSOLETE_FILES);
+        allow_new_manifest_writes, &info, flags);
     assert(s.ok());
+    assert(info.mismatched_epoch_num == 0);
     ++ret;
   }
   if (info.has_new_manifest_writes) {
@@ -1098,7 +1138,18 @@ TEST_F(ReplicationTest, EvictObsoleteFiles) {
       static_cast_with_check<DBImpl>(follower)->TEST_table_cache()->GetUsage());
 }
 
-TEST_F(ReplicationTest, Stress) {
+class ReplicationTestWithParam : public ReplicationTest,
+                                 public testing::WithParamInterface<bool> {
+ public:
+  ReplicationTestWithParam()
+    : ReplicationTest() {}
+
+  void SetUp() override {
+    replicate_epoch_number_ = GetParam();
+  }
+};
+
+TEST_P(ReplicationTestWithParam, Stress) {
   std::string val;
   auto leader = openLeader();
   openFollower();
@@ -1114,40 +1165,61 @@ TEST_F(ReplicationTest, Stress) {
     createColumnFamily(cf(i));
   }
 
-  auto do_writes = [&](int n) {
-    auto rand = Random::GetTLSInstance();
-    while (n > 0) {
-      auto cfi = rand->Uniform(kColumnFamilyCount);
-      rocksdb::WriteBatch wb;
-      for (size_t i = 0; i < 3; ++i) {
-        --n;
-        wb.Put(leaderCF(cf(cfi)), std::to_string(rand->Uniform(kMaxKey)),
-               std::to_string(rand->Next()));
+  auto do_writes = [&]() {
+    auto writes_per_thread = [&](int n) {
+      auto rand = Random::GetTLSInstance();
+      while (n > 0) {
+        auto cfi = rand->Uniform(kColumnFamilyCount);
+        rocksdb::WriteBatch wb;
+        for (size_t i = 0; i < 3; ++i) {
+          --n;
+          wb.Put(leaderCF(cf(cfi)), std::to_string(rand->Uniform(kMaxKey)),
+                 std::to_string(rand->Next()));
+        }
+        ASSERT_OK(leader->Write(wo(), &wb));
       }
-      ASSERT_OK(leader->Write(wo(), &wb));
+    };
+
+    std::vector<std::thread> threads;
+    for (size_t i = 0; i < kThreadCount; ++i) {
+      threads.emplace_back([&]() { writes_per_thread(kWritesPerThread); });
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+
+    ASSERT_OK(
+      leaderFull()->TEST_WaitForBackgroundWork());
+  };
+
+  auto verifyNextEpochNumber = [&]() {
+    for (int i = 0; i < kColumnFamilyCount; i++) {
+      auto cf1 = leaderCFD(cf(i)), cf2 = followerCFD(cf(i));
+      ASSERT_EQ(cf1->GetNextEpochNumber(), cf2->GetNextEpochNumber());
     }
   };
 
-  std::vector<std::thread> threads;
-  for (size_t i = 0; i < kThreadCount; ++i) {
-    threads.emplace_back([&]() { do_writes(kWritesPerThread); });
-  }
-  for (auto& t : threads) {
-    t.join();
-  }
-  ASSERT_OK(
-      static_cast_with_check<DBImpl>(leader)->TEST_WaitForBackgroundWork());
+  do_writes();
 
   catchUpFollower();
-
   verifyEqual();
+  verifyNextEpochNumber();
+
+  ROCKS_LOG_INFO(info_log_, "reopen leader");
 
   // Reopen leader
   closeLeader();
   leader = openLeader();
-  ASSERT_OK(leader->Flush(FlushOptions()));
-
+  // memtable might not be empty after reopening leader, since we recover
+  // replication log when opening it.
+  ASSERT_OK(leader->Flush({}));
+  ASSERT_OK(leaderFull()->TEST_WaitForBackgroundWork());
+  catchUpFollower();
   verifyEqual();
+
+  do_writes();
+
+  ROCKS_LOG_INFO(info_log_, "reopen follower");
 
   // Reopen follower
   closeFollower();
@@ -1155,7 +1227,11 @@ TEST_F(ReplicationTest, Stress) {
   catchUpFollower();
 
   verifyEqual();
+  verifyNextEpochNumber();
 }
+
+INSTANTIATE_TEST_CASE_P(ReplicationTest, ReplicationTestWithParam,
+                        ::testing::Values(false, true));
 
 TEST_F(ReplicationTest, DeleteRange) {
   auto leader = openLeader();
@@ -1198,6 +1274,26 @@ TEST_F(ReplicationTest, DeleteRange) {
   catchUpFollower();
 
   EXPECT_EQ(getAllKeys(leader, leaderCF(cf(0))).size(), 78);
+  verifyEqual();
+}
+
+TEST_F(ReplicationTest, EpochNumberSimple) {
+  auto options = leaderOptions();
+  options.disable_auto_compactions = true;
+  auto leader = openLeader();
+  openFollower();
+
+  ASSERT_OK(leader->Put(wo(), "k1", "v1"));
+  ASSERT_OK(leader->Flush({}));
+  catchUpFollower();
+
+  ASSERT_OK(leader->Put(wo(), "k1", "v2"));
+  ASSERT_OK(leader->Flush({}));
+  auto leaderFull = static_cast_with_check<DBImpl>(leader);
+  ASSERT_OK(leaderFull->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+
+  catchUpFollower();
+
   verifyEqual();
 }
 

@@ -895,9 +895,9 @@ Status FlushJob::WriteLevel0Table() {
           NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));
       ROCKS_LOG_INFO(db_options_.info_log,
-                     "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
+                     "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started. Epoch number: %" PRIu64,
                      cfd_->GetName().c_str(), job_context_->job_id,
-                     meta_.fd.GetNumber());
+                     meta_.fd.GetNumber(), meta_.epoch_number);
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
