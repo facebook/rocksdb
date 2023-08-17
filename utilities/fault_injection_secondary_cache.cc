@@ -78,8 +78,7 @@ FaultInjectionSecondaryCache::GetErrorContext() {
 
 Status FaultInjectionSecondaryCache::Insert(
     const Slice& key, Cache::ObjectPtr value,
-    const Cache::CacheItemHelper* helper,
-    bool force_insert) {
+    const Cache::CacheItemHelper* helper, bool force_insert) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
     return Status::IOError();

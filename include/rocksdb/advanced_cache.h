@@ -599,9 +599,7 @@ class CacheWrapper : public Cache {
     return target_->GetCacheItemHelper(handle);
   }
 
-  bool GetHit(Handle* handle) const override {
-    return target_->GetHit(handle);
-  }
+  bool GetHit(Handle* handle) const override { return target_->GetHit(handle); }
 
   void ApplyToAllEntries(
       const std::function<void(const Slice& key, ObjectPtr value, size_t charge,

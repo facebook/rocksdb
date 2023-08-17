@@ -39,7 +39,7 @@ Status SecondaryCache::InsertSaved(const Slice& key, const Slice& saved) {
       &SliceSaveTo,          &FailCreate, &helper_no_secondary};
   // NOTE: depends on Insert() being synchronous, not keeping pointer `&saved`
   return Insert(key, const_cast<Slice*>(&saved), &helper,
-                /*force_insert=*/ true);
+                /*force_insert=*/true);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

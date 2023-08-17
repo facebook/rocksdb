@@ -1057,11 +1057,6 @@ bool CacheUsageWithinBounds(size_t val1, size_t val2, size_t error) {
 }
 
 TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
-  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeHCC) {
-    ROCKSDB_GTEST_SKIP("Test needs to be updated for HCC");
-    return;
-  }
-
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
@@ -1085,11 +1080,6 @@ TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
 
 TEST_P(CompressedSecCacheTestWithTiered,
        CacheReservationManagerMultipleUpdate) {
-  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeHCC) {
-    ROCKSDB_GTEST_SKIP("Test needs to be updated for HCC");
-    return;
-  }
-
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
@@ -1119,7 +1109,9 @@ TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
   Cache* cache = GetCache();
   std::vector<CacheKey> keys;
   std::vector<std::string> vals;
-  size_t item_size = 39 << 18;
+  // Make the item size slightly less than 10MB to ensure we can fit the
+  // expected number of items in the cache
+  int item_size = (10 << 20) - (1 << 18);
   int i;
   Random rnd(301);
   for (i = 0; i < 14; ++i) {
