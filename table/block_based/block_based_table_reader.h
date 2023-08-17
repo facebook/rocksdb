@@ -138,6 +138,9 @@ class BlockBasedTable : public TableReader {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber read_seqno, const Slice* timestamp) override;
+
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,

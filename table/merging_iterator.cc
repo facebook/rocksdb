@@ -135,6 +135,18 @@ class MergingIterator : public InternalIterator {
     status_.PermitUncheckedError();
   }
 
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    for (auto& child : children_) {
+      // This should only be needed for LevelIterator (iterators from L1+).
+      child.iter.SetRangeDelReadSeqno(read_seqno);
+    }
+    for (auto& child : range_tombstone_iters_) {
+      if (child) {
+        child->SetRangeDelReadSeqno(read_seqno);
+      }
+    }
+  }
+
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
 
   Status status() const override { return status_; }

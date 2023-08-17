@@ -1913,6 +1913,16 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
                                               snapshot, read_options.timestamp);
 }
 
+FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
+    SequenceNumber read_seqno, const Slice* timestamp) {
+  if (rep_->fragmented_range_dels == nullptr) {
+    return nullptr;
+  }
+  return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
+                                              rep_->internal_comparator,
+                                              read_seqno, timestamp);
+}
+
 bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,

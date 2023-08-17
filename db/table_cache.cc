@@ -224,7 +224,7 @@ InternalIterator* TableCache::NewIterator(
     size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
-    uint8_t block_protection_bytes_per_key,
+    uint8_t block_protection_bytes_per_key, const SequenceNumber* read_seqno,
     TruncatedRangeDelIterator** range_del_iter) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
@@ -273,7 +273,9 @@ InternalIterator* TableCache::NewIterator(
   if (s.ok() && !options.ignore_range_deletions) {
     if (range_del_iter != nullptr) {
       auto new_range_del_iter =
-          table_reader->NewRangeTombstoneIterator(options);
+          read_seqno ? table_reader->NewRangeTombstoneIterator(
+                           *read_seqno, options.timestamp)
+                     : table_reader->NewRangeTombstoneIterator(options);
       if (new_range_del_iter == nullptr || new_range_del_iter->empty()) {
         delete new_range_del_iter;
         *range_del_iter = nullptr;

@@ -209,6 +209,7 @@ class DBIter final : public Iterator {
     if (read_callback_) {
       read_callback_->Refresh(s);
     }
+    iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
 
