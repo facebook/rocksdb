@@ -1105,6 +1105,11 @@ TEST_P(CompressedSecCacheTestWithTiered,
 }
 
 TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_BYPASS("This test requires LZ4 support\n");
+    return;
+  }
+
   Cache* tiered_cache = GetTieredCache();
   Cache* cache = GetCache();
   std::vector<CacheKey> keys;

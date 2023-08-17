@@ -1407,7 +1407,7 @@ size_t BaseHyperClockCache<Table>::GetCharge(Handle* handle) const {
 template <class Table>
 bool BaseHyperClockCache<Table>::GetHit(Handle* handle) const {
   return reinterpret_cast<const typename Table::HandleImpl*>(handle)->meta.load(
-            std::memory_order_relaxed) &
+             std::memory_order_relaxed) &
          ClockHandle::kHitBitMask;
 }
 
