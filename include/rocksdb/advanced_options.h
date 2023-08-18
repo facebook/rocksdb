@@ -961,6 +961,14 @@ struct AdvancedColumnFamilyOptions {
   Temperature last_level_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
+  // When this field is set, all SST files without an explicitly set temperature
+  // will be treated as if they have this temperature for file reading
+  // accounting purpose, such as io statistics, io perf context.
+  //
+  // Not dynamically changeable, change it requires db restart.
+  Temperature default_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
   // The feature is still in development and is incomplete.
   // If this option is set, when data insert time is within this time range, it
   // will be precluded from the last level.
