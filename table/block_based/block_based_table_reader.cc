@@ -88,21 +88,27 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 // Explicitly instantiate templates for each "blocklike" type we use (and
 // before implicit specialization).
 // This makes it possible to keep the template definitions in the .cc file.
-#define INSTANTIATE_RETRIEVE_BLOCK(T)                                         \
+#define INSTANTIATE_BLOCKLIKE_TEMPLATES(T)                                    \
   template Status BlockBasedTable::RetrieveBlock<T>(                          \
       FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,            \
       const BlockHandle& handle, const UncompressionDict& uncompression_dict, \
       CachableEntry<T>* out_parsed_block, GetContext* get_context,            \
       BlockCacheLookupContext* lookup_context, bool for_compaction,           \
-      bool use_cache, bool async_read) const;
+      bool use_cache, bool async_read) const;                                 \
+  template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(           \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,            \
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict, \
+      bool for_compaction, CachableEntry<T>* block_entry,                     \
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,       \
+      BlockContents* contents, bool async_read) const;
 
-INSTANTIATE_RETRIEVE_BLOCK(ParsedFullFilterBlock);
-INSTANTIATE_RETRIEVE_BLOCK(UncompressionDict);
-INSTANTIATE_RETRIEVE_BLOCK(Block_kData);
-INSTANTIATE_RETRIEVE_BLOCK(Block_kIndex);
-INSTANTIATE_RETRIEVE_BLOCK(Block_kFilterPartitionIndex);
-INSTANTIATE_RETRIEVE_BLOCK(Block_kRangeDeletion);
-INSTANTIATE_RETRIEVE_BLOCK(Block_kMetaIndex);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kData);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kIndex);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kFilterPartitionIndex);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kRangeDeletion);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
 
 }  // namespace ROCKSDB_NAMESPACE
 
