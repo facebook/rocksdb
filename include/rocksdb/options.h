@@ -1707,12 +1707,9 @@ struct ReadOptions {
 
   // Experimental
   //
-  // If auto_readahead_size is set to true, it will trim the readahead_size
-  // during scans upto iterate_upper_bound and won't prefetch beyond
-  // iterate_upper_bound.
+  // If auto_readahead_size is set to true, it will auto tune the readahead_size
+  // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
-  // It's enabled for explicit and implicit readahead_size (async and sync
-  // scans).
   //
   // Default: false
   bool auto_readahead_size = false;

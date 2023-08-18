@@ -651,15 +651,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
             return false;
           }
         }
-        // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
-        // set.
-        if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
-          if (upper_bound_offset_ < offset + n + readahead_size_) {
-            readahead_size_ = (upper_bound_offset_ - offset) - n;
-            RecordTick(stats_, READAHEAD_TRIMMED);
-          }
-        }
-
+        UpdateReadAheadSizeForUpperBound(offset, n);
         s = Prefetch(opts, reader, offset, n + readahead_size_);
       }
       if (!s.ok()) {
@@ -754,14 +746,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
         }
       }
 
-      // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
-      // set.
-      if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
-        if (upper_bound_offset_ < offset + n + readahead_size_) {
-          readahead_size_ = (upper_bound_offset_ - offset) - n;
-          RecordTick(stats_, READAHEAD_TRIMMED);
-        }
-      }
+      UpdateReadAheadSizeForUpperBound(offset, n);
 
       // Prefetch n + readahead_size_/2 synchronously as remaining
       // readahead_size_/2 will be prefetched asynchronously.
@@ -843,16 +828,10 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
-    is_eligible_for_prefetching = true;
-
-    if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
-      if (upper_bound_offset_ < offset + n + readahead_size_) {
-        readahead_size_ = (upper_bound_offset_ - offset) - n;
-        RecordTick(stats_, READAHEAD_TRIMMED);
-        if (readahead_size_ == 0) {
-          is_eligible_for_prefetching = false;
-        }
-      }
+    UpdateReadAheadSizeForUpperBound(offset, n);
+    // After trim, readahead size can be 0.
+    if (readahead_size_ > 0) {
+      is_eligible_for_prefetching = true;
     }
   }
 
