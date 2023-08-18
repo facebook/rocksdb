@@ -48,7 +48,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   SecondaryCache* TEST_GetSecondaryCache() { return secondary_cache_.get(); }
 
  private:
-  bool EvictionHandler(const Slice& key, Handle* handle);
+  bool EvictionHandler(const Slice& key, Handle* handle, bool was_hit);
 
   void StartAsyncLookupOnMySecondary(AsyncLookupHandle& async_handle);
 

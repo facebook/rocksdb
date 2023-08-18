@@ -530,10 +530,11 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(
   if (eviction_callback_) {
     // For key reconstructed from hash
     UniqueId64x2 unhashed;
-    took_value_ownership =
-        eviction_callback_(ClockCacheShard<FixedHyperClockTable>::ReverseHash(
-                               h->GetHash(), &unhashed, hash_seed_),
-                           reinterpret_cast<Cache::Handle*>(h));
+    took_value_ownership = eviction_callback_(
+        ClockCacheShard<FixedHyperClockTable>::ReverseHash(
+            h->GetHash(), &unhashed, hash_seed_),
+        reinterpret_cast<Cache::Handle*>(h),
+        h->meta.load(std::memory_order_relaxed) & ClockHandle::kHitBitMask);
   }
   if (!took_value_ownership) {
     h->FreeData(allocator_);
@@ -1402,13 +1403,6 @@ template <class Table>
 size_t BaseHyperClockCache<Table>::GetCharge(Handle* handle) const {
   return reinterpret_cast<const typename Table::HandleImpl*>(handle)
       ->GetTotalCharge();
-}
-
-template <class Table>
-bool BaseHyperClockCache<Table>::GetHit(Handle* handle) const {
-  return reinterpret_cast<const typename Table::HandleImpl*>(handle)->meta.load(
-             std::memory_order_relaxed) &
-         ClockHandle::kHitBitMask;
 }
 
 template <class Table>

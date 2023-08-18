@@ -79,9 +79,10 @@ CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
       secondary_cache_(std::move(secondary_cache)),
       adm_policy_(adm_policy),
       distribute_cache_res_(distribute_cache_res) {
-  target_->SetEvictionCallback([this](const Slice& key, Handle* handle) {
-    return EvictionHandler(key, handle);
-  });
+  target_->SetEvictionCallback(
+      [this](const Slice& key, Handle* handle, bool was_hit) {
+        return EvictionHandler(key, handle, was_hit);
+      });
   if (distribute_cache_res_) {
     size_t sec_capacity = 0;
     pri_cache_res_ = std::make_shared<ConcurrentCacheReservationManager>(
@@ -116,15 +117,15 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
 }
 
 bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
-                                                Handle* handle) {
+                                                Handle* handle, bool was_hit) {
   auto helper = GetCacheItemHelper(handle);
   if (helper->IsSecondaryCacheCompatible()) {
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
       bool hit = false;
-      if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyWhitelistCacheHits) {
-        hit = target_->GetHit(handle);
+      if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyAllowCacheHits) {
+        hit = was_hit;
       }
       // Spill into secondary cache.
       secondary_cache_->Insert(key, obj, helper, hit).PermitUncheckedError();

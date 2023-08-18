@@ -309,7 +309,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // -----------------------------------------------------------------------
 
   // For reading or updating counters in meta word.
-  static constexpr uint8_t kCounterNumBits = 29;
+  static constexpr uint8_t kCounterNumBits = 30;
   static constexpr uint64_t kCounterMask = (uint64_t{1} << kCounterNumBits) - 1;
 
   static constexpr uint8_t kAcquireCounterShift = 0;
@@ -764,8 +764,6 @@ class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
   Cache::ObjectPtr Value(Handle* handle) override;
 
   size_t GetCharge(Handle* handle) const override;
-
-  bool GetHit(Handle* /*handle*/) const override;
 
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 

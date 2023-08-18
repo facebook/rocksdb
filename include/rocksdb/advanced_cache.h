@@ -361,10 +361,6 @@ class Cache {
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
 
-  // Returns true or false depending on whether the item got a hit while in
-  // cache
-  virtual bool GetHit(Handle* handle) const = 0;
-
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
@@ -518,7 +514,8 @@ class Cache {
   // returns `true` if it has taken ownership of the Value (object), or
   // `false` if the cache should destroy it as usual. Regardless, Ref() and
   // Release() cannot be called on this Handle that is poised for eviction.
-  using EvictionCallback = std::function<bool(const Slice& key, Handle* h)>;
+  using EvictionCallback =
+      std::function<bool(const Slice& key, Handle* h, bool was_hit)>;
   // Sets an eviction callback for this Cache. Not thread safe and only
   // supports being set once, so should only be used during initialization
   // or destruction, guaranteed before or after any thread-shared operations.
@@ -598,8 +595,6 @@ class CacheWrapper : public Cache {
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
     return target_->GetCacheItemHelper(handle);
   }
-
-  bool GetHit(Handle* handle) const override { return target_->GetHit(handle); }
 
   void ApplyToAllEntries(
       const std::function<void(const Slice& key, ObjectPtr value, size_t charge,

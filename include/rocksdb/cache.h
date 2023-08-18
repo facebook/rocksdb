@@ -459,7 +459,7 @@ enum TieredAdmissionPolicy {
   kAdmPolicyPlaceholder,
   // Same as kAdmPolicyPlaceholder, but also if an entry in the primary cache
   // was a hit, then force insert it into the compressed secondary cache
-  kAdmPolicyWhitelistCacheHits,
+  kAdmPolicyAllowCacheHits,
   kAdmPolicyMax,
 };
 

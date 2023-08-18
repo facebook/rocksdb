@@ -1169,9 +1169,9 @@ INSTANTIATE_TEST_CASE_P(
     CompressedSecCacheTests, CompressedSecCacheTestWithTiered,
     ::testing::Values(
         std::make_tuple(PrimaryCacheType::kCacheTypeLRU,
-                        TieredAdmissionPolicy::kAdmPolicyWhitelistCacheHits),
+                        TieredAdmissionPolicy::kAdmPolicyAllowCacheHits),
         std::make_tuple(PrimaryCacheType::kCacheTypeHCC,
-                        TieredAdmissionPolicy::kAdmPolicyWhitelistCacheHits)));
+                        TieredAdmissionPolicy::kAdmPolicyAllowCacheHits)));
 
 }  // namespace ROCKSDB_NAMESPACE
 
