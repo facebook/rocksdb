@@ -2067,6 +2067,8 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
+  int buff_prefetch_count = 0;
+
   // Try with different num_file_reads_for_auto_readahead from 0 to 3.
   for (size_t i = 0; i < 3; i++) {
     table_options.num_file_reads_for_auto_readahead = i;
@@ -2077,8 +2079,8 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
 
     int buff_count_with_tuning = 0, buff_count_without_tuning = 0;
     int keys_with_tuning = 0, keys_without_tuning = 0;
+    buff_prefetch_count = 0;
 
-    int buff_prefetch_count = 0;
     SyncPoint::GetInstance()->SetCallBack(
         "FilePrefetchBuffer::Prefetch:Start",
         [&](void*) { buff_prefetch_count++; });

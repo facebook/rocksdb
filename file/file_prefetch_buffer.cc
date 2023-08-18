@@ -849,6 +849,9 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
       if (upper_bound_offset_ < offset + n + readahead_size_) {
         readahead_size_ = (upper_bound_offset_ - offset) - n;
         RecordTick(stats_, READAHEAD_TRIMMED);
+        if (readahead_size_ == 0) {
+          is_eligible_for_prefetching = false;
+        }
       }
     }
   }
