@@ -52,7 +52,7 @@ class InternalIteratorBase : public Cleanable {
   // files and create new range tombstone iterators during scanning. It will use
   // `read_seqno` as the sequence number for creating new range tombstone
   // iterators.
-  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */){};
+  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */) {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.

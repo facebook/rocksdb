@@ -21,10 +21,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 inline static SequenceNumber GetSeqNum(const DBImpl* db, const Snapshot* s) {
-  if (s)
+  if (s) {
     return static_cast_with_check<const SnapshotImpl>(s)->number_;
-  else
+  } else {
     return db->GetLatestSequenceNumber();
+  }
 }
 
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
