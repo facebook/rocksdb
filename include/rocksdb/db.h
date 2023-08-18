@@ -1477,7 +1477,8 @@ class DB {
   // NOTE: This may also never return if there's sufficient ongoing writes that
   // keeps flush and compaction going without stopping. The user would have to
   // cease all the writes to DB to make this eventually return in a stable
-  // state.
+  // state. The user may also use timeout option in WaitForCompactOptions to
+  // make this stop waiting and return when timeout expires.
   virtual Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 

@@ -153,19 +153,23 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
   DBCompactionDirectIOTest() : DBCompactionTest() {}
 };
 
+// Params: See WaitForCompactOptions for details
 class DBCompactionWaitForCompactTest
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<bool, bool, bool, std::chrono::microseconds>> {
  public:
   DBCompactionWaitForCompactTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {
     abort_on_pause_ = std::get<0>(GetParam());
     flush_ = std::get<1>(GetParam());
     close_db_ = std::get<2>(GetParam());
+    timeout_ = std::get<3>(GetParam());
   }
   bool abort_on_pause_;
   bool flush_;
   bool close_db_;
+  std::chrono::microseconds timeout_;
   Options options_;
   WaitForCompactOptions wait_for_compact_options_;
 
@@ -182,6 +186,7 @@ class DBCompactionWaitForCompactTest
     wait_for_compact_options_.abort_on_pause = abort_on_pause_;
     wait_for_compact_options_.flush = flush_;
     wait_for_compact_options_.close_db = close_db_;
+    wait_for_compact_options_.timeout = timeout_;
 
     DestroyAndReopen(options_);
 
@@ -3334,10 +3339,19 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(DBCompactionWaitForCompactTest,
-                        DBCompactionWaitForCompactTest,
-                        ::testing::Combine(testing::Bool(), testing::Bool(),
-                                           testing::Bool()));
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionWaitForCompactTest, DBCompactionWaitForCompactTest,
+    ::testing::Combine(
+        testing::Bool() /* abort_on_pause */, testing::Bool() /* flush */,
+        testing::Bool() /* close_db */,
+        testing::Values(
+            std::chrono::microseconds::zero(),
+            std::chrono::microseconds{
+                60 * 60 *
+                1000000ULL} /* timeout */)));  // 1 hour (long enough to
+                                               // make sure that tests
+                                               // don't fail unexpectedly
+                                               // when running slow)
 
 TEST_P(DBCompactionWaitForCompactTest,
        WaitForCompactWaitsOnCompactionToFinish) {
@@ -3581,6 +3595,44 @@ TEST_P(DBCompactionWaitForCompactTest,
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBCompactionWaitForCompactTest, WaitForCompactToTimeout) {
+  // When timeout is set, this test makes CompactionJob hangs forever
+  // using sync point. This test also sets the timeout to be 1 ms for
+  // WaitForCompact to time out early. WaitForCompact() is expected to return
+  // Status::TimedOut.
+  // When timeout is not set, we expect WaitForCompact() to wait indefinitely.
+  // We don't want the test to hang forever. When timeout = 0, this test is not
+  // much different from WaitForCompactWaitsOnCompactionToFinish
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBCompactionTest::WaitForCompactToTimeout",
+        "CompactionJob::Run():Start"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Now trigger L0 compaction by adding a file
+  Random rnd(123);
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  ASSERT_OK(Flush());
+
+  if (wait_for_compact_options_.timeout.count()) {
+    // Make timeout shorter to finish test early
+    wait_for_compact_options_.timeout = std::chrono::microseconds{1000};
+  } else {
+    // if timeout is not set, WaitForCompact() will wait forever. We don't
+    // want test to hang forever. Just let compaction go through
+    TEST_SYNC_POINT("DBCompactionTest::WaitForCompactToTimeout");
+  }
+  Status s = dbfull()->WaitForCompact(wait_for_compact_options_);
+  if (wait_for_compact_options_.timeout.count()) {
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsTimedOut());
+  } else {
+    ASSERT_OK(s);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 static std::string ShortKey(int i) {
