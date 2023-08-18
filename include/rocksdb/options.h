@@ -2120,7 +2120,8 @@ struct WaitForCompactOptions {
   // called) If true, Status::Aborted will be returned immediately. If false,
   // ContinueBackgroundWork() must be called to resume the background jobs.
   // Otherwise, jobs that were queued, but not scheduled yet may never finish
-  // and WaitForCompact() may wait indefinitely.
+  // and WaitForCompact() may wait indefinitely (if timeout is set, it will
+  // expire and return Status::TimedOut).
   bool abort_on_pause = false;
 
   // A boolean to flush all column families before starting to wait.
@@ -2135,7 +2136,8 @@ struct WaitForCompactOptions {
 
   // Timeout in microseconds for waiting for compaction to complete.
   // Status::TimedOut will be returned if timeout expires.
-  // when timeout == 0, WaitForCompact() will wait indefinitely.
+  // when timeout == 0, WaitForCompact() will wait as long as there's background
+  // work to finish.
   std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
