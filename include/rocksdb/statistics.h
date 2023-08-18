@@ -511,6 +511,10 @@ enum Tickers : uint32_t {
   // compressed SST blocks from storage.
   BYTES_DECOMPRESSED_TO,
 
+  // Number of times readahead is trimmed during scans when
+  // ReadOptions.auto_readahead_size is set.
+  READAHEAD_TRIMMED,
+
   TICKER_ENUM_MAX
 };
 
