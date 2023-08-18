@@ -996,7 +996,8 @@ class TestSecondaryCache : public SecondaryCache {
   void ResetInjectFailure() { inject_failure_ = false; }
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
-                const Cache::CacheItemHelper* helper) override {
+                const Cache::CacheItemHelper* helper,
+                bool /*force_insert*/) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
