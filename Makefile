@@ -1975,7 +1975,7 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY) $(TESTUTIL)
+db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)

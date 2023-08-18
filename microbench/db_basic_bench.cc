@@ -14,7 +14,6 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
-#include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 
@@ -539,6 +538,23 @@ static void ManualFlushArguments(benchmark::internal::Benchmark* b) {
 
 BENCHMARK(ManualFlush)->Iterations(1)->Apply(ManualFlushArguments);
 
+// Copied from test_util.cc to not depend on rocksdb_test_lib
+// when building microbench binaries.
+static Slice CompressibleString(Random* rnd, double compressed_fraction,
+                                int len, std::string* dst) {
+  int raw = static_cast<int>(len * compressed_fraction);
+  if (raw < 1) raw = 1;
+  std::string raw_data = rnd->RandomBinaryString(raw);
+
+  // Duplicate the random data until we have filled "len" bytes
+  dst->clear();
+  while (dst->size() < (unsigned int)len) {
+    dst->append(raw_data);
+  }
+  dst->resize(len);
+  return Slice(*dst);
+}
+
 static void DBGet(benchmark::State& state) {
   auto compaction_style = static_cast<CompactionStyle>(state.range(0));
   uint64_t max_data = state.range(1);
@@ -594,7 +610,7 @@ static void DBGet(benchmark::State& state) {
     wo.disableWAL = true;
     std::string val;
     for (uint64_t i = 0; i < key_num; i++) {
-      test::CompressibleString(&rnd, 0.5, static_cast<int>(per_key_size), &val);
+      CompressibleString(&rnd, 0.5, static_cast<int>(per_key_size), &val);
       Status s = db->Put(wo, kg_seq.Next(), val);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
