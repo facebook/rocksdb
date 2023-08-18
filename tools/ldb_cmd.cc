@@ -1372,6 +1372,7 @@ ManifestDumpCommand::ManifestDumpCommand(
 }
 
 void ManifestDumpCommand::DoCommand() {
+  PrepareOptions();
   std::string manifestfile;
 
   if (!path_.empty()) {
@@ -1514,6 +1515,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
 }
 
 void FileChecksumDumpCommand::DoCommand() {
+  PrepareOptions();
   // print out the checksum information in the following format:
   //  sst file number, checksum function name, checksum value
   //  sst file number, checksum function name, checksum value
@@ -1618,6 +1620,7 @@ ListColumnFamiliesCommand::ListColumnFamiliesCommand(
     : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
 
 void ListColumnFamiliesCommand::DoCommand() {
+  PrepareOptions();
   std::vector<std::string> column_families;
   Status s = DB::ListColumnFamilies(options_, db_path_, &column_families);
   if (!s.ok()) {
@@ -2731,6 +2734,7 @@ void WALDumperCommand::Help(std::string& ret) {
 }
 
 void WALDumperCommand::DoCommand() {
+  PrepareOptions();
   DumpWalFile(options_, wal_file_, print_header_, print_values_,
               is_write_committed_, &exec_state_);
 }
