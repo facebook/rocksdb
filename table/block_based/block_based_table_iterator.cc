@@ -79,8 +79,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (read_options_.tune_readahead_size && read_options_.iterate_upper_bound &&
-      !read_options_.async_io) {
+  if (read_options_.auto_readahead_size && read_options_.iterate_upper_bound) {
     FindReadAheadSizeUpperBound();
     if (target) {
       index_iter_->Seek(*target);
@@ -510,7 +509,6 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
 
 void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
   size_t total_bytes_till_upper_bound = 0;
-  size_t count = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
   uint64_t start_offset = index_iter_->value().handle.offset();
 
@@ -540,7 +538,6 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
     // index block and add it's Data block size to
     // readahead_size.
     index_iter_->Next();
-    count++;
 
     if (!index_iter_->Valid()) {
       break;
@@ -548,9 +545,6 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
   } while (true);
 
-  // printf("Data blocks: %lu, Bytes till upper_bound: %lu, offset: %lu\n",
-  // count,
-  //       total_bytes_till_upper_bound, start_offset);
   block_prefetcher_.SetUpperBoundOffset(start_offset +
                                         total_bytes_till_upper_bound);
 }

@@ -1706,7 +1706,7 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // Experimental
-  bool tune_readahead_size = true;
+  bool auto_readahead_size = true;
 
   // *** END options only relevant to iterators or scans ***
 

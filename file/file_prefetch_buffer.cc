@@ -101,18 +101,6 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   // Update the buffer offset and size.
   bufs_[index].offset_ = rounddown_start;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
-
-  /*
-  Akanksha: Remove this section.
-  if (getenv("PRINT")) {
-    total_bytes_prefetched_so_far += result.size();
-    printf(
-        "Chunk len: %lu, Total bytes prefetched: %lu Read len: %lu, "
-        "actually_read: %lu, total_bytes_till_upper_bound_:%lu\n",
-        chunk_len, total_bytes_prefetched_so_far, read_len, result.size(),
-        total_bytes_till_upper_bound_);
-  }
-  */
   return s;
 }
 
@@ -642,15 +630,6 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     return false;
   }
 
-  /*
-  Akanksha: Remove this section.
-  if (getenv("PRINT")) {
-    total_bytes_read_till_upper_bound_ += n;
-    printf("Bytes to be read till now: %lu, offset: %lu \n",
-           total_bytes_read_till_upper_bound_, offset);
-  }
-  */
-
   // If the buffer contains only a few of the requested bytes:
   //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
@@ -676,6 +655,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
         // set.
         if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
           if (upper_bound_offset_ < offset + n + readahead_size_) {
+            printf("Trim Readahead Size1\n");
             readahead_size_ = (upper_bound_offset_ - offset) - n;
           }
         }
@@ -773,6 +753,16 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
           return false;
         }
       }
+
+      // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
+      // set.
+      if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
+        if (upper_bound_offset_ < offset + n + readahead_size_) {
+          printf("Trim Readahead Size2\n");
+          readahead_size_ = (upper_bound_offset_ - offset) - n;
+        }
+      }
+
       // Prefetch n + readahead_size_/2 synchronously as remaining
       // readahead_size_/2 will be prefetched asynchronously.
       s = PrefetchAsyncInternal(opts, reader, offset, n, readahead_size_ / 2,
@@ -854,6 +844,13 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
     is_eligible_for_prefetching = true;
+
+    if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
+      if (upper_bound_offset_ < offset + n + readahead_size_) {
+        printf("Trim Readahead Size3\n");
+        readahead_size_ = (upper_bound_offset_ - offset) - n;
+      }
+    }
   }
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out

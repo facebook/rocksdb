@@ -2017,29 +2017,30 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   Close();
 }
 
-TEST_P(PrefetchTest1, IterReadAheadSizeWithUpperBound) {
+// This test checks if readahead_size is trimmed when upper_bound is reached.
+// It tests with different combinations of async_io disabled/enabled,
+// readahead_size (implicit and explicit), and num_file_reads_for_auto_readahead
+// from 0 to 2.
+TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
   // First param is if the mockFS support_prefetch or not
   std::shared_ptr<MockFS> fs =
       std::make_shared<MockFS>(FileSystem::Default(), false);
 
-  bool use_direct_io = false;
-
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options;
-  SetGenericOptions(env.get(), use_direct_io, options);
+  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
   SetBlockBasedTableOptions(table_options);
-  // table_options.num_file_reads_for_auto_readahead = 0;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   Status s = TryReopen(options);
-  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
-    // If direct IO is not supported, skip the test
-    return;
-  } else {
-    ASSERT_OK(s);
-  }
+  ASSERT_OK(s);
 
   Random rnd(309);
   WriteBatch batch;
@@ -2066,60 +2067,87 @@ TEST_P(PrefetchTest1, IterReadAheadSizeWithUpperBound) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
-  HistogramData discarded_bytes_without_tuning, discarded_bytes_with_tuning;
-  // With tuning readahead_size.
-  {
-    ASSERT_OK(options.statistics->Reset());
-    ReadOptions opts;
-    opts.tune_readahead_size = true;
-    if (GetParam()) {
-      opts.readahead_size = 32768;
+  // Try with different num_file_reads_for_auto_readahead from 0 to 3.
+  for (size_t i = 0; i < 3; i++) {
+    table_options.num_file_reads_for_auto_readahead = i;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    s = TryReopen(options);
+    ASSERT_OK(s);
+
+    int buff_count_with_tuning = 0, buff_count_without_tuning = 0;
+    int keys_with_tuning = 0, keys_without_tuning = 0;
+
+    int buff_prefetch_count = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::Prefetch:Start",
+        [&](void*) { buff_prefetch_count++; });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
+        [&](void*) { buff_prefetch_count++; });
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ReadOptions ropts;
+    if (std::get<0>(GetParam())) {
+      ropts.readahead_size = 32768;
     }
+    if (std::get<1>(GetParam())) {
+      ropts.async_io = true;
+    }
+
     Slice ub = Slice("my_key_jjj");
-    opts.iterate_upper_bound = &ub;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(opts));
+    ropts.iterate_upper_bound = &ub;
 
-    iter->SeekToFirst();
+    // With tuning readahead_size.
+    {
+      ASSERT_OK(options.statistics->Reset());
+      ropts.auto_readahead_size = true;
 
-    while (iter->Valid()) {
-      iter->Next();
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+
+      iter->SeekToFirst();
+
+      while (iter->Valid()) {
+        keys_with_tuning++;
+        iter->Next();
+      }
+      buff_count_with_tuning = buff_prefetch_count;
+
+      // Akanksha: Add trimming stats and update it here.
     }
 
-    options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
-                                      &discarded_bytes_with_tuning);
+    // Without tuning readahead_size
+    {
+      buff_prefetch_count = 0;
+      ASSERT_OK(options.statistics->Reset());
+      ropts.auto_readahead_size = false;
+
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+
+      iter->SeekToFirst();
+
+      while (iter->Valid()) {
+        keys_without_tuning++;
+        iter->Next();
+      }
+      buff_count_without_tuning = buff_prefetch_count;
+      // Akanksha: Add trimming stats and update it here.
+    }
+
+    {
+      // Verify results with and without tuning.
+      // No of prefetches should be equal.
+      ASSERT_EQ(buff_count_without_tuning, buff_count_with_tuning);
+      // Prefetching should happen.
+      ASSERT_GT(buff_count_without_tuning, 0);
+      // No of keys should be equal.
+      ASSERT_EQ(keys_without_tuning, keys_with_tuning);
+      // Akanksha: Check trimming stats to verify
+    }
+    Close();
   }
-
-  // Without tuning readahead_size
-  {
-    ASSERT_OK(options.statistics->Reset());
-    ReadOptions opts;
-    opts.tune_readahead_size = false;
-    if (GetParam()) {
-      opts.readahead_size = 32768;
-    }
-    Slice ub = Slice("my_key_jjj");
-    opts.iterate_upper_bound = &ub;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(opts));
-
-    iter->SeekToFirst();
-
-    while (iter->Valid()) {
-      iter->Next();
-    }
-
-    HistogramData prefetched_bytes_discarded;
-    options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
-                                      &prefetched_bytes_discarded);
-    // options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
-    //                                  &discarded_bytes_without_tuning);
-    printf("Histogram Discarded bytes: %lu %lu",
-           discarded_bytes_without_tuning.count,
-           prefetched_bytes_discarded.count);
-  }
-
-  // ASSERT_GT(discarded_bytes_without_tuning.count,
-  //          discarded_bytes_with_tuning.count);
-  Close();
 }
 
 namespace {

@@ -173,9 +173,6 @@ class FilePrefetchBuffer {
           }
         }
       }
-
-      // Akanksha: Remove this printf.
-      // printf("Discarded bytes: %lu\n", bytes_discarded);
     }
 
     for (uint32_t i = 0; i < 2; i++) {
@@ -324,11 +321,6 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
-    /*
-    Akanksha: Remove this section.
-    total_bytes_prefetched_so_far = 0;
-    total_bytes_till_upper_bound_ = 0;
-    */
   }
 
   // Called in case of implicit auto prefetching.
@@ -469,14 +461,8 @@ class FilePrefetchBuffer {
   FilePrefetchBufferUsage usage_;
 
   // upper_bound_offset_ is set when ReadOptions.iterate_upper_bound and
-  // ReadOptions.tune_readahead_size are set to trim readahead_size upto
+  // ReadOptions.auto_readahead_size are set to trim readahead_size upto
   // upper_bound_offset_ during prefetching.
   uint64_t upper_bound_offset_ = 0;
-
-  /*
-  Akanksha: Remove this section
-  size_t total_bytes_read_till_upper_bound_ = 0;
-  size_t total_bytes_prefetched_so_far = 0;
-  */
 };
 }  // namespace ROCKSDB_NAMESPACE

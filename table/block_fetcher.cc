@@ -75,10 +75,6 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
-
-    // printf("footer.GetBlockTrailerSize(): %lu\n",
-    //       footer_.GetBlockTrailerSize());
-
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = false;
       if (read_options_.async_io && !for_compaction_) {
