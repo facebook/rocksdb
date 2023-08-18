@@ -2834,7 +2834,7 @@ class Benchmark {
       std::string input_str(len, 'y');
       std::string compressed;
       CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e);
+      CompressionContext context(FLAGS_compression_type_e, opts);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                            FLAGS_compression_type_e,
                            FLAGS_sample_for_compression);
@@ -4002,7 +4002,8 @@ class Benchmark {
     bool ok = true;
     std::string compressed;
     CompressionOptions opts;
-    CompressionContext context(FLAGS_compression_type_e);
+    opts.level = FLAGS_compression_level;
+    CompressionContext context(FLAGS_compression_type_e, opts);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          FLAGS_compression_type_e,
                          FLAGS_sample_for_compression);
@@ -4031,8 +4032,10 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
-    CompressionContext compression_ctx(FLAGS_compression_type_e);
     CompressionOptions compression_opts;
+    compression_opts.level = FLAGS_compression_level;
+    CompressionContext compression_ctx(FLAGS_compression_type_e,
+                                       compression_opts);
     CompressionInfo compression_info(
         compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
         FLAGS_compression_type_e, FLAGS_sample_for_compression);

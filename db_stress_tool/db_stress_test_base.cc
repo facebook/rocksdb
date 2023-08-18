@@ -3206,6 +3206,9 @@ void InitializeOptionsFromFlags(
         "cannot be used because ZSTD 1.4.5+ is not linked with the binary."
         " zstd dictionary trainer will be used.\n");
   }
+  if (FLAGS_compression_checksum) {
+    options.compression_opts.checksum = true;
+  }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.inplace_update_support = FLAGS_in_place_update;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);

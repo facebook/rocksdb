@@ -181,6 +181,14 @@ struct CompressionOptions {
   // compressed by less than 12.5% (minimum ratio of 1.143:1).
   int max_compressed_bytes_per_kb = 1024 * 7 / 8;
 
+  // ZSTD only.
+  // Enable compression algorithm's checksum feature.
+  // (https://github.com/facebook/zstd/blob/d857369028d997c92ff1f1861a4d7f679a125464/lib/zstd.h#L428)
+  // Each compressed frame will have a 32-bit checksum attached. The checksum
+  // computed from the uncompressed data and can be verified during
+  // decompression.
+  bool checksum = false;
+
   // A convenience function for setting max_compressed_bytes_per_kb based on a
   // minimum acceptable compression ratio (uncompressed size over compressed
   // size).

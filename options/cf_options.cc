@@ -173,6 +173,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"checksum",
+         {offsetof(struct CompressionOptions, checksum), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
