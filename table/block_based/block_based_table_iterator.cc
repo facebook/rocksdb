@@ -525,8 +525,8 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
     bool next_block_out_of_bound =
         (user_comparator_.CompareWithoutTimestamp(
              index_iter_->user_key(),
-             /*b_has_ts=*/true, *read_options_.iterate_upper_bound,
-             /*a_has_ts=*/false) >= 0
+             /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
+             /*b_has_ts=*/false) >= 0
              ? true
              : false);
 
