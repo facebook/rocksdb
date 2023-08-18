@@ -1706,7 +1706,16 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // Experimental
-  bool auto_readahead_size = true;
+  //
+  // If auto_readahead_size is set to true, it will trim the readahead_size
+  // during scans upto iterate_upper_bound and won't prefetch beyond
+  // iterate_upper_bound.
+  // For this feature to enabled, iterate_upper_bound must also be specified.
+  // It's enabled for explicit and implicit readahead_size (async and sync
+  // scans).
+  //
+  // Default: false
+  bool auto_readahead_size = false;
 
   // *** END options only relevant to iterators or scans ***
 

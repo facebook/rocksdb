@@ -2097,8 +2097,9 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
       ropts.async_io = true;
     }
 
-    Slice ub = Slice("my_key_jjj");
+    Slice ub = Slice("my_key_uuu");
     ropts.iterate_upper_bound = &ub;
+    Slice seek_key = Slice("my_key_aaa");
 
     // With tuning readahead_size.
     {
@@ -2107,15 +2108,17 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
 
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
 
-      iter->SeekToFirst();
+      iter->Seek(seek_key);
 
       while (iter->Valid()) {
         keys_with_tuning++;
         iter->Next();
       }
-      buff_count_with_tuning = buff_prefetch_count;
 
-      // Akanksha: Add trimming stats and update it here.
+      uint64_t readhahead_trimmed =
+          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+      ASSERT_GT(readhahead_trimmed, 0);
+      buff_count_with_tuning = buff_prefetch_count;
     }
 
     // Without tuning readahead_size
@@ -2126,25 +2129,31 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
 
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
 
-      iter->SeekToFirst();
+      iter->Seek(seek_key);
 
       while (iter->Valid()) {
         keys_without_tuning++;
         iter->Next();
       }
       buff_count_without_tuning = buff_prefetch_count;
-      // Akanksha: Add trimming stats and update it here.
+      uint64_t readhahead_trimmed =
+          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+      ASSERT_EQ(readhahead_trimmed, 0);
     }
 
     {
       // Verify results with and without tuning.
-      // No of prefetches should be equal.
-      ASSERT_EQ(buff_count_without_tuning, buff_count_with_tuning);
+      if (std::get<1>(GetParam())) {
+        // In case of async_io.
+        ASSERT_GE(buff_count_with_tuning, buff_count_without_tuning);
+      } else {
+        ASSERT_EQ(buff_count_without_tuning, buff_count_with_tuning);
+      }
       // Prefetching should happen.
       ASSERT_GT(buff_count_without_tuning, 0);
+      ASSERT_GT(buff_count_with_tuning, 0);
       // No of keys should be equal.
       ASSERT_EQ(keys_without_tuning, keys_with_tuning);
-      // Akanksha: Check trimming stats to verify
     }
     Close();
   }

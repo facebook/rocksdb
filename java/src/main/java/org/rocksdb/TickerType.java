@@ -764,6 +764,8 @@ public enum TickerType {
      */
     BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x3C),
 
+    READAHEAD_TRIMMED((byte) -0x3D),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

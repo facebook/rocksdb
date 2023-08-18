@@ -321,6 +321,7 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
+    upper_bound_offset_ = 0;
   }
 
   // Called in case of implicit auto prefetching.

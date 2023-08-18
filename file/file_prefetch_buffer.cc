@@ -655,8 +655,8 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
         // set.
         if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
           if (upper_bound_offset_ < offset + n + readahead_size_) {
-            printf("Trim Readahead Size1\n");
             readahead_size_ = (upper_bound_offset_ - offset) - n;
+            RecordTick(stats_, READAHEAD_TRIMMED);
           }
         }
 
@@ -758,8 +758,8 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
       // set.
       if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
         if (upper_bound_offset_ < offset + n + readahead_size_) {
-          printf("Trim Readahead Size2\n");
           readahead_size_ = (upper_bound_offset_ - offset) - n;
+          RecordTick(stats_, READAHEAD_TRIMMED);
         }
       }
 
@@ -847,8 +847,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
     if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
       if (upper_bound_offset_ < offset + n + readahead_size_) {
-        printf("Trim Readahead Size3\n");
         readahead_size_ = (upper_bound_offset_ - offset) - n;
+        RecordTick(stats_, READAHEAD_TRIMMED);
       }
     }
   }
