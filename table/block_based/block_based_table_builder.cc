@@ -525,6 +525,7 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
+    assert(compression_ctxs.size() >= compression_opts.parallel_threads);
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(
           new CompressionContext(compression_type, compression_opts));
