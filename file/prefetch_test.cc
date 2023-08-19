@@ -169,18 +169,18 @@ TEST_P(PrefetchTest, Basic) {
   // create first key range
   WriteBatch batch;
   for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(batch.Put(BuildKey(i), "value for range 1 key"));
+    ASSERT_OK(batch.Put(BuildKey(i), "v1"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(db_->Flush(FlushOptions()));
 
   // create second key range
   batch.Clear();
   for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(batch.Put(BuildKey(i, "key2"), "value for range 2 key"));
+    ASSERT_OK(batch.Put(BuildKey(i, "key2"), "v2"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
-  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(db_->Flush(FlushOptions()));
 
   // delete second key range
   batch.Clear();
@@ -190,16 +190,19 @@ TEST_P(PrefetchTest, Basic) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  const size_t num_file = metadata.size();
   // To verify SST file tail prefetch (once per file) during flush output
   // verification
   if (support_prefetch && !use_direct_io) {
     ASSERT_TRUE(fs->IsPrefetchCalled());
-    ASSERT_EQ(3, fs->GetPrefetchCount());
+    ASSERT_EQ(num_file, fs->GetPrefetchCount());
     ASSERT_EQ(0, buff_prefetch_count);
     fs->ClearPrefetchCount();
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    ASSERT_EQ(buff_prefetch_count, 3);
+    ASSERT_EQ(buff_prefetch_count, num_file);
     buff_prefetch_count = 0;
   }
 
