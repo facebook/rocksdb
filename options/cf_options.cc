@@ -173,6 +173,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"checksum",
+         {offsetof(struct CompressionOptions, checksum), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -507,6 +510,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_protection_bytes_per_key),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"bottommost_file_compaction_delay",
+         {offsetof(struct MutableCFOptions, bottommost_file_compaction_delay),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"block_protection_bytes_per_key",
          {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
           OptionType::kUInt8T, OptionVerificationType::kNormal,
@@ -600,6 +607,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"default_temperature",
+         {offsetof(struct ImmutableCFOptions, default_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever}},
         {"preclude_last_level_data_seconds",
          {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -946,6 +957,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      default_temperature(cf_options.default_temperature),
       preclude_last_level_data_seconds(
           cf_options.preclude_last_level_data_seconds),
       preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),
@@ -1117,6 +1129,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                       experimental_mempurge_threshold: %f",
                  experimental_mempurge_threshold);
+  ROCKS_LOG_INFO(log, "         bottommost_file_compaction_delay: %" PRIu32,
+                 bottommost_file_compaction_delay);
 
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",

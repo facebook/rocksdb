@@ -273,6 +273,14 @@ class ShardedCache : public ShardedCacheBase {
     }
   }
 
+  inline void ForEachShard(
+      const std::function<void(const CacheShard*)>& fn) const {
+    uint32_t num_shards = GetNumShards();
+    for (uint32_t i = 0; i < num_shards; i++) {
+      fn(shards_ + i);
+    }
+  }
+
   inline size_t SumOverShards(
       const std::function<size_t(CacheShard&)>& fn) const {
     uint32_t num_shards = GetNumShards();

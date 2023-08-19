@@ -159,6 +159,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
 
   Status s = Read(opts, reader, read_len, chunk_len, rounddown_offset, curr_);
+
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
     RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
   }
@@ -650,6 +651,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
             return false;
           }
         }
+        UpdateReadAheadSizeForUpperBound(offset, n);
         s = Prefetch(opts, reader, offset, n + readahead_size_);
       }
       if (!s.ok()) {
@@ -743,6 +745,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
           return false;
         }
       }
+
+      UpdateReadAheadSizeForUpperBound(offset, n);
+
       // Prefetch n + readahead_size_/2 synchronously as remaining
       // readahead_size_/2 will be prefetched asynchronously.
       s = PrefetchAsyncInternal(opts, reader, offset, n, readahead_size_ / 2,
@@ -823,7 +828,11 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
-    is_eligible_for_prefetching = true;
+    UpdateReadAheadSizeForUpperBound(offset, n);
+    // After trim, readahead size can be 0.
+    if (readahead_size_ > 0) {
+      is_eligible_for_prefetching = true;
+    }
   }
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out

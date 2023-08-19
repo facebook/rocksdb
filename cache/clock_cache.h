@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace clock_cache {
 
 // Forward declaration of friend class.
+template <class ClockCache>
 class ClockCacheTest;
 
 // HyperClockCache is an alternative to LRUCache specifically tailored for
@@ -304,7 +305,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
   // -----------------------------------------------------------------------
-  // | acquire counter          | release counter           | state marker |
+  // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
   // For reading or updating counters in meta word.
@@ -318,8 +319,13 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint64_t kReleaseIncrement = uint64_t{1}
                                                 << kReleaseCounterShift;
 
+  // For setting the hit bit
+  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
+  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+  ;
+
   // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = 2U * kCounterNumBits;
+  static constexpr uint8_t kStateShift = kHitBitShift + 1;
 
   // Bits contribution to state marker.
   // Occupied means any state other than empty
@@ -488,6 +494,12 @@ class FixedHyperClockTable : public BaseClockTable {
   };  // struct HandleImpl
 
   struct Opts {
+    explicit Opts(size_t _estimated_value_size)
+        : estimated_value_size(_estimated_value_size) {}
+    explicit Opts(const HyperClockCacheOptions& opts) {
+      assert(opts.estimated_entry_charge > 0);
+      estimated_value_size = opts.estimated_entry_charge;
+    }
     size_t estimated_value_size;
   };
 
@@ -530,7 +542,7 @@ class FixedHyperClockTable : public BaseClockTable {
   const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
 #ifndef NDEBUG
-  size_t& TEST_MutableOccupancyLimit() const {
+  size_t& TEST_MutableOccupancyLimit() {
     return const_cast<size_t&>(occupancy_limit_);
   }
 
@@ -614,10 +626,18 @@ class FixedHyperClockTable : public BaseClockTable {
   const std::unique_ptr<HandleImpl[]> array_;
 };  // class FixedHyperClockTable
 
+// Placeholder for future automatic table variant
+// For now, just use FixedHyperClockTable.
+class AutoHyperClockTable : public FixedHyperClockTable {
+ public:
+  using FixedHyperClockTable::FixedHyperClockTable;
+};  // class AutoHyperClockTable
+
 // A single shard of sharded cache.
-template <class Table>
+template <class TableT>
 class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
+  using Table = TableT;
   ClockCacheShard(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
                   MemoryAllocator* allocator,
@@ -710,8 +730,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return Lookup(key, hashed_key);
   }
 
+  Table& GetTable() { return table_; }
+  const Table& GetTable() const { return table_; }
+
 #ifndef NDEBUG
-  size_t& TEST_MutableOccupancyLimit() const {
+  size_t& TEST_MutableOccupancyLimit() {
     return table_.TEST_MutableOccupancyLimit();
   }
   // Acquire/release N references
@@ -729,17 +752,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   std::atomic<bool> strict_capacity_limit_;
 };  // class ClockCacheShard
 
-class FixedHyperClockCache
-#ifdef NDEBUG
-    final
-#endif
-    : public ShardedCache<ClockCacheShard<FixedHyperClockTable>> {
+template <class Table>
+class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
  public:
-  using Shard = ClockCacheShard<FixedHyperClockTable>;
+  using Shard = ClockCacheShard<Table>;
+  using Handle = Cache::Handle;
+  using CacheItemHelper = Cache::CacheItemHelper;
 
-  explicit FixedHyperClockCache(const HyperClockCacheOptions& opts);
-
-  const char* Name() const override { return "FixedHyperClockCache"; }
+  explicit BaseHyperClockCache(const HyperClockCacheOptions& opts);
 
   Cache::ObjectPtr Value(Handle* handle) override;
 
@@ -749,7 +769,33 @@ class FixedHyperClockCache
 
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;
+};
+
+class FixedHyperClockCache
+#ifdef NDEBUG
+    final
+#endif
+    : public BaseHyperClockCache<FixedHyperClockTable> {
+ public:
+  using BaseHyperClockCache::BaseHyperClockCache;
+
+  const char* Name() const override { return "FixedHyperClockCache"; }
+
+  void ReportProblems(
+      const std::shared_ptr<Logger>& /*info_log*/) const override;
 };  // class FixedHyperClockCache
+
+// Placeholder for future automatic HCC variant
+class AutoHyperClockCache
+#ifdef NDEBUG
+    final
+#endif
+    : public BaseHyperClockCache<AutoHyperClockTable> {
+ public:
+  using BaseHyperClockCache::BaseHyperClockCache;
+
+  const char* Name() const override { return "AutoHyperClockCache"; }
+};  // class AutoHyperClockCache
 
 }  // namespace clock_cache
 

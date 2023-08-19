@@ -149,6 +149,24 @@ void DumpSupportInfo(Logger* logger) {
 
   ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
+
+// `start` is the inclusive lower user key bound without user-defined timestamp
+// `limit` is the exclusive upper user key bound without user-defined timestamp
+std::tuple<Slice, Slice> MaybeAddTimestampsToRange(const Slice& start,
+                                                   const Slice& limit,
+                                                   size_t ts_sz,
+                                                   std::string* start_with_ts,
+                                                   std::string* limit_with_ts) {
+  if (ts_sz == 0) {
+    return std::make_tuple(start, limit);
+  }
+  // Maximum timestamp means including all key with any timestamp
+  AppendKeyWithMaxTimestamp(start_with_ts, start, ts_sz);
+  // Append a maximum timestamp as the range limit is exclusive:
+  // [start, limit)
+  AppendKeyWithMaxTimestamp(limit_with_ts, limit, ts_sz);
+  return std::make_tuple(Slice(*start_with_ts), Slice(*limit_with_ts));
+}
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
@@ -183,6 +201,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
+      reject_new_background_jobs_(false),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -392,22 +411,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      s = AtomicFlushMemTables(flush_opts, context.flush_reason);
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        InstrumentedMutexUnlock u(&mutex_);
-        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
+    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -494,36 +498,15 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
-
-  for (uint8_t task_type = 0;
-       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
-    Status s = periodic_task_scheduler_.Unregister(
-        static_cast<PeriodicTaskType>(task_type));
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Failed to unregister periodic task %d, status: %s",
-                     task_type, s.ToString().c_str());
-    }
-  }
+  Status s = CancelPeriodicTaskScheduler();
+  s.PermitUncheckedError();
 
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      Status s = AtomicFlushMemTables(FlushOptions(), FlushReason::kShutDown);
-      s.PermitUncheckedError();  //**TODO: What to do on error?
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          InstrumentedMutexUnlock u(&mutex_);
-          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-          s.PermitUncheckedError();  //**TODO: What to do on error?
-        }
-      }
-    }
+    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
   shutting_down_.store(true, std::memory_order_release);
@@ -869,6 +852,21 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
         seqno_time_cadence);
   }
 
+  return s;
+}
+
+Status DBImpl::CancelPeriodicTaskScheduler() {
+  Status s = Status::OK();
+  for (uint8_t task_type = 0;
+       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    s = periodic_task_scheduler_.Unregister(
+        static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
+  }
   return s;
 }
 
@@ -4275,9 +4273,17 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
+  // Add timestamp if needed
+  std::string start_with_ts, limit_with_ts;
+  auto [start, limit] = MaybeAddTimestampsToRange(
+      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   // Convert user_key into a corresponding internal key.
-  InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
-  InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
   MemTable::MemTableStats memStats =
       sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
   MemTable::MemTableStats immStats =
@@ -4308,20 +4314,10 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   for (int i = 0; i < n; i++) {
-    Slice start = range[i].start;
-    Slice limit = range[i].limit;
-
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    if (ts_sz > 0) {
-      // Maximum timestamp means including all key with any timestamp
-      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
-      // Append a maximum timestamp as the range limit is exclusive:
-      // [start, limit)
-      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
-      start = start_with_ts;
-      limit = limit_with_ts;
-    }
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     // Convert user_key into a corresponding internal key.
     InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);

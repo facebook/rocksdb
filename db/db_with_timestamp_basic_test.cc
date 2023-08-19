@@ -459,6 +459,13 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 0);
 
+  uint64_t total_mem_count;
+  uint64_t total_mem_size;
+  db_->GetApproximateMemTableStats(default_cf, r, &total_mem_count,
+                                   &total_mem_size);
+  ASSERT_GT(total_mem_count, 0);
+  ASSERT_GT(total_mem_size, 0);
+
   // Should exclude end key
   start = Key(900);
   end = Key(1000);

@@ -129,12 +129,20 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (FLAGS_cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
-  } else if (FLAGS_cache_type == "hyper_clock_cache" ||
-             FLAGS_cache_type == "fixed_hyper_clock_cache") {
-    HyperClockCacheOptions opts(static_cast<size_t>(capacity),
-                                FLAGS_block_size /*estimated_entry_charge*/,
+  } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+    size_t estimated_entry_charge;
+    if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
+        FLAGS_cache_type == "hyper_clock_cache") {
+      estimated_entry_charge = FLAGS_block_size;
+    } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+      estimated_entry_charge = 0;
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
+    }
+    HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
                                 num_shard_bits);
-    opts.secondary_cache = std::move(secondary_cache);
+    opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
     return opts.MakeSharedCache();
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
@@ -695,6 +703,7 @@ Status StressTest::ExecuteTransaction(
     std::function<Status(Transaction&)>&& ops) {
   std::unique_ptr<Transaction> txn;
   Status s = NewTxn(write_opts, &txn);
+  std::string try_again_messages;
   if (s.ok()) {
     for (int tries = 1;; ++tries) {
       s = ops(*txn);
@@ -705,11 +714,21 @@ Status StressTest::ExecuteTransaction(
         }
       }
       // Optimistic txn might return TryAgain, in which case rollback
-      // and try again. But that shouldn't happen too many times in a row.
+      // and try again.
       if (!s.IsTryAgain() || !FLAGS_use_optimistic_txn) {
         break;
       }
-      if (tries >= 5) {
+      // Record and report historical TryAgain messages for debugging
+      try_again_messages +=
+          std::to_string(SystemClock::Default()->NowMicros() / 1000);
+      try_again_messages += "ms ";
+      try_again_messages += s.getState();
+      try_again_messages += "\n";
+      // In theory, each Rollback after TryAgain should have an independent
+      // chance of success, so too many retries could indicate something is
+      // not working properly.
+      if (tries >= 10) {
+        s = Status::TryAgain(try_again_messages);
         break;
       }
       s = txn->Rollback();
@@ -3187,6 +3206,9 @@ void InitializeOptionsFromFlags(
         "cannot be used because ZSTD 1.4.5+ is not linked with the binary."
         " zstd dictionary trainer will be used.\n");
   }
+  if (FLAGS_compression_checksum) {
+    options.compression_opts.checksum = true;
+  }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.inplace_update_support = FLAGS_in_place_update;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
@@ -3312,6 +3334,9 @@ void InitializeOptionsFromFlags(
   options.enable_thread_tracking = FLAGS_enable_thread_tracking;
 
   options.memtable_max_range_deletions = FLAGS_memtable_max_range_deletions;
+
+  options.bottommost_file_compaction_delay =
+      FLAGS_bottommost_file_compaction_delay;
 }
 
 void InitializeOptionsGeneral(

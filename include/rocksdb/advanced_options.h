@@ -181,6 +181,14 @@ struct CompressionOptions {
   // compressed by less than 12.5% (minimum ratio of 1.143:1).
   int max_compressed_bytes_per_kb = 1024 * 7 / 8;
 
+  // ZSTD only.
+  // Enable compression algorithm's checksum feature.
+  // (https://github.com/facebook/zstd/blob/d857369028d997c92ff1f1861a4d7f679a125464/lib/zstd.h#L428)
+  // Each compressed frame will have a 32-bit checksum attached. The checksum
+  // computed from the uncompressed data and can be verified during
+  // decompression.
+  bool checksum = false;
+
   // A convenience function for setting max_compressed_bytes_per_kb based on a
   // minimum acceptable compression ratio (uncompressed size over compressed
   // size).
@@ -961,6 +969,14 @@ struct AdvancedColumnFamilyOptions {
   Temperature last_level_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
+  // When this field is set, all SST files without an explicitly set temperature
+  // will be treated as if they have this temperature for file reading
+  // accounting purpose, such as io statistics, io perf context.
+  //
+  // Not dynamically changeable, change it requires db restart.
+  Temperature default_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
   // The feature is still in development and is incomplete.
   // If this option is set, when data insert time is within this time range, it
   // will be precluded from the last level.
@@ -1136,6 +1152,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_protection_bytes_per_key = 0;
 
   // UNDER CONSTRUCTION -- DO NOT USE
@@ -1199,7 +1216,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint8_t block_protection_bytes_per_key = 0;
+
+  // For leveled compaction, RocksDB may compact a file at the bottommost level
+  // if it can compact away data that were protected by some snapshot.
+  // The compaction reason in LOG for this kind of compactions is
+  // "BottommostFiles". Usually such compaction can happen as soon as a
+  // relevant snapshot is released. This option allows user to delay
+  // such compactions. A file is qualified for "BottommostFiles" compaction
+  // if it is at least "bottommost_file_compaction_delay" seconds old.
+  //
+  // Default: 0 (no delay)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t bottommost_file_compaction_delay = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

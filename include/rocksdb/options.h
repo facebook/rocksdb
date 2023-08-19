@@ -1569,8 +1569,6 @@ struct ReadOptions {
   // broken, stale keys could be served in read paths.
   bool ignore_range_deletions = false;
 
-  // Experimental
-  //
   // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
   // RocksDB apply it if reads are sequential and its internal automatic
   // prefetching.
@@ -1706,6 +1704,15 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
+
+  // Experimental
+  //
+  // If auto_readahead_size is set to true, it will auto tune the readahead_size
+  // during scans internally.
+  // For this feature to enabled, iterate_upper_bound must also be specified.
+  //
+  // Default: false
+  bool auto_readahead_size = false;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -2120,11 +2127,25 @@ struct WaitForCompactOptions {
   // called) If true, Status::Aborted will be returned immediately. If false,
   // ContinueBackgroundWork() must be called to resume the background jobs.
   // Otherwise, jobs that were queued, but not scheduled yet may never finish
-  // and WaitForCompact() may wait indefinitely.
+  // and WaitForCompact() may wait indefinitely (if timeout is set, it will
+  // expire and return Status::TimedOut).
   bool abort_on_pause = false;
 
   // A boolean to flush all column families before starting to wait.
   bool flush = false;
+
+  // A boolean to call Close() after waiting is done. By the time Close() is
+  // called here, there should be no background jobs in progress and no new
+  // background jobs should be added. DB may not have been closed if Close()
+  // returned Aborted status due to unreleased snapshots in the system. See
+  // comments in DB::Close() for details.
+  bool close_db = false;
+
+  // Timeout in microseconds for waiting for compaction to complete.
+  // Status::TimedOut will be returned if timeout expires.
+  // when timeout == 0, WaitForCompact() will wait as long as there's background
+  // work to finish.
+  std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

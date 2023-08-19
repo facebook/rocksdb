@@ -1323,6 +1323,11 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
+        Temperature file_temperature = file_meta->temperature;
+        if (ioptions_->default_temperature != Temperature::kUnknown &&
+            file_temperature == Temperature::kUnknown) {
+          file_temperature = ioptions_->default_temperature;
+        }
         TableCache::TypedHandle* handle = nullptr;
         statuses[file_idx] = table_cache_->FindTable(
             read_options, file_options_,
@@ -1330,7 +1335,7 @@ class VersionBuilder::Rep {
             block_protection_bytes_per_key, prefix_extractor, false /*no_io */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
-            file_meta->temperature);
+            file_temperature);
         if (handle != nullptr) {
           file_meta->table_reader_handle = handle;
           // Load table_reader

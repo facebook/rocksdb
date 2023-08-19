@@ -77,7 +77,8 @@ class CompressedSecondaryCache : public SecondaryCache {
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
-                const Cache::CacheItemHelper* helper) override;
+                const Cache::CacheItemHelper* helper,
+                bool force_insert) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,

@@ -697,7 +697,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
 
       // 3rd round: delete and flush
       ASSERT_OK(db_->Delete(wopt, handles_[1], "foo"));
-      Flush(1);
+      ASSERT_OK(Flush(1));
       ASSERT_OK(db_->Delete(wopt, handles_[1], "bar"));
 
       ASSERT_TRUE(db_->Get(ropt, handles_[1], "foo", &value).IsNotFound());
@@ -860,7 +860,7 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   ASSERT_EQ('w', value[0]);
 
   // Compact all files.
-  Flush();
+  ASSERT_OK(Flush());
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   // Check DB is not in read-only state.
@@ -1300,7 +1300,7 @@ TEST_F(DBTest, MetaDataTest) {
   options.disable_auto_compactions = true;
 
   int64_t temp_time = 0;
-  options.env->GetCurrentTime(&temp_time);
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
   uint64_t start_time = static_cast<uint64_t>(temp_time);
 
   DestroyAndReopen(options);
@@ -1329,7 +1329,7 @@ TEST_F(DBTest, MetaDataTest) {
   std::vector<std::vector<FileMetaData>> files_by_level;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
 
-  options.env->GetCurrentTime(&temp_time);
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
   uint64_t end_time = static_cast<uint64_t>(temp_time);
 
   ColumnFamilyMetaData cf_meta;
@@ -3648,7 +3648,7 @@ TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk", "v3"));
   ASSERT_OK(Put("k", "v4"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_EQ("v1", Get("kk1"));
   ASSERT_EQ("v2", Get("kk2"));
@@ -4280,8 +4280,8 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   options.soft_pending_compaction_bytes_limit = 0;
   options.hard_pending_compaction_bytes_limit = 100;
   options.create_if_missing = true;
-
-  DestroyDB(dbname_, options);
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
   options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true, 4));
   ASSERT_NOK(TryReopen(options));
 
@@ -4622,7 +4622,7 @@ TEST_F(DBTest, GetThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = true;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
 
   std::vector<ThreadStatus> thread_list;
   Status s = env_->GetThreadList(&thread_list);
@@ -4693,7 +4693,7 @@ TEST_F(DBTest, DisableThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = false;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
   // Verify non of the column family info exists
   env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(handles_,
@@ -4902,7 +4902,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.max_subcompactions = max_subcompactions_;
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   Random rnd(301);
 
   std::vector<ThreadStatus> thread_list;
@@ -4991,7 +4991,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.max_subcompactions = max_subcompactions_;
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   Random rnd(301);
 
   std::vector<ThreadStatus> thread_list;
@@ -7206,14 +7206,14 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   int idx = 0;
 
   int64_t time_1 = 0;
-  env_->GetCurrentTime(&time_1);
+  ASSERT_OK(env_->GetCurrentTime(&time_1));
   const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
 
   // Add 50 hours
   env_->MockSleepForSeconds(50 * 60 * 60);
 
   int64_t time_2 = 0;
-  env_->GetCurrentTime(&time_2);
+  ASSERT_OK(env_->GetCurrentTime(&time_2));
   const uint64_t uint_time_2 = static_cast<uint64_t>(time_2);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

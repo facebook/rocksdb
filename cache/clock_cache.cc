@@ -9,9 +9,18 @@
 
 #include "cache/clock_cache.h"
 
+#include <algorithm>
+#include <atomic>
+#include <bitset>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <functional>
 #include <numeric>
+#include <string>
+#include <thread>
+#include <type_traits>
 
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
@@ -92,8 +101,6 @@ inline bool ClockUpdate(ClockHandle& h) {
       (meta >> ClockHandle::kAcquireCounterShift) & ClockHandle::kCounterMask;
   uint64_t release_count =
       (meta >> ClockHandle::kReleaseCounterShift) & ClockHandle::kCounterMask;
-  // fprintf(stderr, "ClockUpdate @ %p: %lu %lu %u\n", &h, acquire_count,
-  // release_count, (unsigned)(meta >> ClockHandle::kStateShift));
   if (acquire_count != release_count) {
     // Only clock update entries with no outstanding refs
     return false;
@@ -111,6 +118,7 @@ inline bool ClockUpdate(ClockHandle& h) {
     // not aggressively
     uint64_t new_meta =
         (uint64_t{ClockHandle::kStateVisible} << ClockHandle::kStateShift) |
+        (meta & ClockHandle::kHitBitMask) |
         (new_count << ClockHandle::kReleaseCounterShift) |
         (new_count << ClockHandle::kAcquireCounterShift);
     h.meta.compare_exchange_strong(meta, new_meta, std::memory_order_relaxed);
@@ -118,10 +126,11 @@ inline bool ClockUpdate(ClockHandle& h) {
   }
   // Otherwise, remove entry (either unreferenced invisible or
   // unreferenced and expired visible).
-  if (h.meta.compare_exchange_strong(
-          meta,
-          uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
-          std::memory_order_acquire)) {
+  if (h.meta.compare_exchange_strong(meta,
+                                     (uint64_t{ClockHandle::kStateConstruction}
+                                      << ClockHandle::kStateShift) |
+                                         (meta & ClockHandle::kHitBitMask),
+                                     std::memory_order_acquire)) {
     // Took ownership.
     return true;
   } else {
@@ -521,10 +530,11 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(
   if (eviction_callback_) {
     // For key reconstructed from hash
     UniqueId64x2 unhashed;
-    took_value_ownership =
-        eviction_callback_(ClockCacheShard<FixedHyperClockTable>::ReverseHash(
-                               h->GetHash(), &unhashed, hash_seed_),
-                           reinterpret_cast<Cache::Handle*>(h));
+    took_value_ownership = eviction_callback_(
+        ClockCacheShard<FixedHyperClockTable>::ReverseHash(
+            h->GetHash(), &unhashed, hash_seed_),
+        reinterpret_cast<Cache::Handle*>(h),
+        h->meta.load(std::memory_order_relaxed) & ClockHandle::kHitBitMask);
   }
   if (!took_value_ownership) {
     h->FreeData(allocator_);
@@ -818,6 +828,11 @@ FixedHyperClockTable::HandleImpl* FixedHyperClockTable::Lookup(
           // Acquired a read reference
           if (h->hashed_key == hashed_key) {
             // Match
+            // Update the hit bit
+            if (eviction_callback_) {
+              h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
+                               std::memory_order_relaxed);
+            }
             return true;
           } else {
             // Mismatch. Pretend we never took the reference
@@ -1361,35 +1376,39 @@ size_t ClockCacheShard<Table>::GetTableAddressCount() const {
 
 // Explicit instantiation
 template class ClockCacheShard<FixedHyperClockTable>;
+template class ClockCacheShard<AutoHyperClockTable>;
 
-FixedHyperClockCache::FixedHyperClockCache(const HyperClockCacheOptions& opts)
-    : ShardedCache(opts) {
-  assert(opts.estimated_entry_charge > 0 ||
-         opts.metadata_charge_policy != kDontChargeCacheMetadata);
+template <class Table>
+BaseHyperClockCache<Table>::BaseHyperClockCache(
+    const HyperClockCacheOptions& opts)
+    : ShardedCache<ClockCacheShard<Table>>(opts) {
   // TODO: should not need to go through two levels of pointer indirection to
   // get to table entries
-  size_t per_shard = GetPerShardCapacity();
+  size_t per_shard = this->GetPerShardCapacity();
   MemoryAllocator* alloc = this->memory_allocator();
-  InitShards([&](Shard* cs) {
-    FixedHyperClockTable::Opts table_opts;
-    table_opts.estimated_value_size = opts.estimated_entry_charge;
+  this->InitShards([&](Shard* cs) {
+    typename Table::Opts table_opts{opts};
     new (cs) Shard(per_shard, opts.strict_capacity_limit,
-                   opts.metadata_charge_policy, alloc, &eviction_callback_,
-                   &hash_seed_, table_opts);
+                   opts.metadata_charge_policy, alloc,
+                   &this->eviction_callback_, &this->hash_seed_, table_opts);
   });
 }
 
-Cache::ObjectPtr FixedHyperClockCache::Value(Handle* handle) {
-  return reinterpret_cast<const HandleImpl*>(handle)->value;
+template <class Table>
+Cache::ObjectPtr BaseHyperClockCache<Table>::Value(Handle* handle) {
+  return reinterpret_cast<const typename Table::HandleImpl*>(handle)->value;
 }
 
-size_t FixedHyperClockCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const HandleImpl*>(handle)->GetTotalCharge();
+template <class Table>
+size_t BaseHyperClockCache<Table>::GetCharge(Handle* handle) const {
+  return reinterpret_cast<const typename Table::HandleImpl*>(handle)
+      ->GetTotalCharge();
 }
 
-const Cache::CacheItemHelper* FixedHyperClockCache::GetCacheItemHelper(
+template <class Table>
+const Cache::CacheItemHelper* BaseHyperClockCache<Table>::GetCacheItemHelper(
     Handle* handle) const {
-  auto h = reinterpret_cast<const HandleImpl*>(handle);
+  auto h = reinterpret_cast<const typename Table::HandleImpl*>(handle);
   return h->helper;
 }
 
@@ -1428,17 +1447,87 @@ void AddShardEvaluation(const FixedHyperClockCache::Shard& shard,
   min_recommendation = std::min(min_recommendation, recommendation);
 }
 
+bool IsSlotOccupied(const ClockHandle& h) {
+  return (h.meta.load(std::memory_order_relaxed) >> ClockHandle::kStateShift) !=
+         0;
+}
 }  // namespace
+
+// NOTE: GCC might warn about subobject linkage if this is in anon namespace
+template <size_t N = 500>
+class LoadVarianceStats {
+ public:
+  std::string Report() const {
+    return "Overall " + PercentStr(positive_count_, samples_) + " (" +
+           std::to_string(positive_count_) + "/" + std::to_string(samples_) +
+           "), Min/Max/Window = " + PercentStr(min_, N) + "/" +
+           PercentStr(max_, N) + "/" + std::to_string(N) +
+           ", MaxRun{Pos/Neg} = " + std::to_string(max_pos_run_) + "/" +
+           std::to_string(max_neg_run_) + "\n";
+  }
+
+  void Add(bool positive) {
+    recent_[samples_ % N] = positive;
+    if (positive) {
+      ++positive_count_;
+      ++cur_pos_run_;
+      max_pos_run_ = std::max(max_pos_run_, cur_pos_run_);
+      cur_neg_run_ = 0;
+    } else {
+      ++cur_neg_run_;
+      max_neg_run_ = std::max(max_neg_run_, cur_neg_run_);
+      cur_pos_run_ = 0;
+    }
+    ++samples_;
+    if (samples_ >= N) {
+      size_t count_set = recent_.count();
+      max_ = std::max(max_, count_set);
+      min_ = std::min(min_, count_set);
+    }
+  }
+
+ private:
+  size_t max_ = 0;
+  size_t min_ = N;
+  size_t positive_count_ = 0;
+  size_t samples_ = 0;
+  size_t max_pos_run_ = 0;
+  size_t cur_pos_run_ = 0;
+  size_t max_neg_run_ = 0;
+  size_t cur_neg_run_ = 0;
+  std::bitset<N> recent_;
+
+  static std::string PercentStr(size_t a, size_t b) {
+    return std::to_string(uint64_t{100} * a / b) + "%";
+  }
+};
+
+template <class Table>
+void BaseHyperClockCache<Table>::ReportProblems(
+    const std::shared_ptr<Logger>& info_log) const {
+  if (info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
+    LoadVarianceStats slot_stats;
+    this->ForEachShard([&](const BaseHyperClockCache<Table>::Shard* shard) {
+      size_t count = shard->GetTableAddressCount();
+      for (size_t i = 0; i < count; ++i) {
+        slot_stats.Add(IsSlotOccupied(*shard->GetTable().HandlePtr(i)));
+      }
+    });
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Slot occupancy stats: %s", slot_stats.Report().c_str());
+  }
+}
 
 void FixedHyperClockCache::ReportProblems(
     const std::shared_ptr<Logger>& info_log) const {
+  BaseHyperClockCache::ReportProblems(info_log);
+
   uint32_t shard_count = GetNumShards();
   std::vector<double> predicted_load_factors;
   size_t min_recommendation = SIZE_MAX;
-  const_cast<FixedHyperClockCache*>(this)->ForEachShard(
-      [&](FixedHyperClockCache::Shard* shard) {
-        AddShardEvaluation(*shard, predicted_load_factors, min_recommendation);
-      });
+  ForEachShard([&](const FixedHyperClockCache::Shard* shard) {
+    AddShardEvaluation(*shard, predicted_load_factors, min_recommendation);
+  });
 
   if (predicted_load_factors.empty()) {
     // None operating "at limit" -> nothing to report
@@ -1549,8 +1638,17 @@ std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
     opts.num_shard_bits =
         GetDefaultCacheShardBits(opts.capacity, min_shard_size);
   }
-  std::shared_ptr<Cache> cache =
-      std::make_shared<clock_cache::FixedHyperClockCache>(opts);
+  std::shared_ptr<Cache> cache;
+  if (opts.estimated_entry_charge == 0) {
+    // BEGIN placeholder logic to be removed
+    // This is sufficient to get the placeholder Auto working in unit tests
+    // much like the Fixed version.
+    opts.estimated_entry_charge = opts.min_avg_entry_charge;
+    // END placeholder logic to be removed
+    cache = std::make_shared<clock_cache::AutoHyperClockCache>(opts);
+  } else {
+    cache = std::make_shared<clock_cache::FixedHyperClockCache>(opts);
+  }
   if (opts.secondary_cache) {
     cache = std::make_shared<CacheWithSecondaryAdapter>(cache,
                                                         opts.secondary_cache);

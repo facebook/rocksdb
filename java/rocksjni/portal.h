@@ -5131,6 +5131,8 @@ class TickerTypeJni {
         return -0x3B;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
         return -0x3C;
+      case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
+        return -0x3D;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

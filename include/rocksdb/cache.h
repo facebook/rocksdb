@@ -416,6 +416,9 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // to estimate toward the lower side than the higher side.
   size_t estimated_entry_charge;
 
+  // FOR A FUTURE FEATURE (NOT YET USED)
+  size_t min_avg_entry_charge = 450;
+
   HyperClockCacheOptions(
       size_t _capacity, size_t _estimated_entry_charge,
       int _num_shard_bits = -1, bool _strict_capacity_limit = false,
@@ -447,6 +450,19 @@ enum PrimaryCacheType {
   kCacheTypeMax,
 };
 
+enum TieredAdmissionPolicy {
+  // Automatically select the admission policy
+  kAdmPolicyAuto,
+  // During promotion/demotion, first time insert a placeholder entry, second
+  // time insert the full entry if the placeholder is found, i.e insert on
+  // second hit
+  kAdmPolicyPlaceholder,
+  // Same as kAdmPolicyPlaceholder, but also if an entry in the primary cache
+  // was a hit, then force insert it into the compressed secondary cache
+  kAdmPolicyAllowCacheHits,
+  kAdmPolicyMax,
+};
+
 // A 2-tier cache with a primary block cache, and a compressed secondary
 // cache. The returned cache instance will internally allocate a primary
 // uncompressed cache of the specified type, and a compressed secondary
@@ -456,6 +472,7 @@ enum PrimaryCacheType {
 struct TieredVolatileCacheOptions {
   ShardedCacheOptions* cache_opts;
   PrimaryCacheType cache_type;
+  TieredAdmissionPolicy adm_policy;
   CompressedSecondaryCacheOptions comp_cache_opts;
 };
 

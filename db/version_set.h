@@ -132,8 +132,9 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks,
-                     EpochNumberRequirement epoch_number_requirement =
-                         EpochNumberRequirement::kMustPresent);
+                     EpochNumberRequirement epoch_number_requirement,
+                     SystemClock* clock,
+                     uint32_t bottommost_file_compaction_delay);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -747,6 +748,10 @@ class VersionStorageInfo {
   // Estimated bytes needed to be compacted until all levels' size is down to
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
+
+  // Used for computing bottommost files marked for compaction.
+  SystemClock* clock_;
+  uint32_t bottommost_file_compaction_delay_;
 
   bool finalized_;
 

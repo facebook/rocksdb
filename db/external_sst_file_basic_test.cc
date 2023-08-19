@@ -1346,7 +1346,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // range del [0, 50) in L6 file, [50, 100) in L0 file, [100, 150) in memtable
   for (int i = 0; i < 3; i++) {
     if (i != 0) {
-      db_->Flush(FlushOptions());
+      ASSERT_OK(db_->Flush(FlushOptions()));
       if (i == 1) {
         MoveFilesToLevel(kNumLevels - 1);
       }
@@ -1747,11 +1747,11 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
   Options options = CurrentOptions();
 
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("k", "a"));
-  Flush();
+  ASSERT_OK(Flush());
   SstFileWriter sst_file_writer(EnvOptions(), options);
 
   // Current file size should be 0 after sst_file_writer init and before open a
