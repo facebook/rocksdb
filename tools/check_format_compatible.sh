@@ -125,7 +125,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb")
+declare -a db_forward_with_options_refs=("6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment

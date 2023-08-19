@@ -70,6 +70,7 @@ class FlushJobTestBase : public testing::Test {
       new_cf.AddColumnFamily(column_family_names_[i]);
       new_cf.SetColumnFamily(cf_id++);
       new_cf.SetComparatorName(ucmp_->Name());
+      new_cf.SetPersistUserDefinedTimestamps(persist_udt_);
       new_cf.SetLogNumber(0);
       new_cf.SetNextFile(2);
       new_cf.SetLastSequence(last_seq++);
@@ -654,6 +655,10 @@ class FlushJobTimestampTest
               installed_file_meta->smallest.Encode());
     ASSERT_EQ(expected_largest.Encode(), installed_file_meta->largest.Encode());
   }
+  void CheckFullHistoryTsLow(ColumnFamilyData* cfd,
+                             const std::string& expected_full_history_ts_low) {
+    ASSERT_EQ(expected_full_history_ts_low, cfd->GetFullHistoryTsLow());
+  }
 };
 
 TEST_P(FlushJobTimestampTest, AllKeysExpired) {
@@ -684,6 +689,7 @@ TEST_P(FlushJobTimestampTest, AllKeysExpired) {
   EventLogger event_logger(db_options_.info_log.get());
   std::string full_history_ts_low;
   PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
+  cfd->SetFullHistoryTsLow(full_history_ts_low);
   FlushJob flush_job(
       dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
       std::numeric_limits<uint64_t>::max() /* memtable_id */, env_options_,
@@ -714,6 +720,7 @@ TEST_P(FlushJobTimestampTest, AllKeysExpired) {
     }
     InternalKey ikey(key, curr_seq_ - 1, ValueType::kTypeDeletionWithTimestamp);
     CheckFileMetaData(cfd, ikey, ikey, &fmeta);
+    CheckFullHistoryTsLow(cfd, full_history_ts_low);
   }
 
   job_context.Clean();
@@ -744,6 +751,7 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
   EventLogger event_logger(db_options_.info_log.get());
   std::string full_history_ts_low;
   PutFixed64(&full_history_ts_low, 0);
+  cfd->SetFullHistoryTsLow(full_history_ts_low);
   FlushJob flush_job(
       dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
       std::numeric_limits<uint64_t>::max() /* memtable_id */, env_options_,
@@ -765,6 +773,7 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
     std::string ukey = test::EncodeInt(0);
     std::string smallest_key;
     std::string largest_key;
+    std::string expected_full_history_ts_low;
     if (!persist_udt_) {
       // When `AdvancedColumnFamilyOptions.persist_user_defined_timestamps` flag
       // is set to false. The user-defined timestamp is stripped from user key
@@ -772,14 +781,21 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
       // timestamp, which is hardcoded to be all zeros for now.
       smallest_key = ukey + test::EncodeInt(0);
       largest_key = ukey + test::EncodeInt(0);
+      // When not all keys have expired and `persist_user_defined_timestamps` is
+      // false. UDTs will be removed during flush, `full_history_ts_low` should
+      // be automatically increased to above the effective cutoff UDT in the
+      // flush.
+      PutFixed64(&expected_full_history_ts_low, curr_ts_.fetch_add(1));
     } else {
       smallest_key =
           ukey + test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1);
       largest_key = ukey + test::EncodeInt(kStartTs);
+      expected_full_history_ts_low = full_history_ts_low;
     }
     InternalKey smallest(smallest_key, curr_seq_ - 1, ValueType::kTypeValue);
     InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
     CheckFileMetaData(cfd, smallest, largest, &fmeta);
+    CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
   }
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());

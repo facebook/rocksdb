@@ -1043,7 +1043,8 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   const std::string kValue(1024, 'v');
   Reopen(options);
 
-  ASSERT_EQ(0, dbfull()->GetDBOptions().compaction_readahead_size);
+  ASSERT_EQ(1024 * 1024 * 2,
+            dbfull()->GetDBOptions().compaction_readahead_size);
   ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
   ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
   for (int i = 0; i < 1024; i++) {
@@ -1307,7 +1308,7 @@ TEST_F(DBOptionsTest, TempOptionsFailTest) {
       [&](void* /*arg*/) { fs->SetFilesystemActive(true); });
 
   SyncPoint::GetInstance()->EnableProcessing();
-  TryReopen(options);
+  ASSERT_NOK(TryReopen(options));
   SyncPoint::GetInstance()->DisableProcessing();
 
   std::vector<std::string> filenames;

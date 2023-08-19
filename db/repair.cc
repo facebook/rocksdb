@@ -157,6 +157,7 @@ class Repairer {
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(opts.persist_user_defined_timestamps);
     edit.SetLogNumber(0);
     edit.SetColumnFamily(cf_id);
     ColumnFamilyData* cfd;
@@ -691,7 +692,8 @@ class Repairer {
           &cfd->internal_comparator(), cfd->user_comparator(),
           cfd->NumberLevels(), cfd->ioptions()->compaction_style,
           nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
-          EpochNumberRequirement::kMightMissing);
+          EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
+          /*bottommost_file_compaction_delay=*/0);
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {
@@ -720,6 +722,8 @@ class Repairer {
         // recovered epoch numbers
         VersionEdit edit;
         edit.SetComparatorName(cfd->user_comparator()->Name());
+        edit.SetPersistUserDefinedTimestamps(
+            cfd->ioptions()->persist_user_defined_timestamps);
         edit.SetLogNumber(0);
         edit.SetNextFile(next_file_number_);
         edit.SetColumnFamily(cfd->GetID());

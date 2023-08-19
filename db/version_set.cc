@@ -1948,8 +1948,14 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
   uint64_t sum_file_size_bytes = 0;
   uint64_t sum_data_size_bytes = 0;
   for (auto* file_meta : files_[level]) {
-    sum_file_size_bytes += file_meta->fd.GetFileSize();
-    sum_data_size_bytes += file_meta->raw_key_size + file_meta->raw_value_size;
+    auto raw_size = file_meta->raw_key_size + file_meta->raw_value_size;
+    // Check if the table property is properly initialized. It might not be
+    // because in `UpdateAccumulatedStats` we limit the maximum number of
+    // properties to read once.
+    if (raw_size > 0) {
+      sum_file_size_bytes += file_meta->fd.GetFileSize();
+      sum_data_size_bytes += raw_size;
+    }
   }
   if (sum_file_size_bytes == 0) {
     return -1.0;
@@ -2108,7 +2114,8 @@ VersionStorageInfo::VersionStorageInfo(
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
-    EpochNumberRequirement epoch_number_requirement)
+    EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
+    uint32_t bottommost_file_compaction_delay)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2136,6 +2143,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_deletions_(0),
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
+      clock_(clock),
+      bottommost_file_compaction_delay_(bottommost_file_compaction_delay),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
       epoch_number_requirement_(epoch_number_requirement) {
@@ -2180,7 +2189,11 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
               ? nullptr
               : cfd_->current()->storage_info(),
           cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
-          epoch_number_requirement),
+          epoch_number_requirement,
+          cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
+          cfd_ == nullptr
+              ? 0
+              : mutable_cf_options.bottommost_file_compaction_delay),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -4172,14 +4185,48 @@ void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
 void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  // If a file's creation time is larger than creation_time_ub,
+  // it is too new to be marked for compaction.
+  int64_t creation_time_ub = 0;
+  bool needs_delay = bottommost_file_compaction_delay_ > 0;
+  if (needs_delay) {
+    int64_t current_time = 0;
+    clock_->GetCurrentTime(&current_time).PermitUncheckedError();
+    // Note that if GetCurrentTime() fails, current_time will be 0.
+    // We will treat it as is and treat all files as too new.
+    // The subtraction will not underflow since
+    // bottommost_file_compaction_delay_ is of type uint32_t.
+    creation_time_ub =
+        current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
+  }
+
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
         level_and_file.second->fd.largest_seqno != 0) {
       // largest_seqno might be nonzero due to containing the final key in an
-      // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
-      // ensures the file really contains deleted or overwritten keys.
+      // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
-        bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        if (!needs_delay) {
+          bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        } else if (creation_time_ub > 0) {
+          int64_t creation_time = static_cast<int64_t>(
+              level_and_file.second->TryGetFileCreationTime());
+          if (creation_time == kUnknownFileCreationTime ||
+              creation_time <= creation_time_ub) {
+            bottommost_files_marked_for_compaction_.push_back(level_and_file);
+          } else {
+            // Just ignore this file for both
+            // bottommost_files_marked_for_compaction_ and
+            // bottommost_files_mark_threshold_. The next time
+            // this method is called, it will try this file again. The method
+            // is called after a new Version creation (compaction, flush, etc.),
+            // after a compaction is picked, and after a snapshot newer than
+            // bottommost_files_mark_threshold_ is released.
+          }
+        } else {
+          // creation_time_ub <= 0, all files are too new to be marked for
+          // compaction.
+        }
       } else {
         bottommost_files_mark_threshold_ =
             std::min(bottommost_files_mark_threshold_,
@@ -6448,6 +6495,8 @@ Status VersionSet::WriteCurrentStateToManifest(
       }
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
+      edit.SetPersistUserDefinedTimestamps(
+          cfd->ioptions()->persist_user_defined_timestamps);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +

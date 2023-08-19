@@ -365,12 +365,15 @@ TEST_P(RepairTestWithTimestamp, UnflushedSst) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  std::string min_ts = Timestamp(0, 0);
-  std::string write_ts = Timestamp(1, 0);
-  const size_t kTimestampSize = write_ts.size();
-  TestComparator test_cmp(kTimestampSize);
-  options.comparator = &test_cmp;
+  std::string min_ts;
+  std::string write_ts;
+  PutFixed64(&min_ts, 0);
+  PutFixed64(&write_ts, 1);
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.persist_user_defined_timestamps = persist_udt;
+  if (!persist_udt) {
+    options.allow_concurrent_memtable_write = false;
+  }
   options.paranoid_file_checks = paranoid_file_checks;
 
   ColumnFamilyOptions cf_options(options);

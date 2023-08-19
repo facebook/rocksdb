@@ -9,9 +9,18 @@
 
 #include "cache/clock_cache.h"
 
+#include <algorithm>
+#include <atomic>
+#include <bitset>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <functional>
 #include <numeric>
+#include <string>
+#include <thread>
+#include <type_traits>
 
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
@@ -79,8 +88,10 @@ inline void Unref(const ClockHandle& h, uint64_t count = 1) {
   // Pretend we never took the reference
   // WART: there's a tiny chance we release last ref to invisible
   // entry here. If that happens, we let eviction take care of it.
-  h.meta.fetch_sub(ClockHandle::kAcquireIncrement * count,
-                   std::memory_order_release);
+  uint64_t old_meta = h.meta.fetch_sub(ClockHandle::kAcquireIncrement * count,
+                                       std::memory_order_release);
+  assert(GetRefcount(old_meta) != 0);
+  (void)old_meta;
 }
 
 inline bool ClockUpdate(ClockHandle& h) {
@@ -90,8 +101,6 @@ inline bool ClockUpdate(ClockHandle& h) {
       (meta >> ClockHandle::kAcquireCounterShift) & ClockHandle::kCounterMask;
   uint64_t release_count =
       (meta >> ClockHandle::kReleaseCounterShift) & ClockHandle::kCounterMask;
-  // fprintf(stderr, "ClockUpdate @ %p: %lu %lu %u\n", &h, acquire_count,
-  // release_count, (unsigned)(meta >> ClockHandle::kStateShift));
   if (acquire_count != release_count) {
     // Only clock update entries with no outstanding refs
     return false;
@@ -109,6 +118,7 @@ inline bool ClockUpdate(ClockHandle& h) {
     // not aggressively
     uint64_t new_meta =
         (uint64_t{ClockHandle::kStateVisible} << ClockHandle::kStateShift) |
+        (meta & ClockHandle::kHitBitMask) |
         (new_count << ClockHandle::kReleaseCounterShift) |
         (new_count << ClockHandle::kAcquireCounterShift);
     h.meta.compare_exchange_strong(meta, new_meta, std::memory_order_relaxed);
@@ -116,10 +126,11 @@ inline bool ClockUpdate(ClockHandle& h) {
   }
   // Otherwise, remove entry (either unreferenced invisible or
   // unreferenced and expired visible).
-  if (h.meta.compare_exchange_strong(
-          meta,
-          uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
-          std::memory_order_acquire)) {
+  if (h.meta.compare_exchange_strong(meta,
+                                     (uint64_t{ClockHandle::kStateConstruction}
+                                      << ClockHandle::kStateShift) |
+                                         (meta & ClockHandle::kHitBitMask),
+                                     std::memory_order_acquire)) {
     // Took ownership.
     return true;
   } else {
@@ -406,14 +417,14 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   // Grab any available capacity, and free up any more required.
   size_t old_usage = usage_.load(std::memory_order_relaxed);
   size_t new_usage;
-  if (LIKELY(old_usage != capacity)) {
-    do {
-      new_usage = std::min(capacity, old_usage + total_charge);
-    } while (!usage_.compare_exchange_weak(old_usage, new_usage,
-                                           std::memory_order_relaxed));
-  } else {
-    new_usage = old_usage;
-  }
+  do {
+    new_usage = std::min(capacity, old_usage + total_charge);
+    if (new_usage == old_usage) {
+      // No change needed
+      break;
+    }
+  } while (!usage_.compare_exchange_weak(old_usage, new_usage,
+                                         std::memory_order_relaxed));
   // How much do we need to evict then?
   size_t need_evict_charge = old_usage + total_charge - new_usage;
   size_t request_evict_charge = need_evict_charge;
@@ -519,10 +530,11 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(
   if (eviction_callback_) {
     // For key reconstructed from hash
     UniqueId64x2 unhashed;
-    took_value_ownership =
-        eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
-                               h->GetHash(), &unhashed, hash_seed_),
-                           reinterpret_cast<Cache::Handle*>(h));
+    took_value_ownership = eviction_callback_(
+        ClockCacheShard<FixedHyperClockTable>::ReverseHash(
+            h->GetHash(), &unhashed, hash_seed_),
+        reinterpret_cast<Cache::Handle*>(h),
+        h->meta.load(std::memory_order_relaxed) & ClockHandle::kHitBitMask);
   }
   if (!took_value_ownership) {
     h->FreeData(allocator_);
@@ -668,7 +680,7 @@ void BaseClockTable::TEST_ReleaseNMinus1(ClockHandle* h, size_t n) {
 }
 #endif
 
-HyperClockTable::HyperClockTable(
+FixedHyperClockTable::FixedHyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
     CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
@@ -691,7 +703,7 @@ HyperClockTable::HyperClockTable(
                 "Expecting size / alignment with common cache line size");
 }
 
-HyperClockTable::~HyperClockTable() {
+FixedHyperClockTable::~FixedHyperClockTable() {
   // Assumes there are no references or active operations on any slot/element
   // in the table.
   for (size_t i = 0; i < GetTableSize(); i++) {
@@ -727,13 +739,13 @@ HyperClockTable::~HyperClockTable() {
   assert(occupancy_ == 0);
 }
 
-void HyperClockTable::StartInsert(InsertState&) {}
+void FixedHyperClockTable::StartInsert(InsertState&) {}
 
-bool HyperClockTable::GrowIfNeeded(size_t new_occupancy, InsertState&) {
+bool FixedHyperClockTable::GrowIfNeeded(size_t new_occupancy, InsertState&) {
   return new_occupancy <= occupancy_limit_;
 }
 
-HyperClockTable::HandleImpl* HyperClockTable::DoInsert(
+FixedHyperClockTable::HandleImpl* FixedHyperClockTable::DoInsert(
     const ClockHandleBasicData& proto, uint64_t initial_countdown,
     bool keep_ref, InsertState&) {
   bool already_matches = false;
@@ -780,7 +792,7 @@ HyperClockTable::HandleImpl* HyperClockTable::DoInsert(
   return nullptr;
 }
 
-HyperClockTable::HandleImpl* HyperClockTable::Lookup(
+FixedHyperClockTable::HandleImpl* FixedHyperClockTable::Lookup(
     const UniqueId64x2& hashed_key) {
   HandleImpl* e = FindSlot(
       hashed_key,
@@ -816,6 +828,11 @@ HyperClockTable::HandleImpl* HyperClockTable::Lookup(
           // Acquired a read reference
           if (h->hashed_key == hashed_key) {
             // Match
+            // Update the hit bit
+            if (eviction_callback_) {
+              h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
+                               std::memory_order_relaxed);
+            }
             return true;
           } else {
             // Mismatch. Pretend we never took the reference
@@ -841,8 +858,8 @@ HyperClockTable::HandleImpl* HyperClockTable::Lookup(
   return e;
 }
 
-bool HyperClockTable::Release(HandleImpl* h, bool useful,
-                              bool erase_if_last_ref) {
+bool FixedHyperClockTable::Release(HandleImpl* h, bool useful,
+                                   bool erase_if_last_ref) {
   // In contrast with LRUCache's Release, this function won't delete the handle
   // when the cache is above capacity and the reference is the last one. Space
   // is only freed up by EvictFromClock (called by Insert when space is needed)
@@ -917,7 +934,7 @@ bool HyperClockTable::Release(HandleImpl* h, bool useful,
 }
 
 #ifndef NDEBUG
-void HyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
+void FixedHyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
   if (n > 0) {
     // Do n-1 simple releases first
     TEST_ReleaseNMinus1(h, n);
@@ -928,7 +945,7 @@ void HyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
 }
 #endif
 
-void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
+void FixedHyperClockTable::Erase(const UniqueId64x2& hashed_key) {
   (void)FindSlot(
       hashed_key,
       [&](HandleImpl* h) {
@@ -993,7 +1010,7 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
       [&](HandleImpl* /*h*/, bool /*is_last*/) {});
 }
 
-void HyperClockTable::EraseUnRefEntries() {
+void FixedHyperClockTable::EraseUnRefEntries() {
   for (size_t i = 0; i <= this->length_bits_mask_; i++) {
     HandleImpl& h = array_[i];
 
@@ -1015,7 +1032,7 @@ void HyperClockTable::EraseUnRefEntries() {
 }
 
 template <typename MatchFn, typename AbortFn, typename UpdateFn>
-inline HyperClockTable::HandleImpl* HyperClockTable::FindSlot(
+inline FixedHyperClockTable::HandleImpl* FixedHyperClockTable::FindSlot(
     const UniqueId64x2& hashed_key, const MatchFn& match_fn,
     const AbortFn& abort_fn, const UpdateFn& update_fn) {
   // NOTE: upper 32 bits of hashed_key[0] is used for sharding
@@ -1050,8 +1067,8 @@ inline HyperClockTable::HandleImpl* HyperClockTable::FindSlot(
   return nullptr;
 }
 
-inline void HyperClockTable::Rollback(const UniqueId64x2& hashed_key,
-                                      const HandleImpl* h) {
+inline void FixedHyperClockTable::Rollback(const UniqueId64x2& hashed_key,
+                                           const HandleImpl* h) {
   size_t current = ModTableSize(hashed_key[1]);
   size_t increment = static_cast<size_t>(hashed_key[0]) | 1U;
   while (&array_[current] != h) {
@@ -1060,7 +1077,7 @@ inline void HyperClockTable::Rollback(const UniqueId64x2& hashed_key,
   }
 }
 
-inline void HyperClockTable::ReclaimEntryUsage(size_t total_charge) {
+inline void FixedHyperClockTable::ReclaimEntryUsage(size_t total_charge) {
   auto old_occupancy = occupancy_.fetch_sub(1U, std::memory_order_release);
   (void)old_occupancy;
   // No underflow
@@ -1071,8 +1088,8 @@ inline void HyperClockTable::ReclaimEntryUsage(size_t total_charge) {
   assert(old_usage >= total_charge);
 }
 
-inline void HyperClockTable::Evict(size_t requested_charge, InsertState&,
-                                   EvictionData* data) {
+inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
+                                        EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -1170,7 +1187,7 @@ void ClockCacheShard<Table>::ApplyToSomeEntries(
       table_.HandlePtr(index_begin), table_.HandlePtr(index_end), false);
 }
 
-int HyperClockTable::CalcHashBits(
+int FixedHyperClockTable::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   double average_slot_charge = estimated_value_size * kLoadFactor;
@@ -1358,36 +1375,40 @@ size_t ClockCacheShard<Table>::GetTableAddressCount() const {
 }
 
 // Explicit instantiation
-template class ClockCacheShard<HyperClockTable>;
+template class ClockCacheShard<FixedHyperClockTable>;
+template class ClockCacheShard<AutoHyperClockTable>;
 
-HyperClockCache::HyperClockCache(const HyperClockCacheOptions& opts)
-    : ShardedCache(opts) {
-  assert(opts.estimated_entry_charge > 0 ||
-         opts.metadata_charge_policy != kDontChargeCacheMetadata);
+template <class Table>
+BaseHyperClockCache<Table>::BaseHyperClockCache(
+    const HyperClockCacheOptions& opts)
+    : ShardedCache<ClockCacheShard<Table>>(opts) {
   // TODO: should not need to go through two levels of pointer indirection to
   // get to table entries
-  size_t per_shard = GetPerShardCapacity();
+  size_t per_shard = this->GetPerShardCapacity();
   MemoryAllocator* alloc = this->memory_allocator();
-  InitShards([&](Shard* cs) {
-    HyperClockTable::Opts table_opts;
-    table_opts.estimated_value_size = opts.estimated_entry_charge;
+  this->InitShards([&](Shard* cs) {
+    typename Table::Opts table_opts{opts};
     new (cs) Shard(per_shard, opts.strict_capacity_limit,
-                   opts.metadata_charge_policy, alloc, &eviction_callback_,
-                   &hash_seed_, table_opts);
+                   opts.metadata_charge_policy, alloc,
+                   &this->eviction_callback_, &this->hash_seed_, table_opts);
   });
 }
 
-Cache::ObjectPtr HyperClockCache::Value(Handle* handle) {
-  return reinterpret_cast<const HandleImpl*>(handle)->value;
+template <class Table>
+Cache::ObjectPtr BaseHyperClockCache<Table>::Value(Handle* handle) {
+  return reinterpret_cast<const typename Table::HandleImpl*>(handle)->value;
 }
 
-size_t HyperClockCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const HandleImpl*>(handle)->GetTotalCharge();
+template <class Table>
+size_t BaseHyperClockCache<Table>::GetCharge(Handle* handle) const {
+  return reinterpret_cast<const typename Table::HandleImpl*>(handle)
+      ->GetTotalCharge();
 }
 
-const Cache::CacheItemHelper* HyperClockCache::GetCacheItemHelper(
+template <class Table>
+const Cache::CacheItemHelper* BaseHyperClockCache<Table>::GetCacheItemHelper(
     Handle* handle) const {
-  auto h = reinterpret_cast<const HandleImpl*>(handle);
+  auto h = reinterpret_cast<const typename Table::HandleImpl*>(handle);
   return h->helper;
 }
 
@@ -1400,7 +1421,7 @@ namespace {
 // or actual occupancy very close to limit (>95% of limit).
 // Also, for each shard compute the recommended estimated_entry_charge,
 // and keep the minimum one for use as overall recommendation.
-void AddShardEvaluation(const HyperClockCache::Shard& shard,
+void AddShardEvaluation(const FixedHyperClockCache::Shard& shard,
                         std::vector<double>& predicted_load_factors,
                         size_t& min_recommendation) {
   size_t usage = shard.GetUsage() - shard.GetStandaloneUsage();
@@ -1418,7 +1439,7 @@ void AddShardEvaluation(const HyperClockCache::Shard& shard,
   // If filled to capacity, what would the occupancy ratio be?
   double ratio = occ_ratio / usage_ratio;
   // Given max load factor, what that load factor be?
-  double lf = ratio * kStrictLoadFactor;
+  double lf = ratio * FixedHyperClockTable::kStrictLoadFactor;
   predicted_load_factors.push_back(lf);
 
   // Update min_recommendation also
@@ -1426,17 +1447,87 @@ void AddShardEvaluation(const HyperClockCache::Shard& shard,
   min_recommendation = std::min(min_recommendation, recommendation);
 }
 
+bool IsSlotOccupied(const ClockHandle& h) {
+  return (h.meta.load(std::memory_order_relaxed) >> ClockHandle::kStateShift) !=
+         0;
+}
 }  // namespace
 
-void HyperClockCache::ReportProblems(
+// NOTE: GCC might warn about subobject linkage if this is in anon namespace
+template <size_t N = 500>
+class LoadVarianceStats {
+ public:
+  std::string Report() const {
+    return "Overall " + PercentStr(positive_count_, samples_) + " (" +
+           std::to_string(positive_count_) + "/" + std::to_string(samples_) +
+           "), Min/Max/Window = " + PercentStr(min_, N) + "/" +
+           PercentStr(max_, N) + "/" + std::to_string(N) +
+           ", MaxRun{Pos/Neg} = " + std::to_string(max_pos_run_) + "/" +
+           std::to_string(max_neg_run_) + "\n";
+  }
+
+  void Add(bool positive) {
+    recent_[samples_ % N] = positive;
+    if (positive) {
+      ++positive_count_;
+      ++cur_pos_run_;
+      max_pos_run_ = std::max(max_pos_run_, cur_pos_run_);
+      cur_neg_run_ = 0;
+    } else {
+      ++cur_neg_run_;
+      max_neg_run_ = std::max(max_neg_run_, cur_neg_run_);
+      cur_pos_run_ = 0;
+    }
+    ++samples_;
+    if (samples_ >= N) {
+      size_t count_set = recent_.count();
+      max_ = std::max(max_, count_set);
+      min_ = std::min(min_, count_set);
+    }
+  }
+
+ private:
+  size_t max_ = 0;
+  size_t min_ = N;
+  size_t positive_count_ = 0;
+  size_t samples_ = 0;
+  size_t max_pos_run_ = 0;
+  size_t cur_pos_run_ = 0;
+  size_t max_neg_run_ = 0;
+  size_t cur_neg_run_ = 0;
+  std::bitset<N> recent_;
+
+  static std::string PercentStr(size_t a, size_t b) {
+    return std::to_string(uint64_t{100} * a / b) + "%";
+  }
+};
+
+template <class Table>
+void BaseHyperClockCache<Table>::ReportProblems(
     const std::shared_ptr<Logger>& info_log) const {
+  if (info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
+    LoadVarianceStats slot_stats;
+    this->ForEachShard([&](const BaseHyperClockCache<Table>::Shard* shard) {
+      size_t count = shard->GetTableAddressCount();
+      for (size_t i = 0; i < count; ++i) {
+        slot_stats.Add(IsSlotOccupied(*shard->GetTable().HandlePtr(i)));
+      }
+    });
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Slot occupancy stats: %s", slot_stats.Report().c_str());
+  }
+}
+
+void FixedHyperClockCache::ReportProblems(
+    const std::shared_ptr<Logger>& info_log) const {
+  BaseHyperClockCache::ReportProblems(info_log);
+
   uint32_t shard_count = GetNumShards();
   std::vector<double> predicted_load_factors;
   size_t min_recommendation = SIZE_MAX;
-  const_cast<HyperClockCache*>(this)->ForEachShard(
-      [&](HyperClockCache::Shard* shard) {
-        AddShardEvaluation(*shard, predicted_load_factors, min_recommendation);
-      });
+  ForEachShard([&](const FixedHyperClockCache::Shard* shard) {
+    AddShardEvaluation(*shard, predicted_load_factors, min_recommendation);
+  });
 
   if (predicted_load_factors.empty()) {
     // None operating "at limit" -> nothing to report
@@ -1457,17 +1548,19 @@ void HyperClockCache::ReportProblems(
                       predicted_load_factors.end(), 0.0) /
       shard_count;
 
-  constexpr double kLowSpecLoadFactor = kLoadFactor / 2;
-  constexpr double kMidSpecLoadFactor = kLoadFactor / 1.414;
-  if (average_load_factor > kLoadFactor) {
+  constexpr double kLowSpecLoadFactor = FixedHyperClockTable::kLoadFactor / 2;
+  constexpr double kMidSpecLoadFactor =
+      FixedHyperClockTable::kLoadFactor / 1.414;
+  if (average_load_factor > FixedHyperClockTable::kLoadFactor) {
     // Out of spec => Consider reporting load factor too high
     // Estimate effective overall capacity loss due to enforcing occupancy limit
     double lost_portion = 0.0;
     int over_count = 0;
     for (double lf : predicted_load_factors) {
-      if (lf > kStrictLoadFactor) {
+      if (lf > FixedHyperClockTable::kStrictLoadFactor) {
         ++over_count;
-        lost_portion += (lf - kStrictLoadFactor) / lf / shard_count;
+        lost_portion +=
+            (lf - FixedHyperClockTable::kStrictLoadFactor) / lf / shard_count;
       }
     }
     // >= 20% loss -> error
@@ -1491,10 +1584,10 @@ void HyperClockCache::ReportProblems(
     if (report) {
       ROCKS_LOG_AT_LEVEL(
           info_log, level,
-          "HyperClockCache@%p unable to use estimated %.1f%% capacity because "
-          "of "
-          "full occupancy in %d/%u cache shards (estimated_entry_charge too "
-          "high). Recommend estimated_entry_charge=%zu",
+          "FixedHyperClockCache@%p unable to use estimated %.1f%% capacity "
+          "because of full occupancy in %d/%u cache shards "
+          "(estimated_entry_charge too high). "
+          "Recommend estimated_entry_charge=%zu",
           this, lost_portion * 100.0, over_count, (unsigned)shard_count,
           min_recommendation);
     }
@@ -1512,8 +1605,8 @@ void HyperClockCache::ReportProblems(
       }
       ROCKS_LOG_AT_LEVEL(
           info_log, level,
-          "HyperClockCache@%p table has low occupancy at full capacity. Higher "
-          "estimated_entry_charge (about %.1fx) would likely improve "
+          "FixedHyperClockCache@%p table has low occupancy at full capacity. "
+          "Higher estimated_entry_charge (about %.1fx) would likely improve "
           "performance. Recommend estimated_entry_charge=%zu",
           this, kMidSpecLoadFactor / average_load_factor, min_recommendation);
     }
@@ -1545,8 +1638,17 @@ std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
     opts.num_shard_bits =
         GetDefaultCacheShardBits(opts.capacity, min_shard_size);
   }
-  std::shared_ptr<Cache> cache =
-      std::make_shared<clock_cache::HyperClockCache>(opts);
+  std::shared_ptr<Cache> cache;
+  if (opts.estimated_entry_charge == 0) {
+    // BEGIN placeholder logic to be removed
+    // This is sufficient to get the placeholder Auto working in unit tests
+    // much like the Fixed version.
+    opts.estimated_entry_charge = opts.min_avg_entry_charge;
+    // END placeholder logic to be removed
+    cache = std::make_shared<clock_cache::AutoHyperClockCache>(opts);
+  } else {
+    cache = std::make_shared<clock_cache::FixedHyperClockCache>(opts);
+  }
   if (opts.secondary_cache) {
     cache = std::make_shared<CacheWithSecondaryAdapter>(cache,
                                                         opts.secondary_cache);

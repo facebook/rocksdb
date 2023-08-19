@@ -269,7 +269,13 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
       db_impl_->immutable_db_options().sst_file_manager.get());
-  DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
+  s = DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to clean up directory %s, status: %s",
+                    blob_dir_.c_str(), s.ToString().c_str());
+    return s;
+  }
 
   UpdateLiveSSTSize();
 
@@ -1142,7 +1148,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
   CompressionType type = bdb_options_.compression;
   CompressionOptions opts;
-  CompressionContext context(type);
+  CompressionContext context(type, opts);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type,
                        0 /* sample_for_compression */);
   CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
@@ -1384,28 +1390,46 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   return s;
 }
 
-std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
+std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& _read_options,
                                          const std::vector<Slice>& keys,
                                          std::vector<std::string>* values) {
   StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
-  ReadOptions ro(read_options);
-  bool snapshot_created = SetSnapshotIfNeeded(&ro);
-
   std::vector<Status> statuses;
-  statuses.reserve(keys.size());
+  std::size_t num_keys = keys.size();
+  statuses.reserve(num_keys);
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses.push_back(s);
+    }
+    return statuses;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+  bool snapshot_created = SetSnapshotIfNeeded(&read_options);
+
   values->clear();
   values->reserve(keys.size());
   PinnableSlice value;
   for (size_t i = 0; i < keys.size(); i++) {
-    statuses.push_back(Get(ro, DefaultColumnFamily(), keys[i], &value));
+    statuses.push_back(
+        GetImpl(read_options, DefaultColumnFamily(), keys[i], &value));
     values->push_back(value.ToString());
     value.Reset();
   }
   if (snapshot_created) {
-    db_->ReleaseSnapshot(ro.snapshot);
+    db_->ReleaseSnapshot(read_options.snapshot);
   }
   return statuses;
 }
@@ -1544,12 +1568,12 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &aligned_buf, Env::IO_TOTAL /* rate_limiter_priority */);
+                       &aligned_buf);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, &buf[0],
-                       nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+                       nullptr);
     }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
@@ -1609,16 +1633,36 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   return Status::OK();
 }
 
-Status BlobDBImpl::Get(const ReadOptions& read_options,
+Status BlobDBImpl::Get(const ReadOptions& _read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
-  return Get(read_options, column_family, key, value,
-             static_cast<uint64_t*>(nullptr) /*expiration*/);
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  return GetImpl(read_options, column_family, key, value);
 }
 
-Status BlobDBImpl::Get(const ReadOptions& read_options,
+Status BlobDBImpl::Get(const ReadOptions& _read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value, uint64_t* expiration) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
   StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
   return GetImpl(read_options, column_family, key, value, expiration);
@@ -1630,11 +1674,6 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
-  }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
   }
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
@@ -1882,7 +1921,7 @@ std::pair<bool, int64_t> BlobDBImpl::EvictExpiredFiles(bool aborted) {
       }
 
       if (!blob_file->Immutable()) {
-        CloseBlobFile(blob_file);
+        CloseBlobFile(blob_file).PermitUncheckedError();
       }
 
       assert(blob_file->Immutable());
@@ -2040,11 +2079,16 @@ void BlobDBImpl::CopyBlobFiles(
   }
 }
 
-Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())

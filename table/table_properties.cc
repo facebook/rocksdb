@@ -109,6 +109,10 @@ std::string TableProperties::ToString(const std::string& prop_delim,
   AppendProperty(result, "comparator name",
                  comparator_name.empty() ? std::string("N/A") : comparator_name,
                  prop_delim, kv_delim);
+  AppendProperty(result, "user defined timestamps persisted",
+                 user_defined_timestamps_persisted ? std::string("true")
+                                                   : std::string("false"),
+                 prop_delim, kv_delim);
 
   AppendProperty(
       result, "merge operator name",

@@ -229,6 +229,7 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_bool(compression_use_zstd_dict_trainer);
+DECLARE_bool(compression_checksum);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -248,6 +249,7 @@ DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
@@ -326,6 +328,10 @@ DECLARE_int32(create_timestamped_snapshot_one_in);
 DECLARE_bool(allow_data_in_errors);
 
 DECLARE_bool(enable_thread_tracking);
+
+DECLARE_uint32(memtable_max_range_deletions);
+
+DECLARE_uint32(bottommost_file_compaction_delay);
 
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature

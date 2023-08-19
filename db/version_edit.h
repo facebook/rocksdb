@@ -71,6 +71,7 @@ enum Tag : uint32_t {
   kFullHistoryTsLow,
   kWalAddition2,
   kWalDeletion2,
+  kPersistUserDefinedTimestamps,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -192,7 +193,8 @@ struct FileMetaData {
   uint64_t compensated_file_size = 0;
   // These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
-  uint64_t num_entries = 0;     // the number of entries.
+  uint64_t num_entries =
+      0;  // The number of entries, including deletions and range deletions.
   // The number of deletion entries, including range deletions.
   uint64_t num_deletions = 0;
   uint64_t raw_key_size = 0;    // total uncompressed key size.
@@ -396,6 +398,17 @@ class VersionEdit {
   }
   bool HasComparatorName() const { return has_comparator_; }
   const std::string& GetComparatorName() const { return comparator_; }
+
+  void SetPersistUserDefinedTimestamps(bool persist_user_defined_timestamps) {
+    has_persist_user_defined_timestamps_ = true;
+    persist_user_defined_timestamps_ = persist_user_defined_timestamps;
+  }
+  bool HasPersistUserDefinedTimestamps() const {
+    return has_persist_user_defined_timestamps_;
+  }
+  bool GetPersistUserDefinedTimestamps() const {
+    return persist_user_defined_timestamps_;
+  }
 
   void SetLogNumber(uint64_t num) {
     has_log_number_ = true;
@@ -697,6 +710,7 @@ class VersionEdit {
   bool has_max_column_family_ = false;
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;
+  bool has_persist_user_defined_timestamps_ = false;
 
   // Compaction cursors for round-robin compaction policy
   CompactCursors compact_cursors_;
@@ -724,6 +738,7 @@ class VersionEdit {
   uint32_t remaining_entries_ = 0;
 
   std::string full_history_ts_low_;
+  bool persist_user_defined_timestamps_ = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

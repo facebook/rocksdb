@@ -77,6 +77,7 @@ using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
@@ -277,6 +278,11 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
+};
+
+struct rocksdb_statistics_histogram_data_t {
+  rocksdb_statistics_histogram_data_t() : rep() {}
+  HistogramData rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -3023,6 +3029,29 @@ void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
 
+void rocksdb_options_set_statistics_level(rocksdb_options_t* opt, int level) {
+  if (!opt->rep.statistics) {
+    return;
+  }
+
+  if (level < rocksdb_statistics_level_disable_all) {
+    level = rocksdb_statistics_level_disable_all;
+  }
+  if (level > rocksdb_statistics_level_all) {
+    level = rocksdb_statistics_level_all;
+  }
+  opt->rep.statistics->set_stats_level(
+      static_cast<ROCKSDB_NAMESPACE::StatsLevel>(level));
+}
+
+int rocksdb_options_get_statistics_level(rocksdb_options_t* opt) {
+  if (!opt->rep.statistics) {
+    return ROCKSDB_NAMESPACE::StatsLevel::kDisableAll;
+  }
+
+  return static_cast<int>(opt->rep.statistics->get_stats_level());
+}
+
 void rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                       unsigned char val) {
   opt->rep.skip_stats_update_on_db_open = val;
@@ -3860,6 +3889,26 @@ char* rocksdb_options_statistics_get_string(rocksdb_options_t* opt) {
     return strdup(statistics->ToString().c_str());
   }
   return nullptr;
+}
+
+uint64_t rocksdb_options_statistics_get_ticker_count(rocksdb_options_t* opt,
+                                                     uint32_t ticker_type) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    return statistics->getTickerCount(ticker_type);
+  }
+  return 0;
+}
+
+void rocksdb_options_statistics_get_histogram_data(
+    rocksdb_options_t* opt, uint32_t type,
+    rocksdb_statistics_histogram_data_t* const data) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    statistics->histogramData(type, &data->rep);
+  } else {
+    *data = rocksdb_statistics_histogram_data_t{};
+  }
 }
 
 void rocksdb_options_set_ratelimiter(rocksdb_options_t* opt,
@@ -5194,7 +5243,8 @@ rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create() {
 }
 
 void rocksdb_fifo_compaction_options_set_allow_compaction(
-    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction) {
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char allow_compaction) {
   fifo_opts->rep.allow_compaction = allow_compaction;
 }
 
@@ -5623,8 +5673,7 @@ int rocksdb_transactiondb_property_int(rocksdb_transactiondb_t* db,
   }
 }
 
-rocksdb_t* rocksdb_transactiondb_get_base_db(
-    rocksdb_transactiondb_t* txn_db) {
+rocksdb_t* rocksdb_transactiondb_get_base_db(rocksdb_transactiondb_t* txn_db) {
   DB* base_db = txn_db->rep->GetBaseDB();
 
   if (base_db != nullptr) {
@@ -5636,9 +5685,7 @@ rocksdb_t* rocksdb_transactiondb_get_base_db(
   return nullptr;
 }
 
-void rocksdb_transactiondb_close_base_db(rocksdb_t* base_db) {
-  delete base_db;
-}
+void rocksdb_transactiondb_close_base_db(rocksdb_t* base_db) { delete base_db; }
 
 rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
@@ -6615,6 +6662,61 @@ void rocksdb_disable_manual_compaction(rocksdb_t* db) {
 
 void rocksdb_enable_manual_compaction(rocksdb_t* db) {
   db->rep->EnableManualCompaction();
+}
+
+rocksdb_statistics_histogram_data_t*
+rocksdb_statistics_histogram_data_create() {
+  return new rocksdb_statistics_histogram_data_t{};
+}
+
+void rocksdb_statistics_histogram_data_destroy(
+    rocksdb_statistics_histogram_data_t* data) {
+  delete data;
+}
+
+double rocksdb_statistics_histogram_data_get_median(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.median;
+}
+
+double rocksdb_statistics_histogram_data_get_p95(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.percentile95;
+}
+
+double rocksdb_statistics_histogram_data_get_p99(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.percentile99;
+}
+
+double rocksdb_statistics_histogram_data_get_average(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.average;
+}
+
+double rocksdb_statistics_histogram_data_get_std_dev(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.standard_deviation;
+}
+
+double rocksdb_statistics_histogram_data_get_max(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.max;
+}
+
+uint64_t rocksdb_statistics_histogram_data_get_count(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.count;
+}
+
+uint64_t rocksdb_statistics_histogram_data_get_sum(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.sum;
+}
+
+double rocksdb_statistics_histogram_data_get_min(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->rep.min;
 }
 
 }  // end extern "C"

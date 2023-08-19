@@ -84,7 +84,8 @@ class CompactionPickerTestBase : public testing::Test {
     options_.num_levels = num_levels;
     vstorage_.reset(new VersionStorageInfo(
         &icmp_, ucmp_, options_.num_levels, style, nullptr, false,
-        EpochNumberRequirement::kMustPresent));
+        EpochNumberRequirement::kMustPresent, ioptions_.clock,
+        options_.bottommost_file_compaction_delay));
     vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
   }
 
@@ -93,7 +94,8 @@ class CompactionPickerTestBase : public testing::Test {
   void AddVersionStorage() {
     temp_vstorage_.reset(new VersionStorageInfo(
         &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
-        vstorage_.get(), false, EpochNumberRequirement::kMustPresent));
+        vstorage_.get(), false, EpochNumberRequirement::kMustPresent,
+        ioptions_.clock, options_.bottommost_file_compaction_delay));
   }
 
   void DeleteVersionStorage() {
@@ -1966,6 +1968,15 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
   ASSERT_EQ(1U, compaction->num_input_files(1));
   ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, FileTtlBoosterLargeNumLevels) {
+  const uint64_t kCurrentTime = 1000000;
+  FileTtlBooster booster(kCurrentTime, /*ttl=*/2048,
+                         /*num_non_empty_levels=*/100, /*level=*/1);
+  FileMetaData meta;
+  meta.oldest_ancester_time = kCurrentTime - 1023;
+  ASSERT_EQ(1, booster.GetBoostScore(&meta));
 }
 
 TEST_F(CompactionPickerTest, FileTtlBooster) {

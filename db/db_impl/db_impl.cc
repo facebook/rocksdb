@@ -28,6 +28,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
+#include "db/convenience_impl.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -74,7 +75,6 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -149,6 +149,24 @@ void DumpSupportInfo(Logger* logger) {
 
   ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
+
+// `start` is the inclusive lower user key bound without user-defined timestamp
+// `limit` is the exclusive upper user key bound without user-defined timestamp
+std::tuple<Slice, Slice> MaybeAddTimestampsToRange(const Slice& start,
+                                                   const Slice& limit,
+                                                   size_t ts_sz,
+                                                   std::string* start_with_ts,
+                                                   std::string* limit_with_ts) {
+  if (ts_sz == 0) {
+    return std::make_tuple(start, limit);
+  }
+  // Maximum timestamp means including all key with any timestamp
+  AppendKeyWithMaxTimestamp(start_with_ts, start, ts_sz);
+  // Append a maximum timestamp as the range limit is exclusive:
+  // [start, limit)
+  AppendKeyWithMaxTimestamp(limit_with_ts, limit, ts_sz);
+  return std::make_tuple(Slice(*start_with_ts), Slice(*limit_with_ts));
+}
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
@@ -183,6 +201,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
+      reject_new_background_jobs_(false),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -392,22 +411,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      s = AtomicFlushMemTables(flush_opts, context.flush_reason);
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        InstrumentedMutexUnlock u(&mutex_);
-        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
+    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -494,36 +498,15 @@ void DBImpl::WaitForBackgroundWork() {
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
-
-  for (uint8_t task_type = 0;
-       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
-    Status s = periodic_task_scheduler_.Unregister(
-        static_cast<PeriodicTaskType>(task_type));
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Failed to unregister periodic task %d, status: %s",
-                     task_type, s.ToString().c_str());
-    }
-  }
+  Status s = CancelPeriodicTaskScheduler();
+  s.PermitUncheckedError();
 
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    if (immutable_db_options_.atomic_flush) {
-      mutex_.Unlock();
-      Status s = AtomicFlushMemTables(FlushOptions(), FlushReason::kShutDown);
-      s.PermitUncheckedError();  //**TODO: What to do on error?
-      mutex_.Lock();
-    } else {
-      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-        if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          InstrumentedMutexUnlock u(&mutex_);
-          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
-          s.PermitUncheckedError();  //**TODO: What to do on error?
-        }
-      }
-    }
+    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
+    s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
   shutting_down_.store(true, std::memory_order_release);
@@ -872,6 +855,21 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   return s;
 }
 
+Status DBImpl::CancelPeriodicTaskScheduler() {
+  Status s = Status::OK();
+  for (uint8_t task_type = 0;
+       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    s = periodic_task_scheduler_.Unregister(
+        static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
+  }
+  return s;
+}
+
 // esitmate the total size of stats_history_
 size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   size_t size_total =
@@ -970,7 +968,7 @@ void DBImpl::PersistStats() {
                      "Storing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
                      " to in-memory stats history",
                      stats_slice_.size(), now_seconds);
-      stats_history_[now_seconds] = stats_delta;
+      stats_history_[now_seconds] = std::move(stats_delta);
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
@@ -1922,15 +1920,43 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return Get(read_options, column_family, key, value, /*timestamp=*/nullptr);
 }
 
-Status DBImpl::Get(const ReadOptions& read_options,
+Status DBImpl::GetImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value) {
+  return GetImpl(read_options, column_family, key, value,
+                 /*timestamp=*/nullptr);
+}
+
+Status DBImpl::Get(const ReadOptions& _read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
   assert(value != nullptr);
   value->Reset();
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  Status s = GetImpl(read_options, column_family, key, value, timestamp);
+  return s;
+}
+
+Status DBImpl::GetImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, std::string* timestamp) {
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
+
   Status s = GetImpl(read_options, key, get_impl_options);
   return s;
 }
@@ -1999,11 +2025,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   assert(get_impl_options.column_family);
 
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call Get with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
 
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
@@ -2297,7 +2318,7 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 std::vector<Status> DBImpl::MultiGet(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
@@ -2309,12 +2330,30 @@ std::vector<Status> DBImpl::MultiGet(
   assert(column_family.size() == num_keys);
   std::vector<Status> stat_list(num_keys);
 
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      stat_list[i] = s;
+    }
+    return stat_list;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
     if (read_options.timestamp) {
-      stat_list[i] = FailIfTsMismatchCf(
-          column_family[i], *(read_options.timestamp), /*ts_for_read=*/true);
+      stat_list[i] =
+          FailIfTsMismatchCf(column_family[i], *(read_options.timestamp),
+                             /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2627,10 +2666,26 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
            /* timestamps */ nullptr, statuses, sorted_input);
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+void DBImpl::MultiGet(const ReadOptions& _read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
                       Status* statuses, const bool sorted_input) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
   MultiGetCommon(read_options, num_keys, column_families, keys, values,
                  /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
@@ -2645,7 +2700,6 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   if (num_keys == 0) {
     return;
   }
-
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     ColumnFamilyHandle* cfh = column_families[i];
@@ -2828,11 +2882,28 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
            /* timestamps */ nullptr, statuses, sorted_input);
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options,
+void DBImpl::MultiGet(const ReadOptions& _read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
   MultiGetCommon(read_options, column_family, num_keys, keys, values,
                  /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
@@ -2881,9 +2952,20 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
 }
 
 void DBImpl::MultiGetWithCallback(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    assert(false);
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
   multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
   std::function<MultiGetColumnFamilyData*(
@@ -2954,11 +3036,6 @@ Status DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call MultiGet with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
@@ -3191,6 +3268,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     edit.SetColumnFamily(new_id);
     edit.SetLogNumber(logfile_number_);
     edit.SetComparatorName(cf_options.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
@@ -3381,8 +3460,19 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
-Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
+Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
                               ColumnFamilyHandle* column_family) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
+
   if (read_options.managed) {
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
@@ -3392,17 +3482,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
-  }
-
   assert(column_family);
 
   if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    const Status s =
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
+                           /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -3522,20 +3607,25 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 }
 
 Status DBImpl::NewIterators(
-    const ReadOptions& read_options,
+    const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return Status::InvalidArgument(
+        "Can only call NewIterators with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   if (read_options.managed) {
     return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
-  }
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call NewIterators with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
   }
 
   if (read_options.timestamp) {
@@ -4183,9 +4273,17 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
+  // Add timestamp if needed
+  std::string start_with_ts, limit_with_ts;
+  auto [start, limit] = MaybeAddTimestampsToRange(
+      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   // Convert user_key into a corresponding internal key.
-  InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
-  InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
   MemTable::MemTableStats memStats =
       sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
   MemTable::MemTableStats immStats =
@@ -4216,20 +4314,10 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   for (int i = 0; i < n; i++) {
-    Slice start = range[i].start;
-    Slice limit = range[i].limit;
-
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    if (ts_sz > 0) {
-      // Maximum timestamp means including all key with any timestamp
-      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
-      // Append a maximum timestamp as the range limit is exclusive:
-      // [start, limit)
-      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
-      start = start_with_ts;
-      limit = limit_with_ts;
-    }
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     // Convert user_key into a corresponding internal key.
     InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
@@ -4445,9 +4533,11 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
           deleted_files.insert(level_file);
           level_file->being_compacted = true;
         }
-        vstorage->ComputeCompactionScore(*cfd->ioptions(),
-                                         *cfd->GetLatestMutableCFOptions());
       }
+    }
+    if (!deleted_files.empty()) {
+      vstorage->ComputeCompactionScore(*cfd->ioptions(),
+                                       *cfd->GetLatestMutableCFOptions());
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
@@ -5789,12 +5879,35 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
   return status;
 }
 
-Status DBImpl::VerifyFileChecksums(const ReadOptions& read_options) {
-  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/true);
+Status DBImpl::VerifyFileChecksums(const ReadOptions& _read_options) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kVerifyFileChecksums) {
+    return Status::InvalidArgument(
+        "Can only call VerifyFileChecksums with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or "
+        "`Env::IOActivity::kVerifyFileChecksums`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kVerifyFileChecksums;
+  }
+  return VerifyChecksumInternal(read_options,
+                                /*use_file_checksum=*/true);
 }
 
-Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
-  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/false);
+Status DBImpl::VerifyChecksum(const ReadOptions& _read_options) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kVerifyDBChecksum) {
+    return Status::InvalidArgument(
+        "Can only call VerifyChecksum with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kVerifyDBChecksum`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kVerifyDBChecksum;
+  }
+  return VerifyChecksumInternal(read_options,
+                                /*use_file_checksum=*/false);
 }
 
 Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
@@ -5806,12 +5919,6 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 
   Status s;
 
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    s = Status::InvalidArgument(
-        "Cannot verify file checksum with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-    return s;
-  }
   if (use_file_checksum) {
     FileChecksumGenFactory* const file_checksum_gen_factory =
         immutable_db_options_.file_checksum_gen_factory.get();
@@ -5822,6 +5929,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       return s;
     }
   }
+  // FIXME? What does it mean if read_options.verify_checksums == false?
 
   // TODO: simplify using GetRefedColumnFamilySet?
   std::vector<ColumnFamilyData*> cfd_list;
@@ -5862,7 +5970,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
-          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksumInternal(
               opts, file_options_, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
@@ -5925,12 +6033,6 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
                                       const std::string& func_name_expected,
                                       const std::string& fname,
                                       const ReadOptions& read_options) {
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
-    return Status::InvalidArgument(
-        "Cannot call VerifyChecksum with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
-  }
-
   Status s;
   if (file_checksum_expected == kUnknownFileChecksum) {
     return s;
@@ -5941,8 +6043,7 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_, immutable_db_options_.rate_limiter.get(),
-      read_options.rate_limiter_priority);
+      io_tracer_, immutable_db_options_.rate_limiter.get(), read_options);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

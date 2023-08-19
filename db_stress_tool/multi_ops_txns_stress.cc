@@ -560,7 +560,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t new_a) {
   std::string old_pk = Record::EncodePrimaryKey(old_a);
   std::string new_pk = Record::EncodePrimaryKey(new_a);
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -572,7 +572,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   assert(txn);
   txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
 
-  const Defer cleanup([new_a, &s, thread, txn, this]() {
+  const Defer cleanup([new_a, &s, thread, this, &txn]() {
     if (s.ok()) {
       // Two gets, one for existing pk, one for locking potential new pk.
       thread->stats.AddGets(/*ngets=*/2, /*nfounds=*/1);
@@ -594,7 +594,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_a_[thread->tid];
     key_gen->UndoAllocation(new_a);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   ReadOptions ropts;
@@ -671,7 +671,6 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   auto& key_gen = key_gen_for_a_.at(thread->tid);
   if (s.ok()) {
-    delete txn;
     key_gen->Replace(old_a, old_a_pos, new_a);
   }
   return s;
@@ -681,7 +680,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t old_c,
                                                      uint32_t old_c_pos,
                                                      uint32_t new_c) {
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -694,7 +693,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
   Iterator* it = nullptr;
   long iterations = 0;
-  const Defer cleanup([new_c, &s, thread, &it, txn, this, &iterations]() {
+  const Defer cleanup([new_c, &s, thread, &txn, &it, this, &iterations]() {
     delete it;
     if (s.ok()) {
       thread->stats.AddIterations(iterations);
@@ -719,7 +718,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_c_[thread->tid];
     key_gen->UndoAllocation(new_c);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   // TODO (yanqin) try SetSnapshotOnNextOperation(). We currently need to take
@@ -868,7 +867,6 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   s = CommitAndCreateTimestampedSnapshotIfNeeded(thread, *txn);
 
   if (s.ok()) {
-    delete txn;
     auto& key_gen = key_gen_for_c_.at(thread->tid);
     key_gen->Replace(old_c, old_c_pos, new_c);
   }
@@ -880,7 +878,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
                                                           uint32_t a,
                                                           uint32_t b_delta) {
   std::string pk_str = Record::EncodePrimaryKey(a);
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -891,7 +889,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       thread->stats.AddBytesForWrites(
@@ -908,7 +906,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
   ReadOptions ropts;
   ropts.rate_limiter_priority =
@@ -952,9 +950,6 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
 
   s = CommitAndCreateTimestampedSnapshotIfNeeded(thread, *txn);
 
-  if (s.ok()) {
-    delete txn;
-  }
   return s;
 }
 
@@ -964,7 +959,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
   // pk may or may not exist
   PinnableSlice value;
 
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -975,7 +970,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/1);
       return;
@@ -984,7 +979,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   std::shared_ptr<const Snapshot> snapshot;
@@ -1001,9 +996,6 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
   if (s.ok()) {
     s = txn->Commit();
   }
-  if (s.ok()) {
-    delete txn;
-  }
   return s;
 }
 
@@ -1011,7 +1003,7 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                             ReadOptions ropts, uint32_t c) {
   std::string sk = Record::EncodeSecondaryKey(c);
 
-  Transaction* txn = nullptr;
+  std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
   if (!s.ok()) {
@@ -1022,13 +1014,13 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
 
   assert(txn);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([&s, thread, &txn]() {
     if (s.ok()) {
       thread->stats.AddIterations(1);
       return;
     }
     thread->stats.AddErrors(1);
-    RollbackTxn(txn).PermitUncheckedError();
+    txn->Rollback().PermitUncheckedError();
   });
 
   std::shared_ptr<const Snapshot> snapshot;
@@ -1054,10 +1046,6 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
     s = txn->Commit();
   } else {
     s = iter->status();
-  }
-
-  if (s.ok()) {
-    delete txn;
   }
 
   return s;

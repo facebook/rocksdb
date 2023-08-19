@@ -181,6 +181,14 @@ struct CompressionOptions {
   // compressed by less than 12.5% (minimum ratio of 1.143:1).
   int max_compressed_bytes_per_kb = 1024 * 7 / 8;
 
+  // ZSTD only.
+  // Enable compression algorithm's checksum feature.
+  // (https://github.com/facebook/zstd/blob/d857369028d997c92ff1f1861a4d7f679a125464/lib/zstd.h#L428)
+  // Each compressed frame will have a 32-bit checksum attached. The checksum
+  // computed from the uncompressed data and can be verified during
+  // decompression.
+  bool checksum = false;
+
   // A convenience function for setting max_compressed_bytes_per_kb based on a
   // minimum acceptable compression ratio (uncompressed size over compressed
   // size).
@@ -869,6 +877,15 @@ struct AdvancedColumnFamilyOptions {
   // FIFO: Files with all keys older than TTL will be deleted. TTL is only
   //    supported if option max_open_files is set to -1.
   //
+  // Universal: users should only set the option `periodic_compaction_seconds`
+  //    below instead. For backward compatibility, this option has the same
+  //    meaning as `periodic_compaction_seconds`. See more in comments for
+  //    `periodic_compaction_seconds` on the interaction between these two
+  //    options.
+  //
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // 0 means disabling.
   // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
@@ -877,10 +894,32 @@ struct AdvancedColumnFamilyOptions {
   // Default: 30 days if using block based table. 0 (disable) otherwise.
   //
   // Dynamically changeable through SetOptions() API
+  // Note that dynamically changing this option only works for leveled and FIFO
+  // compaction. For universal compaction, dynamically changing this option has
+  // no effect, users should dynamically change `periodic_compaction_seconds`
+  // instead.
   uint64_t ttl = 0xfffffffffffffffe;
 
-  // Files older than this value will be picked up for compaction, and
-  // re-written to the same level as they were before.
+  // This option has different meanings for different compaction styles:
+  //
+  // Leveled: files older than `periodic_compaction_seconds` will be picked up
+  //    for compaction and will be re-written to the same level as they were
+  //    before.
+  //
+  // FIFO: not supported. Setting this option has no effect for FIFO compaction.
+  //
+  // Universal: when there are files older than `periodic_compaction_seconds`,
+  //    rocksdb will try to do as large a compaction as possible including the
+  //    last level. Such compaction is only skipped if only last level is to
+  //    be compacted and no file in last level is older than
+  //    `periodic_compaction_seconds`. See more in
+  //    UniversalCompactionBuilder::PickPeriodicCompaction().
+  //    For backward compatibility, the effective value of this option takes
+  //    into account the value of option `ttl`. The logic is as follows:
+  //    - both options are set to 30 days if they have the default value.
+  //    - if both options are zero, zero is picked. Otherwise, we take the min
+  //    value among non-zero options values (i.e. takes the stricter limit).
+  //
   // One main use of the feature is to make sure a file goes through compaction
   // filters periodically. Users can also use the feature to clear up SST
   // files using old format.
@@ -890,19 +929,19 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Supported in leveled and universal compaction.
-  // In Universal compaction, rocksdb will try to do a full compaction when
-  // possible, see more in UniversalCompactionBuilder::PickPeriodicCompaction().
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   //
   // Values:
   // 0: Turn off Periodic compactions.
-  // UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
-  //     as needed. For now, RocksDB will change this value to 30 days
-  //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
-  //     process at least once every 30 days if not compacted sooner.
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
+  // pick default.
   //
-  // Default: UINT64_MAX - 1 (allow RocksDB to auto-tune)
+  // Default: 30 days if using block based table format + compaction filter +
+  //  leveled compaction or block based table format + universal compaction.
+  //  0 (disabled) otherwise.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
@@ -928,6 +967,14 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
   Temperature last_level_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
+  // When this field is set, all SST files without an explicitly set temperature
+  // will be treated as if they have this temperature for file reading
+  // accounting purpose, such as io statistics, io perf context.
+  //
+  // Not dynamically changeable, change it requires db restart.
+  Temperature default_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
@@ -1105,6 +1152,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_protection_bytes_per_key = 0;
 
   // UNDER CONSTRUCTION -- DO NOT USE
@@ -1124,10 +1172,20 @@ struct AdvancedColumnFamilyOptions {
   // while set this flag to be `false`: user keys in the newly generated SST
   // files are of the same format as the existing SST files.
   //
+  // Currently only user comparator that formats user-defined timesamps as
+  // uint64_t via using one of the RocksDB provided comparator
+  // `ComparatorWithU64TsImpl` are supported.
+  //
   // When setting this flag to `false`, users should also call
   // `DB::IncreaseFullHistoryTsLow` to set a cutoff timestamp for flush. RocksDB
   // refrains from flushing a memtable with data still above
-  // the cutoff timestamp with best effort. Users can do user-defined
+  // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
+  // flushing continues normally.
+  // NOTE: in order for the cutoff timestamp to work properly, users of this
+  // feature need to ensure to write to a column family with globally
+  // non-decreasing user-defined timestamps.
+  //
+  // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read
   // below the cutoff timestamp, an error will be returned.
   //
@@ -1135,8 +1193,11 @@ struct AdvancedColumnFamilyOptions {
   // persisted to WAL even if this flag is set to `false`. The benefit of this
   // is that user-defined timestamps can be recovered with the caveat that users
   // should flush all memtables so there is no active WAL files before doing a
-  // downgrade or toggling on / off the user-defined timestamp feature on a
-  // column family.
+  // downgrade.
+  //
+  // Note that setting this flag to false is not supported in combination with
+  // atomic flush, or concurrent memtable write enabled by
+  // `allow_concurrent_memtable_write`.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and
@@ -1155,7 +1216,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint8_t block_protection_bytes_per_key = 0;
+
+  // For leveled compaction, RocksDB may compact a file at the bottommost level
+  // if it can compact away data that were protected by some snapshot.
+  // The compaction reason in LOG for this kind of compactions is
+  // "BottommostFiles". Usually such compaction can happen as soon as a
+  // relevant snapshot is released. This option allows user to delay
+  // such compactions. A file is qualified for "BottommostFiles" compaction
+  // if it is at least "bottommost_file_compaction_delay" seconds old.
+  //
+  // Default: 0 (no delay)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t bottommost_file_compaction_delay = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

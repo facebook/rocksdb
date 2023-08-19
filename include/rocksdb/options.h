@@ -331,6 +331,17 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // RocksDB will try to flush the current memtable after the number of range
+  // deletions is >= this limit. For workloads with many range
+  // deletions, limiting the number of range deletions in memtable can help
+  // prevent performance degradation and/or OOM caused by too many range
+  // tombstones in a single memtable.
+  //
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t memtable_max_range_deletions = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -490,10 +501,28 @@ struct DBOptions {
 
   // If true, during memtable flush, RocksDB will validate total entries
   // read in flush, and compare with counter inserted into it.
+  //
   // The option is here to turn the feature off in case this new validation
-  // feature has a bug.
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
+  //
   // Default: true
   bool flush_verify_memtable_count = true;
+
+  // If true, during compaction, RocksDB will count the number of entries
+  // read and compare it against the number of entries in the compaction
+  // input files. This is intended to add protection against corruption
+  // during compaction. Note that
+  // - this verification is not done for compactions during which a compaction
+  // filter returns kRemoveAndSkipUntil, and
+  // - the number of range deletions is not verified.
+  //
+  // The option is here to turn the feature off in case this new validation
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
+  //
+  // Default: true
+  bool compaction_verify_record_count = true;
 
   // If true, the log numbers and sizes of the synced WALs are tracked
   // in MANIFEST. During DB recovery, if a synced WAL is missing
@@ -913,6 +942,9 @@ struct DBOptions {
   // Default: null
   std::shared_ptr<WriteBufferManager> write_buffer_manager = nullptr;
 
+  // DEPRECATED
+  // This flag has no effect on the behavior of compaction and we plan to delete
+  // it in the future.
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
@@ -1537,8 +1569,6 @@ struct ReadOptions {
   // broken, stale keys could be served in read paths.
   bool ignore_range_deletions = false;
 
-  // Experimental
-  //
   // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
   // RocksDB apply it if reads are sequential and its internal automatic
   // prefetching.
@@ -1674,6 +1704,15 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
+
+  // Experimental
+  //
+  // If auto_readahead_size is set to true, it will auto tune the readahead_size
+  // during scans internally.
+  // For this feature to enabled, iterate_upper_bound must also be specified.
+  //
+  // Default: false
+  bool auto_readahead_size = false;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -2088,11 +2127,25 @@ struct WaitForCompactOptions {
   // called) If true, Status::Aborted will be returned immediately. If false,
   // ContinueBackgroundWork() must be called to resume the background jobs.
   // Otherwise, jobs that were queued, but not scheduled yet may never finish
-  // and WaitForCompact() may wait indefinitely.
+  // and WaitForCompact() may wait indefinitely (if timeout is set, it will
+  // expire and return Status::TimedOut).
   bool abort_on_pause = false;
 
   // A boolean to flush all column families before starting to wait.
   bool flush = false;
+
+  // A boolean to call Close() after waiting is done. By the time Close() is
+  // called here, there should be no background jobs in progress and no new
+  // background jobs should be added. DB may not have been closed if Close()
+  // returned Aborted status due to unreleased snapshots in the system. See
+  // comments in DB::Close() for details.
+  bool close_db = false;
+
+  // Timeout in microseconds for waiting for compaction to complete.
+  // Status::TimedOut will be returned if timeout expires.
+  // when timeout == 0, WaitForCompact() will wait as long as there's background
+  // work to finish.
+  std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

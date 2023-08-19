@@ -100,6 +100,8 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 // A range of keys
 struct Range {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   Slice start;
   Slice limit;
 
@@ -108,6 +110,8 @@ struct Range {
 };
 
 struct RangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   const Slice* start;
   const Slice* limit;
 
@@ -322,12 +326,17 @@ class DB {
   // If syncing is required, the caller must first call SyncWAL(), or Write()
   // using an empty write batch with WriteOptions.sync=true.
   // Regardless of the return status, the DB must be freed.
+  //
   // If the return status is Aborted(), closing fails because there is
   // unreleased snapshot in the system. In this case, users can release
   // the unreleased snapshots and try again and expect it to succeed. For
   // other status, re-calling Close() will be no-op and return the original
   // close status. If the return status is NotSupported(), then the DB
   // implementation does cleanup in the destructor
+  //
+  // WaitForCompact() with WaitForCompactOptions.close_db=true will be a good
+  // choice for users who want to wait for background work before closing
+  // (rather than aborting and potentially redoing some work on re-open)
   virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
@@ -1352,6 +1361,9 @@ class DB {
   // the files. In this case, client could set options.change_level to true, to
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
+  //
+  // In case of user-defined timestamp, if enabled, `begin` and `end` should
+  // not contain timestamp.
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end) = 0;
@@ -1465,7 +1477,8 @@ class DB {
   // NOTE: This may also never return if there's sufficient ongoing writes that
   // keeps flush and compaction going without stopping. The user would have to
   // cease all the writes to DB to make this eventually return in a stable
-  // state.
+  // state. The user may also use timeout option in WaitForCompactOptions to
+  // make this stop waiting and return when timeout expires.
   virtual Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 

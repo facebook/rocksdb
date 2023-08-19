@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
@@ -146,6 +149,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   const Comparator* user_comparator = nullptr;
   Status s = Comparator::CreateFromString(
       config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
   s.PermitUncheckedError();
   return user_comparator;
 }

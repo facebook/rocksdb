@@ -203,6 +203,7 @@ Status BuildTable(
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
@@ -286,8 +287,9 @@ Status BuildTable(
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
     if (num_input_entries != nullptr) {
+      assert(c_iter.HasNumInputEntryScanned());
       *num_input_entries =
-          c_iter.num_input_entry_scanned() + num_unfragmented_tombstones;
+          c_iter.NumInputEntryScanned() + num_unfragmented_tombstones;
     }
     if (!s.ok() || empty) {
       builder->Abandon();

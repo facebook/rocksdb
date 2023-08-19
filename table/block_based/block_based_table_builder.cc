@@ -138,8 +138,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -152,8 +152,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     // Sampling with a slow but high-compression algorithm
     if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -263,7 +263,9 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 
 struct BlockBasedTableBuilder::Rep {
   const ImmutableOptions ioptions;
-  const MutableCFOptions moptions;
+  // BEGIN from MutableCFOptions
+  std::shared_ptr<const SliceTransform> prefix_extractor;
+  // END from MutableCFOptions
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   // Size in bytes for the user-defined timestamps.
@@ -361,6 +363,9 @@ struct BlockBasedTableBuilder::Rep {
   // all blocks after data blocks till the end of the SST file.
   uint64_t tail_size;
 
+  // See class Footer
+  uint32_t base_context_checksum;
+
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
 
@@ -389,6 +394,12 @@ struct BlockBasedTableBuilder::Rep {
     // to false, and this is ensured by io_status_mutex, so no special memory
     // order for io_status_ok is required.
     if (io_status_ok.load(std::memory_order_relaxed)) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
+      auto ios = CopyIOStatus();
+      ios.PermitUncheckedError();
+      // Assume no races in unit tests
+      assert(ios.ok());
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
       return IOStatus::OK();
     } else {
       return CopyIOStatus();
@@ -429,7 +440,7 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
       WritableFileWriter* f)
       : ioptions(tbo.ioptions),
-        moptions(tbo.moptions),
+        prefix_extractor(tbo.moptions.prefix_extractor),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
         ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
@@ -456,7 +467,7 @@ struct BlockBasedTableBuilder::Rep {
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps),
-        internal_prefix_transform(tbo.moptions.prefix_extractor.get()),
+        internal_prefix_transform(prefix_extractor.get()),
         compression_type(tbo.compression_type),
         sample_for_compression(tbo.moptions.sample_for_compression),
         compressible_input_data_bytes(0),
@@ -514,8 +525,10 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
+    assert(compression_ctxs.size() >= compression_opts.parallel_threads);
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
-      compression_ctxs[i].reset(new CompressionContext(compression_type));
+      compression_ctxs[i].reset(
+          new CompressionContext(compression_type, compression_opts));
     }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
@@ -557,7 +570,7 @@ struct BlockBasedTableBuilder::Rep {
       }
 
       filter_builder.reset(CreateFilterBlockBuilder(
-          ioptions, moptions, filter_context,
+          ioptions, tbo.moptions, filter_context,
           use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
           persist_user_defined_timestamps));
     }
@@ -573,7 +586,7 @@ struct BlockBasedTableBuilder::Rep {
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
-            moptions.prefix_extractor != nullptr));
+            prefix_extractor != nullptr));
     if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
           new TimestampTablePropertiesCollector(
@@ -596,6 +609,17 @@ struct BlockBasedTableBuilder::Rep {
     props.db_host_id = ioptions.db_host_id;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
+    }
+
+    if (FormatVersionUsesContextChecksum(table_options.format_version)) {
+      // Must be non-zero and semi- or quasi-random
+      // TODO: ideally guaranteed different for related files (e.g. use file
+      // number and db_session, for benefit of SstFileWriter)
+      do {
+        base_context_checksum = Random::GetTLSInstance()->Next();
+      } while (UNLIKELY(base_context_checksum == 0));
+    } else {
+      base_context_checksum = 0;
     }
   }
 
@@ -1123,6 +1147,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
     return;
   }
 
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
+      &r->compressed_output);
   WriteMaybeCompressedBlock(block_contents, type, handle, block_type,
                             &uncompressed_block_data);
   r->compressed_output.clear();
@@ -1285,7 +1312,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   bool is_data_block = block_type == BlockType::kData;
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
-  handle->set_offset(r->get_offset());
+  const uint64_t offset = r->get_offset();
+  handle->set_offset(offset);
   handle->set_size(block_contents.size());
   assert(status().ok());
   assert(io_status().ok());
@@ -1307,6 +1335,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
       r->table_options.checksum, block_contents.data(), block_contents.size(),
       /*last_byte*/ comp_type);
+  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
     Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
@@ -1600,6 +1629,11 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       // The last index_block_handle will be for the partition index block
     }
   }
+  // If success and need to record in metaindex rather than footer...
+  if (!FormatVersionUsesIndexHandleInFooter(
+          rep_->table_options.format_version)) {
+    meta_index_builder->Add(kIndexBlockName, *index_block_handle);
+  }
 }
 
 void BlockBasedTableBuilder::WritePropertiesBlock(
@@ -1625,9 +1659,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.compression_options =
         CompressionOptionsToString(rep_->compression_opts);
     rep_->props.prefix_extractor_name =
-        rep_->moptions.prefix_extractor != nullptr
-            ? rep_->moptions.prefix_extractor->AsString()
-            : "nullptr";
+        rep_->prefix_extractor ? rep_->prefix_extractor->AsString() : "nullptr";
     std::string property_collectors_names = "[";
     for (size_t i = 0;
          i < rep_->ioptions.table_properties_collector_factories.size(); ++i) {
@@ -1746,16 +1778,20 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
 
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
+  assert(ok());
   Rep* r = rep_;
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  assert(ok());
-
   FooterBuilder footer;
-  footer.Build(kBlockBasedTableMagicNumber, r->table_options.format_version,
-               r->get_offset(), r->table_options.checksum,
-               metaindex_block_handle, index_block_handle);
+  Status s = footer.Build(kBlockBasedTableMagicNumber,
+                          r->table_options.format_version, r->get_offset(),
+                          r->table_options.checksum, metaindex_block_handle,
+                          index_block_handle, r->base_context_checksum);
+  if (!s.ok()) {
+    r->SetStatus(s);
+    return;
+  }
   IOStatus ios = r->file->Append(footer.GetSlice());
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer.GetSlice().size());
@@ -1970,10 +2006,14 @@ Status BlockBasedTableBuilder::Finish() {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  r->SetStatus(r->CopyIOStatus());
-  Status ret_status = r->CopyStatus();
-  assert(!ret_status.ok() || io_status().ok());
   r->tail_size = r->offset - r->props.tail_start_offset;
+
+  Status ret_status = r->CopyStatus();
+  IOStatus ios = r->GetIOStatus();
+  if (!ios.ok() && ret_status.ok()) {
+    // Let io_status supersede ok status (otherwise status takes precedennce)
+    ret_status = ios;
+  }
   return ret_status;
 }
 
@@ -1983,8 +2023,10 @@ void BlockBasedTableBuilder::Abandon() {
     StopParallelCompression();
   }
   rep_->state = Rep::State::kClosed;
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
   rep_->CopyStatus().PermitUncheckedError();
   rep_->CopyIOStatus().PermitUncheckedError();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {

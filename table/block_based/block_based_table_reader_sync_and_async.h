@@ -144,7 +144,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       if (file->use_direct_io()) {
 #endif  // WITH_COROUTINES
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                            &direct_io_buf, options.rate_limiter_priority);
+                            &direct_io_buf);
 #if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(
@@ -222,9 +222,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // beyond the payload size.
-        s = VerifyBlockChecksum(footer.checksum_type(), data + req_offset,
-                                handle.size(), rep_->file->file_name(),
-                                handle.offset());
+        s = VerifyBlockChecksum(footer, data + req_offset, handle.size(),
+                                rep_->file->file_name(), handle.offset());
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {

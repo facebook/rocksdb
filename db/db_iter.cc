@@ -77,6 +77,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
+      io_activity_(read_options.io_activity),
       db_impl_(db_impl),
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
@@ -196,12 +197,11 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
-  // TODO: plumb Env::IOActivity
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.fill_cache = fill_cache_;
   read_options.verify_checksums = verify_checksums_;
-
+  read_options.io_activity = io_activity_;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 

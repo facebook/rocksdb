@@ -12,11 +12,12 @@
 #include "table/block_based/block_based_table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
-void BlockPrefetcher::PrefetchIfNeeded(
-    const BlockBasedTable::Rep* rep, const BlockHandle& handle,
-    const size_t readahead_size, bool is_for_compaction,
-    const bool no_sequential_checking,
-    const Env::IOPriority rate_limiter_priority) {
+void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
+                                       const BlockHandle& handle,
+                                       const size_t readahead_size,
+                                       bool is_for_compaction,
+                                       const bool no_sequential_checking,
+                                       const ReadOptions& read_options) {
   const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   const size_t offset = handle.offset();
 
@@ -27,8 +28,12 @@ void BlockPrefetcher::PrefetchIfNeeded(
       if (offset + len <= readahead_limit_) {
         return;
       }
-      Status s = rep->file->Prefetch(offset, len + compaction_readahead_size_,
-                                     rate_limiter_priority);
+      IOOptions opts;
+      Status s = rep->file->PrepareIOOptions(read_options, opts);
+      if (!s.ok()) {
+        return;
+      }
+      s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
       if (s.ok()) {
         readahead_limit_ = offset + len + compaction_readahead_size_;
         return;
@@ -43,7 +48,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
         &prefetch_buffer_, /*implicit_auto_readahead=*/false,
-        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0);
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0,
+        /*upper_bound_offset=*/0);
     return;
   }
 
@@ -52,7 +58,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         readahead_size, readahead_size, &prefetch_buffer_,
         /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
-        /*num_file_reads_for_auto_readahead=*/0);
+        /*num_file_reads_for_auto_readahead=*/0, upper_bound_offset_);
     return;
   }
 
@@ -76,7 +82,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true,
         /*num_file_reads=*/0,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_);
     return;
   }
 
@@ -106,7 +113,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_);
     return;
   }
 
@@ -117,15 +125,20 @@ void BlockPrefetcher::PrefetchIfNeeded(
   // If prefetch is not supported, fall back to use internal prefetch buffer.
   // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
-  Status s = rep->file->Prefetch(
-      handle.offset(),
-      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_,
-      rate_limiter_priority);
+  IOOptions opts;
+  Status s = rep->file->PrepareIOOptions(read_options, opts);
+  if (!s.ok()) {
+    return;
+  }
+  s = rep->file->Prefetch(
+      opts, handle.offset(),
+      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_);
     return;
   }
 

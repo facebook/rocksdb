@@ -1204,9 +1204,23 @@ TEST_F(DBBasicTest, DBClose) {
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 2);
 
+  // close by WaitForCompact() with close_db option
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
+  wait_for_compact_options.close_db = true;
+  s = db->WaitForCompact(wait_for_compact_options);
+  ASSERT_EQ(env->GetCloseCount(), 3);
+  // see TestLogger::CloseHelper()
+  ASSERT_EQ(s, Status::IOError());
+
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
   // Provide our own logger and ensure DB::Close() does not close it
   options.info_log.reset(new TestEnv::TestLogger(env));
-  options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
@@ -1214,9 +1228,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
-  options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 4);
 }
 
 TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {

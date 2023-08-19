@@ -78,13 +78,13 @@ FaultInjectionSecondaryCache::GetErrorContext() {
 
 Status FaultInjectionSecondaryCache::Insert(
     const Slice& key, Cache::ObjectPtr value,
-    const Cache::CacheItemHelper* helper) {
+    const Cache::CacheItemHelper* helper, bool force_insert) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
     return Status::IOError();
   }
 
-  return base_->Insert(key, value, helper);
+  return base_->Insert(key, value, helper, force_insert);
 }
 
 std::unique_ptr<SecondaryCacheResultHandle>

@@ -306,5 +306,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
     return true;
   }
+
+  void FindReadAheadSizeUpperBound();
 };
 }  // namespace ROCKSDB_NAMESPACE

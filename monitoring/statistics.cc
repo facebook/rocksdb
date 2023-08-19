@@ -257,6 +257,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.number.block_compression_rejected"},
     {BYTES_DECOMPRESSED_FROM, "rocksdb.bytes.decompressed.from"},
     {BYTES_DECOMPRESSED_TO, "rocksdb.bytes.decompressed.to"},
+    {READAHEAD_TRIMMED, "rocksdb.readahead.trimmed"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -281,6 +282,13 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
     {FILE_READ_COMPACTION_MICROS, "rocksdb.file.read.compaction.micros"},
     {FILE_READ_DB_OPEN_MICROS, "rocksdb.file.read.db.open.micros"},
+    {FILE_READ_GET_MICROS, "rocksdb.file.read.get.micros"},
+    {FILE_READ_MULTIGET_MICROS, "rocksdb.file.read.multiget.micros"},
+    {FILE_READ_DB_ITERATOR_MICROS, "rocksdb.file.read.db.iterator.micros"},
+    {FILE_READ_VERIFY_DB_CHECKSUM_MICROS,
+     "rocksdb.file.read.verify.db.checksum.micros"},
+    {FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
+     "rocksdb.file.read.verify.file.checksums.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},

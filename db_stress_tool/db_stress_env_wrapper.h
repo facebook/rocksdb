@@ -32,6 +32,48 @@ class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
 #endif
     return target()->Read(offset, n, options, result, scratch, dbg);
   }
+
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override {
+#ifndef NDEBUG
+    const ThreadStatus::OperationType thread_op =
+        ThreadStatusUtil::GetThreadOperation();
+    Env::IOActivity io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(thread_op);
+    assert(io_activity == Env::IOActivity::kUnknown ||
+           io_activity == options.io_activity);
+#endif
+    return target()->MultiRead(reqs, num_reqs, options, dbg);
+  }
+
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
+                    IODebugContext* dbg) override {
+#ifndef NDEBUG
+    const ThreadStatus::OperationType thread_op =
+        ThreadStatusUtil::GetThreadOperation();
+    Env::IOActivity io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(thread_op);
+    assert(io_activity == Env::IOActivity::kUnknown ||
+           io_activity == options.io_activity);
+#endif
+    return target()->Prefetch(offset, n, options, dbg);
+  }
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& options,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+#ifndef NDEBUG
+    const ThreadStatus::OperationType thread_op =
+        ThreadStatusUtil::GetThreadOperation();
+    Env::IOActivity io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(thread_op);
+    assert(io_activity == Env::IOActivity::kUnknown ||
+           io_activity == options.io_activity);
+#endif
+    return target()->ReadAsync(req, options, cb, cb_arg, io_handle, del_fn,
+                               dbg);
+  }
 };
 
 class DbStressFSWrapper : public FileSystemWrapper {

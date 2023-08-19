@@ -24,12 +24,14 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
 // Forward declaration of friend class.
+template <class ClockCache>
 class ClockCacheTest;
 
 // HyperClockCache is an alternative to LRUCache specifically tailored for
@@ -281,29 +283,6 @@ class ClockCacheTest;
 
 // ----------------------------------------------------------------------- //
 
-// The load factor p is a real number in (0, 1) such that at all
-// times at most a fraction p of all slots, without counting tombstones,
-// are occupied by elements. This means that the probability that a random
-// probe hits an occupied slot is at most p, and thus at most 1/p probes
-// are required on average. For example, p = 70% implies that between 1 and 2
-// probes are needed on average (bear in mind that this reasoning doesn't
-// consider the effects of clustering over time, which should be negligible
-// with double hashing).
-// Because the size of the hash table is always rounded up to the next
-// power of 2, p is really an upper bound on the actual load factor---the
-// actual load factor is anywhere between p/2 and p. This is a bit wasteful,
-// but bear in mind that slots only hold metadata, not actual values.
-// Since space cost is dominated by the values (the LSM blocks),
-// overprovisioning the table with metadata only increases the total cache space
-// usage by a tiny fraction.
-constexpr double kLoadFactor = 0.7;
-
-// The user can exceed kLoadFactor if the sizes of the inserted values don't
-// match estimated_value_size, or in some rare cases with
-// strict_capacity_limit == false. To avoid degenerate performance, we set a
-// strict upper bound on the load factor.
-constexpr double kStrictLoadFactor = 0.84;
-
 struct ClockHandleBasicData {
   Cache::ObjectPtr value = nullptr;
   const Cache::CacheItemHelper* helper = nullptr;
@@ -326,7 +305,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
   // -----------------------------------------------------------------------
-  // | acquire counter          | release counter           | state marker |
+  // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
   // For reading or updating counters in meta word.
@@ -340,8 +319,13 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint64_t kReleaseIncrement = uint64_t{1}
                                                 << kReleaseCounterShift;
 
+  // For setting the hit bit
+  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
+  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+  ;
+
   // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = 2U * kCounterNumBits;
+  static constexpr uint8_t kStateShift = kHitBitShift + 1;
 
   // Bits contribution to state marker.
   // Occupied means any state other than empty
@@ -373,17 +357,6 @@ struct ClockHandle : public ClockHandleBasicData {
 
   // See above. Mutable for read reference counting.
   mutable std::atomic<uint64_t> meta{};
-
-  // Whether this is a "deteched" handle that is independently allocated
-  // with `new` (so must be deleted with `delete`).
-  // TODO: ideally this would be packed into some other data field, such
-  // as upper bits of total_charge, but that incurs a measurable performance
-  // regression.
-  bool standalone = false;
-
-  inline bool IsStandalone() const { return standalone; }
-
-  inline void SetStandalone() { standalone = true; }
 };  // struct ClockHandle
 
 class BaseClockTable {
@@ -475,6 +448,7 @@ class BaseClockTable {
   // Clock algorithm sweep pointer.
   std::atomic<uint64_t> clock_pointer_{};
 
+  // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
   std::atomic<size_t> occupancy_{};
@@ -498,7 +472,7 @@ class BaseClockTable {
   const uint32_t& hash_seed_;
 };
 
-class HyperClockTable : public BaseClockTable {
+class FixedHyperClockTable : public BaseClockTable {
  public:
   // Target size to be exactly a common cache line size (see static_assert in
   // clock_cache.cc)
@@ -507,18 +481,34 @@ class HyperClockTable : public BaseClockTable {
     // up in this slot or a higher one.
     std::atomic<uint32_t> displacements{};
 
+    // Whether this is a "deteched" handle that is independently allocated
+    // with `new` (so must be deleted with `delete`).
+    // TODO: ideally this would be packed into some other data field, such
+    // as upper bits of total_charge, but that incurs a measurable performance
+    // regression.
+    bool standalone = false;
+
+    inline bool IsStandalone() const { return standalone; }
+
+    inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
   struct Opts {
+    explicit Opts(size_t _estimated_value_size)
+        : estimated_value_size(_estimated_value_size) {}
+    explicit Opts(const HyperClockCacheOptions& opts) {
+      assert(opts.estimated_entry_charge > 0);
+      estimated_value_size = opts.estimated_entry_charge;
+    }
     size_t estimated_value_size;
   };
 
-  HyperClockTable(size_t capacity, bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator,
-                  const Cache::EvictionCallback* eviction_callback,
-                  const uint32_t* hash_seed, const Opts& opts);
-  ~HyperClockTable();
+  FixedHyperClockTable(size_t capacity, bool strict_capacity_limit,
+                       CacheMetadataChargePolicy metadata_charge_policy,
+                       MemoryAllocator* allocator,
+                       const Cache::EvictionCallback* eviction_callback,
+                       const uint32_t* hash_seed, const Opts& opts);
+  ~FixedHyperClockTable();
 
   // For BaseClockTable::Insert
   struct InsertState {};
@@ -552,7 +542,7 @@ class HyperClockTable : public BaseClockTable {
   const HandleImpl* HandlePtr(size_t idx) const { return &array_[idx]; }
 
 #ifndef NDEBUG
-  size_t& TEST_MutableOccupancyLimit() const {
+  size_t& TEST_MutableOccupancyLimit() {
     return const_cast<size_t&>(occupancy_limit_);
   }
 
@@ -560,10 +550,33 @@ class HyperClockTable : public BaseClockTable {
   void TEST_ReleaseN(HandleImpl* handle, size_t n);
 #endif
 
+  // The load factor p is a real number in (0, 1) such that at all
+  // times at most a fraction p of all slots, without counting tombstones,
+  // are occupied by elements. This means that the probability that a random
+  // probe hits an occupied slot is at most p, and thus at most 1/p probes
+  // are required on average. For example, p = 70% implies that between 1 and 2
+  // probes are needed on average (bear in mind that this reasoning doesn't
+  // consider the effects of clustering over time, which should be negligible
+  // with double hashing).
+  // Because the size of the hash table is always rounded up to the next
+  // power of 2, p is really an upper bound on the actual load factor---the
+  // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
+  // but bear in mind that slots only hold metadata, not actual values.
+  // Since space cost is dominated by the values (the LSM blocks),
+  // overprovisioning the table with metadata only increases the total cache
+  // space usage by a tiny fraction.
+  static constexpr double kLoadFactor = 0.7;
+
+  // The user can exceed kLoadFactor if the sizes of the inserted values don't
+  // match estimated_value_size, or in some rare cases with
+  // strict_capacity_limit == false. To avoid degenerate performance, we set a
+  // strict upper bound on the load factor.
+  static constexpr double kStrictLoadFactor = 0.84;
+
  private:  // functions
   // Returns x mod 2^{length_bits_}.
   inline size_t ModTableSize(uint64_t x) {
-    return static_cast<size_t>(x) & length_bits_mask_;
+    return BitwiseAnd(x, length_bits_mask_);
   }
 
   // Returns the first slot in the probe sequence with a handle e such that
@@ -611,12 +624,20 @@ class HyperClockTable : public BaseClockTable {
 
   // Array of slots comprising the hash table.
   const std::unique_ptr<HandleImpl[]> array_;
-};  // class HyperClockTable
+};  // class FixedHyperClockTable
+
+// Placeholder for future automatic table variant
+// For now, just use FixedHyperClockTable.
+class AutoHyperClockTable : public FixedHyperClockTable {
+ public:
+  using FixedHyperClockTable::FixedHyperClockTable;
+};  // class AutoHyperClockTable
 
 // A single shard of sharded cache.
-template <class Table>
+template <class TableT>
 class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
+  using Table = TableT;
   ClockCacheShard(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
                   MemoryAllocator* allocator,
@@ -709,8 +730,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return Lookup(key, hashed_key);
   }
 
+  Table& GetTable() { return table_; }
+  const Table& GetTable() const { return table_; }
+
 #ifndef NDEBUG
-  size_t& TEST_MutableOccupancyLimit() const {
+  size_t& TEST_MutableOccupancyLimit() {
     return table_.TEST_MutableOccupancyLimit();
   }
   // Acquire/release N references
@@ -728,17 +752,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   std::atomic<bool> strict_capacity_limit_;
 };  // class ClockCacheShard
 
-class HyperClockCache
-#ifdef NDEBUG
-    final
-#endif
-    : public ShardedCache<ClockCacheShard<HyperClockTable>> {
+template <class Table>
+class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
  public:
-  using Shard = ClockCacheShard<HyperClockTable>;
+  using Shard = ClockCacheShard<Table>;
+  using Handle = Cache::Handle;
+  using CacheItemHelper = Cache::CacheItemHelper;
 
-  explicit HyperClockCache(const HyperClockCacheOptions& opts);
-
-  const char* Name() const override { return "HyperClockCache"; }
+  explicit BaseHyperClockCache(const HyperClockCacheOptions& opts);
 
   Cache::ObjectPtr Value(Handle* handle) override;
 
@@ -748,7 +769,33 @@ class HyperClockCache
 
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;
-};  // class HyperClockCache
+};
+
+class FixedHyperClockCache
+#ifdef NDEBUG
+    final
+#endif
+    : public BaseHyperClockCache<FixedHyperClockTable> {
+ public:
+  using BaseHyperClockCache::BaseHyperClockCache;
+
+  const char* Name() const override { return "FixedHyperClockCache"; }
+
+  void ReportProblems(
+      const std::shared_ptr<Logger>& /*info_log*/) const override;
+};  // class FixedHyperClockCache
+
+// Placeholder for future automatic HCC variant
+class AutoHyperClockCache
+#ifdef NDEBUG
+    final
+#endif
+    : public BaseHyperClockCache<AutoHyperClockTable> {
+ public:
+  using BaseHyperClockCache::BaseHyperClockCache;
+
+  const char* Name() const override { return "AutoHyperClockCache"; }
+};  // class AutoHyperClockCache
 
 }  // namespace clock_cache
 

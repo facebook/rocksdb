@@ -845,6 +845,9 @@ DEFINE_bool(
     "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
     "this flag will have the default value true.");
 
+DEFINE_bool(compression_checksum, false,
+            "Turn on zstd's checksum feature for detecting corruption.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -929,6 +932,13 @@ DEFINE_int32(verify_checksum_one_in, 0,
              " checksum verification of all the files in the database once for"
              " every N ops on average. 0 indicates that calls to"
              " VerifyChecksum() are disabled.");
+
+DEFINE_int32(verify_file_checksums_one_in, 0,
+             "If non-zero, then DB::VerifyFileChecksums() will be called to do"
+             " checksum verification of all the files in the database once for"
+             " every N ops on average. 0 indicates that calls to"
+             " VerifyFileChecksums() are disabled.");
+
 DEFINE_int32(verify_db_one_in, 0,
              "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
              "that VerifyDb() will not be called in OperateDb(). Note that "
@@ -1101,5 +1111,13 @@ DEFINE_uint64(stats_dump_period_sec,
 
 DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
+
+DEFINE_uint32(memtable_max_range_deletions, 0,
+              "If nonzero, RocksDB will try to flush the current memtable"
+              "after the number of range deletions is >= this limit");
+
+DEFINE_uint32(bottommost_file_compaction_delay, 0,
+              "Delay kBottommostFiles compaction by this amount of seconds."
+              "See more in option comment.");
 
 #endif  // GFLAGS

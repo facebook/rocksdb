@@ -130,7 +130,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
+      {"memtable_max_range_deletions", "0"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -283,7 +285,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
+  ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -2337,7 +2341,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
       {"last_level_temperature", "kWarm"},
+      {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
+      {"memtable_max_range_deletions", "0"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2488,7 +2494,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
+  ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
+  ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,

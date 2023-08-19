@@ -5131,6 +5131,8 @@ class TickerTypeJni {
         return -0x3B;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT:
         return -0x3C;
+      case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
+        return -0x3D;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5629,6 +5631,17 @@ class HistogramTypeJni {
         return 0x3B;
       case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS:
         return 0x3C;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS:
+        return 0x3D;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS:
+        return 0x3E;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS:
+        return 0x3F;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS:
+        return 0x40;
+      case ROCKSDB_NAMESPACE::Histograms::
+          FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS:
+        return 0x41;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5754,6 +5767,18 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::FILE_READ_COMPACTION_MICROS;
       case 0x3C:
         return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_OPEN_MICROS;
+      case 0x3D:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_GET_MICROS;
+      case 0x3E:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_MULTIGET_MICROS;
+      case 0x3F:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_READ_DB_ITERATOR_MICROS;
+      case 0x40:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
+      case 0x41:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

@@ -28,14 +28,14 @@ class DBImplReadOnly : public DBImpl {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   // TODO: Implement ReadOnly MultiGet?
 
   using DBImpl::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions&,
+  virtual Iterator* NewIterator(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   virtual Status NewIterators(
@@ -179,4 +179,3 @@ class DBImplReadOnly : public DBImpl {
   friend class DB;
 };
 }  // namespace ROCKSDB_NAMESPACE
-

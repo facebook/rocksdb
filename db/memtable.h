@@ -68,6 +68,7 @@ struct MemTablePostProcessInfo {
   uint64_t data_size = 0;
   uint64_t num_entries = 0;
   uint64_t num_deletes = 0;
+  uint64_t num_range_deletes = 0;
 };
 
 using MultiGetRange = MultiGetContext::Range;
@@ -332,6 +333,10 @@ class MemTable {
       num_deletes_.fetch_add(update_counters.num_deletes,
                              std::memory_order_relaxed);
     }
+    if (update_counters.num_range_deletes > 0) {
+      num_range_deletes_.fetch_add(update_counters.num_range_deletes,
+                                   std::memory_order_relaxed);
+    }
     UpdateFlushState();
   }
 
@@ -349,8 +354,19 @@ class MemTable {
     return num_deletes_.load(std::memory_order_relaxed);
   }
 
+  // Get total number of range deletions in the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  uint64_t num_range_deletes() const {
+    return num_range_deletes_.load(std::memory_order_relaxed);
+  }
+
   uint64_t get_data_size() const {
     return data_size_.load(std::memory_order_relaxed);
+  }
+
+  size_t write_buffer_size() const {
+    return write_buffer_size_.load(std::memory_order_relaxed);
   }
 
   // Dynamically change the memtable's capacity. If set below the current usage,
@@ -527,6 +543,14 @@ class MemTable {
     }
   }
 
+  // Get the newest user-defined timestamp contained in this MemTable. Check
+  // `newest_udt_` for what newer means. This method should only be invoked for
+  // an MemTable that has enabled user-defined timestamp feature and set
+  // `persist_user_defined_timestamps` to false. The tracked newest UDT will be
+  // used by flush job in the background to help check the MemTable's
+  // eligibility for Flush.
+  const Slice& GetNewestUDT() const;
+
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
                                     uint32_t protection_bytes_per_key,
@@ -553,6 +577,7 @@ class MemTable {
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
   std::atomic<uint64_t> num_deletes_;
+  std::atomic<uint64_t> num_range_deletes_;
 
   // Dynamically changeable memtable option
   std::atomic<size_t> write_buffer_size_;
@@ -614,8 +639,25 @@ class MemTable {
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
+  // max range deletions in a memtable,  before automatic flushing, 0 for
+  // unlimited.
+  uint32_t memtable_max_range_deletions_ = 0;
+
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+
+  // Size in bytes for the user-defined timestamps.
+  size_t ts_sz_;
+
+  // Whether to persist user-defined timestamps
+  bool persist_user_defined_timestamps_;
+
+  // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
+  // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
+  // ts2. We track this field for a MemTable if its column family has UDT
+  // feature enabled and the `persist_user_defined_timestamp` flag is false.
+  // Otherwise, this field just contains an empty Slice.
+  Slice newest_udt_;
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
@@ -653,6 +695,8 @@ class MemTable {
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);
+
+  void MaybeUpdateNewestUDT(const Slice& user_key);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
