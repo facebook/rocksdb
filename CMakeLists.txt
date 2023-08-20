@@ -254,7 +254,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 
 set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
-if(PORTABLE STREQUAL 1)
+if(PORTABLE MATCHES "1|ON|YES|TRUE|Y")
   # Usually nothing to do; compiler default is typically the most general
   if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
@@ -264,14 +264,7 @@ if(PORTABLE STREQUAL 1)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
-elseif(PORTABLE MATCHES [^0]+)
-  # Name of a CPU arch spec or feature set to require
-  if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
-  endif()
-else()
+elseif(PORTABLE MATCHES "0|OFF|NO|FALSE|N")
   if(MSVC)
     # NOTE: No auto-detection of current CPU, but instead assume some useful
     # level of optimization is supported
@@ -284,6 +277,13 @@ else()
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
+  endif()
+else()
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 endif()
 
