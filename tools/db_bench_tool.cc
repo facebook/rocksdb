@@ -8114,57 +8114,23 @@ class Benchmark {
   }
 
   void WaitForCompactionHelper(DBWithColumnFamilies& db) {
-    // This is an imperfect way of waiting for compaction. The loop and sleep
-    // is done because a thread that finishes a compaction job should get a
-    // chance to pickup a new compaction job.
-
-    std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
-                                     DB::Properties::kNumRunningFlushes,
-                                     DB::Properties::kCompactionPending,
-                                     DB::Properties::kNumRunningCompactions};
-
     fprintf(stdout, "waitforcompaction(%s): started\n",
             db.db->GetName().c_str());
 
-    while (true) {
-      bool retry = false;
+    Status s = db.db->WaitForCompact(WaitForCompactOptions());
 
-      for (const auto& k : keys) {
-        uint64_t v;
-        if (!db.db->GetIntProperty(k, &v)) {
-          fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
-                  db.db->GetName().c_str(), k.c_str());
-          exit(1);
-        } else if (v > 0) {
-          fprintf(stdout,
-                  "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
-                  db.db->GetName().c_str(), k.c_str());
-          FLAGS_env->SleepForMicroseconds(10 * 1000000);
-          retry = true;
-          break;
-        }
-      }
-
-      if (!retry) {
-        fprintf(stdout, "waitforcompaction(%s): finished\n",
-                db.db->GetName().c_str());
-        return;
-      }
-    }
+    fprintf(stdout, "waitforcompaction(%s): finished with status (%s)\n",
+            db.db->GetName().c_str(), s.ToString().c_str());
   }
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
     FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
-    // I am skeptical that this check race free. I hope that checking twice
-    // reduces the chance.
     if (db_.db != nullptr) {
-      WaitForCompactionHelper(db_);
       WaitForCompactionHelper(db_);
     } else {
       for (auto& db_with_cfh : multi_dbs_) {
-        WaitForCompactionHelper(db_with_cfh);
         WaitForCompactionHelper(db_with_cfh);
       }
     }
