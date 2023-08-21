@@ -1,1 +1,0 @@
-Add a CF option `bottommost_file_compaction_delay` to allow specifying the delay of bottommost level single-file compactions.
