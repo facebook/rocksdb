@@ -145,6 +145,41 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
     } while (ChangeCompactOptions());
   }
 }
+
+TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
+  do {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(options);
+    ColumnFamilyHandle* cf;
+    auto s = dbfull()->CreateColumnFamily(ColumnFamilyOptions(), "CF", &cf);
+    ASSERT_TRUE(s.ok());
+
+    dbfull()->Put(WriteOptions(), cf, "key1", DummyString(1024));
+
+    dbfull()->Put(WriteOptions(), "key2", DummyString(1024));
+
+    dbfull()->Flush(FlushOptions());
+
+    dbfull()->Put(WriteOptions(), "key3", DummyString(1024));
+
+    dbfull()->Flush(FlushOptions());
+
+    dbfull()->Put(WriteOptions(), "key4", DummyString(1024));
+    dbfull()->Flush(FlushOptions());
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "WalManager::PurgeObsoleteFiles:1", [&](void*) {
+          auto iter = OpenTransactionLogIter(0);
+          ExpectRecords(4, iter);
+        });
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    dbfull()->Flush(FlushOptions(), cf);
+
+    delete cf;
+  } while (ChangeCompactOptions());
+}
 #endif
 
 TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
