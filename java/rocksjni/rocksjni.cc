@@ -26,6 +26,8 @@
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+#include "util/file_checksum_helper.h"
+
 
 #ifdef min
 #undef min
@@ -3435,6 +3437,61 @@ jobjectArray Java_org_rocksdb_RocksDB_getSortedWalFiles(JNIEnv* env, jobject,
   }
 
   return jsorted_wal_files;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getLiveFilesChecksum
+ * Signature: (JLjava/lang/String;)[
+ */
+jobjectArray Java_org_rocksdb_RocksDB_getLiveFilesChecksum(JNIEnv* env, jobject, jlong jdb_handle) {
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  ROCKSDB_NAMESPACE::FileChecksumList* fileChecksumList = new ROCKSDB_NAMESPACE::FileChecksumListImpl;
+  db->GetLiveFilesChecksumInfo(fileChecksumList);
+
+  std::vector<uint64_t> file_nums_vector;
+  std::vector<std::string> check_sums_vector;
+  std::vector<std::string> checksum_func_names_vector;
+  fileChecksumList->GetAllFileChecksums(&file_nums_vector, &check_sums_vector, &checksum_func_names_vector);
+
+  const jsize jlen = static_cast<jsize>(file_nums_vector.size());
+  jobjectArray check_sum_file_array = env->NewObjectArray(
+      jlen, ROCKSDB_NAMESPACE::FileCheckSumJNI::getJClass(env), nullptr);
+  if (check_sum_file_array == nullptr) {
+
+    return nullptr;
+  }
+
+  jsize j = 0;
+  for(size_t i{}; i < file_nums_vector.size(); i++) {
+    uint64_t file_number = file_nums_vector[i];
+    std::string check_sum = check_sums_vector[i];
+    std::string check_func_sums = checksum_func_names_vector[i];
+
+    jobject check_sum_file =
+        ROCKSDB_NAMESPACE::FileCheckSumJNI::fromCppCreateObj(env, file_number, check_sum, check_func_sums);
+    if (check_sum_file == nullptr) {
+      // exception occurred
+      env->DeleteLocalRef(check_sum_file_array);
+      return nullptr;
+    }
+
+    env->SetObjectArrayElement(check_sum_file_array, j++, check_sum_file);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      env->DeleteLocalRef(check_sum_file);
+      env->DeleteLocalRef(check_sum_file_array);
+      return nullptr;
+    }
+
+    env->DeleteLocalRef(check_sum_file);
+
+  }
+
+  return check_sum_file_array;
+
 }
 
 /*

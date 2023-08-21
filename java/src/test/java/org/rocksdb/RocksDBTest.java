@@ -1194,6 +1194,36 @@ public class RocksDBTest {
   }
 
   @Test
+  public void getLiveFilesChecksumInfo() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB rocksDB = RocksDB.open(options, dbPath)) {
+        for(int i = 0; i < 1000; i++) {
+          String key = "key" + i;
+          String value = "value" + i;
+          rocksDB.put(key.getBytes(), value.getBytes());
+        }
+
+
+        FileCheckSum[] fileChecksumArray = rocksDB.getLiveFilesChecksumInfo();
+        assertThat(fileChecksumArray != null);
+        assertThat(fileChecksumArray.length > 0);
+
+        for (FileCheckSum fileCheckSum : fileChecksumArray) {
+          int fileNumber = fileCheckSum.getFileNumber();
+          String checkSums = fileCheckSum.getChecksums();
+          String checkSumFuncName = fileCheckSum.getChecksumFuncName();
+          assertThat(fileNumber > 0);
+          assertThat(!checkSums.isEmpty());
+          assertThat(!checkSumFuncName.isEmpty());
+
+        }
+
+      }
+    }
+  }
+
+  @Test
   public void getApproximateSizes() throws RocksDBException {
     final byte[] key1 = "key1".getBytes(UTF_8);
     final byte[] key2 = "key2".getBytes(UTF_8);

@@ -8750,5 +8750,31 @@ class CompactRangeOptionsTimestampJni : public JavaClass {
   }
 };
 
+class FileCheckSumJNI: public JavaClass{
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FileCheckSum");
+  }
+
+  static jobject fromCppCreateObj(JNIEnv* env, const uint64_t file_number,
+                                  const std::string check_sums, const std::string checksum_func_names) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(ILjava/lang/String;Ljava/lang/String;)V");
+    assert(mid != nullptr);
+
+
+    jstring check_sums_java = JniUtil::toJavaString(env, &check_sums, false);
+    jstring check_func_sums_java = JniUtil::toJavaString(env, &checksum_func_names);
+
+    return env->NewObject(jclazz, mid, static_cast<jint>(file_number),
+                          check_sums_java, check_func_sums_java);
+
+  }
+
+};
+
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
