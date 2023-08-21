@@ -16,7 +16,8 @@ commands:
       - run:
           name: Install JDK 8 on macos
           command: |
-            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+            HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask liberica-jdk8
 
   increase-max-open-files-on-macos:
     steps:
@@ -209,21 +210,21 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=32 -j32 all
+      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=16 -j16 all
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     parameters:
       run_even_tests:
         description: run even or odd tests, used to split tests to 2 groups
@@ -239,20 +240,20 @@ jobs:
           command: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
       - run:
           name: "Build tests"
-          command: cd build && make V=1 -j32
+          command: cd build && make V=1 -j16
       - when:
           condition: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run even tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 0,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 1,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
       - post-steps
 
   build-linux:
@@ -607,10 +608,10 @@ jobs:
 
   build-macos-java:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
@@ -632,10 +633,10 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
@@ -657,10 +658,10 @@ jobs:
 
   build-macos-java-static-universal:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
