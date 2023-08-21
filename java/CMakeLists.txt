@@ -275,6 +275,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
+  src/main/java/org/rocksdb/FileCheckSum.java
 )
 
 set(JAVA_TEST_CLASSES
