@@ -129,6 +129,10 @@ Status TableCache::GetTableReader(
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
+    if (ioptions_.default_temperature != Temperature::kUnknown &&
+        file_temperature == Temperature::kUnknown) {
+      file_temperature = ioptions_.default_temperature;
+    }
     StopWatch sw(ioptions_.clock, ioptions_.stats, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(file), fname, ioptions_.clock,
