@@ -250,6 +250,12 @@ class ComparatorWithU64TsImpl : public Comparator {
 
   const char* Name() const override { return kClassName(); }
 
+  // The comparator that compares the user key without timestamp part is treated
+  // as the root comparator.
+  const Comparator* GetRootComparator() const override {
+    return &cmp_without_ts_;
+  }
+
   void FindShortSuccessor(std::string*) const override {}
   void FindShortestSeparator(std::string*, const Slice&) const override {}
   int Compare(const Slice& a, const Slice& b) const override {

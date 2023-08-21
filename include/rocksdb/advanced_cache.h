@@ -514,7 +514,8 @@ class Cache {
   // returns `true` if it has taken ownership of the Value (object), or
   // `false` if the cache should destroy it as usual. Regardless, Ref() and
   // Release() cannot be called on this Handle that is poised for eviction.
-  using EvictionCallback = std::function<bool(const Slice& key, Handle* h)>;
+  using EvictionCallback =
+      std::function<bool(const Slice& key, Handle* h, bool was_hit)>;
   // Sets an eviction callback for this Cache. Not thread safe and only
   // supports being set once, so should only be used during initialization
   // or destruction, guaranteed before or after any thread-shared operations.

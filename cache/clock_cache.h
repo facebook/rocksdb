@@ -305,7 +305,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
   // -----------------------------------------------------------------------
-  // | acquire counter          | release counter           | state marker |
+  // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
   // For reading or updating counters in meta word.
@@ -319,8 +319,13 @@ struct ClockHandle : public ClockHandleBasicData {
   static constexpr uint64_t kReleaseIncrement = uint64_t{1}
                                                 << kReleaseCounterShift;
 
+  // For setting the hit bit
+  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
+  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+  ;
+
   // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = 2U * kCounterNumBits;
+  static constexpr uint8_t kStateShift = kHitBitShift + 1;
 
   // Bits contribution to state marker.
   // Occupied means any state other than empty

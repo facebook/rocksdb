@@ -692,7 +692,8 @@ class Repairer {
           &cfd->internal_comparator(), cfd->user_comparator(),
           cfd->NumberLevels(), cfd->ioptions()->compaction_style,
           nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
-          EpochNumberRequirement::kMightMissing);
+          EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
+          /*bottommost_file_compaction_delay=*/0);
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {

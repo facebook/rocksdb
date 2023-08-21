@@ -1538,9 +1538,21 @@ class NonBatchedOpsStressTest : public StressTest {
       pending_expected_values.push_back(pending_expected_value);
 
       char value[100];
-      size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
-      s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+      const size_t value_len = GenerateValue(value_base, value, sizeof(value));
+      const Slice k(key_str);
+      const Slice v(value, value_len);
+
+      const bool use_put_entity =
+          !FLAGS_use_merge && FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0;
+
+      if (use_put_entity) {
+        WideColumns columns = GenerateWideColumns(value_base, v);
+        s = sst_file_writer.PutEntity(k, columns);
+      } else {
+        s = sst_file_writer.Put(k, v);
+      }
     }
 
     if (s.ok() && keys.empty()) {

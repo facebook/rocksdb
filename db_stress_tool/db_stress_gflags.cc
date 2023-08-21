@@ -845,6 +845,9 @@ DEFINE_bool(
     "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
     "this flag will have the default value true.");
 
+DEFINE_bool(compression_checksum, false,
+            "Turn on zstd's checksum feature for detecting corruption.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -1112,5 +1115,9 @@ extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 DEFINE_uint32(memtable_max_range_deletions, 0,
               "If nonzero, RocksDB will try to flush the current memtable"
               "after the number of range deletions is >= this limit");
+
+DEFINE_uint32(bottommost_file_compaction_delay, 0,
+              "Delay kBottommostFiles compaction by this amount of seconds."
+              "See more in option comment.");
 
 #endif  // GFLAGS

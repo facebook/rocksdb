@@ -65,6 +65,7 @@ default_params = {
     "compression_parallel_threads": 1,
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
+    "compression_checksum": lambda: random.randint(0, 1),
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -213,6 +214,8 @@ default_params = {
     "min_write_buffer_number_to_merge": lambda: random.choice([1, 2]),
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
+    # 0 (disable) is the default and more commonly used value.
+    "bottommost_file_compaction_delay": lambda: random.choice([0, 0, 0, 600, 3600, 86400]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -323,10 +326,14 @@ blackbox_default_params = {
 }
 
 whitebox_default_params = {
-    # TODO: enable this once we figure out how to adjust kill odds for WAL-
-    # disabled runs, and either (1) separate full `db_stress` runs out of
-    # whitebox crash or (2) support verification at end of `db_stress` runs
-    # that ran with WAL disabled.
+    # TODO: enable this at random once we figure out two things. First, we need
+    # to ensure the kill odds in WAL-disabled runs result in regular crashing
+    # before the fifteen minute timeout. When WAL is disabled there are very few
+    # calls to write functions since writes to SST files are buffered and other
+    # writes (e.g., MANIFEST) are infrequent. Crashing in reasonable time might
+    # currently assume killpoints in write functions are reached frequently.
+    #
+    # Second, we need to make sure disabling WAL works with `-reopen > 0`.
     "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
@@ -657,9 +664,8 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
-    # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
+    # PutEntity is currently incompatible with Merge
     if dest_params["use_put_entity_one_in"] != 0:
-        dest_params["ingest_external_file_one_in"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
     if dest_params["file_checksum_impl"] == "none":

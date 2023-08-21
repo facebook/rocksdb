@@ -7670,6 +7670,41 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
+#if defined(ZSTD_ADVANCED)
+TEST_F(DBTest2, ZSTDChecksum) {
+  // Verify that corruption during decompression is caught.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.compression = kZSTD;
+  options.compression_opts.max_compressed_bytes_per_kb = 1024;
+  options.compression_opts.checksum = true;
+  DestroyAndReopen(options);
+  Random rnd(33);
+  ASSERT_OK(Put(Key(0), rnd.RandomString(4 << 10)));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
+      [&](void* arg) {
+        std::string* output = static_cast<std::string*>(arg);
+        // https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#zstandard-frames
+        // Checksum is the last 4 bytes, corrupting that part in unit test is
+        // more controllable.
+        output->data()[output->size() - 1]++;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  PinnableSlice val;
+  Status s = Get(Key(0), &val);
+  ASSERT_TRUE(s.IsCorruption());
+
+  // Corruption caught during flush.
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put(Key(0), rnd.RandomString(4 << 10)));
+  s = Flush();
+  ASSERT_TRUE(s.IsCorruption());
+}
+#endif
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -15,6 +15,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   explicit CacheWithSecondaryAdapter(
       std::shared_ptr<Cache> target,
       std::shared_ptr<SecondaryCache> secondary_cache,
+      TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto,
       bool distribute_cache_res = false);
 
   ~CacheWithSecondaryAdapter() override;
@@ -47,7 +48,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   SecondaryCache* TEST_GetSecondaryCache() { return secondary_cache_.get(); }
 
  private:
-  bool EvictionHandler(const Slice& key, Handle* handle);
+  bool EvictionHandler(const Slice& key, Handle* handle, bool was_hit);
 
   void StartAsyncLookupOnMySecondary(AsyncLookupHandle& async_handle);
 
@@ -61,6 +62,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   void CleanupCacheObject(ObjectPtr obj, const CacheItemHelper* helper);
 
   std::shared_ptr<SecondaryCache> secondary_cache_;
+  TieredAdmissionPolicy adm_policy_;
   // Whether to proportionally distribute cache memory reservations, i.e
   // placeholder entries with null value and a non-zero charge, across
   // the primary and secondary caches.

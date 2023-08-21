@@ -406,7 +406,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
 
   CompressionOptions opts;
-  CompressionContext context(kSnappyCompression);
+  CompressionContext context(kSnappyCompression, opts);
   constexpr uint64_t sample_for_compression = 0;
 
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),

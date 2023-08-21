@@ -682,28 +682,31 @@ struct BlockBasedTable::Rep {
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
-  void CreateFilePrefetchBuffer(
-      size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads,
-      uint64_t num_file_reads_for_auto_readahead) const {
+  void CreateFilePrefetchBuffer(size_t readahead_size,
+                                size_t max_readahead_size,
+                                std::unique_ptr<FilePrefetchBuffer>* fpb,
+                                bool implicit_auto_readahead,
+                                uint64_t num_file_reads,
+                                uint64_t num_file_reads_for_auto_readahead,
+                                uint64_t upper_bound_offset) const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_size, max_readahead_size,
         !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
         implicit_auto_readahead, num_file_reads,
-        num_file_reads_for_auto_readahead, ioptions.fs.get(), ioptions.clock,
-        ioptions.stats));
+        num_file_reads_for_auto_readahead, upper_bound_offset,
+        ioptions.fs.get(), ioptions.clock, ioptions.stats));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       size_t readahead_size, size_t max_readahead_size,
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads,
-      uint64_t num_file_reads_for_auto_readahead) const {
+      uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
+      uint64_t upper_bound_offset) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
                                implicit_auto_readahead, num_file_reads,
-                               num_file_reads_for_auto_readahead);
+                               num_file_reads_for_auto_readahead,
+                               upper_bound_offset);
     }
   }
 

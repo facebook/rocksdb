@@ -169,7 +169,8 @@ Status PartitionIndexReader::CacheDependencies(
       tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
-        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/,
+        /*upper_bound_offset*/ 0);
     IOOptions opts;
     {
       Status s = rep->file->PrepareIOOptions(ro, opts);
