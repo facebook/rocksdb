@@ -1120,4 +1120,7 @@ DEFINE_uint32(bottommost_file_compaction_delay, 0,
               "Delay kBottommostFiles compaction by this amount of seconds."
               "See more in option comment.");
 
+DEFINE_bool(auto_readahead_size, false,
+            "Does auto tuning of readahead_size when enabled during scans.");
+
 #endif  // GFLAGS
