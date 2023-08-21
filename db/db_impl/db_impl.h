@@ -2850,15 +2850,24 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
   }
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+  std::string current_ts_low = cfd->GetFullHistoryTsLow();
   if (ts_for_read) {
-    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-    auto cfd = cfh->cfd();
-    std::string current_ts_low = cfd->GetFullHistoryTsLow();
     if (!current_ts_low.empty() &&
         ucmp->CompareTimestamp(ts, current_ts_low) < 0) {
       std::stringstream oss;
       oss << "Read timestamp: " << ts.ToString(true)
           << " is smaller than full_history_ts_low: "
+          << Slice(current_ts_low).ToString(true) << std::endl;
+      return Status::InvalidArgument(oss.str());
+    }
+  } else {
+    if (!current_ts_low.empty() &&
+        ucmp->CompareTimestamp(ts, current_ts_low) <= 0) {
+      std::stringstream oss;
+      oss << "Write timestamp: " << ts.ToString(true)
+          << " is smaller than or equal to full_history_ts_low: "
           << Slice(current_ts_low).ToString(true) << std::endl;
       return Status::InvalidArgument(oss.str());
     }

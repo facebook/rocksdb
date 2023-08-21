@@ -278,16 +278,19 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
           ->cfd();
   auto result_ts_low = cfd->GetFullHistoryTsLow();
 
+  // `full_history_tsL_low` set to 5
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
 
-  for (int i = 0; i < 10; i++) {
+  // Writes [6, 16)
+  for (int i = current_ts_low + 1; i < 10 + current_ts_low + 1; i++) {
     WriteOptions write_opts;
     std::string ts = Timestamp(i, 0);
     ASSERT_OK(db_->Put(write_opts, kKey, ts, Key(i)));
   }
   ASSERT_OK(Flush());
 
-  for (int i = 0; i < 10; i++) {
+  // Reads [0, 16)
+  for (int i = current_ts_low + 1; i < 10 + current_ts_low + 1; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
     Slice ts = ts_str;
@@ -303,7 +306,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   }
 
   // Test set ts_low and then trigger compaction
-  for (int i = 10; i < 20; i++) {
+  // Writes [16, 26)
+  for (int i = 10 + current_ts_low + 1; i < 20 + current_ts_low + 1; i++) {
     WriteOptions write_opts;
     std::string ts = Timestamp(i, 0);
     ASSERT_OK(db_->Put(write_opts, kKey, ts, Key(i)));
@@ -317,8 +321,10 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   comp_opts.full_history_ts_low = &ts_low;
   ASSERT_OK(db_->CompactRange(comp_opts, nullptr, nullptr));
   result_ts_low = cfd->GetFullHistoryTsLow();
+  // Sets `full_history_ts_low` to 15
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
 
+  // Reads [15, 20)
   for (int i = current_ts_low; i < 20; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
