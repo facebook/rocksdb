@@ -1,1 +1,0 @@
-Implement a new admission policy for the compressed secondary cache that admits blocks evicted from the primary cache with the hit bit set. This policy can be specified in TieredVolatileCacheOptions by setting the newly added adm_policy option.

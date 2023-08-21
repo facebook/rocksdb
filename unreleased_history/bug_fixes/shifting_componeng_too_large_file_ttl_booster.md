@@ -1,1 +1,0 @@
-Fix a bug in FileTTLBooster that can cause users with a large number of levels (more than 65) to see errors like "runtime error: shift exponent .. is too large.." (#11673).
