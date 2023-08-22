@@ -1318,6 +1318,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       "CompactionJob::ProcessKeyValueCompaction()::Processing",
       reinterpret_cast<void*>(
           const_cast<Compaction*>(sub_compact->compaction)));
+  uint64_t last_cpu_micros = prev_cpu_micros;
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1329,6 +1330,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
       c_iter->ResetRecordCounts();
       RecordCompactionIOStats();
+
+      uint64_t cur_cpu_micros = db_options_.clock->CPUMicros();
+      assert(cur_cpu_micros >= last_cpu_micros);
+      RecordTick(stats_, COMPACTION_CPU_TOTAL_TIME,
+                 cur_cpu_micros - last_cpu_micros);
+      last_cpu_micros = cur_cpu_micros;
     }
 
     // Add current compaction_iterator key to target compaction output, if the
@@ -1436,8 +1443,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->Current().UpdateBlobStats();
   }
 
+  uint64_t cur_cpu_micros = db_options_.clock->CPUMicros();
   sub_compact->compaction_job_stats.cpu_micros =
-      db_options_.clock->CPUMicros() - prev_cpu_micros;
+      cur_cpu_micros - prev_cpu_micros;
+  RecordTick(stats_, COMPACTION_CPU_TOTAL_TIME,
+             cur_cpu_micros - last_cpu_micros);
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
