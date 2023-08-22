@@ -22,7 +22,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
-#include "rocksdb/pluggable_compaction.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
@@ -1887,27 +1886,6 @@ class DB {
     return Status::NotSupported("Supported only by secondary instance");
   }
 #endif  // !ROCKSDB_LITE
-
-  // Allow external software to compact a specified set of files. The output
-  // of the compaction is not installed on the db, but the set of output files
-  // are returned in PluggableCompactionResult.
-  virtual Status ExecuteRemoteCompactionRequest(
-      const PluggableCompactionParam& /* inputParams */,
-      PluggableCompactionResult* /* result */, bool /* doSanitize */) {
-    return Status::NotSupported(
-        "ExecuteRemoteCompactionRequest() is not implemented.");
-  }
-
-  // Register a pluggable compaction service endpoint that will be called
-  // when a compaction needs to be done.
-  virtual Status RegisterPluggableCompactionService(
-      std::unique_ptr<PluggableCompactionService>) {
-    return Status::NotSupported(
-        "RegisterPluggableCompactionService not supported");
-  }
-
-  // Remove any pluggable compaction
-  virtual void UnRegisterPluggableCompactionService() {}
 
   // Generate new MANIFEST file during next kManifestWrite
   virtual void NewManifestOnNextUpdate() = 0;

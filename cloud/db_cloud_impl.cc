@@ -448,28 +448,6 @@ Status DBCloudImpl::DoCheckpointToCloud(
   return st;
 }
 
-Status DBCloudImpl::ExecuteRemoteCompactionRequest(
-    const PluggableCompactionParam& inputParams,
-    PluggableCompactionResult* result, bool doSanitize) {
-  auto* cfs =
-      dynamic_cast<CloudFileSystemImpl*>(GetEnv()->GetFileSystem().get());
-  assert(cfs);
-
-  // run the compaction request on the underlying local database
-  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(
-      inputParams, result, doSanitize);
-  if (!status.ok()) {
-    return status;
-  }
-
-  // convert the local pathnames to the cloud pathnames
-  for (unsigned int i = 0; i < result->output_files.size(); i++) {
-    OutputFile* outfile = &result->output_files[i];
-    outfile->pathname = cfs->RemapFilename(outfile->pathname);
-  }
-  return Status::OK();
-}
-
 Status DBCloud::ListColumnFamilies(const DBOptions& db_options,
                                    const std::string& name,
                                    std::vector<std::string>* column_families) {

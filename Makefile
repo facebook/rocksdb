@@ -1886,9 +1886,6 @@ ldb_cmd_test: $(OBJ_DIR)/tools/ldb_cmd_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $
 ldb: $(OBJ_DIR)/tools/ldb.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-remote_compaction_test: cloud/remote_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 db_cloud_test: cloud/db_cloud_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

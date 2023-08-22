@@ -66,7 +66,6 @@ LIB_SOURCES =                                                   \
   db/db_impl/db_impl_files.cc                                   \
   db/db_impl/db_impl_open.cc                                    \
   db/db_impl/db_impl_readonly.cc                                \
-  db/db_impl/db_impl_remote_compaction.cc                       \
   db/db_impl/db_impl_secondary.cc                               \
   db/db_impl/db_impl_write.cc                                   \
   db/db_impl/replication_codec.cc                               \
@@ -445,7 +444,6 @@ TEST_MAIN_SOURCES =                                                     \
   cloud/cloud_file_system_test.cc                                       \
   cloud/cloud_manifest_test.cc                                          \
   cloud/cloud_scheduler_test.cc                                         \
-  cloud/remote_compaction_test.cc                                       \
   cloud/replication_test.cc                                             \
   cache/compressed_secondary_cache_test.cc                              \
   db/blob/blob_counting_iterator_test.cc                                \

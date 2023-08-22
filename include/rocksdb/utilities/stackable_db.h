@@ -573,21 +573,6 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
-  virtual Status ExecuteRemoteCompactionRequest(
-      const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result, bool sanitize) override {
-    return db_->ExecuteRemoteCompactionRequest(inputParams, result, sanitize);
-  }
-
-  virtual Status RegisterPluggableCompactionService(
-      std::unique_ptr<PluggableCompactionService> rservice) override {
-    return db_->RegisterPluggableCompactionService(std::move(rservice));
-  }
-
-  virtual void UnRegisterPluggableCompactionService() override {
-    db_->UnRegisterPluggableCompactionService();
-  }
-
   virtual void NewManifestOnNextUpdate() override {
     db_->NewManifestOnNextUpdate();
   }
