@@ -819,6 +819,8 @@ def blackbox_crash_main(args, unknown_args):
     # Only do this if the tests are not failed for total-duration
     print("Running final time for verification")
     cmd_params.update({"verification_only": 1})
+    cmd_params.update({"skip_verifydb": 0})
+
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )

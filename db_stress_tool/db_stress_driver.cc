@@ -18,8 +18,7 @@ void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
-  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning() &&
-      !FLAGS_verification_only) {
+  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -28,43 +27,46 @@ void ThreadBody(void* v) {
     if (shared->AllInitialized()) {
       shared->GetCondVar()->SignalAll();
     }
-    while (!shared->Started()) {
-      shared->GetCondVar()->Wait();
-    }
   }
   if (!FLAGS_verification_only) {
+    {
+      MutexLock l(shared->GetMutex());
+      while (!shared->Started()) {
+        shared->GetCondVar()->Wait();
+      }
+    }
     thread->shared->GetStressTest()->OperateDb(thread);
-  }
-  {
-    MutexLock l(shared->GetMutex());
-    shared->IncOperated();
-    if (shared->AllOperated()) {
-      shared->GetCondVar()->SignalAll();
+    {
+      MutexLock l(shared->GetMutex());
+      shared->IncOperated();
+      if (shared->AllOperated()) {
+        shared->GetCondVar()->SignalAll();
+      }
+      while (!shared->VerifyStarted()) {
+        shared->GetCondVar()->Wait();
+      }
     }
-    while (!shared->VerifyStarted()) {
-      shared->GetCondVar()->Wait();
+
+    if (!FLAGS_skip_verifydb) {
+      thread->shared->GetStressTest()->VerifyDb(thread);
+    }
+
+    {
+      MutexLock l(shared->GetMutex());
+      shared->IncDone();
+      if (shared->AllDone()) {
+        shared->GetCondVar()->SignalAll();
+      }
     }
   }
 
-  if (!FLAGS_skip_verifydb) {
-    thread->shared->GetStressTest()->VerifyDb(thread);
-  }
-
-  {
-    MutexLock l(shared->GetMutex());
-    shared->IncDone();
-    if (shared->AllDone()) {
-      shared->GetCondVar()->SignalAll();
-    }
-  }
   ThreadStatusUtil::UnregisterThread();
 }
 bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
 
-  if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes &&
-      !FLAGS_verification_only) {
+  if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
     Status s = InitUnverifiedSubdir(FLAGS_db);
     if (s.ok() && !FLAGS_expected_values_dir.empty()) {
       s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
@@ -127,7 +129,7 @@ bool RunStressTestImpl(SharedState* shared) {
     while (!shared->AllInitialized()) {
       shared->GetCondVar()->Wait();
     }
-    if (shared->ShouldVerifyAtBeginning() && !FLAGS_verification_only) {
+    if (shared->ShouldVerifyAtBeginning()) {
       if (shared->HasVerificationFailedYet()) {
         fprintf(stderr, "Crash-recovery verification failed :(\n");
       } else {
@@ -144,42 +146,39 @@ bool RunStressTestImpl(SharedState* shared) {
       }
     }
 
-    // This is after the verification step to avoid making all those `Get()`s
-    // and `MultiGet()`s contend on the DB-wide trace mutex.
-    if (!FLAGS_expected_values_dir.empty()) {
-      stress->TrackExpectedState(shared);
-    }
-
     if (!FLAGS_verification_only) {
+      // This is after the verification step to avoid making all those `Get()`s
+      // and `MultiGet()`s contend on the DB-wide trace mutex.
+      if (!FLAGS_expected_values_dir.empty()) {
+        stress->TrackExpectedState(shared);
+      }
       now = clock->NowMicros();
       fprintf(stdout, "%s Starting database operations\n",
               clock->TimeToString(now / 1000000).c_str());
-    } else {
-      fprintf(stdout, "Skipping database operations\n");
-    }
 
-    shared->SetStart();
-    shared->GetCondVar()->SignalAll();
-    while (!shared->AllOperated()) {
-      shared->GetCondVar()->Wait();
-    }
+      shared->SetStart();
+      shared->GetCondVar()->SignalAll();
+      while (!shared->AllOperated()) {
+        shared->GetCondVar()->Wait();
+      }
 
-    now = clock->NowMicros();
-    if (FLAGS_test_batches_snapshots) {
-      fprintf(stdout, "%s Limited verification already done during gets\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    } else if (FLAGS_skip_verifydb) {
-      fprintf(stdout, "%s Verification skipped\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    } else {
-      fprintf(stdout, "%s Starting verification\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    }
+      now = clock->NowMicros();
+      if (FLAGS_test_batches_snapshots) {
+        fprintf(stdout, "%s Limited verification already done during gets\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      } else if (FLAGS_skip_verifydb) {
+        fprintf(stdout, "%s Verification skipped\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      } else {
+        fprintf(stdout, "%s Starting verification\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      }
 
-    shared->SetStartVerify();
-    shared->GetCondVar()->SignalAll();
-    while (!shared->AllDone()) {
-      shared->GetCondVar()->Wait();
+      shared->SetStartVerify();
+      shared->GetCondVar()->SignalAll();
+      while (!shared->AllDone()) {
+        shared->GetCondVar()->Wait();
+      }
     }
   }
 
