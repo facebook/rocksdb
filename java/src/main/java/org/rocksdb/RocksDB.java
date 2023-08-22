@@ -4296,6 +4296,11 @@ public class RocksDB extends RocksObject {
     destroyDB(path, options.nativeHandle_);
   }
 
+  public FileCheckSum[] getLiveFilesChecksumInfo() throws RocksDBException {
+    FileCheckSum[] fileCheckSums = getLiveFilesChecksum(nativeHandle_);
+    return fileCheckSums;
+  }
+
   private /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksObject> objectList) {
     if (objectList == null) {
@@ -4614,6 +4619,7 @@ public class RocksDB extends RocksObject {
   private native void deleteFile(final long handle, final String name)
       throws RocksDBException;
   private native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
+  private native FileCheckSum[] getLiveFilesChecksum(final long handle) throws RocksDBException;
   private native ColumnFamilyMetaData getColumnFamilyMetaData(
       final long handle, final long columnFamilyHandle);
   private native void ingestExternalFile(final long handle,
