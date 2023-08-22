@@ -114,7 +114,7 @@ class UniversalCompactionBuilder {
   // because some files are being compacted.
   Compaction* PickPeriodicCompaction();
 
-  bool ShouldSkipLastSortedRunForSizeAmpCompaction() {
+  bool ShouldSkipLastSortedRunForSizeAmpCompaction() const {
     assert(!sorted_runs_.empty());
     return ioptions_.preclude_last_level_data_seconds > 0 &&
            ioptions_.num_levels > 2 &&
@@ -128,6 +128,94 @@ class UniversalCompactionBuilder {
   bool IsInputFilesNonOverlapping(Compaction* c);
 
   uint64_t GetMaxOverlappingBytes() const;
+
+  // To conditionally exclude some L0 input files (newest first)
+  // from a size amp compaction. This is to prevent a large number of L0
+  // files from being locked by a size amp compaction, potentially leading to
+  // write stop with a few more flushes.
+  //
+  // Such exclusion is based on `num_l0_input_pre_exclusion`,
+  // `level0_stop_writes_trigger`, `max/min_merge_width` and the pre-exclusion
+  // compaction score. Noted that it will not make the size amp compaction of
+  // interest invalid from running as a size amp compaction as long as its
+  // pre-exclusion compaction score satisfies the condition to run.
+  //
+  // @param `num_l0_input_pre_exclusion` Number of L0 input files prior to
+  // exclusion
+  // @param `end_index` Index of the last sorted run selected as compaction
+  // input. Will not be affected by this exclusion.
+  // @param `start_index` Index of the first input sorted run prior to
+  // exclusion. Will be modified as output based on the exclusion.
+  // @param `candidate_size` Total size of all except for the last input sorted
+  // runs prior to exclusion. Will be modified as output based on the exclusion.
+  //
+  // @return Number of L0 files to exclude. `start_index` and
+  // `candidate_size` will be modified accordingly
+  std::size_t MightExcludeNewL0sToReduceWriteStop(
+      std::size_t num_l0_input_pre_exclusion, std::size_t end_index,
+      std::size_t& start_index, std::size_t& candidate_size) const {
+    if (num_l0_input_pre_exclusion == 0) {
+      return 0;
+    }
+
+    assert(mutable_cf_options_.level0_stop_writes_trigger > 0);
+    const std::size_t level0_stop_writes_trigger = static_cast<std::size_t>(
+        mutable_cf_options_.level0_stop_writes_trigger);
+    const std::size_t max_merge_width = static_cast<std::size_t>(
+        mutable_cf_options_.compaction_options_universal.max_merge_width);
+    const std::size_t min_merge_width = static_cast<std::size_t>(
+        mutable_cf_options_.compaction_options_universal.min_merge_width);
+    const std::size_t max_size_amplification_percent = static_cast<std::size_t>(
+        mutable_cf_options_.compaction_options_universal
+            .max_size_amplification_percent);
+    const size_t base_sr_size = sorted_runs_[end_index].size;
+
+    // Leave at least 1 L0 file and 2 input sorted runs after exclusion
+    const std::size_t max_num_l0_to_exclude =
+        std::min(num_l0_input_pre_exclusion - 1, end_index - start_index - 1);
+    const std::size_t num_extra_l0_before_write_stop =
+        level0_stop_writes_trigger -
+        std::min(level0_stop_writes_trigger, num_l0_input_pre_exclusion);
+    const std::size_t num_l0_to_exclude_for_max_merge_width =
+        std::min(max_merge_width -
+                     std::min(max_merge_width, num_extra_l0_before_write_stop),
+                 max_num_l0_to_exclude);
+    const std::size_t num_l0_to_exclude_for_min_merge_width =
+        std::min(min_merge_width -
+                     std::min(min_merge_width, num_extra_l0_before_write_stop),
+                 max_num_l0_to_exclude);
+
+    std::size_t num_l0_to_exclude = 0;
+    std::size_t candidate_size_post_exclusion = candidate_size;
+
+    for (std::size_t possible_num_l0_to_exclude =
+             num_l0_to_exclude_for_min_merge_width;
+         possible_num_l0_to_exclude <= num_l0_to_exclude_for_max_merge_width;
+         ++possible_num_l0_to_exclude) {
+      std::size_t current_candidate_size = candidate_size_post_exclusion;
+      for (std::size_t j = num_l0_to_exclude; j < possible_num_l0_to_exclude;
+           ++j) {
+        current_candidate_size -=
+            sorted_runs_.at(start_index + j).compensated_file_size;
+      }
+
+      // To ensure the compaction score before and after exclusion is similar
+      // so this exclusion will not make the size amp compaction of
+      // interest invalid from running as a size amp compaction as long as its
+      // pre-exclusion compaction score satisfies the condition to run.
+      if (current_candidate_size * 100 <
+              max_size_amplification_percent * base_sr_size ||
+          current_candidate_size < candidate_size * 9 / 10) {
+        break;
+      }
+      num_l0_to_exclude = possible_num_l0_to_exclude;
+      candidate_size_post_exclusion = current_candidate_size;
+    }
+
+    start_index += num_l0_to_exclude;
+    candidate_size = candidate_size_post_exclusion;
+    return num_l0_to_exclude;
+  }
 
   const ImmutableOptions& ioptions_;
   const InternalKeyComparator* icmp_;
@@ -800,6 +888,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   const uint64_t base_sr_size = sorted_runs_[end_index].size;
   size_t start_index = end_index;
   uint64_t candidate_size = 0;
+  size_t l0_candidate_count = 0;
 
   // Get longest span (i.e, [start_index, end_index]) of available sorted runs
   while (start_index > 0) {
@@ -815,11 +904,22 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       break;
     }
     candidate_size += sr->compensated_file_size;
+    l0_candidate_count += sr->level == 0 ? 1 : 0;
     --start_index;
   }
 
   if (start_index == end_index) {
     return nullptr;
+  }
+
+  {
+    const size_t num_l0_to_exclude = MightExcludeNewL0sToReduceWriteStop(
+        l0_candidate_count, end_index, start_index, candidate_size);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Universal: Excluding %" ROCKSDB_PRIszt
+                     " latest L0 files to reduce potential write stop "
+                     "triggered by `level0_stop_writes_trigger`",
+                     cf_name_.c_str(), num_l0_to_exclude);
   }
 
   {
