@@ -457,12 +457,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   std::sort(candidate_files.begin(), candidate_files.end(),
             [](const JobContext::CandidateFileInfo& lhs,
                const JobContext::CandidateFileInfo& rhs) {
-              if (lhs.file_name > rhs.file_name) {
+              if (lhs.file_name < rhs.file_name) {
                 return true;
-              } else if (lhs.file_name < rhs.file_name) {
+              } else if (lhs.file_name > rhs.file_name) {
                 return false;
               } else {
-                return (lhs.file_path > rhs.file_path);
+                return (lhs.file_path < rhs.file_path);
               }
             });
   candidate_files.erase(
