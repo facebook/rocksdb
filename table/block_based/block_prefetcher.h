@@ -22,7 +22,7 @@ class BlockPrefetcher {
                         const BlockHandle& handle, size_t readahead_size,
                         bool is_for_compaction,
                         const bool no_sequential_checking,
-                        Env::IOPriority rate_limiter_priority);
+                        const ReadOptions& read_options);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
   void UpdateReadPattern(const uint64_t& offset, const size_t& len) {
@@ -53,20 +53,27 @@ class BlockPrefetcher {
                              &initial_auto_readahead_size_);
   }
 
+  void SetUpperBoundOffset(uint64_t upper_bound_offset) {
+    upper_bound_offset_ = upper_bound_offset;
+  }
+
  private:
   // Readahead size used in compaction, its value is used only if
   // lookup_context_.caller = kCompaction.
   size_t compaction_readahead_size_;
 
-  // readahead_size_ is used if underlying FS supports prefetching.
+  // readahead_size_ is used in non-compaction read if underlying FS supports
+  // prefetching.
   size_t readahead_size_;
   size_t readahead_limit_ = 0;
-  // initial_auto_readahead_size_ is used if RocksDB uses internal prefetch
-  // buffer.
+  // initial_auto_readahead_size_ is used in non-compaction read if RocksDB uses
+  // internal prefetch buffer.
   uint64_t initial_auto_readahead_size_;
   uint64_t num_file_reads_ = 0;
   uint64_t prev_offset_ = 0;
   size_t prev_len_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
+
+  uint64_t upper_bound_offset_ = 0;
 };
 }  // namespace ROCKSDB_NAMESPACE

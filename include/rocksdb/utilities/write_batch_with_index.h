@@ -189,9 +189,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // Will create a new Iterator that will use WBWIIterator as a delta and
   // base_iterator as base.
   //
-  // This function is only supported if the WriteBatchWithIndex was
-  // constructed with overwrite_key=true.
-  //
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
   // returned iterator will also delete the base_iterator.

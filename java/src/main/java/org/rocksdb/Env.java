@@ -19,7 +19,7 @@ public abstract class Env extends RocksObject {
 
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
-    /**
+    /*
      * The Ownership of the Default Env belongs to C++
      * and so we disown the native handle here so that
      * we cannot accidentally free it from Java.

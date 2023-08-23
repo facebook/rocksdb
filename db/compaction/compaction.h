@@ -31,8 +31,19 @@ namespace ROCKSDB_NAMESPACE {
 // that key never appears in the database. We don't want adjacent sstables to
 // be considered overlapping if they are separated by the range tombstone
 // sentinel.
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const Slice&, const Slice&);
+inline int sstableKeyCompare(const Comparator* user_cmp, const Slice& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a, b.Encode());
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const Slice& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b);
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b.Encode());
+}
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
                       const InternalKey& b);
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
@@ -203,9 +214,17 @@ class Compaction {
   void AddInputDeletions(VersionEdit* edit);
 
   // Returns true if the available information we have guarantees that
-  // the input "user_key" does not exist in any level beyond "output_level()".
+  // the input "user_key" does not exist in any level beyond `output_level()`.
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
+
+  // Returns true if the user key range [begin_key, end_key) does not exist
+  // in any level beyond `output_level()`.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
+  // begin_key and end_key should include timestamp if enabled.
+  bool KeyRangeNotExistsBeyondOutputLevel(
+      const Slice& begin_key, const Slice& end_key,
+      std::vector<size_t>* level_ptrs) const;
 
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
@@ -307,12 +326,16 @@ class Compaction {
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
 
-  TablePropertiesCollection GetOutputTableProperties() const {
-    return output_table_properties_;
-  }
+  // If called before a compaction finishes, will return
+  // table properties of all compaction input files.
+  // If called after a compaction finished, will return
+  // table properties of all compaction input and output files.
+  const TablePropertiesCollection& GetTableProperties();
 
-  void SetOutputTableProperties(TablePropertiesCollection tp) {
-    output_table_properties_ = std::move(tp);
+  void SetOutputTableProperties(
+      const std::string& file_name,
+      const std::shared_ptr<const TableProperties>& tp) {
+    table_properties_[file_name] = tp;
   }
 
   Slice GetSmallestUserKey() const { return smallest_user_key_; }
@@ -499,8 +522,9 @@ class Compaction {
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
 
+  bool input_table_properties_initialized_ = false;
   // table properties of output files
-  TablePropertiesCollection output_table_properties_;
+  TablePropertiesCollection table_properties_;
 
   // smallest user keys in compaction
   // includes timestamp if user-defined timestamp is enabled.
@@ -546,13 +570,16 @@ struct PerKeyPlacementContext {
   const Slice value;
   const SequenceNumber seq_num;
 
-  bool output_to_penultimate_level;
+  bool& output_to_penultimate_level;
 
   PerKeyPlacementContext(int _level, Slice _key, Slice _value,
-                         SequenceNumber _seq_num)
-      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
-    output_to_penultimate_level = false;
-  }
+                         SequenceNumber _seq_num,
+                         bool& _output_to_penultimate_level)
+      : level(_level),
+        key(_key),
+        value(_value),
+        seq_num(_seq_num),
+        output_to_penultimate_level(_output_to_penultimate_level) {}
 };
 #endif /* !NDEBUG */
 

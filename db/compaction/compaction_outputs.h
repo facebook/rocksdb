@@ -206,10 +206,10 @@ class CompactionOutputs {
       // We may only split the output when the cursor is in the range. Split
       if ((!end.has_value() ||
            icmp->user_comparator()->Compare(
-               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
-          (!start.has_value() || icmp->user_comparator()->Compare(
-                                     ExtractUserKey(output_split_key->Encode()),
-                                     start.value()) > 0)) {
+               ExtractUserKey(output_split_key->Encode()), *end) < 0) &&
+          (!start.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), *start) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }
@@ -356,6 +356,15 @@ class CompactionOutputs {
   // The smallest key of the current output file, this is set when current
   // output file's smallest key is a range tombstone start key.
   InternalKey range_tombstone_lower_bound_;
+
+  // Used for calls to compaction->KeyRangeNotExistsBeyondOutputLevel() in
+  // CompactionOutputs::AddRangeDels().
+  // level_ptrs_[i] holds index of the file that was checked during the last
+  // call to compaction->KeyRangeNotExistsBeyondOutputLevel(). This allows
+  // future calls to the function to pick up where it left off, since each
+  // range tombstone added to output file within each subcompaction is in
+  // increasing key range.
+  std::vector<size_t> level_ptrs_;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

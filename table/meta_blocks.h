@@ -32,6 +32,7 @@ struct TableProperties;
 
 // Meta block names for metaindex
 extern const std::string kPropertiesBlockName;
+extern const std::string kIndexBlockName;
 extern const std::string kPropertiesBlockOldName;
 extern const std::string kCompressionDictBlockName;
 extern const std::string kRangeDelBlockName;
@@ -119,6 +120,7 @@ Status ReadTablePropertiesHelper(
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
                            const ImmutableOptions& ioptions,
+                           const ReadOptions& read_options,
                            std::unique_ptr<TableProperties>* properties,
                            MemoryAllocator* memory_allocator = nullptr,
                            FilePrefetchBuffer* prefetch_buffer = nullptr);
@@ -139,6 +141,7 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
                            const ImmutableOptions& ioptions,
+                           const ReadOptions& read_options,
                            const std::string& meta_block_name,
                            BlockHandle* block_handle,
                            MemoryAllocator* memory_allocator = nullptr,
@@ -149,6 +152,7 @@ Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
 Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 uint64_t file_size, uint64_t table_magic_number,
                                 const ImmutableOptions& ioptions,
+                                const ReadOptions& read_options,
                                 BlockContents* block_contents,
                                 MemoryAllocator* memory_allocator = nullptr,
                                 FilePrefetchBuffer* prefetch_buffer = nullptr,
@@ -161,6 +165,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
                      const ImmutableOptions& ioptions,
+                     const ReadOptions& read_options,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents,
                      MemoryAllocator* memory_allocator = nullptr);

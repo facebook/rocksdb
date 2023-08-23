@@ -26,18 +26,18 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
   assert(rep != nullptr);
 
   const Status s = table->RetrieveBlock(
-      prefetch_buffer, read_options, rep->footer.index_handle(),
+      prefetch_buffer, read_options, rep->index_handle,
       UncompressionDict::GetEmptyDict(), &index_block->As<Block_kIndex>(),
       get_context, lookup_context, /* for_compaction */ false, use_cache,
-      /* wait_for_cache */ true, /* async_read */ false);
+      /* async_read */ false);
 
   return s;
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, Env::IOPriority rate_limiter_priority, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    CachableEntry<Block>* index_block) const {
+    bool no_io, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context, CachableEntry<Block>* index_block,
+    const ReadOptions& ro) const {
   assert(index_block != nullptr);
 
   if (!index_block_.IsEmpty()) {
@@ -45,8 +45,7 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     return Status::OK();
   }
 
-  ReadOptions read_options;
-  read_options.rate_limiter_priority = rate_limiter_priority;
+  ReadOptions read_options = ro;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }

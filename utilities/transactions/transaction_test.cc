@@ -25,7 +25,6 @@
 #include "test_util/transaction_test_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -1383,7 +1382,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_OK(db_impl->TEST_FlushMemTable(true));
 
   // regular db read
-  db->Get(read_options, "foo2", &value);
+  ASSERT_OK(db->Get(read_options, "foo2", &value));
   ASSERT_EQ(value, "bar2");
 
   // nothing has been prepped yet
@@ -1431,7 +1430,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_OK(s);
 
   // value is now available
-  db->Get(read_options, "foo", &value);
+  ASSERT_OK(db->Get(read_options, "foo", &value));
   ASSERT_EQ(value, "bar");
 
   // we already committed
@@ -1600,12 +1599,12 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
 
     if (i % 29 == 0) {
       // crash
-      env->SetFilesystemActive(false);
+      fault_fs->SetFilesystemActive(false);
       reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-      ReOpenNoDelete();
+      ASSERT_OK(ReOpenNoDelete());
     } else if (i % 37 == 0) {
       // close
-      ReOpenNoDelete();
+      ASSERT_OK(ReOpenNoDelete());
     }
   }
 
@@ -1668,8 +1667,8 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
-  ReOpenNoDelete();
+  fault_fs->SetFilesystemActive(false);
+  ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
 
   // value is now available
@@ -1705,9 +1704,9 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-  ReOpenNoDelete();
+  ASSERT_OK(ReOpenNoDelete());
 
   // commit old txn
   assert(db != nullptr);  // Make clang analyze happy.
@@ -1738,7 +1737,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
 
@@ -2090,7 +2089,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   ASSERT_OK(db->FlushWAL(false));
 
   // kill and reopen
-  env->SetFilesystemActive(false);
+  fault_fs->SetFilesystemActive(false);
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
@@ -2187,9 +2186,9 @@ TEST_P(TransactionTest, WriteConflictTest) {
   s = txn->Commit();
   ASSERT_OK(s);
 
-  db->Get(read_options, "foo", &value);
+  ASSERT_OK(db->Get(read_options, "foo", &value));
   ASSERT_EQ(value, "A2");
-  db->Get(read_options, "foo2", &value);
+  ASSERT_OK(db->Get(read_options, "foo2", &value));
   ASSERT_EQ(value, "B2");
 
   delete txn;
@@ -2231,13 +2230,13 @@ TEST_P(TransactionTest, WriteConflictTest2) {
   ASSERT_OK(s);  // Txn should commit, but only write foo2 and foo3
 
   // Verify that transaction wrote foo2 and foo3 but not foo
-  db->Get(read_options, "foo", &value);
+  ASSERT_OK(db->Get(read_options, "foo", &value));
   ASSERT_EQ(value, "barz");
 
-  db->Get(read_options, "foo2", &value);
+  ASSERT_OK(db->Get(read_options, "foo2", &value));
   ASSERT_EQ(value, "X");
 
-  db->Get(read_options, "foo3", &value);
+  ASSERT_OK(db->Get(read_options, "foo3", &value));
   ASSERT_EQ(value, "Y");
 
   delete txn;
@@ -2329,13 +2328,13 @@ TEST_P(TransactionTest, FlushTest) {
 
   // force a memtable flush
   FlushOptions flush_ops;
-  db->Flush(flush_ops);
+  ASSERT_OK(db->Flush(flush_ops));
 
   s = txn->Commit();
   // txn should commit since the flushed table is still in MemtableList History
   ASSERT_OK(s);
 
-  db->Get(read_options, "foo", &value);
+  ASSERT_OK(db->Get(read_options, "foo", &value));
   ASSERT_EQ(value, "bar2");
 
   delete txn;
@@ -2491,6 +2490,24 @@ TEST_P(TransactionTest, FlushTest2) {
 
     delete txn;
   }
+}
+
+TEST_P(TransactionTest, WaitForCompactAbortOnPause) {
+  Status s = ReOpen();
+  ASSERT_OK(s);
+  assert(db != nullptr);
+
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+
+  // Pause the background jobs.
+  ASSERT_OK(db_impl->PauseBackgroundWork());
+
+  WaitForCompactOptions waitForCompactOptions = WaitForCompactOptions();
+  waitForCompactOptions.abort_on_pause = true;
+  s = db->WaitForCompact(waitForCompactOptions);
+  ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsNotSupported());
+  ASSERT_TRUE(s.IsAborted());
 }
 
 TEST_P(TransactionTest, NoSnapshotTest) {
@@ -4973,7 +4990,7 @@ TEST_P(TransactionTest, DeleteRangeSupportTest) {
           }
           break;
         case WRITE_PREPARED:
-          // Intentional fall-through
+          FALLTHROUGH_INTENDED;
         case WRITE_UNPREPARED:
           if (skip_concurrency_control && skip_duplicate_key_check) {
             ASSERT_OK(s);
@@ -6006,7 +6023,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     cf_options.max_successive_merges = 2;
     cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
     ASSERT_OK(ReOpen());
-    db->CreateColumnFamily(cf_options, cf_name, &cf_handle);
+    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
     WriteOptions write_options;
     // Ensure one value for the key
     ASSERT_OK(db->Put(write_options, cf_handle, Slice("key"), Slice("value")));
@@ -6349,11 +6366,11 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       // Corrupt the last log file in the middle, so that it is not corrupted
       // in the tail.
       std::string file_content;
-      ASSERT_OK(ReadFileToString(env, fname, &file_content));
+      ASSERT_OK(ReadFileToString(env.get(), fname, &file_content));
       file_content[400] = 'h';
       file_content[401] = 'a';
       ASSERT_OK(env->DeleteFile(fname));
-      ASSERT_OK(WriteStringToFile(env, file_content, fname, true));
+      ASSERT_OK(WriteStringToFile(env.get(), file_content, fname, true));
 
       // Recover from corruption
       std::vector<ColumnFamilyHandle*> handles;
@@ -6749,4 +6766,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

@@ -107,6 +107,9 @@ class BlockFetcherTest : public testing::Test {
     Footer footer;
     ReadFooter(file.get(), &footer);
     const BlockHandle& index_handle = footer.index_handle();
+    // FIXME: index handle will need to come from metaindex for
+    // format_version >= 6 when that becomes the default
+    ASSERT_FALSE(index_handle.IsNull());
 
     CompressionType compression_type;
     FetchBlock(file.get(), index_handle, BlockType::kIndex,
@@ -268,7 +271,8 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_NE(table_options, nullptr);
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,
-                                    &table_reader));
+                                    0 /* block_protection_bytes_per_key */,
+                                    &table_reader, 0 /* tail_size */));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }

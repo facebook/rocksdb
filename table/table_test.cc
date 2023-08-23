@@ -27,7 +27,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -55,7 +55,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/filter_policy_internal.h"
-#include "table/block_based/flush_block_policy.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -425,14 +425,15 @@ class TableConstructor : public Constructor {
   }
 
   uint64_t ApproximateOffsetOf(const Slice& key) const {
+    const ReadOptions read_options;
     if (convert_to_internal_key_) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       const Slice skey = ikey.Encode();
       return table_reader_->ApproximateOffsetOf(
-          skey, TableReaderCaller::kUncategorized);
+          read_options, skey, TableReaderCaller::kUncategorized);
     }
     return table_reader_->ApproximateOffsetOf(
-        key, TableReaderCaller::kUncategorized);
+        read_options, key, TableReaderCaller::kUncategorized);
   }
 
   virtual Status Reopen(const ImmutableOptions& ioptions,
@@ -443,7 +444,9 @@ class TableConstructor : public Constructor {
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
-                           *last_internal_comparator_, /*skip_filters*/ false,
+                           *last_internal_comparator_,
+                           0 /* block_protection_bytes_per_key */,
+                           /*skip_filters*/ false,
                            /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
                            file_num_, kNullUniqueId64x2, largest_seqno_),
@@ -1147,19 +1150,16 @@ class BlockBasedTableTest
                                  std::move(trace_writer));
     ASSERT_NE(block_cache_trace_writer, nullptr);
     // Always return Status::OK().
-    assert(c->block_cache_tracer_
-               .StartTrace(trace_opt, std::move(block_cache_trace_writer))
-               .ok());
+    ASSERT_OK(c->block_cache_tracer_.StartTrace(
+        trace_opt, std::move(block_cache_trace_writer)));
 
     {
-      std::string user_key = "k01";
-      InternalKey internal_key(user_key, 0, kTypeValue);
+      InternalKey internal_key(auto_add_key1, 0, kTypeValue);
       std::string encoded_key = internal_key.Encode().ToString();
       c->Add(encoded_key, kDummyValue);
     }
     {
-      std::string user_key = "k02";
-      InternalKey internal_key(user_key, 0, kTypeValue);
+      InternalKey internal_key(auto_add_key2, 0, kTypeValue);
       std::string encoded_key = internal_key.Encode().ToString();
       c->Add(encoded_key, kDummyValue);
     }
@@ -1180,6 +1180,7 @@ class BlockBasedTableTest
       EXPECT_OK(reader.ReadHeader(&header));
       uint32_t index = 0;
       while (s.ok()) {
+        SCOPED_TRACE("expected_records[" + std::to_string(index) + "]");
         BlockCacheTraceRecord access;
         s = reader.ReadAccess(&access);
         if (!s.ok()) {
@@ -1192,22 +1193,33 @@ class BlockBasedTableTest
         EXPECT_EQ(access.caller, expected_records[index].caller);
         EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
         EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
-        // Get
-        if (access.caller == TableReaderCaller::kUserGet) {
+        EXPECT_EQ(access.get_id, expected_records[index].get_id);
+        // The well-populated cases
+        if (access.caller == TableReaderCaller::kUserGet ||
+            (access.caller == TableReaderCaller::kUserMultiGet &&
+             access.block_type == TraceType::kBlockTraceDataBlock)) {
           EXPECT_EQ(access.referenced_key,
                     expected_records[index].referenced_key);
-          EXPECT_EQ(access.get_id, expected_records[index].get_id);
           EXPECT_EQ(access.get_from_user_specified_snapshot,
                     expected_records[index].get_from_user_specified_snapshot);
           if (access.block_type == TraceType::kBlockTraceDataBlock) {
             EXPECT_GT(access.referenced_data_size, 0);
             EXPECT_GT(access.num_keys_in_block, 0);
+            if (access.caller == TableReaderCaller::kUserMultiGet) {
+              // Test num_keys_in_block estimate, assuming default restart
+              // interval of 16 and just one interval.
+              // Rounding depends on get_id.
+              if (access.get_id & 1) {
+                EXPECT_EQ(access.num_keys_in_block, 9);
+              } else {
+                EXPECT_EQ(access.num_keys_in_block, 8);
+              }
+            }
             EXPECT_EQ(access.referenced_key_exist_in_block,
                       expected_records[index].referenced_key_exist_in_block);
           }
         } else {
           EXPECT_EQ(access.referenced_key, "");
-          EXPECT_EQ(access.get_id, 0);
           EXPECT_FALSE(access.get_from_user_specified_snapshot);
           EXPECT_EQ(access.referenced_data_size, 0);
           EXPECT_EQ(access.num_keys_in_block, 0);
@@ -1223,6 +1235,8 @@ class BlockBasedTableTest
 
  protected:
   uint64_t IndexUncompressedHelper(bool indexCompress);
+  const std::string auto_add_key1 = "aak01";
+  const std::string auto_add_key2 = "aak02";
 
  private:
   uint32_t format_;
@@ -1316,7 +1330,7 @@ class FileChecksumTestHelper {
     uint64_t offset = 0;
     Status s;
     s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
+                           nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -1324,8 +1338,7 @@ class FileChecksumTestHelper {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                             nullptr,
-                             Env::IO_TOTAL /* rate_limiter_priority */);
+                             nullptr);
       if (!s.ok()) {
         return s;
       }
@@ -1706,7 +1719,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_NOT_COMPRESSED), 0);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED), 0);
 
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
@@ -1968,7 +1982,8 @@ void PrefetchRange(TableConstructor* c, Options* opt,
       end.reset(new Slice(key_end));
     }
   }
-  s = table_reader->Prefetch(begin.get(), end.get());
+  const ReadOptions read_options;
+  s = table_reader->Prefetch(read_options, begin.get(), end.get());
 
   ASSERT_TRUE(s.code() == expected_status.code());
 
@@ -3068,15 +3083,14 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-  std::string user_key = "k01";
-  InternalKey internal_key(user_key, 0, kTypeValue);
+  InternalKey internal_key(auto_add_key1, 0, kTypeValue);
   std::string encoded_key = internal_key.Encode().ToString();
   for (uint32_t i = 1; i <= 2; i++) {
     PinnableSlice value;
-    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                           GetContext::kNotFound, user_key, &value, nullptr,
-                           nullptr, nullptr, true, nullptr, nullptr, nullptr,
-                           nullptr, nullptr, nullptr, /*tracing_get_id=*/i);
+    GetContext get_context(
+        options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
+        auto_add_key1, &value, nullptr, nullptr, nullptr, true, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));
@@ -3126,6 +3140,189 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   c.ResetTableReader();
 }
 
+struct HitMissCountingCache : public CacheWrapper {
+  using CacheWrapper::CacheWrapper;
+  const char* Name() const override { return "HitMissCountingCache"; }
+
+  uint64_t hit_count_ = 0;
+  uint64_t miss_count_ = 0;
+
+  void Reset() {
+    hit_count_ = 0;
+    miss_count_ = 0;
+  }
+
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 CreateContext* create_context,
+                 Priority priority = Priority::LOW,
+                 Statistics* stats = nullptr) override {
+    // ASSUMES no blocking async lookups
+    Handle* h = target_->Lookup(key, helper, create_context, priority, stats);
+    if (h) {
+      hit_count_++;
+    } else {
+      miss_count_++;
+    }
+    return h;
+  }
+
+  void StartAsyncLookup(AsyncLookupHandle& async_handle) override {
+    target_->StartAsyncLookup(async_handle);
+    // If not pending, caller might not call WaitAll, so have to account here.
+    if (!async_handle.IsPending()) {
+      if (async_handle.Result()) {
+        hit_count_++;
+      } else {
+        miss_count_++;
+      }
+    }
+  }
+
+  void WaitAll(AsyncLookupHandle* async_handles, size_t count) override {
+    // If !pending, then we already accounted for it in StartAsyncLookup.
+    // Assume the pending status does not change asynchronously (since
+    // StartAsyncLookup) and remember which still need accounting.
+    std::vector<AsyncLookupHandle*> needs_accounting;
+    for (size_t i = 0; i < count; ++i) {
+      if (async_handles[i].IsPending()) {
+        needs_accounting.push_back(async_handles + i);
+      }
+    }
+    target_->WaitAll(async_handles, count);
+    for (auto ah : needs_accounting) {
+      if (ah->Result()) {
+        hit_count_++;
+      } else {
+        miss_count_++;
+      }
+    }
+  }
+
+  void VerifyExpectedHitMissCounts(
+      const std::vector<BlockCacheTraceRecord>& expected_records) {
+    uint64_t expected_hits = 0;
+    uint64_t expected_misses = 0;
+    for (const auto& r : expected_records) {
+      if (r.is_cache_hit) {
+        expected_hits++;
+      } else {
+        expected_misses++;
+      }
+    }
+    EXPECT_EQ(expected_hits, hit_count_);
+    EXPECT_EQ(expected_misses, miss_count_);
+    Reset();
+  }
+};
+
+TEST_P(BlockBasedTableTest, TracingMultiGetTest) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  auto cache =
+      std::make_shared<HitMissCountingCache>(NewLRUCache(1024 * 1024, 0));
+  table_options.block_cache = cache;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  // Put auto_add_key1 and auto_add_key2 in the same data block
+  table_options.block_size = kDummyValue.size() * 2 + 100;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  std::vector<BlockCacheTraceRecord> expected_records;
+
+  for (bool first_pass : {true, false}) {
+    uint64_t get_id_offset = first_pass ? 2 : 5;
+    ReadOptions ro;
+    std::array<Slice, 2> ukeys{{auto_add_key1, auto_add_key2}};
+    std::array<PinnableSlice, 2> values;
+    std::vector<GetContext> get_contexts;
+    get_contexts.emplace_back(
+        options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
+        ukeys[0], &values[0], nullptr, nullptr, nullptr, true, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, get_id_offset);
+    get_contexts.emplace_back(
+        options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
+        ukeys[1], &values[1], nullptr, nullptr, nullptr, true, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, get_id_offset + 1);
+    std::array<std::string, 2> encoded_keys;
+    encoded_keys[0] = InternalKey(ukeys[0], 0, kTypeValue).Encode().ToString();
+    encoded_keys[1] = InternalKey(ukeys[1], 0, kTypeValue).Encode().ToString();
+    std::array<Status, 2> statuses;
+    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+    key_context.emplace_back(/*ColumnFamilyHandle omitted*/ nullptr, ukeys[0],
+                             &values[0],
+                             /*PinnableWideColumns omitted*/ nullptr,
+                             /*timestamp omitted*/ nullptr, &statuses[0]);
+    key_context[0].ukey_without_ts = ukeys[0];
+    key_context[0].ikey = encoded_keys[0];
+    key_context[0].get_context = &get_contexts[0];
+    key_context.emplace_back(/*ColumnFamilyHandle omitted*/ nullptr, ukeys[1],
+                             &values[1],
+                             /*PinnableWideColumns omitted*/ nullptr,
+                             /*timestamp omitted*/ nullptr, &statuses[1]);
+    key_context[1].ukey_without_ts = ukeys[1];
+    key_context[1].ikey = encoded_keys[1];
+    key_context[1].get_context = &get_contexts[1];
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+    sorted_keys.push_back(&key_context[0]);
+    sorted_keys.push_back(&key_context[1]);
+    MultiGetContext m_context(
+        &sorted_keys, 0, sorted_keys.size(), /*SequenceNumber*/ 42, ro,
+        options.env->GetFileSystem().get(), options.statistics.get());
+    MultiGetRange range = m_context.GetMultiGetRange();
+
+    get_perf_context()->Reset();
+    c.GetTableReader()->MultiGet(ro, &range, /*prefix_extractor*/ nullptr);
+
+    // Verify read op result
+    for (uint32_t i = 0; i <= 1; i++) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(get_contexts[i].State(), GetContext::kFound);
+      ASSERT_EQ(values[i].ToString(), kDummyValue);
+    }
+
+    // Verify traces.
+    BlockCacheTraceRecord record;
+    if (first_pass) {
+      // The first two records should be prefetching index and filter blocks.
+      record.get_id = 0;
+      record.block_type = TraceType::kBlockTraceIndexBlock;
+      record.caller = TableReaderCaller::kPrefetch;
+      record.is_cache_hit = false;
+      record.no_insert = false;
+      expected_records.push_back(record);
+      record.block_type = TraceType::kBlockTraceFilterBlock;
+      expected_records.push_back(record);
+    }
+    // Then we should have three records for one index, one filter, and one data
+    // block access. (The two keys share a data block.)
+    record.get_id = get_id_offset;
+    record.block_type = TraceType::kBlockTraceFilterBlock;
+    record.caller = TableReaderCaller::kUserMultiGet;
+    record.get_from_user_specified_snapshot = false;
+    record.referenced_key = encoded_keys[0];
+    record.referenced_key_exist_in_block = true;
+    record.is_cache_hit = true;
+    expected_records.push_back(record);
+    record.block_type = TraceType::kBlockTraceIndexBlock;
+    expected_records.push_back(record);
+    record.is_cache_hit = !first_pass;
+    record.block_type = TraceType::kBlockTraceDataBlock;
+    expected_records.push_back(record);
+  }
+  VerifyBlockAccessTrace(&c, expected_records);
+  cache->VerifyExpectedHitMissCounts(expected_records);
+  c.ResetTableReader();
+}
+
 TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   TableConstructor c(BytewiseComparator());
   Options options;
@@ -3142,12 +3339,12 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  const ReadOptions read_options;
   for (uint32_t i = 1; i <= 2; i++) {
-    std::string user_key = "k01";
-    InternalKey internal_key(user_key, 0, kTypeValue);
+    InternalKey internal_key(auto_add_key1, 0, kTypeValue);
     std::string encoded_key = internal_key.Encode().ToString();
     c.GetTableReader()->ApproximateOffsetOf(
-        encoded_key, TableReaderCaller::kUserApproximateSize);
+        read_options, encoded_key, TableReaderCaller::kUserApproximateSize);
   }
   // Verify traces.
   std::vector<BlockCacheTraceRecord> expected_records;
@@ -3887,8 +4084,10 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
-                               kPlainTableMagicNumber, ioptions, &props);
+                               kPlainTableMagicNumber, ioptions, read_options,
+                               &props);
   ASSERT_OK(s);
 
   ASSERT_EQ(0ul, props->index_size);
@@ -4015,6 +4214,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
 }
 
 static void DoCompressionTest(CompressionType comp) {
+  SCOPED_TRACE("CompressionType = " + CompressionTypeToString(comp));
   Random rnd(301);
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   std::string tmp;
@@ -4036,8 +4236,8 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3525));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3525));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3550));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3550));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
   c.ResetTableReader();
 }
@@ -4271,11 +4471,12 @@ TEST(TableTest, FooterTests) {
   BlockHandle index(data_size + 5, index_size);
   BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
   uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
+  uint32_t base_context_checksum = 123456789;
   {
     // legacy block based
     FooterBuilder footer;
-    footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
-                 footer_offset, kCRC32c, meta_index, index);
+    ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
+                           footer_offset, kCRC32c, meta_index, index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
@@ -4285,6 +4486,7 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.format_version(), 0U);
+    ASSERT_EQ(decoded_footer.base_context_checksum(), 0U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
     // Ensure serialized with legacy magic
     ASSERT_EQ(
@@ -4294,9 +4496,11 @@ TEST(TableTest, FooterTests) {
   // block based, various checksums, various versions
   for (auto t : GetSupportedChecksums()) {
     for (uint32_t fv = 1; IsSupportedFormatVersion(fv); ++fv) {
+      uint32_t maybe_bcc =
+          FormatVersionUsesContextChecksum(fv) ? base_context_checksum : 0U;
       FooterBuilder footer;
-      footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
-                   meta_index, index);
+      ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
+                             meta_index, index, maybe_bcc));
       Footer decoded_footer;
       ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
       ASSERT_EQ(decoded_footer.table_magic_number(),
@@ -4305,18 +4509,44 @@ TEST(TableTest, FooterTests) {
       ASSERT_EQ(decoded_footer.metaindex_handle().offset(),
                 meta_index.offset());
       ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-      ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-      ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+      if (FormatVersionUsesIndexHandleInFooter(fv)) {
+        ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
+        ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+      }
       ASSERT_EQ(decoded_footer.format_version(), fv);
       ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
+
+      if (FormatVersionUsesContextChecksum(fv)) {
+        ASSERT_EQ(decoded_footer.base_context_checksum(),
+                  base_context_checksum);
+
+        // Bad offset should fail footer checksum
+        decoded_footer = Footer();
+        ASSERT_NOK(
+            decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset - 1));
+      } else {
+        ASSERT_EQ(decoded_footer.base_context_checksum(), 0U);
+      }
+
+      // Too big metaindex size should also fail encoding only in new footer
+      uint64_t big_metaindex_size = 0x100000007U;
+      uint64_t big_footer_offset =
+          data_size + big_metaindex_size + index_size + 3 * 5;
+      BlockHandle big_metaindex =
+          BlockHandle(data_size + index_size + 2 * 5, big_metaindex_size);
+      ASSERT_NE(footer
+                    .Build(kBlockBasedTableMagicNumber, fv, big_footer_offset,
+                           t, big_metaindex, index, maybe_bcc)
+                    .ok(),
+                FormatVersionUsesContextChecksum(fv));
     }
   }
 
   {
     // legacy plain table
     FooterBuilder footer;
-    footer.Build(kPlainTableMagicNumber, /* format_version */ 0, footer_offset,
-                 kNoChecksum, meta_index);
+    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
+                           footer_offset, kNoChecksum, meta_index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
@@ -4335,8 +4565,8 @@ TEST(TableTest, FooterTests) {
   {
     // xxhash plain table (not currently used)
     FooterBuilder footer;
-    footer.Build(kPlainTableMagicNumber, /* format_version */ 1, footer_offset,
-                 kxxHash, meta_index);
+    ASSERT_OK(footer.Build(kPlainTableMagicNumber, /* format_version */ 1,
+                           footer_offset, kxxHash, meta_index));
     Footer decoded_footer;
     ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
@@ -4563,9 +4793,10 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  read_options, &props));
 
     UserCollectedProperties user_props = props->user_collected_properties;
     version = DecodeFixed32(
@@ -4595,7 +4826,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
-                           ikc),
+                           ikc, 0 /* block_protection_bytes_per_key */),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
@@ -4740,9 +4971,10 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> VerifyBlockAlignment = [&]() {
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), sink->contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
+                                  read_options, &props));
 
     uint64_t data_block_size = props->data_size / props->num_data_blocks;
     ASSERT_EQ(data_block_size, 4096);
@@ -4763,7 +4995,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
-                         GetPlainInternalComparator(options2.comparator)),
+                         GetPlainInternalComparator(options2.comparator),
+                         0 /* block_protection_bytes_per_key */),
       std::move(file_reader), sink->contents().size(), &table_reader));
 
   ReadOptions read_options;
@@ -4879,6 +5112,59 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   }
 }
 
+TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    if (type == kBZip2Compression) {
+      // Weird behavior in this test
+      continue;
+    }
+    SCOPED_TRACE("Compression type: " + std::to_string(type));
+
+    Options options;
+    options.compression = type;
+
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+    int len = 10000;
+    Random rnd(301);
+    std::vector<std::string> keys;
+    stl_wrappers::KVMap kvmap;
+
+    // Test the max_compressed_bytes_per_kb option
+    for (int threshold : {0, 1, 100, 400, 600, 900, 1024}) {
+      SCOPED_TRACE("threshold=" + std::to_string(threshold));
+      options.compression_opts.max_compressed_bytes_per_kb = threshold;
+      ImmutableOptions ioptions(options);
+      MutableCFOptions moptions(options);
+
+      for (double compressible_to : {0.25, 0.75}) {
+        SCOPED_TRACE("compressible_to=" + std::to_string(compressible_to));
+        TableConstructor c(BytewiseComparator(),
+                           true /* convert_to_internal_key_ */);
+        std::string buf;
+        c.Add("x", test::CompressibleString(&rnd, compressible_to, len, &buf));
+
+        // write an SST file
+        c.Finish(options, ioptions, moptions, table_options,
+                 GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+        size_t table_file_size = c.TEST_GetSink()->contents().size();
+        size_t approx_sst_overhead = 1000;
+        if (compressible_to < threshold / 1024.0) {
+          // Should be compressed (substantial variance depending on algorithm)
+          EXPECT_NEAR2(len * compressible_to + approx_sst_overhead,
+                       table_file_size, len / 8);
+        } else {
+          // Should not be compressed
+          EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
+        }
+      }
+    }
+  }
+}
+
 TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   // The properties meta-block should come at the end since we always need to
   // read it when opening a file, unlike index/filter/other meta-blocks, which
@@ -4954,9 +5240,13 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
     }
   }
   ASSERT_EQ(kPropertiesBlockName, key_at_max_offset);
-  // index handle is stored in footer rather than metaindex block, so need
-  // separate logic to verify it comes before properties block.
-  ASSERT_GT(max_offset, footer.index_handle().offset());
+  if (FormatVersionUsesIndexHandleInFooter(footer.format_version())) {
+    // If index handle is stored in footer rather than metaindex block,
+    // need separate logic to verify it comes before properties block.
+    ASSERT_GT(max_offset, footer.index_handle().offset());
+  } else {
+    ASSERT_TRUE(footer.index_handle().IsNull());
+  }
   c.ResetTableReader();
 }
 
@@ -5105,16 +5395,13 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          nullptr /* status */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          nullptr /* status */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */,
-                          Env::IO_TOTAL /* rate_limiter_priority */);
+                          nullptr /* status */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

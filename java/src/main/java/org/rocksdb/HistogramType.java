@@ -63,7 +63,7 @@ public enum HistogramType {
 
   /**
    * number of bytes decompressed.
-   *
+   * <p>
    * number of bytes is when uncompressed; i.e. before/after respectively
    */
   BYTES_DECOMPRESSED((byte) 0x1B),
@@ -161,6 +161,29 @@ public enum HistogramType {
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT((byte) 0x32),
 
   ASYNC_READ_BYTES((byte) 0x33),
+
+  /**
+   * Number of bytes read for RocksDB's prefetching contents
+   * (as opposed to file system's prefetch)
+   * from the end of SST table during block based table open
+   */
+  TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x39),
+
+  FILE_READ_FLUSH_MICROS((byte) 0x3A),
+
+  FILE_READ_COMPACTION_MICROS((byte) 0x3B),
+
+  FILE_READ_DB_OPEN_MICROS((byte) 0x3C),
+
+  FILE_READ_GET_MICROS((byte) 0x3D),
+
+  FILE_READ_MULTIGET_MICROS((byte) 0x3E),
+
+  FILE_READ_DB_ITERATOR_MICROS((byte) 0x3F),
+
+  FILE_READ_VERIFY_DB_CHECKSUM_MICROS((byte) 0x40),
+
+  FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS((byte) 0x41),
 
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);

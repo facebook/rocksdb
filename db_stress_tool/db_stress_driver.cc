@@ -14,6 +14,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
+  ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
@@ -54,9 +55,9 @@ void ThreadBody(void* v) {
       shared->GetCondVar()->SignalAll();
     }
   }
+  ThreadStatusUtil::UnregisterThread();
 }
-
-bool RunStressTest(SharedState* shared) {
+bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
 
@@ -206,6 +207,12 @@ bool RunStressTest(SharedState* shared) {
     return false;
   }
   return true;
+}
+bool RunStressTest(SharedState* shared) {
+  ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
+  bool result = RunStressTestImpl(shared);
+  ThreadStatusUtil::UnregisterThread();
+  return result;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

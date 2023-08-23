@@ -56,6 +56,12 @@ struct ThreadStatus {
     OP_UNKNOWN = 0,
     OP_COMPACTION,
     OP_FLUSH,
+    OP_DBOPEN,
+    OP_GET,
+    OP_MULTIGET,
+    OP_DBITERATOR,
+    OP_VERIFY_DB_CHECKSUM,
+    OP_VERIFY_FILE_CHECKSUMS,
     NUM_OP_TYPES
   };
 

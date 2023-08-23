@@ -348,6 +348,7 @@ static void ConcurrentReader(void* arg) {
     state->t_.ReadStep(&rnd);
     ++reads;
   }
+  (void)reads;
   state->Change(TestState::DONE);
 }
 

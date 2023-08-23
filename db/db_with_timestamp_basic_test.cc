@@ -459,6 +459,13 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 0);
 
+  uint64_t total_mem_count;
+  uint64_t total_mem_size;
+  db_->GetApproximateMemTableStats(default_cf, r, &total_mem_count,
+                                   &total_mem_size);
+  ASSERT_GT(total_mem_count, 0);
+  ASSERT_GT(total_mem_size, 0);
+
   // Should exclude end key
   start = Key(900);
   end = Key(1000);
@@ -3273,6 +3280,142 @@ TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
   Close();
 }
 
+// Tests the effect of flag `persist_user_defined_timestamps` on the file
+// boundaries contained in the Manifest, a.k.a FileMetaData.smallest,
+// FileMetaData.largest.
+class HandleFileBoundariesTest
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<test::UserDefinedTimestampTestMode> {
+ public:
+  HandleFileBoundariesTest()
+      : DBBasicTestWithTimestampBase("/handle_file_boundaries") {}
+};
+
+TEST_P(HandleFileBoundariesTest, ConfigurePersistUdt) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  // Write a timestamp that is not the min timestamp to help test the behavior
+  // of flag `persist_user_defined_timestamps`.
+  std::string write_ts;
+  std::string min_ts;
+  PutFixed64(&write_ts, 1);
+  PutFixed64(&min_ts, 0);
+  std::string smallest_ukey_without_ts = "bar";
+  std::string largest_ukey_without_ts = "foo";
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  bool persist_udt = test::ShouldPersistUDT(GetParam());
+  options.persist_user_defined_timestamps = persist_udt;
+  if (!persist_udt) {
+    options.allow_concurrent_memtable_write = false;
+  }
+  DestroyAndReopen(options);
+
+  ASSERT_OK(
+      db_->Put(WriteOptions(), smallest_ukey_without_ts, write_ts, "val1"));
+  ASSERT_OK(
+      db_->Put(WriteOptions(), largest_ukey_without_ts, write_ts, "val2"));
+
+  // Create a L0 SST file and its record is added to the Manfiest.
+  ASSERT_OK(Flush());
+  Close();
+
+  options.create_if_missing = false;
+  // Reopen the DB and process manifest file.
+  Reopen(options);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_GT(level_to_files.size(), 1);
+  // L0 only has one SST file.
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  auto file_meta = level_to_files[0][0];
+  if (persist_udt) {
+    ASSERT_EQ(smallest_ukey_without_ts + write_ts,
+              file_meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + write_ts, file_meta.largest.user_key());
+  } else {
+    // If `persist_user_defined_timestamps` is false, the file boundaries should
+    // have the min timestamp. Behind the scenes, when file boundaries in
+    // FileMetaData is persisted to Manifest, the original user-defined
+    // timestamps in user key are stripped. When manifest is read and processed
+    // during DB open, a min timestamp is padded to the file boundaries. This
+    // test's writes contain non min timestamp to verify this logic end-to-end.
+    ASSERT_EQ(smallest_ukey_without_ts + min_ts, file_meta.smallest.user_key());
+    ASSERT_EQ(largest_ukey_without_ts + min_ts, file_meta.largest.user_key());
+  }
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(
+    ConfigurePersistUdt, HandleFileBoundariesTest,
+    ::testing::Values(
+        test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+        test::UserDefinedTimestampTestMode::kNormal));
+
+TEST_F(DBBasicTestWithTimestamp, EnableDisableUDT) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  // Create a column family without user-defined timestamps.
+  options.comparator = BytewiseComparator();
+  options.persist_user_defined_timestamps = true;
+  DestroyAndReopen(options);
+
+  // Create one SST file, its user keys have no user-defined timestamps.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val1"));
+  ASSERT_OK(Flush(0));
+  Close();
+
+  // Reopen the existing column family and enable user-defined timestamps
+  // feature for it.
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  Reopen(options);
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "foo", &value).IsInvalidArgument());
+  std::string read_ts;
+  PutFixed64(&read_ts, 0);
+  ReadOptions ropts;
+  Slice read_ts_slice = read_ts;
+  ropts.timestamp = &read_ts_slice;
+  std::string key_ts;
+  // Entries in pre-existing SST files are treated as if they have minimum
+  // user-defined timestamps.
+  ASSERT_OK(db_->Get(ropts, "foo", &value, &key_ts));
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(read_ts, key_ts);
+
+  // Do timestamped read / write.
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val2"));
+  read_ts.clear();
+  PutFixed64(&read_ts, 1);
+  ASSERT_OK(db_->Get(ropts, "foo", &value, &key_ts));
+  ASSERT_EQ("val2", value);
+  ASSERT_EQ(write_ts, key_ts);
+  // The user keys in this SST file don't have user-defined timestamps either,
+  // because `persist_user_defined_timestamps` flag is set to false.
+  ASSERT_OK(Flush(0));
+  Close();
+
+  // Reopen the existing column family while disabling user-defined timestamps.
+  options.comparator = BytewiseComparator();
+  Reopen(options);
+
+  ASSERT_TRUE(db_->Get(ropts, "foo", &value).IsInvalidArgument());
+  ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ("val2", value);
+
+  // Continue to write / read the column family without user-defined timestamps.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val3"));
+  ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ("val3", value);
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp,
        GCPreserveRangeTombstoneWhenNoOrSmallFullHistoryLow) {
   Options options = CurrentOptions();
@@ -3918,6 +4061,94 @@ TEST_F(DBBasicTestWithTimestamp, IterSeekToLastWithIterateUpperbound) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
 }
+
+TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  BlockBasedTableOptions bbto;
+  bbto.block_size = 100;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Put
+  // Create two SST files
+  // file1: key => [1, 3], timestamp => [10, 20]
+  // file2, key => [2, 4], timestamp => [30, 40]
+  {
+    WriteOptions write_opts;
+    std::string write_ts = Timestamp(10, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(1), write_ts, "value1"));
+    write_ts = Timestamp(20, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(3), write_ts, "value3"));
+    ASSERT_OK(Flush());
+
+    write_ts = Timestamp(30, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(2), write_ts, "value2"));
+    write_ts = Timestamp(40, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(4), write_ts, "value4"));
+    ASSERT_OK(Flush());
+  }
+
+  // Get with timestamp
+  {
+    auto prev_checked_events = options.statistics->getTickerCount(
+        Tickers::TIMESTAMP_FILTER_TABLE_CHECKED);
+    auto prev_filtered_events = options.statistics->getTickerCount(
+        Tickers::TIMESTAMP_FILTER_TABLE_FILTERED);
+
+    // key=3 (ts=20) does not exist at timestamp=1
+    std::string read_ts_str = Timestamp(1, 0);
+    Slice read_ts_slice = Slice(read_ts_str);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
+    std::string value_from_get = "";
+    std::string timestamp_from_get = "";
+    auto status =
+        db_->Get(read_opts, Key1(3), &value_from_get, &timestamp_from_get);
+    ASSERT_TRUE(status.IsNotFound());
+    ASSERT_EQ(value_from_get, std::string(""));
+    ASSERT_EQ(timestamp_from_get, std::string(""));
+
+    // key=3 is in the key ranges for both files, so both files will be queried.
+    // The table read was skipped because the timestamp is out of the table
+    // range, i.e.., 1 < [10,20], [30,40].
+    // The tickers increase by 2 due to 2 files.
+    ASSERT_EQ(prev_checked_events + 2,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
+    ASSERT_EQ(prev_filtered_events + 2,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
+
+    // key=3 (ts=20) exists at timestamp = 25
+    read_ts_str = Timestamp(25, 0);
+    read_ts_slice = Slice(read_ts_str);
+    read_opts.timestamp = &read_ts_slice;
+    ASSERT_OK(
+        db_->Get(read_opts, Key1(3), &value_from_get, &timestamp_from_get));
+    ASSERT_EQ("value3", value_from_get);
+    ASSERT_EQ(Timestamp(20, 0), timestamp_from_get);
+
+    // file1 was not skipped, because the timestamp is in range, [10,20] < 25.
+    // file2 was skipped, because the timestamp is not in range, 25 < [30,40].
+    // So the checked ticker increase by 2 due to 2 files;
+    // filtered ticker increase by 1 because file2 was skipped
+    ASSERT_EQ(prev_checked_events + 4,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
+    ASSERT_EQ(prev_filtered_events + 3,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
+  }
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

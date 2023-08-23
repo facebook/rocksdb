@@ -54,6 +54,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -194,9 +195,6 @@ DECLARE_bool(rate_limit_user_ops);
 DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
-DECLARE_bool(use_txn);
-DECLARE_uint64(txn_write_policy);
-DECLARE_bool(unordered_write);
 DECLARE_int32(backup_one_in);
 DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
@@ -213,6 +211,8 @@ DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
 DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
+DECLARE_bool(use_get_entity);
+DECLARE_bool(use_multi_get_entity);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
 DECLARE_int32(writepercent);
@@ -229,6 +229,7 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_bool(compression_use_zstd_dict_trainer);
+DECLARE_bool(compression_checksum);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -248,10 +249,26 @@ DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_file_checksums_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+
+// Options for transaction dbs.
+// Use TransactionDB (a.k.a. Pessimistic Transaction DB)
+// OR OptimisticTransactionDB
+DECLARE_bool(use_txn);
+
+// Options for TransactionDB (a.k.a. Pessimistic Transaction DB)
+DECLARE_uint64(txn_write_policy);
+DECLARE_bool(unordered_write);
+
+// Options for OptimisticTransactionDB
+DECLARE_bool(use_optimistic_txn);
+DECLARE_uint64(occ_validation_policy);
+DECLARE_bool(share_occ_lock_buckets);
+DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
@@ -288,6 +305,7 @@ DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
+DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
@@ -308,6 +326,12 @@ DECLARE_bool(verify_sst_unique_id_in_manifest);
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
 DECLARE_bool(allow_data_in_errors);
+
+DECLARE_bool(enable_thread_tracking);
+
+DECLARE_uint32(memtable_max_range_deletions);
+
+DECLARE_uint32(bottommost_file_compaction_delay);
 
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
@@ -596,6 +620,24 @@ extern inline std::string StringToHex(const std::string& str) {
   return result;
 }
 
+inline std::string WideColumnsToHex(const WideColumns& columns) {
+  if (columns.empty()) {
+    return std::string();
+  }
+
+  std::ostringstream oss;
+
+  oss << std::hex;
+
+  auto it = columns.begin();
+  oss << *it;
+  for (++it; it != columns.end(); ++it) {
+    oss << ' ' << *it;
+  }
+
+  return oss.str();
+}
+
 // Unified output format for double parameters
 extern inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);
@@ -626,6 +668,8 @@ extern uint32_t GetValueBase(Slice s);
 extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
 extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                                const Slice& slice);
+extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
+extern bool VerifyWideColumns(const WideColumns& columns);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();

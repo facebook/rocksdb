@@ -25,6 +25,7 @@ struct ImmutableDBOptions {
   bool error_if_exists;
   bool paranoid_checks;
   bool flush_verify_memtable_count;
+  bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
   bool verify_sst_unique_id_in_manifest;
   Env* env;

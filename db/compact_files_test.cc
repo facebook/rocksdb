@@ -66,6 +66,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   const int kWriteBufferSize = 10000;
   const int kLevel0Trigger = 2;
   options.create_if_missing = true;
+  options.level_compaction_dynamic_level_bytes = false;
   options.compaction_style = kCompactionStyleLevel;
   // Small slowdown and stop trigger for experimental purpose.
   options.level0_slowdown_writes_trigger = 20;
@@ -120,7 +121,9 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
 TEST_F(CompactFilesTest, MultipleLevel) {
   Options options;
   options.create_if_missing = true;
-  options.level_compaction_dynamic_level_bytes = true;
+  // Otherwise background compaction can happen to
+  // drain unnecessary level
+  options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 6;
   // Add listener
   FlushedFileCollector* collector = new FlushedFileCollector();
@@ -181,7 +184,6 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   for (int invalid_output_level = 0; invalid_output_level < 5;
        invalid_output_level++) {
     s = db->CompactFiles(CompactionOptions(), files, invalid_output_level);
-    std::cout << s.ToString() << std::endl;
     ASSERT_TRUE(s.IsInvalidArgument());
   }
 
@@ -343,7 +345,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
         return true;
       }
       std::string res;
-      db_->Get(ReadOptions(), "", &res);
+      EXPECT_TRUE(db_->Get(ReadOptions(), "", &res).IsNotFound());
       return true;
     }
 
@@ -358,6 +360,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   std::shared_ptr<FilterWithGet> cf(new FilterWithGet());
 
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.compaction_filter = cf.get();
 
@@ -400,6 +403,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
                                 CompactionStyle::kCompactionStyleNone}) {
     ASSERT_OK(DestroyDB(db_name_, Options()));
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.compaction_style = compaction_style;
     // L0: Snappy, L1: ZSTD, L2: Snappy
     options.compression_per_level = {CompressionType::kSnappyCompression,

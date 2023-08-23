@@ -77,7 +77,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
 
   for (int i = 0; i < num_writes; i++) {
     if (num_trigger_flush > 0 && i != 0 && i % num_trigger_flush == 0) {
-      db->Flush(FlushOptions());
+      ASSERT_OK(db->Flush(FlushOptions()));
     }
 
     int type = rnd->Uniform(2);
@@ -156,6 +156,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
         if (map.find(key) == map.end()) {
           ASSERT_TRUE(status.IsNotFound());
         } else {
+          ASSERT_OK(status);
           ASSERT_EQ(map[key], result);
         }
         break;

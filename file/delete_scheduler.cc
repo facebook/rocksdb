@@ -256,6 +256,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
       if (is_complete) {
+        RecordTick(stats_.get(), FILES_DELETED_FROM_TRASH_QUEUE);
         queue_.pop();
       }
 

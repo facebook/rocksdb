@@ -145,6 +145,8 @@ class Repairer {
   // Adds a column family to the VersionSet with cf_options_ and updates
   // manifest.
   Status AddColumnFamily(const std::string& cf_name, uint32_t cf_id) {
+    // TODO: plumb Env::IOActivity;
+    const ReadOptions read_options;
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
       return Status::Corruption("Encountered unknown column family with name=" +
@@ -155,6 +157,7 @@ class Repairer {
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());
+    edit.SetPersistUserDefinedTimestamps(opts.persist_user_defined_timestamps);
     edit.SetLogNumber(0);
     edit.SetColumnFamily(cf_id);
     ColumnFamilyData* cfd;
@@ -166,8 +169,9 @@ class Repairer {
     Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
                                                         &db_dir, nullptr);
     if (status.ok()) {
-      status = vset_.LogAndApply(cfd, mut_cf_opts, &edit, &mutex_, db_dir.get(),
-                                 false /* new_descriptor_log */, cf_opts);
+      status = vset_.LogAndApply(cfd, mut_cf_opts, read_options, &edit, &mutex_,
+                                 db_dir.get(), false /* new_descriptor_log */,
+                                 cf_opts);
     }
     mutex_.Unlock();
     return status;
@@ -357,6 +361,9 @@ class Repairer {
       }
     };
 
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+
     // Open the log file
     std::string logname = LogFileName(wal_dir, log);
     const auto& fs = env_->GetFileSystem();
@@ -388,9 +395,12 @@ class Repairer {
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
     // Read all the records and add to a memtable
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz =
+        vset_.GetRunningColumnFamiliesTimestampSize();
     std::string scratch;
     Slice record;
     WriteBatch batch;
+
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
       if (record.size() < WriteBatchInternal::kHeader) {
@@ -400,8 +410,15 @@ class Repairer {
       }
       Status record_status = WriteBatchInternal::SetContents(&batch, record);
       if (record_status.ok()) {
-        record_status =
-            WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
+        const UnorderedMap<uint32_t, size_t>& record_ts_sz =
+            reader.GetRecordedTimestampSize();
+        record_status = HandleWriteBatchTimestampSizeDifference(
+            &batch, running_ts_sz, record_ts_sz,
+            TimestampSizeConsistencyMode::kVerifyConsistency);
+        if (record_status.ok()) {
+          record_status =
+              WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
+        }
       }
       if (record_status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
@@ -422,6 +439,7 @@ class Repairer {
 
       FileMetaData meta;
       meta.fd = FileDescriptor(next_file_number_++, 0, 0);
+      // TODO: plumb Env::IOActivity
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
@@ -456,7 +474,7 @@ class Repairer {
       SeqnoToTimeMapping empty_seqno_time_mapping;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
-          file_options_, table_cache_.get(), iter.get(),
+          file_options_, read_options, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
@@ -509,8 +527,11 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(file_options_, icmp_, t->meta,
-                                                &props);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      status = table_cache_->GetTableProperties(
+          file_options_, read_options, icmp_, t->meta, &props,
+          0 /* block_protection_bytes_per_key */);
     }
     if (status.ok()) {
       auto s =
@@ -540,6 +561,19 @@ class Repairer {
             AddColumnFamily(props->column_family_name, t->column_family_id);
       }
       t->meta.oldest_ancester_time = props->creation_time;
+      t->meta.user_defined_timestamps_persisted =
+          static_cast<bool>(props->user_defined_timestamps_persisted);
+    }
+    if (status.ok()) {
+      uint64_t tail_size = 0;
+      bool contain_no_data_blocks =
+          props->num_entries > 0 &&
+          (props->num_entries == props->num_range_deletions);
+      if (props->tail_start_offset > 0 || contain_no_data_blocks) {
+        assert(props->tail_start_offset <= file_size);
+        tail_size = file_size - props->tail_start_offset;
+      }
+      t->meta.tail_size = tail_size;
     }
     ColumnFamilyData* cfd = nullptr;
     if (status.ok()) {
@@ -556,6 +590,7 @@ class Repairer {
       }
     }
     if (status.ok()) {
+      // TODO: plumb Env::IOActivity
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
@@ -567,7 +602,8 @@ class Repairer {
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -603,10 +639,13 @@ class Repairer {
       // an SST file is a full sorted run. This probably needs the extra logic
       // from compaction_job.cc around call to UpdateBoundariesForRange (to
       // handle range tombstones extendingg beyond range of other entries).
+      // TODO: plumb Env::IOActivity
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
-          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+          ropts, cfd->internal_comparator(), t->meta,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key,
+          &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();
@@ -625,6 +664,8 @@ class Repairer {
   }
 
   Status AddTables() {
+    // TODO: plumb Env::IOActivity;
+    const ReadOptions read_options;
     std::unordered_map<uint32_t, std::vector<const TableInfo*>> cf_id_to_tables;
     SequenceNumber max_sequence = 0;
     for (size_t i = 0; i < tables_.size(); i++) {
@@ -651,7 +692,8 @@ class Repairer {
           &cfd->internal_comparator(), cfd->user_comparator(),
           cfd->NumberLevels(), cfd->ioptions()->compaction_style,
           nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
-          EpochNumberRequirement::kMightMissing);
+          EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
+          /*bottommost_file_compaction_delay=*/0);
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {
@@ -665,7 +707,8 @@ class Repairer {
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.epoch_number, table->meta.file_checksum,
             table->meta.file_checksum_func_name, table->meta.unique_id,
-            table->meta.compensated_range_deletion_size);
+            table->meta.compensated_range_deletion_size, table->meta.tail_size,
+            table->meta.user_defined_timestamps_persisted);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {
@@ -679,6 +722,8 @@ class Repairer {
         // recovered epoch numbers
         VersionEdit edit;
         edit.SetComparatorName(cfd->user_comparator()->Name());
+        edit.SetPersistUserDefinedTimestamps(
+            cfd->ioptions()->persist_user_defined_timestamps);
         edit.SetLogNumber(0);
         edit.SetNextFile(next_file_number_);
         edit.SetColumnFamily(cfd->GetID());
@@ -706,8 +751,8 @@ class Repairer {
         s = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(), &db_dir,
                                                 nullptr);
         if (s.ok()) {
-          s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                                &mutex_, db_dir.get(),
+          s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                read_options, &edit, &mutex_, db_dir.get(),
                                 false /* new_descriptor_log */);
         }
         mutex_.Unlock();
@@ -809,4 +854,3 @@ Status RepairDB(const std::string& dbname, const Options& options) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

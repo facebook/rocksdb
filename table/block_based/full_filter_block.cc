@@ -127,12 +127,11 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
                                         const Slice* const /*const_ikey_ptr*/,
                                         GetContext* get_context,
                                         BlockCacheLookupContext* lookup_context,
-                                        Env::IOPriority rate_limiter_priority) {
+                                        const ReadOptions& read_options) {
   if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key, no_io, get_context, lookup_context,
-                  rate_limiter_priority);
+  return MayMatch(key, no_io, get_context, lookup_context, read_options);
 }
 
 std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
@@ -165,20 +164,18 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 bool FullFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const bool no_io,
     const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) {
-  return MayMatch(prefix, no_io, get_context, lookup_context,
-                  rate_limiter_priority);
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+  return MayMatch(prefix, no_io, get_context, lookup_context, read_options);
 }
 
-bool FullFilterBlockReader::MayMatch(
-    const Slice& entry, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
+                                     GetContext* get_context,
+                                     BlockCacheLookupContext* lookup_context,
+                                     const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
-                                        &filter_block, rate_limiter_priority);
+                                        &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -203,33 +200,31 @@ bool FullFilterBlockReader::MayMatch(
 
 void FullFilterBlockReader::KeysMayMatch(
     MultiGetRange* range, const bool no_io,
-    BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) {
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
   if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
     return;
   }
-  MayMatch(range, no_io, nullptr, lookup_context, rate_limiter_priority);
+  MayMatch(range, no_io, nullptr, lookup_context, read_options);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
     const bool no_io, BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) {
-  MayMatch(range, no_io, prefix_extractor, lookup_context,
-           rate_limiter_priority);
+    const ReadOptions& read_options) {
+  MayMatch(range, no_io, prefix_extractor, lookup_context, read_options);
 }
 
-void FullFilterBlockReader::MayMatch(
-    MultiGetRange* range, bool no_io, const SliceTransform* prefix_extractor,
-    BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+void FullFilterBlockReader::MayMatch(MultiGetRange* range, bool no_io,
+                                     const SliceTransform* prefix_extractor,
+                                     BlockCacheLookupContext* lookup_context,
+                                     const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s =
       GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, rate_limiter_priority);
+                           &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

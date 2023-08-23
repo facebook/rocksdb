@@ -187,7 +187,8 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0,
+                  Histograms::HISTOGRAM_ENUM_MAX, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -261,7 +262,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -1018,8 +1019,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         PinnableSlice result;
         ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), keys[i],
                           &result));
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  i + 1);
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
 
         get_perf_context()->Reset();
       }
@@ -1029,8 +1029,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         PinnableWideColumns result;
         ASSERT_OK(db->GetEntity(ReadOptions(), db->DefaultColumnFamily(),
                                 keys[i], &result));
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  i + 1);
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
 
         get_perf_context()->Reset();
       }
@@ -1056,7 +1055,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
           ASSERT_OK(statuses[i]);
         }
 
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
                   total_merges);
 
         get_perf_context()->Reset();
@@ -1074,7 +1073,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
           ASSERT_OK(statuses[i]);
         }
 
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
                   total_merges);
 
         get_perf_context()->Reset();
@@ -1112,7 +1111,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 
   // Verify counters when reading from table files
-  db->Flush(FlushOptions());
+  ASSERT_OK(db->Flush(FlushOptions()));
 
   verify();
 }

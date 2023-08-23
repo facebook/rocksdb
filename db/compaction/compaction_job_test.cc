@@ -373,7 +373,7 @@ class CompactionJobTestBase : public testing::Test {
     } else if (table_type_ == TableTypeForTest::kMockTable) {
       file_size = 10;
       EXPECT_OK(mock_table_factory_->CreateMockTable(
-          env_, GenerateFileName(file_number), std::move(contents)));
+          env_, GenerateFileName(file_number), contents));
     } else {
       assert(false);
     }
@@ -386,12 +386,13 @@ class CompactionJobTestBase : public testing::Test {
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-        0);
+        /*compensated_range_deletion_size=*/0, /*tail_size=*/0,
+        /*user_defined_timestamps_persisted=*/true);
 
     mutex_.Lock();
-    EXPECT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_, nullptr));
+    EXPECT_OK(versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        read_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -454,7 +455,8 @@ class CompactionJobTestBase : public testing::Test {
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
           TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
-                             cfd_->internal_comparator()),
+                             cfd_->internal_comparator(),
+                             0 /* block_protection_bytes_per_key */),
           std::move(freader), file_size, &table_reader, false);
       ASSERT_OK(s);
       assert(table_reader);
@@ -653,11 +655,12 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_TRUE(full_history_ts_low_.empty() ||
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
+    JobContext job_context(1, false /* create_superversion */);
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, nullptr,
+        earliest_write_conflict_snapshot, snapshot_checker, &job_context,
         table_cache_, &event_logger, false, false, dbname_,
         &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
@@ -727,6 +730,7 @@ class CompactionJobTestBase : public testing::Test {
   ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
+  const ReadOptions read_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -2440,4 +2444,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-

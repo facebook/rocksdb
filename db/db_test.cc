@@ -66,7 +66,7 @@
 #include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -353,7 +353,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
@@ -424,7 +424,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
           for (int i = 0; i < 2; ++i) {
             threads.emplace_back(write_no_slowdown_func);
           }
-          // Sleep for 2s to allow the threads to insert themselves into the
+          // Sleep for 3s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
@@ -583,7 +583,7 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
         TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
     // For FIFO to pick a compaction
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
-    ASSERT_OK(dbfull()->TEST_WaitForCompact(false));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     for (int g = 0; g < kKeyCount; ++g) {
       std::string get_key = std::string(1, char('a' + g));
       int status_index = i / kKeyCount;
@@ -697,7 +697,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
 
       // 3rd round: delete and flush
       ASSERT_OK(db_->Delete(wopt, handles_[1], "foo"));
-      Flush(1);
+      ASSERT_OK(Flush(1));
       ASSERT_OK(db_->Delete(wopt, handles_[1], "bar"));
 
       ASSERT_TRUE(db_->Get(ropt, handles_[1], "foo", &value).IsNotFound());
@@ -860,7 +860,7 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   ASSERT_EQ('w', value[0]);
 
   // Compact all files.
-  Flush();
+  ASSERT_OK(Flush());
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   // Check DB is not in read-only state.
@@ -1300,7 +1300,7 @@ TEST_F(DBTest, MetaDataTest) {
   options.disable_auto_compactions = true;
 
   int64_t temp_time = 0;
-  options.env->GetCurrentTime(&temp_time);
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
   uint64_t start_time = static_cast<uint64_t>(temp_time);
 
   DestroyAndReopen(options);
@@ -1329,7 +1329,7 @@ TEST_F(DBTest, MetaDataTest) {
   std::vector<std::vector<FileMetaData>> files_by_level;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
 
-  options.env->GetCurrentTime(&temp_time);
+  ASSERT_OK(options.env->GetCurrentTime(&temp_time));
   uint64_t end_time = static_cast<uint64_t>(temp_time);
 
   ColumnFamilyMetaData cf_meta;
@@ -3097,13 +3097,20 @@ class ModelDB : public DB {
       const ColumnFamilyOptions& /*options*/,
       const std::string& /*column_family_name*/,
       const ImportColumnFamilyOptions& /*import_options*/,
-      const ExportImportFilesMetaData& /*metadata*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not implemented.");
   }
 
   using DB::VerifyChecksum;
   Status VerifyChecksum(const ReadOptions&) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -3256,6 +3263,11 @@ class ModelDB : public DB {
   void EnableManualCompaction() override { return; }
 
   void DisableManualCompaction() override { return; }
+
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& /* wait_for_compact_options */) override {
+    return Status::OK();
+  }
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
@@ -3460,6 +3472,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  (void)count;
   delete miter;
   delete dbiter;
   return ok;
@@ -3635,7 +3648,7 @@ TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk", "v3"));
   ASSERT_OK(Put("k", "v4"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_EQ("v1", Get("kk1"));
   ASSERT_EQ("v2", Get("kk2"));
@@ -4267,8 +4280,8 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   options.soft_pending_compaction_bytes_limit = 0;
   options.hard_pending_compaction_bytes_limit = 100;
   options.create_if_missing = true;
-
-  DestroyDB(dbname_, options);
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
   options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true, 4));
   ASSERT_NOK(TryReopen(options));
 
@@ -4609,7 +4622,7 @@ TEST_F(DBTest, GetThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = true;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
 
   std::vector<ThreadStatus> thread_list;
   Status s = env_->GetThreadList(&thread_list);
@@ -4680,7 +4693,7 @@ TEST_F(DBTest, DisableThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = false;
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
   // Verify non of the column family info exists
   env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(handles_,
@@ -4889,7 +4902,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.max_subcompactions = max_subcompactions_;
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   Random rnd(301);
 
   std::vector<ThreadStatus> thread_list;
@@ -4936,7 +4949,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -4978,7 +4991,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.max_subcompactions = max_subcompactions_;
 
-  TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   Random rnd(301);
 
   std::vector<ThreadStatus> thread_list;
@@ -5023,7 +5036,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
   TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
     operation_count[i] = 0;
@@ -5259,6 +5272,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   const uint64_t k1MB = 1 << 20;
   const uint64_t k4KB = 1 << 12;
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -6886,7 +6900,20 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+  // BEGIN check that Cache classes as aliases of each other.
+  // Currently, RowCache and BlockCache are aliases for Cache.
+  // This is expected to change (carefully, intentionally)
+  std::shared_ptr<RowCache> row_cache = options.row_cache;
+  std::shared_ptr<Cache> cache = row_cache;
+  std::shared_ptr<BlockCache> block_cache = row_cache;
+  row_cache = cache;
+  block_cache = cache;
+  row_cache = block_cache;
+  cache = block_cache;
+  // END check that Cache classes as aliases of each other.
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar"));
@@ -6900,6 +6927,27 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(Get("foo"), "bar");
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+
+  // Also test non-OK cache insertion (would be ASAN failure on memory leak)
+  class FailInsertionCache : public CacheWrapper {
+   public:
+    using CacheWrapper::CacheWrapper;
+    const char* Name() const override { return "FailInsertionCache"; }
+    Status Insert(const Slice&, Cache::ObjectPtr, const CacheItemHelper*,
+                  size_t, Handle** = nullptr,
+                  Priority = Priority::LOW) override {
+      return Status::MemoryLimit();
+    }
+  };
+  options.row_cache = std::make_shared<FailInsertionCache>(options.row_cache);
+  ASSERT_OK(options.statistics->Reset());
+  Reopen(options);
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo"), "bar");
+  // Test condition requires row cache insertion to fail
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
 }
 
 TEST_F(DBTest, PinnableSliceAndRowCache) {
@@ -7158,14 +7206,14 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   int idx = 0;
 
   int64_t time_1 = 0;
-  env_->GetCurrentTime(&time_1);
+  ASSERT_OK(env_->GetCurrentTime(&time_1));
   const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
 
   // Add 50 hours
   env_->MockSleepForSeconds(50 * 60 * 60);
 
   int64_t time_2 = 0;
-  env_->GetCurrentTime(&time_2);
+  ASSERT_OK(env_->GetCurrentTime(&time_2));
   const uint64_t uint_time_2 = static_cast<uint64_t>(time_2);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

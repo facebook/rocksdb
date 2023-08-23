@@ -24,7 +24,7 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -54,7 +54,7 @@
 #include "util/compression.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -616,6 +616,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   // via AddExpectedStats().
   auto* stats_checker = new CompactionJobStatsChecker();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   // just enough setting to hold off auto-compaction.
@@ -815,6 +816,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   // what we expect.
   auto* stats_checker = new CompactionJobDeletionStatsChecker();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = kTestScale + 1;

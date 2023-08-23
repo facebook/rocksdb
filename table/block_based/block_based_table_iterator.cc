@@ -26,9 +26,21 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (target && !CheckPrefixMayMatch(*target, IterDirection::kForward)) {
+  seek_stat_state_ = kNone;
+  bool filter_checked = false;
+  if (target &&
+      !CheckPrefixMayMatch(*target, IterDirection::kForward, &filter_checked)) {
     ResetDataIter();
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTERED
+                                            : NON_LAST_LEVEL_SEEK_FILTERED);
     return;
+  }
+  if (filter_checked) {
+    seek_stat_state_ = kFilterUsed;
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTER_MATCH
+                                            : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
   }
 
   bool need_seek_index = true;
@@ -64,6 +76,15 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;
+    }
+  }
+
+  if (read_options_.auto_readahead_size && read_options_.iterate_upper_bound) {
+    FindReadAheadSizeUpperBound();
+    if (target) {
+      index_iter_->Seek(*target);
+    } else {
+      index_iter_->SeekToFirst();
     }
   }
 
@@ -125,11 +146,22 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
+  seek_stat_state_ = kNone;
+  bool filter_checked = false;
   // For now totally disable prefix seek in auto prefix mode because we don't
   // have logic
-  if (!CheckPrefixMayMatch(target, IterDirection::kBackward)) {
+  if (!CheckPrefixMayMatch(target, IterDirection::kBackward, &filter_checked)) {
     ResetDataIter();
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTERED
+                                            : NON_LAST_LEVEL_SEEK_FILTERED);
     return;
+  }
+  if (filter_checked) {
+    seek_stat_state_ = kFilterUsed;
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_FILTER_MATCH
+                                            : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
   }
 
   SavePrevIndexValue();
@@ -185,6 +217,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 void BlockBasedTableIterator::SeekToLast() {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
+  seek_stat_state_ = kNone;
   SavePrevIndexValue();
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -257,7 +290,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     block_prefetcher_.PrefetchIfNeeded(
         rep, data_block_handle, read_options_.readahead_size, is_for_compaction,
-        /*no_sequential_checking=*/false, read_options_.rate_limiter_priority);
+        /*no_sequential_checking=*/false, read_options_);
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
@@ -266,6 +299,14 @@ void BlockBasedTableIterator::InitDataBlock() {
         /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
+    if (!is_for_compaction &&
+        (seek_stat_state_ & kDataBlockReadSinceLastSeek) == 0) {
+      RecordTick(table_->GetStatistics(), is_last_level_
+                                              ? LAST_LEVEL_SEEK_DATA
+                                              : NON_LAST_LEVEL_SEEK_DATA);
+      seek_stat_state_ = static_cast<SeekStatState>(
+          seek_stat_state_ | kDataBlockReadSinceLastSeek | kReportOnUseful);
+    }
   }
 }
 
@@ -294,7 +335,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
-          read_options_.rate_limiter_priority);
+          read_options_);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -320,6 +361,15 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
   }
   block_iter_points_to_real_block_ = true;
   CheckDataBlockWithinUpperBound();
+
+  if (!is_for_compaction &&
+      (seek_stat_state_ & kDataBlockReadSinceLastSeek) == 0) {
+    RecordTick(table_->GetStatistics(), is_last_level_
+                                            ? LAST_LEVEL_SEEK_DATA
+                                            : NON_LAST_LEVEL_SEEK_DATA);
+    seek_stat_state_ = static_cast<SeekStatState>(
+        seek_stat_state_ | kDataBlockReadSinceLastSeek | kReportOnUseful);
+  }
   async_read_in_progress_ = false;
 }
 
@@ -455,5 +505,47 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
                                    ? BlockUpperBound::kUpperBoundBeyondCurBlock
                                    : BlockUpperBound::kUpperBoundInCurBlock;
   }
+}
+
+void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
+  size_t total_bytes_till_upper_bound = 0;
+  size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
+  uint64_t start_offset = index_iter_->value().handle.offset();
+
+  do {
+    BlockHandle block_handle = index_iter_->value().handle;
+    total_bytes_till_upper_bound += block_handle.size();
+    total_bytes_till_upper_bound += footer;
+
+    // Can't figure out for current block if current block
+    // is out of bound. But for next block we can find that.
+    // If curr block's index key >= iterate_upper_bound, it
+    // means all the keys in next block or above are out of
+    // bound.
+    bool next_block_out_of_bound =
+        (user_comparator_.CompareWithoutTimestamp(
+             index_iter_->user_key(),
+             /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
+             /*b_has_ts=*/false) >= 0
+             ? true
+             : false);
+
+    if (next_block_out_of_bound) {
+      break;
+    }
+
+    // Since next block is not out of bound, iterate to that
+    // index block and add it's Data block size to
+    // readahead_size.
+    index_iter_->Next();
+
+    if (!index_iter_->Valid()) {
+      break;
+    }
+
+  } while (true);
+
+  block_prefetcher_.SetUpperBoundOffset(start_offset +
+                                        total_bytes_till_upper_bound);
 }
 }  // namespace ROCKSDB_NAMESPACE

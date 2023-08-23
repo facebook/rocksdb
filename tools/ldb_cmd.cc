@@ -1310,7 +1310,8 @@ void DBLoaderCommand::DoCommand() {
 namespace {
 
 void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
-                      bool json) {
+                      bool json,
+                      const std::vector<ColumnFamilyDescriptor>& cf_descs) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1326,7 +1327,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id*/ "", /*db_session_id*/ "");
-  Status s = versions.DumpManifest(options, file, verbose, hex, json);
+  Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
@@ -1371,6 +1372,7 @@ ManifestDumpCommand::ManifestDumpCommand(
 }
 
 void ManifestDumpCommand::DoCommand() {
+  PrepareOptions();
   std::string manifestfile;
 
   if (!path_.empty()) {
@@ -1438,7 +1440,8 @@ void ManifestDumpCommand::DoCommand() {
     fprintf(stdout, "Processing Manifest file %s\n", manifestfile.c_str());
   }
 
-  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_);
+  DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_,
+                   column_families_);
 
   if (verbose_) {
     fprintf(stdout, "Processing Manifest file %s done\n", manifestfile.c_str());
@@ -1512,6 +1515,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
 }
 
 void FileChecksumDumpCommand::DoCommand() {
+  PrepareOptions();
   // print out the checksum information in the following format:
   //  sst file number, checksum function name, checksum value
   //  sst file number, checksum function name, checksum value
@@ -1616,6 +1620,7 @@ ListColumnFamiliesCommand::ListColumnFamiliesCommand(
     : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
 
 void ListColumnFamiliesCommand::DoCommand() {
+  PrepareOptions();
   std::vector<std::string> column_families;
   Status s = DB::ListColumnFamilies(options_, db_path_, &column_families);
   if (!s.ok()) {
@@ -2046,7 +2051,7 @@ void DBDumperCommand::DoCommand() {
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
-                         /*  json_ */ false);
+                         /*  json_ */ false, column_families_);
         break;
       case kBlobFile:
         DumpBlobFile(path_, is_key_hex_, is_value_hex_,
@@ -2729,6 +2734,7 @@ void WALDumperCommand::Help(std::string& ret) {
 }
 
 void WALDumperCommand::DoCommand() {
+  PrepareOptions();
   DumpWalFile(options_, wal_file_, print_header_, print_values_,
               is_write_committed_, &exec_state_);
 }
@@ -3706,7 +3712,8 @@ void DBFileDumperCommand::DoCommand() {
   manifest_filepath = NormalizePath(manifest_filepath);
 
   std::cout << manifest_filepath << std::endl;
-  DumpManifestFile(options_, manifest_filepath, false, false, false);
+  DumpManifestFile(options_, manifest_filepath, false, false, false,
+                   column_families_);
   std::cout << std::endl;
 
   std::vector<ColumnFamilyMetaData> column_families;
@@ -4168,6 +4175,8 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   PrepareOptions();
 
   OfflineManifestWriter w(options_, db_path_);
@@ -4192,7 +4201,7 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
     s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
                                                     &db_dir, nullptr);
     if (s.ok()) {
-      s = w.LogAndApply(cfd, &edit, db_dir.get());
+      s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
     }
   }
 

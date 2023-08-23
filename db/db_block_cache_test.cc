@@ -620,9 +620,9 @@ class MockCache : public LRUCache {
   static uint32_t low_pri_insert_count;
 
   MockCache()
-      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
-                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/,
-                 0.0 /*low_pri_pool_ratio*/) {}
+      : LRUCache(LRUCacheOptions(
+            size_t{1} << 25 /*capacity*/, 0 /*num_shard_bits*/,
+            false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/)) {}
 
   using ShardedCache::Insert;
 
@@ -717,7 +717,7 @@ class LookupLiarCache : public CacheWrapper {
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
                  CreateContext* create_context = nullptr,
-                 Priority priority = Priority::LOW, bool wait = true,
+                 Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override {
     if (nth_lookup_not_found_ == 1) {
       nth_lookup_not_found_ = 0;
@@ -726,8 +726,7 @@ class LookupLiarCache : public CacheWrapper {
     if (nth_lookup_not_found_ > 1) {
       --nth_lookup_not_found_;
     }
-    return CacheWrapper::Lookup(key, helper, create_context, priority, wait,
-                                stats);
+    return CacheWrapper::Lookup(key, helper, create_context, priority, stats);
   }
 
   // 1 == next lookup, 2 == after next, etc.
@@ -742,10 +741,15 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
+        // FixedHyperClockCache
         HyperClockCacheOptions(
             capacity,
             BlockBasedTableOptions().block_size /*estimated_value_size*/,
             num_shard_bits)
+            .MakeSharedCache(),
+        // AutoHyperClockCache
+        HyperClockCacheOptions(capacity, 0 /*estimated_value_size*/,
+                               num_shard_bits)
             .MakeSharedCache()}) {
     if (!base_cache) {
       // Skip clock cache when not supported
@@ -980,12 +984,14 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   const size_t capacity = size_t{1} << 25;
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
+    SCOPED_TRACE("Partition? " + std::to_string(partition));
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity),
           HyperClockCacheOptions(
               capacity,
               BlockBasedTableOptions().block_size /*estimated_value_size*/)
               .MakeSharedCache()}) {
+      SCOPED_TRACE(std::string("Cache: ") + cache->Name());
       ++iterations_tested;
 
       Options options = CurrentOptions();
@@ -1279,6 +1285,7 @@ TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
   HyperClockCacheOptions hcc_opts{capacity, value_size_est};
   hcc_opts.num_shard_bits = 2;  // 4 shards
   hcc_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  hcc_opts.hash_seed = 0;  // deterministic hashing
   std::shared_ptr<Cache> cache = hcc_opts.MakeSharedCache();
   std::shared_ptr<CountingLogger> logger = std::make_shared<CountingLogger>();
 

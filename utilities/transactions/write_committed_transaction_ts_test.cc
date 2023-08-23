@@ -564,6 +564,13 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   ASSERT_TRUE(txn1->GetForUpdate(ReadOptions(), "foo", &dontcare).IsBusy());
   ASSERT_TRUE(called);
 
+  Transaction* reused_txn =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), txn1.get());
+  ASSERT_EQ(reused_txn, txn1.get());
+  ASSERT_OK(reused_txn->Put("foo", "v1"));
+  ASSERT_OK(reused_txn->SetCommitTimestamp(40));
+  ASSERT_OK(reused_txn->Commit());
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }

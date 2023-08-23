@@ -70,8 +70,10 @@ class CuckooBuilderTest : public testing::Test {
 
     // Assert Table Properties.
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, ioptions, &props));
+                                  kCuckooTableMagicNumber, ioptions,
+                                  read_options, &props));
     // Check unused bucket.
     std::string unused_key =
         props->user_collected_properties[CuckooTablePropertyNames::kEmptyKey];
@@ -120,8 +122,7 @@ class CuckooBuilderTest : public testing::Test {
     for (uint32_t i = 0; i + 1 < table_size + cuckoo_block_size; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
-                                  &read_slice, nullptr, nullptr,
-                                  Env::IO_TOTAL /* rate_limiter_priority */));
+                                  &read_slice, nullptr, nullptr));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();
@@ -627,4 +628,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

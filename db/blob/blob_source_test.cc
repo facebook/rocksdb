@@ -76,7 +76,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
     }
   } else {
     CompressionOptions opts;
-    CompressionContext context(compression);
+    CompressionContext context(compression, opts);
     constexpr uint64_t sample_for_compression = 0;
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          compression, sample_for_compression);
@@ -517,7 +517,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                   compression, blob_offsets, blob_sizes);
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
+    ASSERT_OK(blob_source.GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
 
     const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
@@ -1139,12 +1140,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                          blob_file_cache.get());
 
   CacheHandleGuard<BlobFileReader> file_reader;
-  ASSERT_OK(blob_source.GetBlobFileReader(file_number, &file_reader));
+  ReadOptions read_options;
+  ASSERT_OK(
+      blob_source.GetBlobFileReader(read_options, file_number, &file_reader));
   ASSERT_NE(file_reader.GetValue(), nullptr);
   const uint64_t file_size = file_reader.GetValue()->GetFileSize();
   ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
 
-  ReadOptions read_options;
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
@@ -1214,12 +1216,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(handle0, nullptr);
 
       // key0's item should be in the secondary cache.
-      bool is_in_sec_cache = false;
+      bool kept_in_sec_cache = false;
       auto sec_handle0 = secondary_cache->Lookup(
-          key0, &BlobSource::SharedCacheInterface::kFullHelper,
+          key0, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+          /*advise_erase=*/true, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
       auto value = static_cast<BlobContents*>(sec_handle0->Value());
@@ -1242,12 +1244,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
 
-      bool is_in_sec_cache = false;
+      bool kept_in_sec_cache = false;
       auto sec_handle1 = secondary_cache->Lookup(
-          key1, &BlobSource::SharedCacheInterface::kFullHelper,
+          key1, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+          /*advise_erase=*/true, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,

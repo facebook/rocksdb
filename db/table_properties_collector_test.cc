@@ -292,8 +292,9 @@ void TestCustomizedTablePropertiesCollector(
       new RandomAccessFileReader(std::move(source), "test"));
 
   std::unique_ptr<TableProperties> props;
+  const ReadOptions read_options;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props);
+                                 magic_number, ioptions, read_options, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -429,8 +430,10 @@ void TestInternalKeyPropertiesCollector(
         new RandomAccessFileReader(std::move(source), "test"));
 
     std::unique_ptr<TableProperties> props;
-    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
-                                   magic_number, ioptions, &props);
+    const ReadOptions read_options;
+    Status s =
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            ioptions, read_options, &props);
     ASSERT_OK(s);
 
     auto user_collected = props->user_collected_properties;

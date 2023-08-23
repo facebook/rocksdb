@@ -83,7 +83,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //
   // and we use every of the value as a candidate, and estimate how much we
   // wasted, compared to read. For example, when we use the 3rd record
-  // as candiate. This area is what we read:
+  // as candidate. This area is what we read:
   //                                     +---+
   //                             +---+   |   |
   //                             |   |   |   |
@@ -123,7 +123,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  +---+    +---+    +---+    +---+   +---+
   //
   // Which can be calculated iteratively.
-  // The difference between wasted using 4st and 3rd record, will
+  // The difference between wasted using 4th and 3rd record, will
   // be following area:
   //                                     +---+
   //  +--+  +-+   ++  +-+  +-+   +---+   |   |
@@ -143,8 +143,8 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  |   |    |   |    |   |    |   |   |   |
   //  +---+    +---+    +---+    +---+   +---+
   //
-  // which will be the size difference between 4st and 3rd record,
-  // times 3, which is number of records before the 4st.
+  // which will be the size difference between 4th and 3rd record,
+  // times 3, which is number of records before the 4th.
   // Here we assume that all data within the prefetch range will be useful. In
   // reality, it may not be the case when a partial block is inside the range,
   // or there are data in the middle that is not read. We ignore those cases
@@ -443,11 +443,8 @@ void BlockBasedTableFactory::InitializeOptions() {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
     LRUCacheOptions co;
-    co.capacity = 8 << 20;
-    // It makes little sense to pay overhead for mid-point insertion while the
-    // block size is only 8MB.
-    co.high_pri_pool_ratio = 0.0;
-    co.low_pri_pool_ratio = 0.0;
+    // 32MB, the recommended minimum size for 64 shards, to reduce contention
+    co.capacity = 32 << 20;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
@@ -570,7 +567,8 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, table_reader_cache_res_mgr_,
+      file_size, table_reader_options.block_protection_bytes_per_key,
+      table_reader, table_reader_options.tail_size, table_reader_cache_res_mgr_,
       table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level,
       table_reader_options.immortal, table_reader_options.largest_seqno,
@@ -578,7 +576,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
-      table_reader_options.unique_id);
+      table_reader_options.unique_id,
+      table_reader_options.user_defined_timestamps_persisted);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(

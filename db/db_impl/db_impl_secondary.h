@@ -96,12 +96,13 @@ class DBImplSecondary : public DBImpl {
   // workaround, the secondaries can be opened with `max_open_files=-1` so that
   // it eagerly keeps all talbe files open and is able to access the contents of
   // deleted files via prior open fd.
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
 
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, std::string* timestamp) override;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
@@ -117,7 +118,7 @@ class DBImplSecondary : public DBImpl {
   // deleted. As a partial hacky workaround, the secondaries can be opened with
   // `max_open_files=-1` so that it eagerly keeps all talbe files open and is
   // able to access the contents of deleted files via prior open fd.
-  Iterator* NewIterator(const ReadOptions&,
+  Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
@@ -127,7 +128,7 @@ class DBImplSecondary : public DBImpl {
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
 
-  Status NewIterators(const ReadOptions& options,
+  Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
@@ -273,85 +274,6 @@ class DBImplSecondary : public DBImpl {
     return Status::OK();
   }
 
-  // ColumnFamilyCollector is a write batch handler which does nothing
-  // except recording unique column family IDs
-  class ColumnFamilyCollector : public WriteBatch::Handler {
-    std::unordered_set<uint32_t> column_family_ids_;
-
-    Status AddColumnFamilyId(uint32_t column_family_id) {
-      if (column_family_ids_.find(column_family_id) ==
-          column_family_ids_.end()) {
-        column_family_ids_.insert(column_family_id);
-      }
-      return Status::OK();
-    }
-
-   public:
-    explicit ColumnFamilyCollector() {}
-
-    ~ColumnFamilyCollector() override {}
-
-    Status PutCF(uint32_t column_family_id, const Slice&,
-                 const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
-                         const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MergeCF(uint32_t column_family_id, const Slice&,
-                   const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
-                          const Slice&) override {
-      return AddColumnFamilyId(column_family_id);
-    }
-
-    Status MarkBeginPrepare(bool) override { return Status::OK(); }
-
-    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
-
-    Status MarkRollback(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommit(const Slice&) override { return Status::OK(); }
-
-    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
-      return Status::OK();
-    }
-
-    Status MarkNoop(bool) override { return Status::OK(); }
-
-    const std::unordered_set<uint32_t>& column_families() const {
-      return column_family_ids_;
-    }
-  };
-
-  Status CollectColumnFamilyIdsFromWriteBatch(
-      const WriteBatch& batch, std::vector<uint32_t>* column_family_ids) {
-    assert(column_family_ids != nullptr);
-    column_family_ids->clear();
-    ColumnFamilyCollector handler;
-    Status s = batch.Iterate(&handler);
-    if (s.ok()) {
-      for (const auto& cf : handler.column_families()) {
-        column_family_ids->push_back(cf);
-      }
-    }
-    return s;
-  }
-
   bool OwnTablesAndLogs() const override {
     // Currently, the secondary instance does not own the database files. It
     // simply opens the files of the primary instance and tracks their file
@@ -403,4 +325,3 @@ class DBImplSecondary : public DBImpl {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

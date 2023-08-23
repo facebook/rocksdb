@@ -9,6 +9,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
@@ -81,7 +82,8 @@ struct SstFileWriter::Rep {
 
     assert(value_type == kTypeValue || value_type == kTypeMerge ||
            value_type == kTypeDeletion ||
-           value_type == kTypeDeletionWithTimestamp);
+           value_type == kTypeDeletionWithTimestamp ||
+           value_type == kTypeWideColumnEntity);
 
     constexpr SequenceNumber sequence_number = 0;
 
@@ -130,10 +132,39 @@ struct SstFileWriter::Rep {
     return AddImpl(user_key_with_ts, value, value_type);
   }
 
+  Status AddEntity(const Slice& user_key, const WideColumns& columns) {
+    WideColumns sorted_columns(columns);
+    std::sort(sorted_columns.begin(), sorted_columns.end(),
+              [](const WideColumn& lhs, const WideColumn& rhs) {
+                return lhs.name().compare(rhs.name()) < 0;
+              });
+
+    std::string entity;
+    const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
+    if (!s.ok()) {
+      return s;
+    }
+    if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("wide column entity is too large");
+    }
+    return Add(user_key, entity, kTypeWideColumnEntity);
+  }
+
   Status DeleteRangeImpl(const Slice& begin_key, const Slice& end_key) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
+    int cmp = internal_comparator.user_comparator()->CompareWithoutTimestamp(
+        begin_key, end_key);
+    if (cmp > 0) {
+      // It's an empty range where endpoints appear mistaken. Don't bother
+      // applying it to the DB, and return an error to the user.
+      return Status::InvalidArgument("end key comes before start key");
+    } else if (cmp == 0) {
+      // It's an empty range. Don't bother applying it to the DB.
+      return Status::OK();
+    }
+
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
     if (file_info.num_range_del_entries == 0) {
       file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
@@ -358,6 +389,11 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
 Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
                           const Slice& value) {
   return rep_->Add(user_key, timestamp, value, ValueType::kTypeValue);
+}
+
+Status SstFileWriter::PutEntity(const Slice& user_key,
+                                const WideColumns& columns) {
+  return rep_->AddEntity(user_key, columns);
 }
 
 Status SstFileWriter::Merge(const Slice& user_key, const Slice& value) {

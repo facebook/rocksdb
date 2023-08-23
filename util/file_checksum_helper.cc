@@ -98,6 +98,8 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
     return Status::InvalidArgument("checksum_list is nullptr");
   }
   assert(checksum_list);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   checksum_list->reset();
   Status s;
 
@@ -125,7 +127,8 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
-  FileChecksumRetriever retriever(manifest_file_size, *checksum_list);
+  FileChecksumRetriever retriever(read_options, manifest_file_size,
+                                  *checksum_list);
   retriever.Iterate(reader, &s);
   assert(!retriever.status().ok() ||
          manifest_file_size == std::numeric_limits<uint64_t>::max() ||

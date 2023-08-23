@@ -250,6 +250,12 @@ class ComparatorWithU64TsImpl : public Comparator {
 
   const char* Name() const override { return kClassName(); }
 
+  // The comparator that compares the user key without timestamp part is treated
+  // as the root comparator.
+  const Comparator* GetRootComparator() const override {
+    return &cmp_without_ts_;
+  }
+
   void FindShortSuccessor(std::string*) const override {}
   void FindShortestSeparator(std::string*, const Slice&) const override {}
   int Compare(const Slice& a, const Slice& b) const override {
@@ -316,24 +322,37 @@ const Comparator* BytewiseComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
+const Comparator* ReverseBytewiseComparatorWithU64Ts() {
+  STATIC_AVOID_DESTRUCTION(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>, comp_with_u64_ts);
+  return &comp_with_u64_ts;
+}
+
 static int RegisterBuiltinComparators(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
   library.AddFactory<const Comparator>(
       BytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ReverseBytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return ReverseBytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparatorWithU64Ts(); });
-  return 3;
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparatorWithU64Ts(); });
+  library.AddFactory<const Comparator>(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) {
+        return ReverseBytewiseComparatorWithU64Ts();
+      });
+  return 4;
 }
 
 Status Comparator::CreateFromString(const ConfigOptions& config_options,
@@ -357,6 +376,9 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   } else if (id ==
              ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName()) {
     *result = BytewiseComparatorWithU64Ts();
+  } else if (id == ComparatorWithU64TsImpl<
+                       ReverseBytewiseComparatorImpl>::kClassName()) {
+    *result = ReverseBytewiseComparatorWithU64Ts();
   } else if (value.empty()) {
     // No Id and no options.  Clear the object
     *result = nullptr;

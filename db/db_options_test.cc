@@ -22,6 +22,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -581,6 +582,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
 
 TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
   options.env = env_;
@@ -878,9 +880,13 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
   options.env = CurrentOptions().env;
+  // Default value allows RocksDB to set ttl to 30 days.
+  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  // Disable
   options.ttl = 0;
   Reopen(options);
-  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+  ASSERT_EQ(0, dbfull()->GetOptions().ttl);
 
   options.ttl = 100;
   Reopen(options);
@@ -890,15 +896,12 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Reopen(options);
   ASSERT_EQ(100 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
 
-  options.ttl = 200;
-  options.periodic_compaction_seconds = 300;
-  Reopen(options);
-  ASSERT_EQ(200, dbfull()->GetOptions().ttl);
-
+  // periodic_compaction_seconds should have no effect
+  // on FIFO compaction.
   options.ttl = 500;
   options.periodic_compaction_seconds = 300;
   Reopen(options);
-  ASSERT_EQ(300, dbfull()->GetOptions().ttl);
+  ASSERT_EQ(500, dbfull()->GetOptions().ttl);
 }
 
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
@@ -910,6 +913,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.compaction_options_fifo.allow_compaction = false;
+  options.num_levels = 1;
   env_->SetMockSleep();
   options.env = env_;
 
@@ -1009,6 +1013,24 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(NumTableFilesAtLevel(0), 1);
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
+
+  // Test dynamically setting `file_temperature_age_thresholds`
+  ASSERT_TRUE(
+      dbfull()
+          ->GetOptions()
+          .compaction_options_fifo.file_temperature_age_thresholds.empty());
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo",
+                                   "{file_temperature_age_thresholds={{age=10;"
+                                   "temperature=kWarm}:{age=30000;"
+                                   "temperature=kCold}}}"}}));
+  auto opts = dbfull()->GetOptions();
+  const auto& fifo_temp_opt =
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(fifo_temp_opt.size(), 2);
+  ASSERT_EQ(fifo_temp_opt[0].temperature, Temperature::kWarm);
+  ASSERT_EQ(fifo_temp_opt[0].age, 10);
+  ASSERT_EQ(fifo_temp_opt[1].temperature, Temperature::kCold);
+  ASSERT_EQ(fifo_temp_opt[1].age, 30000);
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
@@ -1021,7 +1043,8 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   const std::string kValue(1024, 'v');
   Reopen(options);
 
-  ASSERT_EQ(0, dbfull()->GetDBOptions().compaction_readahead_size);
+  ASSERT_EQ(1024 * 1024 * 2,
+            dbfull()->GetDBOptions().compaction_readahead_size);
   ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
   ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
   for (int i = 0; i < 1024; i++) {
@@ -1043,6 +1066,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
   options.env = CurrentOptions().env;
+  options.num_levels = 1;
 
   ASSERT_OK(TryReopen(options));
 
@@ -1063,12 +1087,19 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   // ttl under compaction_options_fifo.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo",
-        "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
+        "{allow_compaction=true;max_table_files_size=1024;ttl=731;file_"
+        "temperature_age_thresholds={temperature=kCold;age=12345}}"},
        {"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  auto opts = dbfull()->GetOptions();
+  const auto& file_temp_age =
+      opts.compaction_options_fifo.file_temperature_age_thresholds;
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
 
   // Put ttl as the first option inside compaction_options_fifo. That works as
@@ -1081,6 +1112,9 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
             true);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
+  ASSERT_EQ(file_temp_age.size(), 1);
+  ASSERT_EQ(file_temp_age[0].temperature, Temperature::kCold);
+  ASSERT_EQ(file_temp_age[0].age, 12345);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
 }
 
@@ -1204,6 +1238,90 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
   ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+}
+
+TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdValidation) {
+  Options options = CurrentOptions();
+  Destroy(options);
+
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.max_open_files = -1;
+  // elements are not sorted
+  // During DB open
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kCold, 1000});
+  options.compaction_options_fifo.file_temperature_age_thresholds.push_back(
+      {Temperature::kWarm, 500});
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+  // Dynamically set option
+  options.compaction_options_fifo.file_temperature_age_thresholds.pop_back();
+  ASSERT_OK(TryReopen(options));
+  s = db_->SetOptions({{"compaction_options_fifo",
+                        "{file_temperature_age_thresholds={{temperature=kCold;"
+                        "age=1000000}:{temperature=kWarm;age=1}}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(
+      s.getState(),
+      "Option file_temperature_age_thresholds requires elements to be sorted "
+      "in increasing order with respect to `age` field."));
+
+  // not single level
+  // During DB open
+  options.num_levels = 2;
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+  // Dynamically set option
+  options.compaction_options_fifo.file_temperature_age_thresholds.clear();
+  DestroyAndReopen(options);
+  s = db_->SetOptions(
+      {{"compaction_options_fifo",
+        "{file_temperature_age_thresholds={temperature=kCold;age=1000}}"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Option file_temperature_age_thresholds is only "
+                          "supported when num_levels = 1."));
+}
+
+TEST_F(DBOptionsTest, TempOptionsFailTest) {
+  std::shared_ptr<FaultInjectionTestFS> fs;
+  std::unique_ptr<Env> env;
+
+  fs.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+  env = NewCompositeEnv(fs);
+  Options options = CurrentOptions();
+  options.env = env.get();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:create",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:written",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(true); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(TryReopen(options));
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  uint64_t number;
+  FileType type;
+  bool found_temp_file = false;
+  for (size_t i = 0; i < filenames.size(); i++) {
+    if (ParseFileName(filenames[i], &number, &type) && type == kTempFile) {
+      found_temp_file = true;
+    }
+  }
+  ASSERT_FALSE(found_temp_file);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

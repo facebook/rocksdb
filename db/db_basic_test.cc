@@ -1204,9 +1204,23 @@ TEST_F(DBBasicTest, DBClose) {
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 2);
 
+  // close by WaitForCompact() with close_db option
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
+  wait_for_compact_options.close_db = true;
+  s = db->WaitForCompact(wait_for_compact_options);
+  ASSERT_EQ(env->GetCloseCount(), 3);
+  // see TestLogger::CloseHelper()
+  ASSERT_EQ(s, Status::IOError());
+
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
   // Provide our own logger and ensure DB::Close() does not close it
   options.info_log.reset(new TestEnv::TestLogger(env));
-  options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
@@ -1214,9 +1228,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
-  options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 4);
 }
 
 TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
@@ -2302,9 +2316,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
 #else   // ROCKSDB_IOURING_PRESENT
-  if (GetParam()) {
-    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
-  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -2338,16 +2350,18 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
-#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
-#endif  // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -2531,8 +2545,12 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -2623,18 +2641,17 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::NotSupported());
-  ASSERT_EQ(statuses[1], Status::NotSupported());
-  ASSERT_EQ(statuses[2], Status::NotSupported());
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(statuses[2], Status::OK());
 
-  HistogramData multiget_io_batch_size;
+  HistogramData async_read_bytes;
 
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
+  statistics()->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
 
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 3);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  ASSERT_EQ(async_read_bytes.count, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
@@ -3626,11 +3643,11 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                    CreateContext* create_context,
-                   Priority priority = Priority::LOW, bool wait = true,
+                   Priority priority = Priority::LOW,
                    Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle =
-          target_->Lookup(key, helper, create_context, priority, wait, stats);
+          target_->Lookup(key, helper, create_context, priority, stats);
       if (handle != nullptr) {
         num_found_++;
       }
@@ -4489,6 +4506,63 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   options.file_checksum_gen_factory.reset(new MisnamedFileChecksumGenFactory());
   Reopen(options);
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
+}
+
+TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int alignment = 256 * 1024;
+  for (int i = 0; i < 16; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(alignment)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> filenames;
+  int sst_cnt = 0;
+  std::string sst_name;
+  uint64_t sst_size;
+  uint64_t number;
+  FileType type;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (auto name : filenames) {
+    if (ParseFileName(name, &number, &type)) {
+      if (type == kTableFile) {
+        sst_cnt++;
+        sst_name = name;
+      }
+    }
+  }
+  ASSERT_EQ(sst_cnt, 1);
+  ASSERT_OK(env_->GetFileSize(dbname_ + '/' + sst_name, &sst_size));
+
+  bool last_read = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenerateOneFileChecksum::Chunk:0", [&](void* /*arg*/) {
+        if (env_->random_read_bytes_counter_.load() == sst_size) {
+          EXPECT_FALSE(last_read);
+          last_read = true;
+        } else {
+          ASSERT_EQ(env_->random_read_bytes_counter_.load() & (alignment - 1),
+                    0);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  env_->count_random_reads_ = true;
+  env_->random_read_bytes_counter_ = 0;
+  env_->random_read_counter_.Reset();
+
+  ReadOptions ro;
+  ro.readahead_size = alignment;
+  ASSERT_OK(db_->VerifyFileChecksums(ro));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(last_read);
+  ASSERT_EQ(env_->random_read_counter_.Read(),
+            (sst_size + alignment - 1) / (alignment));
 }
 
 // TODO: re-enable after we provide finer-grained control for WAL tracking to

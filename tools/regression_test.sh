@@ -113,7 +113,8 @@ DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f,"
 DATA_FORMAT+="%5.0f,%5.0f,%5.0f" # time
 DATA_FORMAT+="\n"
 
-MAIN_PATTERN="$1""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
+# In case of async_io, $1 is benchmark_asyncio
+MAIN_PATTERN="${1%%_*}""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
 PERC_PATTERN="Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) "
 PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 #==============================================================================

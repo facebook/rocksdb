@@ -98,7 +98,7 @@ public class CompactionJobInfo extends RocksObject {
 
   /**
    * Get the table properties for the input and output tables.
-   *
+   * <p>
    * The map is keyed by values from {@link #inputFiles()} and
    *     {@link #outputFiles()}.
    *

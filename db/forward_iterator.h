@@ -122,7 +122,7 @@ class ForwardIterator : public InternalIterator {
   void DeleteIterator(InternalIterator* iter, bool is_arena = false);
 
   DBImpl* const db_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
   const SliceTransform* const prefix_extractor_;
   const Comparator* user_comparator_;

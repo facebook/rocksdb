@@ -350,6 +350,21 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     ASSERT_OK(
         CheckOptionsCompatibility(config_options, dbname_, db_opt, cf_descs));
   }
+
+  // persist_user_defined_timestamps
+  {
+    bool prev_persist_user_defined_timestamps =
+        cf_descs[2].options.persist_user_defined_timestamps;
+    cf_descs[2].options.persist_user_defined_timestamps = false;
+    ASSERT_NOK(
+        CheckOptionsCompatibility(config_options, dbname_, db_opt, cf_descs));
+
+    cf_descs[2].options.persist_user_defined_timestamps =
+        prev_persist_user_defined_timestamps;
+    ASSERT_OK(
+        CheckOptionsCompatibility(config_options, dbname_, db_opt, cf_descs));
+  }
+
   ASSERT_OK(DestroyDB(dbname_, Options(db_opt, cf_descs[0].options)));
 }
 

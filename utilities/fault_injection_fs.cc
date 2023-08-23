@@ -242,6 +242,7 @@ IOStatus TestFSWritableFile::PositionedAppend(
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
   MutexLock l(&mutex_);
+  fs_->WritableFileClosed(state_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -263,7 +264,6 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
     io_s = target_->Close(options, dbg);
   }
   if (io_s.ok()) {
-    fs_->WritableFileClosed(state_);
     IOStatus in_s = fs_->InjectMetadataWriteError();
     if (!in_s.ok()) {
       return in_s;

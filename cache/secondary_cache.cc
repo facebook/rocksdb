@@ -32,10 +32,14 @@ Status FailCreate(const Slice&, Cache::CreateContext*, MemoryAllocator*,
 }  // namespace
 
 Status SecondaryCache::InsertSaved(const Slice& key, const Slice& saved) {
-  static Cache::CacheItemHelper helper{CacheEntryRole::kMisc, &NoopDelete,
-                                       &SliceSize, &SliceSaveTo, &FailCreate};
+  static Cache::CacheItemHelper helper_no_secondary{CacheEntryRole::kMisc,
+                                                    &NoopDelete};
+  static Cache::CacheItemHelper helper{
+      CacheEntryRole::kMisc, &NoopDelete, &SliceSize,
+      &SliceSaveTo,          &FailCreate, &helper_no_secondary};
   // NOTE: depends on Insert() being synchronous, not keeping pointer `&saved`
-  return Insert(key, const_cast<Slice*>(&saved), &helper);
+  return Insert(key, const_cast<Slice*>(&saved), &helper,
+                /*force_insert=*/true);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
