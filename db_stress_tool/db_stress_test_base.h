@@ -241,7 +241,7 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open(SharedState* shared);
+  void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
 
