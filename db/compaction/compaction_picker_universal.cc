@@ -115,6 +115,7 @@ class UniversalCompactionBuilder {
   Compaction* PickPeriodicCompaction();
 
   bool ShouldSkipLastSortedRunForSizeAmpCompaction() {
+    assert(!sorted_runs_.empty());
     return ioptions_.preclude_last_level_data_seconds > 0 &&
            ioptions_.num_levels > 2 &&
            sorted_runs_.back().level == ioptions_.num_levels - 1 &&
@@ -783,7 +784,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
 }
 
 // Look at overall size amplification. If size amplification
-// exceeeds the configured value, then do a compaction
+// exceeds the configured value, then do a compaction
 // on longest span of candidate files without conflict with other compactions
 // ending at the earliest base file (overriding configured values of file-size
 // ratios, min_merge_width and max_merge_width).
