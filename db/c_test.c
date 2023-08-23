@@ -375,6 +375,11 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
 
   // Force compaction
   rocksdb_compact_range(db, NULL, 0, NULL, 0);
+  rocksdb_wait_for_compact_options_t* wco;
+  wco = rocksdb_wait_for_compact_options_create();
+  rocksdb_wait_for_compact(db, wco, &err);
+  CheckNoError(err);
+  rocksdb_wait_for_compact_options_destroy(wco);
   // should have filtered bar, but not foo
   CheckGet(db, roptions, "foo", "foovalue");
   CheckGet(db, roptions, "bar", NULL);
@@ -3685,6 +3690,37 @@ int main(int argc, char** argv) {
     CheckCondition(0 != rocksdb_statistics_histogram_data_get_sum(hist));
 
     rocksdb_statistics_histogram_data_destroy(hist);
+  }
+
+  StartPhase("wait_for_compact_options");
+  {
+    rocksdb_wait_for_compact_options_t* wco;
+    wco = rocksdb_wait_for_compact_options_create();
+
+    rocksdb_wait_for_compact_options_set_abort_on_pause(wco, 1);
+    CheckCondition(1 ==
+                   rocksdb_wait_for_compact_options_get_abort_on_pause(wco));
+
+    rocksdb_wait_for_compact_options_set_flush(wco, 1);
+    CheckCondition(1 == rocksdb_wait_for_compact_options_get_flush(wco));
+
+    rocksdb_wait_for_compact_options_set_close_db(wco, 1);
+    CheckCondition(1 == rocksdb_wait_for_compact_options_get_close_db(wco));
+
+    rocksdb_wait_for_compact_options_set_timeout(wco, 342);
+    CheckCondition(342 == rocksdb_wait_for_compact_options_get_timeout(wco));
+
+    rocksdb_wait_for_compact_options_destroy(wco);
+  }
+  StartPhase("wait_for_compact");
+  {
+    rocksdb_wait_for_compact_options_t* wco;
+    wco = rocksdb_wait_for_compact_options_create();
+    rocksdb_wait_for_compact_options_set_flush(wco, 1);
+
+    rocksdb_wait_for_compact(db, wco, &err);
+    CheckNoError(err);
+    rocksdb_wait_for_compact_options_destroy(wco);
   }
 
   StartPhase("cancel_all_background_work");
