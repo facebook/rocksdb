@@ -184,13 +184,13 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
         std::string start_key_with_max_ts;
         AppendUserKeyWithMaxTimestamp(&start_key_with_max_ts, cur_start_key,
                                       ts_sz);
-        pinned_slices_.emplace_back(std::move(start_key_with_max_ts));
-        Slice start_key = pinned_slices_.back();
+        pinned_tombstone_start_key_ = std::move(start_key_with_max_ts);
+        Slice start_key = pinned_tombstone_start_key_;
 
         std::string end_key_with_max_ts;
         AppendUserKeyWithMaxTimestamp(&end_key_with_max_ts, cur_end_key, ts_sz);
-        pinned_slices_.emplace_back(std::move(end_key_with_max_ts));
-        Slice end_key = pinned_slices_.back();
+        pinned_tombstone_end_key_ = std::move(end_key_with_max_ts);
+        Slice end_key = pinned_tombstone_end_key_;
 
         // RangeTombstoneStack expects start_key and end_key to have max
         // timestamp.
@@ -221,17 +221,17 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
     if (!unfragmented_tombstones->IsKeyPinned()) {
-      pinned_slices_.emplace_back(tombstone_start_key.data(),
-                                  tombstone_start_key.size());
-      tombstone_start_key = pinned_slices_.back();
+      pinned_tombstone_start_key_.assign(tombstone_start_key.data(),
+                                         tombstone_start_key.size());
+      tombstone_start_key = pinned_tombstone_start_key_;
     }
     no_tombstones = false;
 
     Slice tombstone_end_key = unfragmented_tombstones->value();
     if (!unfragmented_tombstones->IsValuePinned()) {
-      pinned_slices_.emplace_back(tombstone_end_key.data(),
-                                  tombstone_end_key.size());
-      tombstone_end_key = pinned_slices_.back();
+      pinned_tombstone_end_key_.assign(tombstone_end_key.data(),
+                                       tombstone_end_key.size());
+      tombstone_end_key = pinned_tombstone_end_key_;
     }
     if (!cur_end_keys.empty() &&
         icmp.user_comparator()->CompareWithoutTimestamp(

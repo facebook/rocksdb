@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <list>
 #include <memory>
 #include <set>
 #include <string>
@@ -117,7 +116,8 @@ struct FragmentedRangeTombstoneList {
   std::vector<Slice> tombstone_timestamps_;
   std::once_flag seq_set_init_once_flag_;
   std::set<SequenceNumber> seq_set_;
-  std::list<std::string> pinned_slices_;
+  std::string pinned_tombstone_start_key_;
+  std::string pinned_tombstone_end_key_;
   PinnedIteratorsManager pinned_iters_mgr_;
   uint64_t num_unfragmented_tombstones_;
   uint64_t total_tombstone_payload_bytes_;
