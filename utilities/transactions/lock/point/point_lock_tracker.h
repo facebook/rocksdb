@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "util/hash_containers.h"
 #include "utilities/transactions/lock/lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,9 +34,9 @@ struct TrackedKeyInfo {
   }
 };
 
-using TrackedKeyInfos = std::unordered_map<std::string, TrackedKeyInfo>;
+using TrackedKeyInfos = UnorderedMap<std::string, TrackedKeyInfo>;
 
-using TrackedKeys = std::unordered_map<ColumnFamilyId, TrackedKeyInfos>;
+using TrackedKeys = UnorderedMap<ColumnFamilyId, TrackedKeyInfos>;
 
 // Tracks point locks on single keys.
 class PointLockTracker : public LockTracker {
