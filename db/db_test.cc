@@ -6046,9 +6046,8 @@ TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
   int record_count = 0;
   class TestStatistics : public StatisticsImpl {
    public:
-    TestStatistics(int* record_count)
+    explicit TestStatistics(int* record_count)
         : StatisticsImpl(nullptr), record_count_(record_count) {}
-    static const char* kClassName() { return "Test"; }
     void recordTick(uint32_t ticker_type, uint64_t count) override {
       if (ticker_type == COMPACTION_CPU_TOTAL_TIME) {
         ASSERT_GT(count, 0);
