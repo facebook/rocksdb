@@ -2764,13 +2764,13 @@ class Benchmark {
     auto avg_value_size = FLAGS_value_size;
     if (FLAGS_value_size_distribution_type_e == kFixed) {
       fprintf(stdout,
-              "Values:     %d bytes each (%d bytes after compression)\n",
+              "Values:     %d bytes each (%d bytes after compression), undetermined for mixgraph workload\n",
               avg_value_size,
               static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
     } else {
       avg_value_size = (FLAGS_value_size_min + FLAGS_value_size_max) / 2;
       fprintf(stdout,
-              "Values:     %d avg bytes each (%d bytes after compression)\n",
+              "Values:     %d avg bytes each (%d bytes after compression), undetermined for mixgraph workload\n",
               avg_value_size,
               static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
       fprintf(stdout, "Values Distribution: %s (min: %d, max: %d)\n",
@@ -2780,11 +2780,11 @@ class Benchmark {
     fprintf(stdout, "Entries:    %" PRIu64 "\n", num_);
     fprintf(stdout, "Prefix:    %d bytes\n", FLAGS_prefix_size);
     fprintf(stdout, "Keys per prefix:    %" PRIu64 "\n", keys_per_prefix_);
-    fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
+    fprintf(stdout, "RawSize:    %.1f MB (estimated), undetermined for mixgraph workload\n",
             ((static_cast<int64_t>(FLAGS_key_size + avg_value_size) * num_) /
              1048576.0));
     fprintf(
-        stdout, "FileSize:   %.1f MB (estimated)\n",
+        stdout, "FileSize:   %.1f MB (estimated), undetermined for mixgraph workload\n",
         (((FLAGS_key_size + avg_value_size * FLAGS_compression_ratio) * num_) /
          1048576.0));
     fprintf(stdout, "Write rate: %" PRIu64 " bytes/second\n",
