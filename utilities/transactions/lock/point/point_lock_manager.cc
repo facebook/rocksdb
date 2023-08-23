@@ -601,6 +601,11 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
 
 void PointLockManager::UnLock(PessimisticTransaction* txn,
                               const LockTracker& tracker, Env* env) {
+  // Bucket keys by lock_map_ stripe.
+  // This container is cleared and recycled for every column family
+  // that we have locks for.
+  UnorderedMap<size_t, std::vector<const std::string*>> keys_by_stripe;
+
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
   assert(cf_it != nullptr);
@@ -610,19 +615,25 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
     LockMap* lock_map = lock_map_ptr.get();
     if (!lock_map) {
       // Column Family must have been dropped.
-      return;
+      continue;
     }
 
-    // Bucket keys by lock_map_ stripe
-    UnorderedMap<size_t, std::vector<const std::string*>> keys_by_stripe(
-        lock_map->num_stripes_);
+    keys_by_stripe.clear();
+    keys_by_stripe.reserve(lock_map->num_stripes_);
     std::unique_ptr<LockTracker::KeyIterator> key_it(
         tracker.GetKeyIterator(cf));
     assert(key_it != nullptr);
     while (key_it->HasNext()) {
       const std::string& key = key_it->Next();
       size_t stripe_num = lock_map->GetStripe(key);
-      keys_by_stripe[stripe_num].push_back(&key);
+      // Perform an initial bulk allocation so that when there are multiple
+      // keys in the same stripe, we save the first few initial reallocs.
+      auto& target = keys_by_stripe[stripe_num];
+      if (target.empty()) {
+        constexpr size_t initial_allocation = 8;
+        target.reserve(initial_allocation);
+      }
+      target.push_back(&key);
     }
 
     // For each stripe, grab the stripe mutex and unlock all keys in this stripe
