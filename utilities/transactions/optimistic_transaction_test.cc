@@ -840,7 +840,9 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     // Save
     SeenStat base_seen = cur_seen;
 
-    // Verify it is repeatable
+#ifndef USE_FOLLY
+    // Verify it is repeatable.
+    // Note: this does not work with Folly F14 hash maps.
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options, txn);
     for (const auto& key : keys) {
@@ -850,6 +852,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
     ASSERT_EQ(cur_seen.rolling_hash, base_seen.rolling_hash);
     ASSERT_EQ(cur_seen.min, base_seen.min);
     ASSERT_EQ(cur_seen.max, base_seen.max);
+#endif
 
     // Try another CF
     cur_seen = {};
