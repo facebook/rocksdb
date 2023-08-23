@@ -6040,6 +6040,8 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   delete itr;
 }
 
+#ifndef OS_WIN
+// CPUMicros() is not supported. See WinClock::CPUMicros().
 TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
   int record_count = 0;
   class TestStatistics : public StatisticsImpl {
@@ -6095,6 +6097,7 @@ TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
   ASSERT_EQ(1, h.count);
   ASSERT_EQ(h.max, TestGetTickerCount(options, COMPACTION_CPU_TOTAL_TIME));
 }
+#endif
 
 TEST_F(DBTest, TestLogCleanup) {
   Options options = CurrentOptions();
