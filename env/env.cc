@@ -777,6 +777,10 @@ Status Env::GetHostNameString(std::string* result) {
   return s;
 }
 
+bool Env::TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) const {
+  return cv->TimedWait(deadline.count());
+}
+
 std::string Env::GenerateUniqueId() {
   std::string result;
   bool success = port::GenerateRfcUuid(&result);

@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include <chrono>
 #include <cstdarg>
 #include <functional>
 #include <limits>
@@ -534,6 +535,9 @@ class Env : public Customizable {
 
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
+
+  virtual bool TimedWait(CondVarBase* cv,
+                         std::chrono::microseconds deadline) const;
 
   // Get the current host name as a null terminated string iff the string
   // length is < len. The hostname should otherwise be truncated to len.
