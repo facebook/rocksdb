@@ -777,7 +777,7 @@ Status Env::GetHostNameString(std::string* result) {
   return s;
 }
 
-bool Env::TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) const {
+bool Env::TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) {
   return cv->TimedWait(deadline.count());
 }
 
