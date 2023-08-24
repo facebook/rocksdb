@@ -1590,6 +1590,10 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) override {
     target_.env->SleepForMicroseconds(micros);
   }
+  bool TimedWait(CondVarBase* cv,
+                 std::chrono::microseconds deadline) const override {
+    return target_.env->TimedWait(cv, deadline);
+  }
   Status GetHostName(char* name, uint64_t len) override {
     return target_.env->GetHostName(name, len);
   }
