@@ -17,7 +17,7 @@ class InstrumentedCondVar;
 
 // A wrapper class for port::Mutex that provides additional layer
 // for collecting stats and instrumentation.
-class InstrumentedMutex {
+class InstrumentedMutex : public MutexBase {
  public:
   explicit InstrumentedMutex(bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
@@ -42,9 +42,9 @@ class InstrumentedMutex {
         bg_cv_(bg_cv) {}
 #endif
 
-  void Lock();
+  virtual void Lock() override;
 
-  void Unlock() { mutex_.Unlock(); }
+  virtual void Unlock() override { mutex_.Unlock(); }
 
   void AssertHeld() { mutex_.AssertHeld(); }
 
@@ -98,21 +98,24 @@ class InstrumentedMutexUnlock {
   void operator=(const InstrumentedMutexUnlock&) = delete;
 };
 
-class InstrumentedCondVar {
+class InstrumentedCondVar : public CondVarBase {
  public:
   explicit InstrumentedCondVar(InstrumentedMutex* instrumented_mutex)
       : cond_(&(instrumented_mutex->mutex_)),
         stats_(instrumented_mutex->stats_),
         clock_(instrumented_mutex->clock_),
+        mutex_(instrumented_mutex),
         stats_code_(instrumented_mutex->stats_code_) {}
 
-  void Wait();
+  virtual MutexBase* GetMutex() const override { return mutex_; }
 
-  bool TimedWait(uint64_t abs_time_us);
+  virtual void Wait() override;
 
-  void Signal() { cond_.Signal(); }
+  virtual bool TimedWait(uint64_t abs_time_us) override;
 
-  void SignalAll() { cond_.SignalAll(); }
+  virtual void Signal() override { cond_.Signal(); }
+
+  virtual void SignalAll() override { cond_.SignalAll(); }
 
  private:
   void WaitInternal();
@@ -120,6 +123,7 @@ class InstrumentedCondVar {
   port::CondVar cond_;
   Statistics* stats_;
   SystemClock* clock_;
+  InstrumentedMutex* mutex_;
   int stats_code_;
 };
 

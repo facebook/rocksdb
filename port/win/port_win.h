@@ -77,7 +77,7 @@ constexpr bool kLittleEndian = true;
 
 class CondVar;
 
-class Mutex {
+class Mutex : public MutexBase {
  public:
   static const char* kName() { return "std::mutex"; }
 
@@ -91,14 +91,14 @@ class Mutex {
 
   ~Mutex();
 
-  void Lock() {
+  virtual void Lock() override {
     mutex_.lock();
 #ifndef NDEBUG
     locked_ = true;
 #endif
   }
 
-  void Unlock() {
+  virtual void Unlock() override {
 #ifndef NDEBUG
     locked_ = false;
 #endif
@@ -165,15 +165,18 @@ class RWMutex {
   SRWLOCK srwLock_;
 };
 
-class CondVar {
+class CondVar : public CondVarBase {
  public:
   explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
-  void Wait();
-  bool TimedWait(uint64_t expiration_time);
-  void Signal();
-  void SignalAll();
+
+  virtual MutexBase* GetMutex() const override { return mu_; }
+
+  virtual void Wait() override;
+  virtual bool TimedWait(uint64_t expiration_time) override;
+  virtual void Signal() override;
+  virtual void SignalAll() override;
 
   // Condition var is not copy/move constructible
   CondVar(const CondVar&) = delete;
