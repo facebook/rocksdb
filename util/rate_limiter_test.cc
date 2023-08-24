@@ -473,32 +473,18 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
       RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
       true /* auto_tuned */));
 
-  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
-  // `Env` to advance its time according to the fake wait duration. The
-  // workaround is to install a callback that advance the `Env`'s mock time.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
-        int64_t time_waited_us = *static_cast<int64_t*>(arg);
-        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   // verify rate limit increases after a sequence of periods where rate limiter
   // is always drained
   int64_t orig_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
-                        RateLimiter::OpType::kWrite);
+                        RateLimiter::OpType::kWrite, &special_env);
   while (std::chrono::microseconds(special_env.NowMicros()) <=
          kRefillsPerTune * kTimePerRefill) {
     rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
-                          RateLimiter::OpType::kWrite);
+                          RateLimiter::OpType::kWrite, &special_env);
   }
   int64_t new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::Request:PostTimedWait");
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
@@ -506,7 +492,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
       kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
-                        RateLimiter::OpType::kWrite);
+                        RateLimiter::OpType::kWrite, &special_env);
   new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
