@@ -22,6 +22,7 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/version_util.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
@@ -2526,6 +2527,27 @@ class InMemoryHandler : public WriteBatch::Handler {
   Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
     row_ << "PUT(" << cf << ") : ";
     commonPutMerge(key, value);
+    return Status::OK();
+  }
+
+  Status PutEntityCF(uint32_t cf, const Slice& key,
+                     const Slice& value) override {
+    row_ << "PUT_ENTITY(" << cf << ") : ";
+    std::string k = LDBCommand::StringToHex(key.ToString());
+    if (print_values_) {
+      WideColumns columns;
+      Slice value_copy = value;
+      Status s = WideColumnSerialization::Deserialize(value_copy, columns);
+      if (s.ok() && !columns.empty()) {
+        row_ << std::hex;
+        auto it = columns.begin();
+        row_ << *it;
+        for (++it; it != columns.end(); ++it) {
+          row_ << ' ' << *it;
+        }
+      }
+      return s;
+    }
     return Status::OK();
   }
 
