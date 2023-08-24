@@ -548,7 +548,8 @@ class SpecialEnv : public EnvWrapper {
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
-  virtual bool TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) {
+  virtual bool TimedWait(CondVarBase* cv,
+                         std::chrono::microseconds deadline) override {
     sleep_counter_.Increment();
     uint64_t now_micros = NowMicros();
     uint64_t deadline_micros = static_cast<uint64_t>(deadline.count());
