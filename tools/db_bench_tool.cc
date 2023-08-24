@@ -618,6 +618,14 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 DEFINE_bool(use_cache_jemalloc_no_dump_allocator, false,
             "Use JemallocNodumpAllocator for block/blob cache.");
 
+DEFINE_uint32(jemalloc_no_dump_allocator_num_arenas,
+              ROCKSDB_NAMESPACE::JemallocAllocatorOptions().num_arenas,
+              "JemallocNodumpAllocator::num_arenas");
+
+DEFINE_bool(jemalloc_no_dump_allocator_limit_tcache_size,
+            ROCKSDB_NAMESPACE::JemallocAllocatorOptions().limit_tcache_size,
+            "JemallocNodumpAllocator::limit_tcache_size");
+
 DEFINE_bool(use_cache_memkind_kmem_allocator, false,
             "Use memkind kmem allocator for block/blob cache.");
 
@@ -2993,6 +3001,9 @@ class Benchmark {
 
     if (FLAGS_use_cache_jemalloc_no_dump_allocator) {
       JemallocAllocatorOptions jemalloc_options;
+      jemalloc_options.num_arenas = FLAGS_jemalloc_no_dump_allocator_num_arenas;
+      jemalloc_options.limit_tcache_size =
+          FLAGS_jemalloc_no_dump_allocator_limit_tcache_size;
       if (!NewJemallocNodumpAllocator(jemalloc_options, &allocator).ok()) {
         fprintf(stderr, "JemallocNodumpAllocator not supported.\n");
         exit(1);
@@ -3053,6 +3064,7 @@ class Benchmark {
       HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
                                   FLAGS_cache_numshardbits);
       opts.hash_seed = GetCacheHashSeed();
+      opts.memory_allocator = GetCacheAllocator();
       if (use_tiered_cache) {
         TieredVolatileCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;

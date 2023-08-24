@@ -97,22 +97,25 @@ struct BlockCreateContext : public Cache::CreateContext {
                      size_t* charge_out, const Slice& data,
                      MemoryAllocator* alloc) {
     Create(parsed_out,
-           BlockContents(AllocateAndCopyBlock(data, alloc), data.size()));
+           BlockContents(AllocateAndCopyBlock(data, alloc), data.size()),
+           alloc);
     *charge_out = parsed_out->get()->ApproximateMemoryUsage();
   }
 
-  void Create(std::unique_ptr<Block_kData>* parsed_out, BlockContents&& block);
-  void Create(std::unique_ptr<Block_kIndex>* parsed_out, BlockContents&& block);
+  void Create(std::unique_ptr<Block_kData>* parsed_out, BlockContents&& block,
+              MemoryAllocator* alloc);
+  void Create(std::unique_ptr<Block_kIndex>* parsed_out, BlockContents&& block,
+              MemoryAllocator* alloc);
   void Create(std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
-              BlockContents&& block);
+              BlockContents&& block, MemoryAllocator* alloc);
   void Create(std::unique_ptr<Block_kRangeDeletion>* parsed_out,
-              BlockContents&& block);
+              BlockContents&& block, MemoryAllocator* alloc);
   void Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
-              BlockContents&& block);
+              BlockContents&& block, MemoryAllocator* alloc);
   void Create(std::unique_ptr<ParsedFullFilterBlock>* parsed_out,
-              BlockContents&& block);
+              BlockContents&& block, MemoryAllocator* alloc);
   void Create(std::unique_ptr<UncompressionDict>* parsed_out,
-              BlockContents&& block);
+              BlockContents&& block, MemoryAllocator* alloc);
 };
 
 // Convenient cache interface to use for block_cache, with support for
