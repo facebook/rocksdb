@@ -548,6 +548,41 @@ class SpecialEnv : public EnvWrapper {
     addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
+  virtual bool TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) {
+    sleep_counter_.Increment();
+    uint64_t now_micros = NowMicros();
+    uint64_t deadline_micros = static_cast<uint64_t>(deadline.count());
+    uint64_t delay_micros;
+    if (deadline_micros > now_micros) {
+      delay_micros = deadline_micros - now_micros;
+    } else {
+      delay_micros = 0;
+    }
+    if (!no_slowdown_) {
+      // We are going to do a real wait. `target()` only knows about real time
+      // so we provide the deadline in real time.
+      uint64_t real_now_micros = target()->NowMicros();
+      bool ret = target()->TimedWait(
+          cv, std::chrono::microseconds(real_now_micros + delay_micros));
+      if (time_elapse_only_sleep_) {
+        uint64_t slept_micros;
+        if (ret) {
+          slept_micros = target()->NowMicros() - real_now_micros;
+        } else {
+          slept_micros = delay_micros;
+        }
+        addon_microseconds_.fetch_add(static_cast<int64_t>(slept_micros));
+      }
+      return ret;
+    }
+    // To prevent slowdown, this `TimedWait()` is completely synthetic. The mock
+    // implementation here pretends the timeout always happened.
+    cv->GetMutex()->Unlock();
+    addon_microseconds_.fetch_add(static_cast<int64_t>(delay_micros));
+    cv->GetMutex()->Lock();
+    return true;
+  }
+
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (time_elapse_only_sleep_) {
