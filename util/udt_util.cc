@@ -348,4 +348,33 @@ void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
   [[maybe_unused]] bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
   PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
 }
+
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end) {
+  std::optional<Slice> ret_start =
+      (start == nullptr) ? std::nullopt : std::optional<Slice>(*start);
+  std::optional<Slice> ret_end =
+      (end == nullptr) ? std::nullopt : std::optional<Slice>(*end);
+
+  if (start != nullptr && ts_sz != 0) {
+    // Maximum timestamp means including all keys with any timestamp for start
+    AppendKeyWithMaxTimestamp(start_with_ts, *start, ts_sz);
+    ret_start = Slice(*start_with_ts);
+  }
+  if (end != nullptr && ts_sz != 0) {
+    if (exclusive_end) {
+      // Append a maximum timestamp as the range limit is exclusive:
+      // [start, end)
+      AppendKeyWithMaxTimestamp(end_with_ts, *end, ts_sz);
+    } else {
+      // Append a minimum timestamp to end so the range limit is inclusive:
+      // [start, end]
+      AppendKeyWithMinTimestamp(end_with_ts, *end, ts_sz);
+    }
+    ret_end = Slice(*end_with_ts);
+  }
+  return std::make_tuple(ret_start, ret_end);
+}
 }  // namespace ROCKSDB_NAMESPACE
