@@ -1129,7 +1129,6 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
         ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
       if (!cutoff_udt_.empty()) {
         assert(table_newest_udt.size() == cutoff_udt_.size());
-        cutoff_udt_.clear();
       }
       cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
     }
