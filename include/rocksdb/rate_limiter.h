@@ -76,6 +76,16 @@ class RateLimiter {
     }
   }
 
+  // See API docs on other `Request()` overloads.
+  //
+  // When overridden, this overload uses the provided `Env*` for invoking
+  // `TimedWait()` when necessary.
+  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
+                       Statistics* stats, OpType op_type,
+                       Env* /* timed_wait_env */) {
+    Request(bytes, pri, stats, op_type);
+  }
+
   // Requests token to read or write bytes and potentially updates statistics.
   // Takes into account GetSingleBurstBytes() and alignment (e.g., in case of
   // direct I/O) to allocate an appropriate number of bytes, which may be less
