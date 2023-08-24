@@ -18,10 +18,21 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  bool is_first_pass = true;
+  ResetLookupVar();
+  bool is_first_pass = async_read_in_progress_ ? false : true;
+  bool autotune_readaheadsize = is_first_pass &&
+                                read_options_.auto_readahead_size &&
+                                read_options_.iterate_upper_bound;
+
+  if (autotune_readaheadsize &&
+      table_->get_rep()->table_options.block_cache.get() &&
+      !read_options_.async_io) {
+    readahead_cache_lookup_ = true;
+  }
+
+  // Second pass.
   if (async_read_in_progress_) {
     AsyncInitDataBlock(false);
-    is_first_pass = false;
   }
 
   is_out_of_bound_ = false;
@@ -44,7 +55,17 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   }
 
   bool need_seek_index = true;
-  if (block_iter_points_to_real_block_ && block_iter_.Valid()) {
+
+  /*
+     Akanksha:
+     1. In case of readahead_cache_lookup_, index_iter could change to find the
+     readahead size in CacheLookupForReadAheadSize so we need to reseek.
+     2. block_iter_points_to_real_block_ means index_iter_ points to the real
+     block and is valid which can't be true in case of readahead_cache_lookup_.
+  */
+
+  if (!readahead_cache_lookup_ && block_iter_points_to_real_block_ &&
+      block_iter_.Valid()) {
     // Reseek.
     prev_block_offset_ = index_iter_->value().handle.offset();
 
@@ -79,8 +100,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (read_options_.auto_readahead_size && read_options_.iterate_upper_bound &&
-      is_first_pass) {
+  if (autotune_readaheadsize) {
     FindReadAheadSizeUpperBound();
     if (target) {
       index_iter_->Seek(*target);
@@ -94,6 +114,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       return;
     }
   }
+
+  // Akanksha: At this point index_iter_ point to the right key i.e. target in
+  // all cases.
 
   IndexValue v = index_iter_->value();
   const bool same_block = block_iter_points_to_real_block_ &&
@@ -172,6 +195,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   }
 
   SavePrevIndexValue();
+  ResetLookupVar();
 
   // Call Seek() rather than SeekForPrev() in the index block, because the
   // target data block will likely to contain the position for `target`, the
@@ -226,6 +250,8 @@ void BlockBasedTableIterator::SeekToLast() {
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
   SavePrevIndexValue();
+  ResetLookupVar();
+
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
     ResetDataIter();
@@ -238,6 +264,9 @@ void BlockBasedTableIterator::SeekToLast() {
 }
 
 void BlockBasedTableIterator::Next() {
+  if (getenv("Print")) {
+    printf("\nNext\n");
+  }
   if (is_at_first_key_from_index_ && !MaterializeCurrentBlock()) {
     return;
   }
@@ -259,6 +288,9 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
+  // TODO akanksha: - How to figure out if after seek, it does prev but
+  // index_iter_ moves forward.
+  ResetLookupVar();
   if (is_at_first_key_from_index_) {
     is_at_first_key_from_index_ = false;
 
@@ -278,7 +310,13 @@ void BlockBasedTableIterator::Prev() {
 }
 
 void BlockBasedTableIterator::InitDataBlock() {
-  BlockHandle data_block_handle = index_iter_->value().handle;
+  BlockHandle data_block_handle;
+  if (!block_handles_.empty()) {
+    data_block_handle = block_handles_.front().index_val_.handle;
+  } else {
+    data_block_handle = index_iter_->value().handle;
+  }
+
   if (!block_iter_points_to_real_block_ ||
       data_block_handle.offset() != prev_block_offset_ ||
       // if previous attempt of reading the block missed cache, try again
@@ -290,6 +328,14 @@ void BlockBasedTableIterator::InitDataBlock() {
 
     bool is_for_compaction =
         lookup_context_.caller == TableReaderCaller::kCompaction;
+
+    std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
+    if (readahead_cache_lookup_) {
+      readaheadsize_cb =
+          std::bind(&BlockBasedTableIterator::CacheLookupForReadAheadSize, this,
+                    std::placeholders::_1, std::placeholders::_2);
+    }
+
     // Prefetch additional data for range scans (iterators).
     // Implicit auto readahead:
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
@@ -297,7 +343,8 @@ void BlockBasedTableIterator::InitDataBlock() {
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     block_prefetcher_.PrefetchIfNeeded(
         rep, data_block_handle, read_options_.readahead_size, is_for_compaction,
-        /*no_sequential_checking=*/false, read_options_);
+        /*no_sequential_checking=*/false, read_options_, readaheadsize_cb);
+
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
@@ -306,6 +353,7 @@ void BlockBasedTableIterator::InitDataBlock() {
         /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
         /*use_block_cache_for_lookup=*/true);
     block_iter_points_to_real_block_ = true;
+
     CheckDataBlockWithinUpperBound();
     if (!is_for_compaction &&
         (seek_stat_state_ & kDataBlockReadSinceLastSeek) == 0) {
@@ -331,6 +379,14 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
         ResetDataIter();
       }
       auto* rep = table_->get_rep();
+
+      std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
+      if (readahead_cache_lookup_) {
+        readaheadsize_cb =
+            std::bind(&BlockBasedTableIterator::CacheLookupForReadAheadSize,
+                      this, std::placeholders::_1, std::placeholders::_2);
+      }
+
       // Prefetch additional data for range scans (iterators).
       // Implicit auto readahead:
       //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
@@ -343,7 +399,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
-          read_options_);
+          read_options_, readaheadsize_cb);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -383,7 +439,15 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
   async_read_in_progress_ = false;
 }
 
+/*
+  Akanksha: MaterializeCurrentBlock is called when block is actually read by
+  calling InitDataBlock. is_at_first_key_from_index_ will be false for block
+  handles placed in blockhandle. So index_ will be calling to actual index.
+*/
 bool BlockBasedTableIterator::MaterializeCurrentBlock() {
+  if (getenv("Print")) {
+    printf("MaterializeCurrentBlock\n");
+  }
   assert(is_at_first_key_from_index_);
   assert(!block_iter_points_to_real_block_);
   assert(index_iter_->Valid());
@@ -398,20 +462,26 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
 
   block_iter_.SeekToFirst();
 
+  // After InitDataBlock, index_iter_ can point to different block if
+  // CacheLookupForReadAheadSize is called.
+  IndexValue index_val;
+  if (!block_handles_.empty()) {
+    index_val = block_handles_.front().index_val_;
+  } else {
+    index_val = index_iter_->value();
+  }
+
   if (!block_iter_.Valid() ||
-      icomp_.Compare(block_iter_.key(),
-                     index_iter_->value().first_internal_key) != 0) {
+      icomp_.Compare(block_iter_.key(), index_val.first_internal_key) != 0) {
     block_iter_.Invalidate(Status::Corruption(
         "first key in index doesn't match first key in block"));
     return false;
   }
-
   return true;
 }
 
 void BlockBasedTableIterator::FindKeyForward() {
   // This method's code is kept short to make it likely to be inlined.
-
   assert(!is_out_of_bound_);
   assert(block_iter_points_to_real_block_);
 
@@ -426,6 +496,11 @@ void BlockBasedTableIterator::FindKeyForward() {
   }
 }
 
+/*
+  Akanksha:
+  FindBlockForward is called from Seek() and Next(). So index_iter_ can either
+  point to current target or has moved ahead in CacheLookup.
+*/
 void BlockBasedTableIterator::FindBlockForward() {
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
@@ -434,38 +509,84 @@ void BlockBasedTableIterator::FindBlockForward() {
       return;
     }
     // Whether next data block is out of upper bound, if there is one.
+    /*
+      Akanksha.: index_iter_ can point to different block in case of
+      readahead_cache_lookup_. readahead_cache_lookup_ will be handle the
+      upper_bound check.
+    */
     const bool next_block_is_out_of_bound =
-        read_options_.iterate_upper_bound != nullptr &&
+        IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_ &&
         block_upper_bound_check_ == BlockUpperBound::kUpperBoundInCurBlock;
+
     assert(!next_block_is_out_of_bound ||
            user_comparator_.CompareWithoutTimestamp(
                *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
                index_iter_->user_key(), /*b_has_ts=*/true) <= 0);
+
     ResetDataIter();
-    index_iter_->Next();
-    if (next_block_is_out_of_bound) {
-      // The next block is out of bound. No need to read it.
-      TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound", nullptr);
-      // We need to make sure this is not the last data block before setting
-      // is_out_of_bound_, since the index key for the last data block can be
-      // larger than smallest key of the next file on the same level.
-      if (index_iter_->Valid()) {
-        is_out_of_bound_ = true;
+
+    /*
+      Akanksha:
+      1. In case of Seek, block_handle will be empty and it should be follow as
+      usual doing index_iter_->Next().
+      2. If block_handles is empty and it's readahead_cache_lookup_ (during
+      Next), it should skip doing index_iter_->Next(), as it will be Next();
+    */
+
+    if (!block_handles_.empty()) {
+      // Advance and point to that next Block handle.
+      if (getenv("Print")) {
+        printf("Popping\n");
       }
-      return;
+      block_handles_.pop_front();
     }
 
-    if (!index_iter_->Valid()) {
-      return;
-    }
+    if (block_handles_.empty()) {
+      if (getenv("Print")) {
+        printf("Index Next\n");
+      }
+      if (IsIndexAtCurr()) {
+        index_iter_->Next();
+        if (getenv("Print")) {
+          printf("Do Next\n");
+        }
+      } else {
+        // Skip Next.
+        is_index_at_curr_block_ = true;
+        if (getenv("Print")) {
+          printf("Skip Next\n");
+        }
+      }
 
-    IndexValue v = index_iter_->value();
+      if (next_block_is_out_of_bound) {
+        // The next block is out of bound. No need to read it.
+        TEST_SYNC_POINT_CALLBACK("BlockBasedTableIterator:out_of_bound",
+                                 nullptr);
+        // We need to make sure this is not the last data block before setting
+        // is_out_of_bound_, since the index key for the last data block can be
+        // larger than smallest key of the next file on the same level.
+        if (index_iter_->Valid()) {
+          is_out_of_bound_ = true;
+        }
+        return;
+      }
 
-    if (!v.first_internal_key.empty() && allow_unprepared_value_) {
-      // Index contains the first key of the block. Defer reading the block.
-      is_at_first_key_from_index_ = true;
-      return;
+      if (!index_iter_->Valid()) {
+        return;
+      }
+      IndexValue v = index_iter_->value();
+
+      if (!v.first_internal_key.empty() && allow_unprepared_value_) {
+        // Index contains the first key of the block. Defer reading the block.
+        is_at_first_key_from_index_ = true;
+        return;
+      }
+    } else {
+      if (getenv("Print")) {
+        printf("Block forward - offset: %lu \n",
+               block_handles_.front().index_val_.handle.offset());
+      }
     }
 
     InitDataBlock();
@@ -495,7 +616,7 @@ void BlockBasedTableIterator::FindKeyBackward() {
 }
 
 void BlockBasedTableIterator::CheckOutOfBound() {
-  if (read_options_.iterate_upper_bound != nullptr &&
+  if (IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
       block_upper_bound_check_ != BlockUpperBound::kUpperBoundBeyondCurBlock &&
       Valid()) {
     is_out_of_bound_ =
@@ -506,7 +627,7 @@ void BlockBasedTableIterator::CheckOutOfBound() {
 }
 
 void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
-  if (read_options_.iterate_upper_bound != nullptr &&
+  if (IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_) {
     block_upper_bound_check_ = (user_comparator_.CompareWithoutTimestamp(
                                     *read_options_.iterate_upper_bound,
@@ -518,6 +639,9 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
 }
 
 void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
+  if (getenv("Print")) {
+    printf("FindReadAheadSizeUpperBound:Start\n");
+  }
   size_t total_bytes_till_upper_bound = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
   uint64_t start_offset = index_iter_->value().handle.offset();
@@ -532,15 +656,7 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
     // If curr block's index key >= iterate_upper_bound, it
     // means all the keys in next block or above are out of
     // bound.
-    bool next_block_out_of_bound =
-        (user_comparator_.CompareWithoutTimestamp(
-             index_iter_->user_key(),
-             /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
-             /*b_has_ts=*/false) >= 0
-             ? true
-             : false);
-
-    if (next_block_out_of_bound) {
+    if (IsNextBlockOutOfBound()) {
       break;
     }
 
@@ -557,5 +673,115 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
   block_prefetcher_.SetUpperBoundOffset(start_offset +
                                         total_bytes_till_upper_bound);
+
+  if (getenv("Print")) {
+    printf("FindReadAheadSizeUpperBound:End\n");
+  }
 }
+
+/*
+  This API is only for sync flow as sync flow is more simpler.
+  Will add support for async flow after this.
+*/
+void BlockBasedTableIterator::CacheLookupForReadAheadSize(
+    size_t readahead_size, size_t& updated_readahead_size) {
+  if (getenv("Print")) {
+    printf("CacheLookupForReadAheadSize\n");
+  }
+  block_handles_.clear();
+  /*
+    1. Call block based table reader to lookup in the data block (from offset
+       till readahead_size).
+    2. Iterate over index_block.
+    3. If block is in cache, pin the block.
+    4. If block is not in the cache, add block handle to the vector list.
+    4. Update readahead_size till last hit within readahead_size.
+  */
+  updated_readahead_size = readahead_size;
+
+  // readahead_cache_lookup_ can be false after Seek, if after Seek or Next
+  // there is Prev or any other operation.
+  if (!readahead_cache_lookup_) {
+    return;
+  }
+
+  size_t current_readahead_size = 0;
+  size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
+
+  BlockHandleStatus block_handle_st1(index_iter_->value(), false);
+  block_handles_.push_back(std::move(block_handle_st1));
+
+  // Current block is included in length. Readahead should start from next
+  // block.
+  index_iter_->Next();
+  is_index_at_curr_block_ = false;
+
+  while (index_iter_->Valid()) {
+    BlockHandle block_handle = index_iter_->value().handle;
+
+    // 1. Adding this data block exceeds readahead_size. So this data block
+    // won't be added.
+    if (current_readahead_size + block_handle.size() + footer >
+        readahead_size) {
+      if (getenv("Print")) {
+        printf(
+            "current_readahead_size: %lu, readahead_size: %lu footer: %lu, "
+            "block_handle.size():%lu \n",
+            current_readahead_size, readahead_size, footer,
+            block_handle.size());
+      }
+      break;
+    }
+
+    current_readahead_size += block_handle.size();
+    current_readahead_size += footer;
+
+    // 2. For current data block, do the lookup. Lookup should pin the data
+    //    block and do the placeholder for cache.
+    bool found_in_cache = table_->DoLookup<Block_kData>(block_handle);
+
+    // Akanksha: Remove this sectionn.
+    if (getenv("Print")) {
+      if (found_in_cache) {
+        printf("CacheLookupForReadAheadSize Found in Cache\n");
+      } else {
+        printf("CacheLookupForReadAheadSize Cache Miss\n");
+      }
+      printf("Adding block handle with offset: %lu\n", block_handle.offset());
+    }
+
+    // 3. Add the handle to the vector.
+    BlockHandleStatus block_handle_st(index_iter_->value(), found_in_cache);
+    block_handles_.push_back(std::move(block_handle_st));
+
+    // Can't figure out for current block if current block
+    // is out of bound. But for next block we can find that.
+    // If curr block's index key >= iterate_upper_bound, it
+    // means all the keys in next block or above are out of
+    // bound.
+    if (IsNextBlockOutOfBound()) {
+      break;
+    }
+    index_iter_->Next();
+  };
+
+  // 4. Iterate cache hit block handles from the end till a Miss is there, to
+  // update the readahead_size.
+  for (auto it = block_handles_.rbegin();
+       it != block_handles_.rend() && it->is_cache_hit_ == true; ++it) {
+    if (getenv("Print")) {
+      printf("Cache hit from end\n");
+    }
+    current_readahead_size -= it->index_val_.handle.size();
+    current_readahead_size -= footer;
+  }
+
+  if (getenv("Print")) {
+    printf("Total blocks in queue: %lu \n", block_handles_.size());
+    printf("Updated ReadAheadsize: %lu\n", current_readahead_size);
+  }
+
+  updated_readahead_size = current_readahead_size;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

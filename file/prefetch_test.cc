@@ -1233,6 +1233,148 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   Close();
 }
 
+TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTune) {
+  // First param is if the mockFS support_prefetch or not
+  const int kNumKeys = 2000;
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), /*support_prefetch=*/false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  Options options;
+  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
+  table_options.block_cache = cache;
+  table_options.no_block_cache = false;
+  table_options.num_file_reads_for_auto_readahead = 1;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  int buff_prefetch_count = 0;
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  ReadOptions ro;
+  Slice ub(end_key);
+  ro.iterate_upper_bound = &ub;
+  {
+    printf("Iteration\n");
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+
+    // Warm up the cache
+    printf("Cache 1011\n");
+    iter->Seek(BuildKey(1011));
+    ASSERT_TRUE(iter->Valid());
+    printf("Cache 1004\n");
+    iter->Seek(BuildKey(1004));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Cache 1022\n");
+    iter->Seek(BuildKey(1022));
+    ASSERT_TRUE(iter->Valid());
+    printf("Cache 1015\n");
+    iter->Seek(BuildKey(1015));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Cache 1033\n");
+    iter->Seek(BuildKey(1033));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Cache 1042\n");
+    iter->Seek(BuildKey(1042));
+    ASSERT_TRUE(iter->Valid());
+    buff_prefetch_count = 0;
+    printf("Done\n");
+  }
+
+  {
+    ro.auto_readahead_size = std::get<0>(GetParam());
+    printf("\n\nCache: \n");
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+
+    // After caching, blocks will be read from cache (Sequential blocks)
+    printf("Seek 0\n");
+    iter->Seek(BuildKey(0));
+    ASSERT_TRUE(iter->Valid());
+
+    for (int i = 1; i < 50; i++) {
+      iter->Next();
+      if (!iter->Valid()) {
+        printf("Not Valid\n");
+        break;
+      }
+    }
+
+    /*
+    printf("Seek 1000\n");
+    iter->Seek(BuildKey(1000));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("\nSeek 1004 - First Miss and prefetch\n");
+    iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
+    ASSERT_TRUE(iter->Valid());
+
+    // Missed one sequential block but next is in already in buffer so
+    // readahead will not be reset.
+    printf("Seek 1011\n");
+    iter->Seek(BuildKey(1011));
+    ASSERT_TRUE(iter->Valid());
+
+    // Prefetch data but blocks are in cache so no prefetch.
+    printf("Seek 1015\n");
+    iter->Seek(BuildKey(1015));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Seek 1019\n");
+    iter->Seek(BuildKey(1019));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Seek 1022\n");
+    iter->Seek(BuildKey(1022));
+    ASSERT_TRUE(iter->Valid());
+
+    // Prefetch data with readahead_size = 4 blocks.
+    printf("Seek 1026\n");
+    iter->Seek(BuildKey(1026));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Seek 103\n");
+    iter->Seek(BuildKey(103));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Seek 1033\n");
+    iter->Seek(BuildKey(1033));
+    ASSERT_TRUE(iter->Valid());
+
+    printf("Seek 1037\n");
+    iter->Seek(BuildKey(1037));
+    ASSERT_TRUE(iter->Valid());
+    */
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
 // This test verifies the functionality of ReadOptions.adaptive_readahead.
 TEST_P(PrefetchTest, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;

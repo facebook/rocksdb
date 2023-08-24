@@ -101,7 +101,8 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       bool for_compaction, CachableEntry<T>* block_entry,                      \
       GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
       BlockContents* contents, bool async_read,                                \
-      bool use_block_cache_for_lookup) const;
+      bool use_block_cache_for_lookup) const;                                  \
+  template bool BlockBasedTable::DoLookup<T>(const BlockHandle& handle) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -885,6 +886,7 @@ Status BlockBasedTable::PrefetchTail(
       true /* track_min_offset */, false /* implicit_auto_readahead */,
       0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
       0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
+      /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   if (s.ok()) {
@@ -1470,6 +1472,33 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       block_contents_pinned, rep->user_defined_timestamps_persisted);
 }
 
+template <typename TBlocklike>
+bool BlockBasedTable::DoLookup(const BlockHandle& handle) const {
+  BlockCacheInterface<TBlocklike> block_cache{
+      rep_->table_options.block_cache.get()};
+
+  assert(block_cache);
+
+  // 1. Do the lookup.
+  CacheKey key_data = GetCacheKey(rep_->base_cache_key, handle);
+  const Slice key = key_data.AsSlice();
+
+  Statistics* statistics = rep_->ioptions.statistics.get();
+
+  auto cache_handle = block_cache.LookupFull(
+      key, &rep_->create_context, GetCachePriority<TBlocklike>(), statistics,
+      rep_->ioptions.lowest_used_cache_tier);
+
+  if (!cache_handle) {
+    // 2. Add a placeholder for the data block.
+    return false;
+  }
+
+  // 2. Found in Cache. Pin the block.
+
+  return true;
+}
+
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
 // If contents is non-null, it skips the cache lookup and disk read, since
@@ -1512,6 +1541,12 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // and compressed block cache.
           is_cache_hit = true;
           if (prefetch_buffer) {
+            if (getenv("Print")) {
+              printf(
+                  "GetDataBlockFromCache:: Cache Hit offset: %lu, length: "
+                  "%lu\n",
+                  handle.offset(), BlockSizeWithTrailer(handle));
+            }
             // Update the block details so that PrefetchBuffer can use the read
             // pattern to determine if reads are sequential or not for
             // prefetching. It should also take in account blocks read from

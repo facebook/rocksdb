@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <deque>
+
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
@@ -58,6 +60,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
            (is_at_first_key_from_index_ ||
             (block_iter_points_to_real_block_ && block_iter_.Valid()));
   }
+
+  /*
+   Akanksha: If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
+   called. It means block_handles is empty and index_ point to current block.
+  */
   Slice key() const override {
     assert(Valid());
     if (is_at_first_key_from_index_) {
@@ -74,6 +81,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       return block_iter_.user_key();
     }
   }
+
   bool PrepareValue() override {
     assert(Valid());
 
@@ -104,8 +112,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return block_iter_.value();
   }
   Status status() const override {
-    // Prefix index set status to NotFound when the prefix does not exist
-    if (!index_iter_->status().ok() && !index_iter_->status().IsNotFound()) {
+    /*
+      Akanksha: We won't add the block to block_handles if it's index is
+      invalid.
+    */
+    // Prefix index set status to NotFound when the prefix does not exist.
+    if (IsIndexAtCurr() && !index_iter_->status().ok() &&
+        !index_iter_->status().IsNotFound()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
@@ -159,7 +172,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   void SavePrevIndexValue() {
-    if (block_iter_points_to_real_block_) {
+    if (block_iter_points_to_real_block_ && IsIndexAtCurr()) {
       // Reseek. If they end up with the same data block, we shouldn't re-fetch
       // the same data block.
       prev_block_offset_ = index_iter_->value().handle.offset();
@@ -235,6 +248,16 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     kReportOnUseful = 1 << 2,
   };
 
+  struct BlockHandleStatus {
+    BlockHandleStatus(IndexValue index_val, bool is_cache_hit)
+        : index_val_(index_val), is_cache_hit_(is_cache_hit) {}
+
+    IndexValue index_val_;
+    bool is_cache_hit_;
+  };
+
+  bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
+
   const BlockBasedTable* table_;
   const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;
@@ -267,6 +290,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   mutable SeekStatState seek_stat_state_ = SeekStatState::kNone;
   bool is_last_level_;
+
+  bool readahead_cache_lookup_ = false;
+
+  std::deque<BlockHandleStatus> block_handles_;
+
+  bool is_index_at_curr_block_ = true;
 
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
@@ -308,5 +337,24 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   void FindReadAheadSizeUpperBound();
+
+  void CacheLookupForReadAheadSize(size_t readahead_size,
+                                   size_t& updated_readahead_size);
+
+  void ResetLookupVar() {
+    readahead_cache_lookup_ = false;
+    block_handles_.clear();
+  }
+
+  bool IsNextBlockOutOfBound() {
+    // If curr block's index key >= iterate_upper_bound, it means all the keys
+    // in next block or above are out of bound.
+    return (user_comparator_.CompareWithoutTimestamp(
+                index_iter_->user_key(),
+                /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
+                /*b_has_ts=*/false) >= 0
+                ? true
+                : false);
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
