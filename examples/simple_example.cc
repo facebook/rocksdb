@@ -69,7 +69,7 @@ int main() {
   {
     std::string string_val;
     // If it cannot pin the value, it copies the value to its internal buffer.
-    // The intenral buffer could be set during construction.
+    // The internal buffer could be set during construction.
     PinnableSlice pinnable_val(&string_val);
     db->Get(ReadOptions(), db->DefaultColumnFamily(), "key2", &pinnable_val);
     assert(pinnable_val == "value");
