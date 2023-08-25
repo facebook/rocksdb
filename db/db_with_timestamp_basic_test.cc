@@ -290,7 +290,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   ASSERT_OK(Flush());
 
   // Reads [0, 16)
-  for (int i = current_ts_low + 1; i < 10 + current_ts_low + 1; i++) {
+  for (int i = 0; i < 10 + current_ts_low + 1; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
     Slice ts = ts_str;
@@ -299,6 +299,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
     Status status = db_->Get(read_opts, kKey, &value);
     if (i < current_ts_low) {
       ASSERT_TRUE(status.IsInvalidArgument());
+    } else if (i == current_ts_low) {
+      ASSERT_TRUE(status.IsNotFound());
     } else {
       ASSERT_OK(status);
       ASSERT_TRUE(value.compare(Key(i)) == 0);
