@@ -462,14 +462,11 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   size_t ts_sz = ucmp->timestamp_size();
 
   Slice from_slice = from_key;
-  Slice end_slice = to_key;
-  std::string from_key_buf, end_key_buf;
-  auto [from, end] =
-      MaybeAddTimestampsToRange(from_slice.empty() ? nullptr : &from_slice,
-                                end_slice.empty() ? nullptr : &end_slice, ts_sz,
-                                &from_key_buf, &end_key_buf);
-  if (ts_sz > 0 && (has_from || has_to)) {
-  }
+  Slice to_slice = to_key;
+  std::string from_key_buf, to_key_buf;
+  auto [from, to] = MaybeAddTimestampsToRange(
+      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
+      &from_key_buf, &to_key_buf);
   uint64_t i = 0;
   if (from.has_value()) {
     InternalKey ikey;
@@ -497,7 +494,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // If end marker was specified, we stop before it
-    if (end.has_value() && ucmp->Compare(ikey.user_key, end.value()) >= 0) {
+    if (to.has_value() && ucmp->Compare(ikey.user_key, to.value()) >= 0) {
       break;
     }
 
