@@ -138,6 +138,8 @@ typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
 typedef struct rocksdb_statistics_histogram_data_t
     rocksdb_statistics_histogram_data_t;
+typedef struct rocksdb_wait_for_compact_options_t
+    rocksdb_wait_for_compact_options_t;
 
 /* DB operations */
 
@@ -2926,6 +2928,44 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_statistics_histogram_data_get_sum(
     rocksdb_statistics_histogram_data_t* data);
 extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact(
+    rocksdb_t* db, rocksdb_wait_for_compact_options_t* options, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_wait_for_compact_options_t*
+rocksdb_wait_for_compact_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_destroy(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_wait_for_compact_options_set_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_flush(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_flush(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_close_db(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_close_db(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_timeout(
+    rocksdb_wait_for_compact_options_t* opt, uint64_t microseconds);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_wait_for_compact_options_get_timeout(
+    rocksdb_wait_for_compact_options_t* opt);
 
 #ifdef __cplusplus
 } /* end extern "C" */

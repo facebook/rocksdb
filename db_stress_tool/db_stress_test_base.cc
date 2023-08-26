@@ -747,6 +747,7 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
   read_opts.readahead_size = FLAGS_readahead_size;
+  read_opts.auto_readahead_size = FLAGS_auto_readahead_size;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -2484,6 +2485,8 @@ void StressTest::PrintEnv() const {
           FLAGS_use_get_entity ? "true" : "false");
   fprintf(stdout, "Use MultiGetEntity        : %s\n",
           FLAGS_use_multi_get_entity ? "true" : "false");
+  fprintf(stdout, "Verification only         : %s\n",
+          FLAGS_verification_only ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {
@@ -2562,7 +2565,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "------------------------------------------------\n");
 }
 
-void StressTest::Open(SharedState* shared) {
+void StressTest::Open(SharedState* shared, bool reopen) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
   assert(optimistic_txn_db_ == nullptr);
@@ -2777,15 +2780,20 @@ void StressTest::Open(SharedState* shared) {
             ingest_write_error = false;
             ingest_read_error = false;
 
-            Random rand(static_cast<uint32_t>(FLAGS_seed));
-            if (rand.OneIn(2)) {
-              fault_fs_guard->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
-                                                                 nullptr);
-            }
-            if (rand.OneIn(3)) {
-              fault_fs_guard->DropUnsyncedFileData();
-            } else if (rand.OneIn(2)) {
-              fault_fs_guard->DropRandomUnsyncedFileData(&rand);
+            // TODO: Unsynced data loss during DB reopen is not supported yet in
+            //  stress test. Will need to recreate expected state if we decide
+            //  to support unsynced data loss during DB reopen.
+            if (!reopen) {
+              Random rand(static_cast<uint32_t>(FLAGS_seed));
+              if (rand.OneIn(2)) {
+                fault_fs_guard->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
+                                                                   nullptr);
+              }
+              if (rand.OneIn(3)) {
+                fault_fs_guard->DropUnsyncedFileData();
+              } else if (rand.OneIn(2)) {
+                fault_fs_guard->DropRandomUnsyncedFileData(&rand);
+              }
             }
             continue;
           }
@@ -2940,7 +2948,7 @@ void StressTest::Reopen(ThreadState* thread) {
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
-  Open(thread->shared);
+  Open(thread->shared, /*reopen=*/true);
 
   if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
        FLAGS_manual_wal_flush_one_in > 0) &&

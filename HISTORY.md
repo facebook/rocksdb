@@ -1,6 +1,32 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.0 (08/18/2023)
+### New Features
+* Added enhanced data integrity checking on SST files with new format_version=6. Performance impact is very small or negligible. Previously if SST data was misplaced or re-arranged by the storage layer, it could pass block checksum with higher than 1 in 4 billion probability. With format_version=6, block checksums depend on what file they are in and location within the file. This way, misplaced SST data is no more likely to pass checksum verification than randomly corrupted data. Also in format_version=6, SST footers are checksum-protected.
+* Add a new feature to trim readahead_size during scans upto upper_bound when iterate_upper_bound is specified. It's enabled through ReadOptions.auto_readahead_size. Users must also specify ReadOptions.iterate_upper_bound.
+* RocksDB will compare the number of input keys to the number of keys processed after each compaction. Compaction will fail and report Corruption status if the verification fails. Option `compaction_verify_record_count` is introduced for this purpose and is enabled by default.
+* Add a CF option `bottommost_file_compaction_delay` to allow specifying the delay of bottommost level single-file compactions.
+* Add support to allow enabling / disabling user-defined timestamps feature for an existing column family in combination with the in-Memtable only feature.
+* Implement a new admission policy for the compressed secondary cache that admits blocks evicted from the primary cache with the hit bit set. This policy can be specified in TieredVolatileCacheOptions by setting the newly added adm_policy option.
+* Add a column family option `memtable_max_range_deletions` that limits the number of range deletions in a memtable. RocksDB will try to do an automatic flush after the limit is reached. (#11358)
+* Add PutEntity API in sst_file_writer
+* Add `timeout` in microsecond option to `WaitForCompactOptions` to allow timely termination of prolonged waiting in scenarios like recurring recoverable errors, such as out-of-space situations and continuous write streams that sustain ongoing flush and compactions
+* New statistics `rocksdb.file.read.{db.open|get|multiget|db.iterator|verify.checksum|verify.file.checksums}.micros` measure read time of block-based SST tables or blob files during db open, `Get()`, `MultiGet()`, using db iterator, `VerifyFileChecksums()` and `VerifyChecksum()`. They require stats level greater than `StatsLevel::kExceptDetailedTimers`.
+* Add close_db option to `WaitForCompactOptions` to call Close() after waiting is done.
+* Add a new compression option `CompressionOptions::checksum` for enabling ZSTD's checksum feature to detect corruption during decompression.
+
+### Public API Changes
+* Mark `Options::access_hint_on_compaction_start` related APIs as deprecated. See #11631 for alternative behavior.
+
+### Behavior Changes
+* Statistics `rocksdb.sst.read.micros` now includes time spent on multi read and async read into the file
+* For Universal Compaction users, periodic compaction (option `periodic_compaction_seconds`) will be set to 30 days by default if block based table is used.
+* `Options::compaction_readahead_size` will be sanitized to 2MB when set to 0 under non-direct IO since we have moved prefetching responsibility to page cache for compaction read with readhead size equal to `Options::compaction_readahead_size` under non-direct IO (#11631)
+
+### Bug Fixes
+* Fix a bug in FileTTLBooster that can cause users with a large number of levels (more than 65) to see errors like "runtime error: shift exponent .. is too large.." (#11673).
+
 ## 8.5.0 (07/21/2023)
 ### Public API Changes
 * Removed recently added APIs `GeneralCache` and `MakeSharedGeneralCache()` as our plan changed to stop exposing a general-purpose cache interface. The old forms of these APIs, `Cache` and `NewLRUCache()`, are still available, although general-purpose caching support will be dropped eventually.
