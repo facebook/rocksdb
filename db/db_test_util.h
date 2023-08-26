@@ -566,12 +566,7 @@ class SpecialEnv : public EnvWrapper {
       bool ret = target()->TimedWait(
           cv, std::chrono::microseconds(real_now_micros + delay_micros));
       if (time_elapse_only_sleep_) {
-        uint64_t slept_micros;
-        if (ret) {
-          slept_micros = target()->NowMicros() - real_now_micros;
-        } else {
-          slept_micros = delay_micros;
-        }
+        uint64_t slept_micros = target()->NowMicros() - real_now_micros;
         addon_microseconds_.fetch_add(static_cast<int64_t>(slept_micros));
       }
       return ret;
