@@ -539,6 +539,12 @@ class Env : public Customizable {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
+  // For internal use/extension only.
+  //
+  // Issues a wait on `cv` that times out at `deadline`. May wakeup and return
+  // spuriously.
+  //
+  // Returns true if wait timed out, false otherwise
   virtual bool TimedWait(port::CondVar* cv, std::chrono::microseconds deadline);
 
   // Get the current host name as a null terminated string iff the string
