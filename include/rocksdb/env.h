@@ -68,6 +68,9 @@ struct ThreadStatus;
 class FileSystem;
 class SystemClock;
 struct ConfigOptions;
+namespace port {
+class CondVar;
+}
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -536,7 +539,7 @@ class Env : public Customizable {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
-  virtual bool TimedWait(CondVarBase* cv, std::chrono::microseconds deadline);
+  virtual bool TimedWait(port::CondVar* cv, std::chrono::microseconds deadline);
 
   // Get the current host name as a null terminated string iff the string
   // length is < len. The hostname should otherwise be truncated to len.
@@ -1589,7 +1592,8 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) override {
     target_.env->SleepForMicroseconds(micros);
   }
-  bool TimedWait(CondVarBase* cv, std::chrono::microseconds deadline) override {
+  bool TimedWait(port::CondVar* cv,
+                 std::chrono::microseconds deadline) override {
     return target_.env->TimedWait(cv, deadline);
   }
   Status GetHostName(char* name, uint64_t len) override {

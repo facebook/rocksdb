@@ -93,7 +93,7 @@ constexpr bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 
 class CondVar;
 
-class Mutex : public MutexBase {
+class Mutex {
  public:
   static const char* kName() { return "pthread_mutex_t"; }
 
@@ -104,8 +104,8 @@ class Mutex : public MutexBase {
 
   ~Mutex();
 
-  virtual void Lock() override;
-  virtual void Unlock() override;
+  void Lock();
+  void Unlock();
 
   bool TryLock();
 
@@ -145,18 +145,18 @@ class RWMutex {
   pthread_rwlock_t mu_;  // the underlying platform mutex
 };
 
-class CondVar : public CondVarBase {
+class CondVar {
  public:
   explicit CondVar(Mutex* mu);
   ~CondVar();
 
-  virtual MutexBase* GetMutex() const override { return mu_; }
+  Mutex* GetMutex() const { return mu_; }
 
-  virtual void Wait() override;
+  void Wait();
   // Timed condition wait.  Returns true if timeout occurred.
-  virtual bool TimedWait(uint64_t abs_time_us) override;
-  virtual void Signal() override;
-  virtual void SignalAll() override;
+  bool TimedWait(uint64_t abs_time_us);
+  void Signal();
+  void SignalAll();
 
  private:
   pthread_cond_t cv_;
