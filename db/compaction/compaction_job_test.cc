@@ -674,7 +674,9 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
-    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
+    bool compaction_released = false;
+    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
+                                     &compaction_released));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
     log_buffer.FlushBufferToLog();
