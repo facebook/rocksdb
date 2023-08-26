@@ -571,12 +571,22 @@ class SpecialEnv : public EnvWrapper {
       }
       return ret;
     }
-    // To prevent slowdown, this `TimedWait()` is completely synthetic. The mock
-    // implementation here pretends the timeout always happened.
+    // To prevent slowdown, this `TimedWait()` is completely synthetic. First,
+    // it yields to coerce other threads to run while the lock is released.
+    // Second, it randomly selects between mocking an immediate wakeup and a
+    // timeout.
     cv->GetMutex()->Unlock();
-    addon_microseconds_.fetch_add(static_cast<int64_t>(delay_micros));
+    std::this_thread::yield();
+    bool mock_timeout;
+    {
+      MutexLock l(&rnd_mutex_);
+      mock_timeout = rnd_.OneIn(2);
+    }
+    if (mock_timeout) {
+      addon_microseconds_.fetch_add(static_cast<int64_t>(delay_micros));
+    }
     cv->GetMutex()->Lock();
-    return true;
+    return mock_timeout;
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
