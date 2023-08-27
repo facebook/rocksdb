@@ -83,7 +83,8 @@ class LegacySystemClock : public SystemClock {
     env_->SleepForMicroseconds(micros);
   }
 
-  bool TimedWait(port::CondVar* cv, std::chrono::microseconds deadline) {
+  bool TimedWait(port::CondVar* cv,
+                 std::chrono::microseconds deadline) override {
     return env_->TimedWait(cv, deadline);
   }
 
