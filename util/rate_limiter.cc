@@ -109,29 +109,6 @@ void GenericRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
-  return RequestInternal(bytes, pri, stats, Env::Default());
-}
-
-void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
-                                 Statistics* stats, OpType op_type) {
-  if (IsRateLimited(op_type)) {
-    return RequestInternal(bytes, pri, stats,
-                           Env::Default() /* timed_wait_env */);
-  }
-}
-
-void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
-                                 Statistics* stats, OpType op_type,
-                                 Env* timed_wait_env) {
-  if (IsRateLimited(op_type)) {
-    return RequestInternal(bytes, pri, stats, timed_wait_env);
-  }
-}
-
-void GenericRateLimiter::RequestInternal(int64_t bytes,
-                                         const Env::IOPriority pri,
-                                         Statistics* stats,
-                                         Env* timed_wait_env) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
   bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("GenericRateLimiter::Request");
@@ -193,7 +170,7 @@ void GenericRateLimiter::RequestInternal(int64_t bytes,
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
-        timed_wait_env->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
+        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
         TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostTimedWait",
                                  &time_until_refill_us);
         wait_until_refill_pending_ = false;

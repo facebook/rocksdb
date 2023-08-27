@@ -8,7 +8,10 @@
 #include <atomic>
 #include <limits>
 
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/mock_time_env.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -81,11 +84,7 @@ class MockSystemClock : public SystemClockWrapper {
     // timeout.
     cv->GetMutex()->Unlock();
     std::this_thread::yield();
-    bool mock_timeout;
-    {
-      MutexLock l(&rnd_mutex_);
-      mock_timeout = rnd_.OneIn(2);
-    }
+    bool mock_timeout = Random::GetTLSInstance()->OneIn(2);
     if (mock_timeout) {
       current_time_us_.fetch_add(delay_micros);
     }
