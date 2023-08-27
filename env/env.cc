@@ -83,6 +83,10 @@ class LegacySystemClock : public SystemClock {
     env_->SleepForMicroseconds(micros);
   }
 
+  bool TimedWait(port::CondVar* cv, std::chrono::microseconds deadline) {
+    return env_->TimedWait(cv, deadline);
+  }
+
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
   Status GetCurrentTime(int64_t* unix_time) override {
@@ -1232,5 +1236,10 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     });
     return LoadSharedObject<SystemClock>(config_options, value, result);
   }
+}
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
 }
 }  // namespace ROCKSDB_NAMESPACE

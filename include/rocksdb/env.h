@@ -68,9 +68,6 @@ struct ThreadStatus;
 class FileSystem;
 class SystemClock;
 struct ConfigOptions;
-namespace port {
-class CondVar;
-}
 
 const size_t kDefaultPageSize = 4 * 1024;
 
