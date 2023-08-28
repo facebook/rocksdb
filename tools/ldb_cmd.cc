@@ -1886,8 +1886,20 @@ void InternalDumpCommand::DoCommand() {
       std::string key = ikey.DebugString(is_key_hex_);
       Slice value(key_version.value);
       if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n", key.c_str(),
-                value.ToString(is_value_hex_).c_str());
+        if (value_type == kTypeWideColumnEntity) {
+          std::ostringstream oss;
+          const Status s = WideColumnsHelper::DumpSliceAsWideColumns(
+              value, oss, is_value_hex_);
+          if (!s.ok()) {
+            fprintf(stderr, "%s => error deserializing wide columns\n",
+                    key.c_str());
+          } else {
+            fprintf(stdout, "%s => %s\n", key.c_str(), oss.str().c_str());
+          }
+        } else {
+          fprintf(stdout, "%s => %s\n", key.c_str(),
+                  value.ToString(is_value_hex_).c_str());
+        }
       } else {
         BlobIndex blob_index;
 
