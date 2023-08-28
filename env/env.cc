@@ -83,11 +83,6 @@ class LegacySystemClock : public SystemClock {
     env_->SleepForMicroseconds(micros);
   }
 
-  bool TimedWait(port::CondVar* cv,
-                 std::chrono::microseconds deadline) override {
-    return env_->TimedWait(cv, deadline);
-  }
-
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
   Status GetCurrentTime(int64_t* unix_time) override {
@@ -780,10 +775,6 @@ Status Env::GetHostNameString(std::string* result) {
     result->assign(hostname_buf.data());
   }
   return s;
-}
-
-bool Env::TimedWait(port::CondVar* cv, std::chrono::microseconds deadline) {
-  return cv->TimedWait(deadline.count());
 }
 
 std::string Env::GenerateUniqueId() {
