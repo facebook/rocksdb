@@ -4,18 +4,20 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
 #include <ostream>
-#include "rocksdb/rocksdb_namespace.h"
+#include <string>
 
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
-    class WideColumnsHelper {
-        public:
-            WideColumnsHelper() = default;
+class WideColumnsHelper {
+ public:
+  WideColumnsHelper() = default;
 
-        static void DumpWideColumns(const WideColumns& columns,  std::ostream& oss, bool hex);
-        static Status DumpSliceAsWideColumns(const Slice& value,  std::ostream& oss, bool hex);
-    };
+  static void DumpWideColumns(const WideColumns& columns, std::ostream& oss,
+                              bool hex);
+  static Status DumpSliceAsWideColumns(const Slice& value, std::ostream& oss,
+                                       bool hex);
+};
 }  // namespace ROCKSDB_NAMESPACE

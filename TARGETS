@@ -5552,10 +5552,12 @@ cpp_unittest_wrapper(name="wide_column_serialization_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+
 cpp_unittest_wrapper(name="wide_columns_helper_test",
             srcs=["db/wide/wide_columns_helper_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
+
 
 cpp_unittest_wrapper(name="work_queue_test",
             srcs=["util/work_queue_test.cc"],

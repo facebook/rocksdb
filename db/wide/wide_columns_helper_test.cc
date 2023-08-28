@@ -4,31 +4,31 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/wide/wide_columns_helper.h"
-#include "db/wide/wide_column_serialization.h"
 
+#include "db/wide/wide_column_serialization.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 TEST(WideColumnsHelperTest, DumpWideColumns) {
-    WideColumns columns{{"foo", "bar"}, {"hello", "world"}};
-    std::ostringstream oss;
-    WideColumnsHelper::DumpWideColumns(columns, oss, false /* hex */ );
-    EXPECT_EQ("foo:bar hello:world", oss.str());
+  WideColumns columns{{"foo", "bar"}, {"hello", "world"}};
+  std::ostringstream oss;
+  WideColumnsHelper::DumpWideColumns(columns, oss, false /* hex */);
+  EXPECT_EQ("foo:bar hello:world", oss.str());
 }
 
 TEST(WideColumnsHelperTest, DumpSliceAsWideColumns) {
-    WideColumns columns{{"foo", "bar"}, {"hello", "world"}};
-    std::string output;
+  WideColumns columns{{"foo", "bar"}, {"hello", "world"}};
+  std::string output;
+  ASSERT_OK(WideColumnSerialization::Serialize(columns, output));
+  Slice input(output);
 
-    ASSERT_OK(WideColumnSerialization::Serialize(columns, output));
-    Slice input(output);
+  std::ostringstream oss;
+  ASSERT_OK(
+      WideColumnsHelper::DumpSliceAsWideColumns(input, oss, false /* hex */));
 
-    std::ostringstream oss;
-    ASSERT_OK(WideColumnsHelper::DumpSliceAsWideColumns(input, oss, false /* hex */));
-
-    EXPECT_EQ("foo:bar hello:world", oss.str());
+  EXPECT_EQ("foo:bar hello:world", oss.str());
 }
 }  // namespace ROCKSDB_NAMESPACE
 
