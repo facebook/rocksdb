@@ -16,6 +16,8 @@
 
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
+#include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
 #include "port/port.h"
@@ -489,9 +491,23 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
 
     if (print_kv) {
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n",
-                ikey.DebugString(true, output_hex_).c_str(),
-                value.ToString(output_hex_).c_str());
+        if (ikey.type == kTypeWideColumnEntity) {
+          std::ostringstream oss;
+          const Status s = WideColumnsHelper::DumpSliceAsWideColumns(
+              iter->value(), oss, output_hex_);
+          if (!s.ok()) {
+            fprintf(stderr, "%s => error deserializing wide columns\n",
+                    ikey.DebugString(true, output_hex_).c_str());
+            continue;
+          }
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  oss.str().c_str());
+        } else {
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  value.ToString(output_hex_).c_str());
+        }
       } else {
         BlobIndex blob_index;
 
