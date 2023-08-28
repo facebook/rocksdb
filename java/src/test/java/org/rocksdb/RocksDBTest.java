@@ -4,16 +4,22 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.*;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
-
-import java.nio.ByteBuffer;
-import java.util.*;
-
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.assertj.core.api.Condition;
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 
 public class RocksDBTest {
 
@@ -1343,6 +1349,47 @@ public class RocksDBTest {
         assertThat(stats).isNotNull();
         assertThat(stats.count).isEqualTo(1);
         assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
+  @Test
+  public void getFileChecksumsFromManifest() throws RocksDBException, IOException {
+    final Properties props = new Properties();
+    final byte[] key1 = "key1".getBytes(UTF_8);
+    props.put("file_checksum_gen_factory", "FileChecksumGenCrc32cFactory");
+
+    try (final Env env = Env.getDefault();
+         final DBOptions dbOptions = DBOptions.getDBOptionsFromProps(props);
+         final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
+         final Options options = new Options(dbOptions, cfOptions).setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+
+      // disable WAL so we have a deterministic checksum
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+           final WriteOptions writeOptions = new WriteOptions().setDisableWAL(true)) {
+        db.put(writeOptions, key1, key1);
+      }
+
+      final Path dbRoot = Paths.get(dbPath);
+      final Path manifestPath =
+          dbRoot.resolve(Files.readAllLines(dbRoot.resolve("CURRENT")).get(0));
+      final FileChecksum[] checksums = RocksDB.getFileChecksumsFromManifest(
+          env, manifestPath.toString(), Files.size(manifestPath));
+
+      // unfortunately there's no easy utility to compute a CRC32C and verify the checksum we get is
+      // correct; this would require either Java 9, an additional dependency, or exposing RocksDB's
+      // native CRC32 utility. for now, just fallback to verifying what we can and making sure we
+      // have the expected files and checksum function name
+      try (final RocksDB db = RocksDB.openReadOnly(options, dbPath)) {
+        final List<LiveFileMetaData> liveFilesMetaData = db.getLiveFilesMetaData();
+        LiveFileMetaData metaData = liveFilesMetaData.get(0);
+        assertThat(checksums).hasSize(1).hasSameSizeAs(liveFilesMetaData);
+
+        final int expectedFileNumber = Integer.parseInt(metaData.fileName().replaceAll("\\D", ""));
+        assertThat(checksums[0].getFileNumber()).isEqualTo(expectedFileNumber);
+        assertThat(checksums[0].getChecksum()).isNotEmpty();
+        assertThat(checksums[0].getChecksumFuncName()).isEqualTo("FileChecksumCrc32c");
       }
     }
   }

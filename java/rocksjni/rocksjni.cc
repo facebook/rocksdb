@@ -28,6 +28,7 @@
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
+#include "util/file_checksum_helper.h"
 
 #ifdef min
 #undef min
@@ -4064,6 +4065,45 @@ void Java_org_rocksdb_RocksDB_destroyDB(JNIEnv* env, jclass, jstring jdb_path,
   }
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getFileChecksumsFromManifest
+ * Signature: (JLjava/lang/String;J)[
+ */
+jobjectArray Java_org_rocksdb_RocksDB_getFileChecksumsFromManifest(
+    JNIEnv* env, jclass, jlong jenv_handle, jstring jmanifest_path,
+    jlong manifest_file_size) {
+  const char* manifest_path = env->GetStringUTFChars(jmanifest_path, nullptr);
+  if (manifest_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
+  auto* rocksDbEnv = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jenv_handle);
+  if (rocksDbEnv == nullptr) {
+    env->ReleaseStringUTFChars(jmanifest_path, manifest_path);
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument("Invalid Env."));
+  }
+
+  auto* file_checksum_list = ROCKSDB_NAMESPACE::NewFileChecksumList();
+  ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::GetFileChecksumsFromManifest(
+      rocksDbEnv, manifest_path, manifest_file_size, file_checksum_list);
+
+  env->ReleaseStringUTFChars(jmanifest_path, manifest_path);
+
+  if (!s.ok()) {
+    delete file_checksum_list;
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  jobjectArray jfile_checksum_list =
+      ROCKSDB_NAMESPACE::FileChecksumJni::fromCppCreateObjArray(
+          env, file_checksum_list);
+  delete file_checksum_list;
+  return jfile_checksum_list;
+}
+
 bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
                       std::unique_ptr<ROCKSDB_NAMESPACE::Slice>& slice,
                       std::vector<std::unique_ptr<jbyte[]>>& ranges_to_free) {
@@ -4091,6 +4131,7 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
       reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba));
   return true;
 }
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    deleteFilesInRanges
