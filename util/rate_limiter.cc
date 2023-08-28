@@ -179,16 +179,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // Whichever thread reaches here first performs duty (2) as described
       // above.
       RefillBytesAndGrantRequestsLocked();
-      if (r.request_bytes == 0) {
-        // If there is any remaining requests, make sure there exists at least
-        // one candidate is awake for future duties by signaling a front request
-        // of a queue.
-        for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-          std::deque<Req*> queue = queue_[i];
-          if (!queue.empty()) {
-            queue.front()->cv.Signal();
-            break;
-          }
+    }
+    if (r.request_bytes == 0) {
+      // If there is any remaining requests, make sure there exists at least
+      // one candidate is awake for future duties by signaling a front request
+      // of a queue.
+      for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+        auto& queue = queue_[i];
+        if (!queue.empty()) {
+          queue.front()->cv.Signal();
+          break;
         }
       }
     }
