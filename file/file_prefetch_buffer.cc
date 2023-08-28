@@ -829,14 +829,12 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   num_file_reads_ = 0;
   explicit_prefetch_submitted_ = false;
   bool is_eligible_for_prefetching = false;
+
+  UpdateReadAheadSizeForUpperBound(offset, n);
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
-    UpdateReadAheadSizeForUpperBound(offset, n);
-    // After trim, readahead size can be 0.
-    if (readahead_size_ > 0) {
       is_eligible_for_prefetching = true;
-    }
   }
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out
