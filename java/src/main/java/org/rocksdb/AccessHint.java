@@ -8,7 +8,6 @@ package org.rocksdb;
 /**
  * File access pattern once a compaction has started
  */
-@Deprecated
 public enum AccessHint {
   NONE((byte)0x0),
   NORMAL((byte)0x1),

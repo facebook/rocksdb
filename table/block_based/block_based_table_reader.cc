@@ -1218,7 +1218,23 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   return s;
 }
 
-void BlockBasedTable::SetupForCompaction() {}
+void BlockBasedTable::SetupForCompaction() {
+  switch (rep_->ioptions.access_hint_on_compaction_start) {
+    case Options::NONE:
+      break;
+    case Options::NORMAL:
+      rep_->file->file()->Hint(FSRandomAccessFile::kNormal);
+      break;
+    case Options::SEQUENTIAL:
+      rep_->file->file()->Hint(FSRandomAccessFile::kSequential);
+      break;
+    case Options::WILLNEED:
+      rep_->file->file()->Hint(FSRandomAccessFile::kWillNeed);
+      break;
+    default:
+      assert(false);
+  }
+}
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
     const {

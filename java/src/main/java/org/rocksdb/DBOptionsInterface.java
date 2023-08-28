@@ -935,7 +935,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return the reference to the current options.
    */
-  @Deprecated T setAccessHintOnCompactionStart(final AccessHint accessHint);
+  T setAccessHintOnCompactionStart(final AccessHint accessHint);
 
   /**
    * Specify the file access pattern once a compaction is started.
@@ -945,7 +945,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return The access hint
    */
-  @Deprecated AccessHint accessHintOnCompactionStart();
+  AccessHint accessHintOnCompactionStart();
 
   /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
