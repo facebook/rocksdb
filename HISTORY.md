@@ -16,9 +16,6 @@
 * Add close_db option to `WaitForCompactOptions` to call Close() after waiting is done.
 * Add a new compression option `CompressionOptions::checksum` for enabling ZSTD's checksum feature to detect corruption during decompression.
 
-### Public API Changes
-* Mark `Options::access_hint_on_compaction_start` related APIs as deprecated. See #11631 for alternative behavior.
-
 ### Behavior Changes
 * Statistics `rocksdb.sst.read.micros` now includes time spent on multi read and async read into the file
 * For Universal Compaction users, periodic compaction (option `periodic_compaction_seconds`) will be set to 30 days by default if block based table is used.
