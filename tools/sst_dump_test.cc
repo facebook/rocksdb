@@ -136,7 +136,7 @@ class SSTDumpToolTest : public testing::Test {
     const char* comparator_name = ikc.user_comparator()->Name();
     if (strcmp(comparator_name, ReverseBytewiseComparator()->Name()) == 0) {
       for (int32_t i = num_keys; i >= 0; i--) {
-        if (wide_column_one_in == 0 || i % wide_column_one_in == 0) {
+        if (wide_column_one_in == 0 || i % wide_column_one_in != 0) {
           tb->Add(MakeKey(i), MakeValue(i));
         } else {
           tb->Add(MakeKey(i), MakeWideColumn(i));
@@ -150,7 +150,7 @@ class SSTDumpToolTest : public testing::Test {
       }
     } else {
       for (uint32_t i = 0; i < num_keys; i++) {
-        if (wide_column_one_in == 0 || i % wide_column_one_in == 0) {
+        if (wide_column_one_in == 0 || i % wide_column_one_in != 0) {
           tb->Add(MakeKey(i), MakeValue(i));
         } else {
           tb->Add(MakeKey(i), MakeWideColumn(i));
@@ -185,7 +185,7 @@ TEST_F(SSTDumpToolTest, EmptyFilter) {
   Options opts;
   opts.env = env();
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
-  createSST(opts, file_path);
+  createSST(opts, file_path, 10);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);
@@ -233,7 +233,7 @@ TEST_F(SSTDumpToolTest, SstDumpComparatorWithU64Ts) {
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
   std::string file_path =
       MakeFilePath("rocksdb_sst_comparator_with_u64_ts.sst");
-  createSST(opts, file_path);
+  createSST(opts, file_path, 10);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);
@@ -255,7 +255,7 @@ TEST_F(SSTDumpToolTest, FilterBlock) {
       ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, true));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
-  createSST(opts, file_path);
+  createSST(opts, file_path, 10);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);
@@ -321,7 +321,7 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
       ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
-  createSST(opts, file_path);
+  createSST(opts, file_path, 10);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=recompress", usage);
@@ -447,7 +447,7 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   Options opts;
   opts.env = env();
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
-  createSST(opts, file_path);
+  createSST(opts, file_path, 10);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);
