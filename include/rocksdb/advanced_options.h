@@ -1181,9 +1181,6 @@ struct AdvancedColumnFamilyOptions {
   // refrains from flushing a memtable with data still above
   // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
   // flushing continues normally.
-  // NOTE: in order for the cutoff timestamp to work properly, users of this
-  // feature need to ensure to write to a column family with globally
-  // non-decreasing user-defined timestamps.
   //
   // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read

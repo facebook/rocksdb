@@ -1122,16 +1122,16 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
       cfd_->ioptions()->persist_user_defined_timestamps) {
     return;
   }
+  // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
-    // The picked Memtables should have ascending ID, and should have
-    // non-decreasing newest user-defined timestamps.
-    if (!cutoff_udt_.empty()) {
-      assert(table_newest_udt.size() == cutoff_udt_.size());
-      assert(ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) >= 0);
-      cutoff_udt_.clear();
+    if (cutoff_udt_.empty() ||
+        ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
+      if (!cutoff_udt_.empty()) {
+        assert(table_newest_udt.size() == cutoff_udt_.size());
+      }
+      cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
     }
-    cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
   }
 }
 
