@@ -143,13 +143,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
 
-  if (result.compaction_readahead_size == 0) {
-    if (result.use_direct_reads) {
-      TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
-    }
-    result.compaction_readahead_size = 1024 * 1024 * 2;
-  }
-
   // Force flush on DB open if 2PC is enabled, since with 2PC we have no
   // guarantee that consecutive log files have consecutive sequence id, which
   // make recovery complicated.
