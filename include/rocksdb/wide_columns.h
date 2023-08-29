@@ -74,7 +74,13 @@ inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
 inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
   const bool hex =
       (os.flags() & std::ios_base::basefield) == std::ios_base::hex;
-  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
+  if (hex) {
+    os << "0x" << column.name().ToString(true) << ":0x"
+       << column.value().ToString(true);
+  } else {
+    os << column.name().ToString(false) << ':'
+       << column.value().ToString(false);
+  }
 
   return os;
 }
