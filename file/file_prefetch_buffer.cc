@@ -545,7 +545,9 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
     assert(roundup_len1 >= chunk_len1);
     read_len1 = static_cast<size_t>(roundup_len1 - chunk_len1);
   }
-  {
+
+  // Prefetch in second buffer only if readahead_size_ > 0.
+  if (readahead_size_ > 0) {
     // offset and size alignment for second buffer for asynchronous
     // prefetching
     uint64_t rounddown_start2 = roundup_end1;
@@ -733,7 +735,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
       (bufs_[curr_].async_read_in_progress_ ||
        offset + n >
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize())) {
-    if (readahead_size_ > 0) {
+    // In case readahead_size is trimmed (=0), we still want to poll the data
+    // submitted with explicit_prefetch_submitted_=true.
+    if (readahead_size_ > 0 || explicit_prefetch_submitted_) {
       Status s;
       assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
@@ -825,14 +829,12 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   num_file_reads_ = 0;
   explicit_prefetch_submitted_ = false;
   bool is_eligible_for_prefetching = false;
+
+  UpdateReadAheadSizeForUpperBound(offset, n);
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
-    UpdateReadAheadSizeForUpperBound(offset, n);
-    // After trim, readahead size can be 0.
-    if (readahead_size_ > 0) {
       is_eligible_for_prefetching = true;
-    }
   }
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out
