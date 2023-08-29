@@ -345,9 +345,7 @@ Status ValidateUserDefinedTimestampsOptions(
 void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
                                         std::string* full_history_ts_low) {
   uint64_t cutoff_udt_ts = 0;
-  bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
-  assert(format_res);
-  (void)format_res;
+  [[maybe_unused]] bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
   PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
 }
 }  // namespace ROCKSDB_NAMESPACE

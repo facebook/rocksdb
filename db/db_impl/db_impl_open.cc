@@ -1735,7 +1735,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         std::string new_full_history_ts_low;
         GetFullHistoryTsLowFromU64CutoffTs(&mem_newest_udt,
                                            &new_full_history_ts_low);
-        edit->SetColumnFamily(cfd->GetID());
         edit->SetFullHistoryTsLow(new_full_history_ts_low);
       }
     }
