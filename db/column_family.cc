@@ -476,6 +476,7 @@ void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
   mem = new_mem;
   imm = new_imm;
   current = new_current;
+  full_history_ts_low = cfd->GetFullHistoryTsLow();
   cfd->Ref();
   mem->Ref();
   imm->Ref();

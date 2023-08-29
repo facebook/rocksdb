@@ -384,8 +384,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    const Status s =
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -412,6 +412,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   }
   // Acquire SuperVersion
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    const Status s = FailIfReadCollapsedHistory(cfd, super_version,
+                                                *(read_options.timestamp));
+    if (!s.ok()) {
+      ReturnAndCleanupSuperVersion(cfd, super_version);
+      return s;
+    }
+  }
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   MergeContext merge_context;
@@ -491,8 +499,7 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
   assert(column_family);
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
-                           /*ts_for_read=*/true);
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -516,17 +523,25 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
         Status::NotSupported("snapshot not supported in secondary mode"));
   } else {
     SequenceNumber snapshot(kMaxSequenceNumber);
-    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+    if (read_options.timestamp && read_options.timestamp->size() > 0) {
+      const Status s =
+          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+      if (!s.ok()) {
+        CleanupSuperVersion(sv);
+        return NewErrorIterator(s);
+      }
+    }
+    result = NewIteratorImpl(read_options, cfd, sv, snapshot, read_callback);
   }
   return result;
 }
 
 ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
-    SequenceNumber snapshot, ReadCallback* read_callback,
-    bool expose_blob_index, bool allow_refresh) {
+    SuperVersion* super_version, SequenceNumber snapshot,
+    ReadCallback* read_callback, bool expose_blob_index, bool allow_refresh) {
   assert(nullptr != cfd);
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
   assert(snapshot == kMaxSequenceNumber);
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
@@ -572,8 +587,7 @@ Status DBImplSecondary::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
-                                          /*ts_for_read=*/true);
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
       if (!s.ok()) {
         return s;
       }
@@ -597,10 +611,28 @@ Status DBImplSecondary::NewIterators(
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
     SequenceNumber read_seq(kMaxSequenceNumber);
+    autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+    const bool check_read_ts =
+        read_options.timestamp && read_options.timestamp->size() > 0;
     for (auto cfh : column_families) {
       ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+      cfd_to_sv.emplace_back(cfd, sv);
+      if (check_read_ts) {
+        const Status s =
+            FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+        if (!s.ok()) {
+          for (auto prev_entry : cfd_to_sv) {
+            CleanupSuperVersion(std::get<1>(prev_entry));
+          }
+          return s;
+        }
+      }
+    }
+    assert(cfd_to_sv.size() == column_families.size());
+    for (auto [cfd, sv] : cfd_to_sv) {
       iterators->push_back(
-          NewIteratorImpl(read_options, cfd, read_seq, read_callback));
+          NewIteratorImpl(read_options, cfd, sv, read_seq, read_callback));
     }
   }
   return Status::OK();
