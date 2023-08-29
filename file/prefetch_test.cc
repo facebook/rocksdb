@@ -2164,6 +2164,121 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
   }
 }
 
+// This test checks if readahead_size is trimmed when upper_bound is reached
+// during Seek in async_io and it goes for polling without any extra
+// prefetching.
+TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBoundSeekOnly) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  // First param is if the mockFS support_prefetch or not
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(FileSystem::Default(), false);
+
+  bool use_direct_io = false;
+  if (std::get<0>(GetParam())) {
+    use_direct_io = true;
+  }
+
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  Random rnd(309);
+  WriteBatch batch;
+
+  for (int i = 0; i < 26; i++) {
+    std::string key = "my_key_";
+
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(batch.Put(key, rnd.RandomString(1000)));
+    }
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = "my_key_a";
+
+  std::string end_key = "my_key_";
+  for (int j = 0; j < 10; j++) {
+    end_key += char('a' + 25);
+  }
+
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  s = TryReopen(options);
+  ASSERT_OK(s);
+
+  int buff_count_with_tuning = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
+      [&](void*) { buff_count_with_tuning++; });
+
+  bool read_async_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "UpdateResults::io_uring_result",
+      [&](void* /*arg*/) { read_async_called = true; });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ropts;
+  if (std::get<1>(GetParam())) {
+    ropts.readahead_size = 32768;
+  }
+  ropts.async_io = true;
+
+  Slice ub = Slice("my_key_aaa");
+  ropts.iterate_upper_bound = &ub;
+  Slice seek_key = Slice("my_key_aaa");
+
+  // With tuning readahead_size.
+  {
+    ASSERT_OK(options.statistics->Reset());
+    ropts.auto_readahead_size = true;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+
+    iter->Seek(seek_key);
+
+    ASSERT_OK(iter->status());
+
+    // Verify results.
+    uint64_t readhahead_trimmed =
+        options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+    // Readahead got trimmed.
+    if (read_async_called) {
+      ASSERT_GT(readhahead_trimmed, 0);
+      // Seek called PrefetchAsync to poll the data.
+      ASSERT_EQ(1, buff_count_with_tuning);
+    } else {
+      // async_io disabled.
+      ASSERT_GE(readhahead_trimmed, 0);
+      ASSERT_EQ(0, buff_count_with_tuning);
+    }
+  }
+  Close();
+}
+
 namespace {
 #ifdef GFLAGS
 const int kMaxArgCount = 100;
