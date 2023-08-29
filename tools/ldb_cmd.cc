@@ -2199,10 +2199,22 @@ void DBDumperCommand::DoDumpCommand() {
       if (is_db_ttl_ && timestamp_) {
         fprintf(stdout, "%s ", TimeToHumanString(rawtime).c_str());
       }
-      std::string str =
-          PrintKeyValue(iter->key().ToString(), iter->value().ToString(),
-                        is_key_hex_, is_value_hex_);
-      fprintf(stdout, "%s\n", str.c_str());
+      // (TODO) TTL Iterator does not support wide columns yet.
+      if (is_db_ttl_ || iter->columns().empty() ||
+          (iter->columns().size() == 1 &&
+           iter->columns().front().name() == kDefaultWideColumnName)) {
+        std::string str =
+            PrintKeyValue(iter->key().ToString(), iter->value().ToString(),
+                          is_key_hex_, is_value_hex_);
+        fprintf(stdout, "%s\n", str.c_str());
+      } else {
+        std::ostringstream oss;
+        WideColumnsHelper::DumpWideColumns(iter->columns(), oss, is_value_hex_);
+        std::string str =
+            PrintKeyValue(iter->key().ToString(), oss.str().c_str(),
+                          is_key_hex_, is_value_hex_);
+        fprintf(stdout, "%s\n", str.c_str());
+      }
     }
   }
 
@@ -3066,7 +3078,10 @@ void ScanCommand::DoCommand() {
     if (no_value_) {
       fprintf(stdout, "%.*s\n", static_cast<int>(key_slice.size()),
               key_slice.data());
-    } else {
+      // (TODO) TTL Iterator does not support wide columns yet.
+    } else if (is_db_ttl_ || it->columns().empty() ||
+               (it->columns().size() == 1 &&
+                it->columns().front().name() == kDefaultWideColumnName)) {
       Slice val_slice = it->value();
       std::string formatted_value;
       if (is_value_hex_) {
@@ -3076,6 +3091,12 @@ void ScanCommand::DoCommand() {
       fprintf(stdout, "%.*s : %.*s\n", static_cast<int>(key_slice.size()),
               key_slice.data(), static_cast<int>(val_slice.size()),
               val_slice.data());
+    } else {
+      std::ostringstream oss;
+      WideColumnsHelper::DumpWideColumns(it->columns(), oss, is_value_hex_);
+      fprintf(stdout, "%.*s : %.*s\n", static_cast<int>(key_slice.size()),
+              key_slice.data(), static_cast<int>(oss.str().length()),
+              oss.str().c_str());
     }
 
     num_keys_scanned++;
