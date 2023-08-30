@@ -246,4 +246,12 @@ Status ValidateUserDefinedTimestampsOptions(
     const Comparator* new_comparator, const std::string& old_comparator_name,
     bool new_persist_udt, bool old_persist_udt,
     bool* mark_sst_files_has_no_udt);
+
+// Given a cutoff user-defined timestamp formatted as uint64_t, get the
+// effective `full_history_ts_low` timestamp, which is the next immediately
+// bigger timestamp. Used by the UDT in memtable only feature when flushing
+// memtables and remove timestamps. This process collapses history and increase
+// the effective `full_history_ts_low`.
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low);
 }  // namespace ROCKSDB_NAMESPACE

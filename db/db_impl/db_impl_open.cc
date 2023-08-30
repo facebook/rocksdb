@@ -1722,6 +1722,22 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
     }
+
+    // For UDT in memtable only feature, move up the cutoff timestamp whenever
+    // a flush happens.
+    const Comparator* ucmp = cfd->user_comparator();
+    size_t ts_sz = ucmp->timestamp_size();
+    if (ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps) {
+      Slice mem_newest_udt = mem->GetNewestUDT();
+      std::string full_history_ts_low = cfd->GetFullHistoryTsLow();
+      if (full_history_ts_low.empty() ||
+          ucmp->CompareTimestamp(mem_newest_udt, full_history_ts_low) >= 0) {
+        std::string new_full_history_ts_low;
+        GetFullHistoryTsLowFromU64CutoffTs(&mem_newest_udt,
+                                           &new_full_history_ts_low);
+        edit->SetFullHistoryTsLow(new_full_history_ts_low);
+      }
+    }
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);

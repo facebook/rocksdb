@@ -1147,16 +1147,13 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
        ucmp->CompareTimestamp(cutoff_udt_, full_history_ts_low) < 0)) {
     return Status::OK();
   }
-  Slice cutoff_udt_slice = cutoff_udt_;
-  uint64_t cutoff_udt_ts = 0;
-  bool format_res = GetFixed64(&cutoff_udt_slice, &cutoff_udt_ts);
-  assert(format_res);
-  (void)format_res;
   std::string new_full_history_ts_low;
+  Slice cutoff_udt_slice = cutoff_udt_;
   // TODO(yuzhangyu): Add a member to AdvancedColumnFamilyOptions for an
   //  operation to get the next immediately larger user-defined timestamp to
   //  expand this feature to other user-defined timestamp formats.
-  PutFixed64(&new_full_history_ts_low, cutoff_udt_ts + 1);
+  GetFullHistoryTsLowFromU64CutoffTs(&cutoff_udt_slice,
+                                     &new_full_history_ts_low);
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);
