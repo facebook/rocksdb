@@ -170,6 +170,9 @@ class CondVar {
   explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   bool TimedWait(uint64_t expiration_time);
   void Signal();
