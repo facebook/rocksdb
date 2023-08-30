@@ -114,6 +114,13 @@ class UniversalCompactionBuilder {
   // because some files are being compacted.
   Compaction* PickPeriodicCompaction();
 
+  bool ShouldSkipLastSortedRunForSizeAmpCompaction() {
+    assert(!sorted_runs_.empty());
+    return ioptions_.preclude_last_level_data_seconds > 0 &&
+           ioptions_.num_levels > 2 &&
+           sorted_runs_.back().level == ioptions_.num_levels - 1 &&
+           sorted_runs_.size() > 1;
+  }
   // Used in universal compaction when the allow_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
@@ -778,85 +785,55 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
 
 // Look at overall size amplification. If size amplification
 // exceeds the configured value, then do a compaction
-// of the candidate files all the way upto the earliest
-// base file (overrides configured values of file-size ratios,
-// min_merge_width and max_merge_width).
-//
+// on longest span of candidate files without conflict with other compactions
+// ending at the earliest base file (overriding configured values of file-size
+// ratios, min_merge_width and max_merge_width).
 Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
-  // percentage flexibility while reducing size amplification
-  uint64_t ratio = mutable_cf_options_.compaction_options_universal
-                       .max_size_amplification_percent;
-
-  unsigned int candidate_count = 0;
-  uint64_t candidate_size = 0;
-  size_t start_index = 0;
-  const SortedRun* sr = nullptr;
-
   assert(!sorted_runs_.empty());
-  if (sorted_runs_.back().being_compacted) {
+
+  const size_t end_index = ShouldSkipLastSortedRunForSizeAmpCompaction()
+                               ? sorted_runs_.size() - 2
+                               : sorted_runs_.size() - 1;
+  if (sorted_runs_[end_index].being_compacted) {
+    return nullptr;
+  }
+  const size_t base_sr_size = sorted_runs_[end_index].size;
+  size_t start_index = end_index;
+  size_t candidate_size = 0;
+
+  // Get longest span (i.e, [start_index, end_index]) of available sorted runs
+  while (start_index > 0) {
+    const SortedRun* sr = &sorted_runs_[start_index - 1];
+    if (sr->being_compacted) {
+      char file_num_buf[kFormatFileNumberBufSize];
+      sr->Dump(file_num_buf, sizeof(file_num_buf), true);
+      ROCKS_LOG_BUFFER(
+          log_buffer_,
+          "[%s] Universal: stopping at sorted run undergoing compaction: "
+          "%s[%" ROCKSDB_PRIszt "]",
+          cf_name_.c_str(), file_num_buf, start_index - 1);
+      break;
+    }
+    candidate_size += sr->compensated_file_size;
+    --start_index;
+  }
+
+  if (start_index == end_index) {
     return nullptr;
   }
 
-  // Skip files that are already being compacted
-  for (size_t loop = 0; loop + 1 < sorted_runs_.size(); loop++) {
-    sr = &sorted_runs_[loop];
-    if (!sr->being_compacted) {
-      start_index = loop;  // Consider this as the first candidate.
-      break;
-    }
-    char file_num_buf[kFormatFileNumberBufSize];
-    sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-    ROCKS_LOG_BUFFER(log_buffer_,
-                     "[%s] Universal: skipping %s[%d] compacted %s",
-                     cf_name_.c_str(), file_num_buf, loop,
-                     " cannot be a candidate to reduce size amp.\n");
-    sr = nullptr;
-  }
-
-  if (sr == nullptr) {
-    return nullptr;  // no candidate files
-  }
   {
     char file_num_buf[kFormatFileNumberBufSize];
-    sr->Dump(file_num_buf, sizeof(file_num_buf), true);
+    sorted_runs_[start_index].Dump(file_num_buf, sizeof(file_num_buf), true);
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: First candidate %s[%" ROCKSDB_PRIszt "] %s",
         cf_name_.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
   }
 
-  // size of the base sorted run for size amp calculation
-  uint64_t base_sr_size = sorted_runs_.back().size;
-  size_t sr_end_idx = sorted_runs_.size() - 1;
-  // If tiered compaction is enabled and the last sorted run is the last level
-  if (ioptions_.preclude_last_level_data_seconds > 0 &&
-      ioptions_.num_levels > 2 &&
-      sorted_runs_.back().level == ioptions_.num_levels - 1 &&
-      sorted_runs_.size() > 1) {
-    sr_end_idx = sorted_runs_.size() - 2;
-    base_sr_size = sorted_runs_[sr_end_idx].size;
-  }
-
-  // keep adding up all the remaining files
-  for (size_t loop = start_index; loop < sr_end_idx; loop++) {
-    sr = &sorted_runs_[loop];
-    if (sr->being_compacted) {
-      // TODO with incremental compaction is supported, we might want to
-      // schedule some incremental compactions in parallel if needed.
-      char file_num_buf[kFormatFileNumberBufSize];
-      sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-      ROCKS_LOG_BUFFER(
-          log_buffer_, "[%s] Universal: Possible candidate %s[%d] %s",
-          cf_name_.c_str(), file_num_buf, start_index,
-          " is already being compacted. No size amp reduction possible.\n");
-      return nullptr;
-    }
-    candidate_size += sr->compensated_file_size;
-    candidate_count++;
-  }
-  if (candidate_count == 0) {
-    return nullptr;
-  }
+  // percentage flexibility while reducing size amplification
+  const uint64_t ratio = mutable_cf_options_.compaction_options_universal
+                             .max_size_amplification_percent;
 
   // size amplification = percentage of additional size
   if (candidate_size * 100 < ratio * base_sr_size) {
@@ -893,7 +870,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
     }
   }
   return PickCompactionWithSortedRunRange(
-      start_index, sr_end_idx, CompactionReason::kUniversalSizeAmplification);
+      start_index, end_index, CompactionReason::kUniversalSizeAmplification);
 }
 
 Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
@@ -1442,4 +1419,3 @@ uint64_t UniversalCompactionBuilder::GetMaxOverlappingBytes() const {
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
-

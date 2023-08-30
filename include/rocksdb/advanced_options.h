@@ -1181,9 +1181,6 @@ struct AdvancedColumnFamilyOptions {
   // refrains from flushing a memtable with data still above
   // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
   // flushing continues normally.
-  // NOTE: in order for the cutoff timestamp to work properly, users of this
-  // feature need to ensure to write to a column family with globally
-  // non-decreasing user-defined timestamps.
   //
   // Users can do user-defined
   // multi-versioned read above the cutoff timestamp. When users try to read
@@ -1193,7 +1190,9 @@ struct AdvancedColumnFamilyOptions {
   // persisted to WAL even if this flag is set to `false`. The benefit of this
   // is that user-defined timestamps can be recovered with the caveat that users
   // should flush all memtables so there is no active WAL files before doing a
-  // downgrade.
+  // downgrade. In order to use WAL to recover user-defined timestamps, users of
+  // this feature would want to set both `avoid_flush_during_shutdown` and
+  // `avoid_flush_during_recovery` to be true.
   //
   // Note that setting this flag to false is not supported in combination with
   // atomic flush, or concurrent memtable write enabled by

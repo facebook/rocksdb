@@ -8,6 +8,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/types.h"
+#include "util/coding.h"
 #include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -339,5 +340,12 @@ Status ValidateUserDefinedTimestampsOptions(
   }
   return Status::InvalidArgument(
       "Unsupported user defined timestamps settings change.");
+}
+
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low) {
+  uint64_t cutoff_udt_ts = 0;
+  [[maybe_unused]] bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
+  PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
 }
 }  // namespace ROCKSDB_NAMESPACE

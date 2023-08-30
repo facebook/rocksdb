@@ -8,7 +8,10 @@
 #include <atomic>
 #include <limits>
 
+#include "port/port.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/mock_time_env.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -63,6 +66,30 @@ class MockSystemClock : public SystemClockWrapper {
     uint64_t micros = static_cast<uint64_t>(seconds) * kMicrosInSecond;
     assert(current_time_us_ + micros >= current_time_us_);
     current_time_us_.fetch_add(micros);
+  }
+
+  virtual bool TimedWait(port::CondVar* cv,
+                         std::chrono::microseconds deadline) override {
+    uint64_t now_micros = NowMicros();
+    uint64_t deadline_micros = static_cast<uint64_t>(deadline.count());
+    uint64_t delay_micros;
+    if (deadline_micros > now_micros) {
+      delay_micros = deadline_micros - now_micros;
+    } else {
+      delay_micros = 0;
+    }
+    // To prevent slowdown, this `TimedWait()` is completely synthetic. First,
+    // it yields to coerce other threads to run while the lock is released.
+    // Second, it randomly selects between mocking an immediate wakeup and a
+    // timeout.
+    cv->GetMutex()->Unlock();
+    std::this_thread::yield();
+    bool mock_timeout = Random::GetTLSInstance()->OneIn(2);
+    if (mock_timeout) {
+      current_time_us_.fetch_add(delay_micros);
+    }
+    cv->GetMutex()->Lock();
+    return mock_timeout;
   }
 
   // TODO: this is a workaround for the different behavior on different platform

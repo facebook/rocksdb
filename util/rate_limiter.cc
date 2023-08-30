@@ -170,7 +170,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
-        r.cv.TimedWait(wait_until);
+        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
         TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostTimedWait",
                                  &time_until_refill_us);
         wait_until_refill_pending_ = false;
@@ -179,16 +179,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       // Whichever thread reaches here first performs duty (2) as described
       // above.
       RefillBytesAndGrantRequestsLocked();
-      if (r.request_bytes == 0) {
-        // If there is any remaining requests, make sure there exists at least
-        // one candidate is awake for future duties by signaling a front request
-        // of a queue.
-        for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-          std::deque<Req*> queue = queue_[i];
-          if (!queue.empty()) {
-            queue.front()->cv.Signal();
-            break;
-          }
+    }
+    if (r.request_bytes == 0) {
+      // If there is any remaining requests, make sure there exists at least
+      // one candidate is awake for future duties by signaling a front request
+      // of a queue.
+      for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+        auto& queue = queue_[i];
+        if (!queue.empty()) {
+          queue.front()->cv.Signal();
+          break;
         }
       }
     }

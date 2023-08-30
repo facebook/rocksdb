@@ -1229,4 +1229,9 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     return LoadSharedObject<SystemClock>(config_options, value, result);
   }
 }
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
+}
 }  // namespace ROCKSDB_NAMESPACE

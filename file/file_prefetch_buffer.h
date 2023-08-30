@@ -389,6 +389,12 @@ class FilePrefetchBuffer {
          bufs_[second].offset_)) {
       return false;
     }
+
+    // Readahead size can be 0 because of trimming.
+    if (readahead_size_ == 0) {
+      return false;
+    }
+
     bufs_[second].buffer_.Clear();
     return true;
   }
