@@ -2208,11 +2208,20 @@ void DBDumperCommand::DoDumpCommand() {
                           is_key_hex_, is_value_hex_);
         fprintf(stdout, "%s\n", str.c_str());
       } else {
+        /*
+        // Sample plaintext output (first column is kDefaultWideColumnName)
+        key_1 ==> :foo attr_name1:bar attr_name2:baz
+
+        // Sample hex output (first column is kDefaultWideColumnName)
+        0x6669727374 ==> :0x68656C6C6F 0x617474725F6E616D6531:0x666F6F
+        */
+
         std::ostringstream oss;
         WideColumnsHelper::DumpWideColumns(iter->columns(), oss, is_value_hex_);
-        std::string str =
-            PrintKeyValue(iter->key().ToString(), oss.str().c_str(),
-                          is_key_hex_, is_value_hex_);
+        std::string str = PrintKeyValue(
+            iter->key().ToString(), oss.str().c_str(), is_key_hex_,
+            false);  // is_value_hex_ is already honored in oss. avoid
+                     // double-hexing it.
         fprintf(stdout, "%s\n", str.c_str());
       }
     }
@@ -3092,6 +3101,14 @@ void ScanCommand::DoCommand() {
               key_slice.data(), static_cast<int>(val_slice.size()),
               val_slice.data());
     } else {
+      /*
+      // Sample plaintext output (first column is kDefaultWideColumnName)
+      key_1 : :foo attr_name1:bar attr_name2:baz
+
+      // Sample hex output (first column is kDefaultWideColumnName)
+      0x6669727374 : :0x68656C6C6F 0x617474725F6E616D6531:0x666F6F
+      */
+
       std::ostringstream oss;
       WideColumnsHelper::DumpWideColumns(it->columns(), oss, is_value_hex_);
       fprintf(stdout, "%.*s : %.*s\n", static_cast<int>(key_slice.size()),

@@ -9,14 +9,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 void WideColumnsHelper::DumpWideColumns(const WideColumns& columns,
-                                        std::ostream& oss, bool hex) {
+                                        std::ostream& os, bool hex) {
+  if (columns.empty()) {
+    return;
+  }
   if (hex) {
-    oss << std::hex;
+    os << std::hex;
   }
   auto it = columns.begin();
-  oss << *it;
+  os << *it;
   for (++it; it != columns.end(); ++it) {
-    oss << ' ' << *it;
+    os << ' ' << *it;
   }
 }
 Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,

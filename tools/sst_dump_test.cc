@@ -25,10 +25,11 @@ namespace ROCKSDB_NAMESPACE {
 const uint32_t kOptLength = 1024;
 
 namespace {
-static std::string MakeKey(int i) {
+static std::string MakeKey(int i,
+                           ValueType value_type = ValueType::kTypeValue) {
   char buf[100];
   snprintf(buf, sizeof(buf), "k_%04d", i);
-  InternalKey key(std::string(buf), 0, ValueType::kTypeValue);
+  InternalKey key(std::string(buf), 0, value_type);
   return key.Encode().ToString();
 }
 
@@ -50,9 +51,8 @@ static std::string MakeWideColumn(int i) {
   std::string val1 = "attr_1_val_" + val;
   std::string val2 = "attr_2_val_" + val;
   WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
-  WideColumns sorted_columns(columns);
   std::string entity;
-  EXPECT_OK(WideColumnSerialization::Serialize(sorted_columns, entity));
+  EXPECT_OK(WideColumnSerialization::Serialize(columns, entity));
   return entity;
 }
 
@@ -139,7 +139,8 @@ class SSTDumpToolTest : public testing::Test {
         if (wide_column_one_in == 0 || i % wide_column_one_in != 0) {
           tb->Add(MakeKey(i), MakeValue(i));
         } else {
-          tb->Add(MakeKey(i), MakeWideColumn(i));
+          tb->Add(MakeKey(i, ValueType::kTypeWideColumnEntity),
+                  MakeWideColumn(i));
         }
       }
     } else if (strcmp(comparator_name,
@@ -153,7 +154,8 @@ class SSTDumpToolTest : public testing::Test {
         if (wide_column_one_in == 0 || i % wide_column_one_in != 0) {
           tb->Add(MakeKey(i), MakeValue(i));
         } else {
-          tb->Add(MakeKey(i), MakeWideColumn(i));
+          tb->Add(MakeKey(i, ValueType::kTypeWideColumnEntity),
+                  MakeWideColumn(i));
         }
       }
     }
