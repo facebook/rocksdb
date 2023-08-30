@@ -842,7 +842,17 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
 
 #ifndef USE_FOLLY
     // Verify it is repeatable.
-    // Note: this does not work with Folly F14 hash maps.
+    // Note: the keys locked/tracked in the transaction are kept in
+    // an UnorderedMap container. UnorderedMap is a an alias for
+    // std::unordered_map, except when USE_FOLLY is defined.
+    // In that case it aliases to folly::F14FastMap, which itself is
+    // an alias for either F14ValueMap or F14VectorMap. These map types
+    // have other iterator and reference stability guarantees than
+    // std::unordered_map, so we can't assume here that pointers into
+    // the map are any useful. Thus the test is disabled when USE_FOLLY
+    // is defined.
+    // More info:
+    // https://github.com/facebook/folly/blob/main/folly/container/F14.md#f14-variants
     cur_seen = {};
     txn = txn_db->BeginTransaction(write_options, txn_options, txn);
     for (const auto& key : keys) {
