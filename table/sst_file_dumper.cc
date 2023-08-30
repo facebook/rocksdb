@@ -38,6 +38,7 @@
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -458,10 +459,20 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
       read_options_, moptions_.prefix_extractor.get(),
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
+
+  const Comparator* ucmp = internal_comparator_.user_comparator();
+  size_t ts_sz = ucmp->timestamp_size();
+
+  Slice from_slice = from_key;
+  Slice to_slice = to_key;
+  std::string from_key_buf, to_key_buf;
+  auto [from, to] = MaybeAddTimestampsToRange(
+      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
+      &from_key_buf, &to_key_buf);
   uint64_t i = 0;
-  if (has_from) {
+  if (from.has_value()) {
     InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(from_key);
+    ikey.SetMinPossibleForUserKey(from.value());
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -485,7 +496,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // If end marker was specified, we stop before it
-    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
+    if (to.has_value() && ucmp->Compare(ikey.user_key, to.value()) >= 0) {
       break;
     }
 
