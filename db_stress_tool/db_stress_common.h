@@ -254,6 +254,7 @@ DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+DECLARE_bool(verification_only);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -346,6 +347,7 @@ DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
 DECLARE_bool(use_io_uring);
+DECLARE_bool(auto_readahead_size);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

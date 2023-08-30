@@ -15,6 +15,7 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -464,31 +465,21 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
 
-  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  auto mock_clock =
+      std::make_shared<MockSystemClock>(Env::Default()->GetSystemClock());
 
   auto stats = CreateDBStatistics();
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
       1000 /* rate_bytes_per_sec */,
       std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
-      true /* auto_tuned */));
-
-  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
-  // `Env` to advance its time according to the fake wait duration. The
-  // workaround is to install a callback that advance the `Env`'s mock time.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
-        int64_t time_waited_us = *static_cast<int64_t*>(arg);
-        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+      RateLimiter::Mode::kWritesOnly, mock_clock, true /* auto_tuned */));
 
   // verify rate limit increases after a sequence of periods where rate limiter
   // is always drained
   int64_t orig_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                         RateLimiter::OpType::kWrite);
-  while (std::chrono::microseconds(special_env.NowMicros()) <=
+  while (std::chrono::microseconds(mock_clock->NowMicros()) <=
          kRefillsPerTune * kTimePerRefill) {
     rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                           RateLimiter::OpType::kWrite);
@@ -496,13 +487,9 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   int64_t new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
-      "GenericRateLimiter::Request:PostTimedWait");
-
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
-  special_env.SleepForMicroseconds(static_cast<int>(
+  mock_clock->SleepForMicroseconds(static_cast<int>(
       kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),

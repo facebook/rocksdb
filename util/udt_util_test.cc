@@ -438,6 +438,20 @@ TEST(ValidateUserDefinedTimestampsOptionsTest, InvalidUserComparatorChange) {
                   &mark_sst_files)
                   .IsInvalidArgument());
 }
+
+TEST(GetFullHistoryTsLowFromU64CutoffTsTest, Success) {
+  std::string cutoff_ts;
+  uint64_t cutoff_ts_int = 3;
+  PutFixed64(&cutoff_ts, 3);
+  Slice cutoff_ts_slice = cutoff_ts;
+  std::string actual_full_history_ts_low;
+  GetFullHistoryTsLowFromU64CutoffTs(&cutoff_ts_slice,
+                                     &actual_full_history_ts_low);
+
+  std::string expected_ts_low;
+  PutFixed64(&expected_ts_low, cutoff_ts_int + 1);
+  ASSERT_EQ(expected_ts_low, actual_full_history_ts_low);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -81,7 +81,7 @@ struct JemallocAllocatorOptions {
 // The tcache normally incurs 0.5M extra memory usage per-thread. The usage
 // can be reduced by limiting allocation sizes to cache.
 extern Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
 }  // namespace ROCKSDB_NAMESPACE

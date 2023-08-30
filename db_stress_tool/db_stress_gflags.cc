@@ -1110,6 +1110,9 @@ DEFINE_uint64(stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
 DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
+
+DEFINE_bool(verification_only, false,
+            "If true, tests will only execute verification step");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 
 DEFINE_uint32(memtable_max_range_deletions, 0,
@@ -1119,5 +1122,8 @@ DEFINE_uint32(memtable_max_range_deletions, 0,
 DEFINE_uint32(bottommost_file_compaction_delay, 0,
               "Delay kBottommostFiles compaction by this amount of seconds."
               "See more in option comment.");
+
+DEFINE_bool(auto_readahead_size, false,
+            "Does auto tuning of readahead_size when enabled during scans.");
 
 #endif  // GFLAGS

@@ -747,6 +747,7 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
   read_opts.readahead_size = FLAGS_readahead_size;
+  read_opts.auto_readahead_size = FLAGS_auto_readahead_size;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -2484,6 +2485,8 @@ void StressTest::PrintEnv() const {
           FLAGS_use_get_entity ? "true" : "false");
   fprintf(stdout, "Use MultiGetEntity        : %s\n",
           FLAGS_use_multi_get_entity ? "true" : "false");
+  fprintf(stdout, "Verification only         : %s\n",
+          FLAGS_verification_only ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {
