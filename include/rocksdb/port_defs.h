@@ -12,6 +12,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace port {
+class CondVar;
+}
+
 enum class CpuPriority {
   kIdle = 0,
   kLow = 1,
