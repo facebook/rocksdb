@@ -3084,6 +3084,8 @@ void ScanCommand::DoCommand() {
       std::string key_str = it->key().ToString();
       if (is_key_hex_) {
         key_str = StringToHex(key_str);
+      } else if (ldb_options_.key_formatter) {
+        key_str = ldb_options_.key_formatter->Format(key_str);
       }
       fprintf(stdout, "%s\n", key_str.c_str());
     } else {
