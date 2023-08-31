@@ -931,6 +931,7 @@ bool MergingIterator::SkipNextDeleted() {
       InsertRangeTombstoneToMinHeap(current->level, true /* start_key */,
                                     true /* replace_top */);
     } else {
+      // TruncatedRangeDelIterator does not have status
       minHeap_.pop();
     }
     return true /* current key deleted */;
@@ -988,6 +989,9 @@ bool MergingIterator::SkipNextDeleted() {
     if (current->iter.Valid()) {
       assert(current->iter.status().ok());
       minHeap_.push(current);
+    } else {
+      // TODO(cbi): check status and early return if non-ok.
+      considerStatus(current->iter.status());
     }
     // Invariants (rti) and (phi)
     if (range_tombstone_iters_[current->level] &&
@@ -1027,6 +1031,7 @@ bool MergingIterator::SkipNextDeleted() {
         if (current->iter.Valid()) {
           minHeap_.replace_top(current);
         } else {
+          considerStatus(current->iter.status());
           minHeap_.pop();
         }
         return true /* current key deleted */;
@@ -1199,6 +1204,8 @@ bool MergingIterator::SkipPrevDeleted() {
     if (current->iter.Valid()) {
       assert(current->iter.status().ok());
       maxHeap_->push(current);
+    } else {
+      considerStatus(current->iter.status());
     }
 
     if (range_tombstone_iters_[current->level] &&
@@ -1241,6 +1248,7 @@ bool MergingIterator::SkipPrevDeleted() {
         if (current->iter.Valid()) {
           maxHeap_->replace_top(current);
         } else {
+          considerStatus(current->iter.status());
           maxHeap_->pop();
         }
         return true /* current key deleted */;
