@@ -163,7 +163,7 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## Apache Kvrocks
 
-[Apache Kvrocks](https://github.com/apache/kvrocks) Kvrocks is an open-source distributed key-value NoSQL database built on top of RocksDB. It serves as a cost-saving and capacity-increasing alternative drop-in replacement for Redis.
+[Apache Kvrocks](https://github.com/apache/kvrocks) is an open-source distributed key-value NoSQL database built on top of RocksDB. It serves as a cost-saving and capacity-increasing alternative drop-in replacement for Redis.
 
 ## Others
 More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).
