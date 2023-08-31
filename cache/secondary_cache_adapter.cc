@@ -225,7 +225,9 @@ Cache::Handle* CacheWithSecondaryAdapter::Promote(
 Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
                                          const CacheItemHelper* helper,
                                          size_t charge, Handle** handle,
-                                         Priority priority) {
+                                         Priority priority,
+                                         const Slice& compressed_value,
+                                         CompressionType type) {
   Status s = target_->Insert(key, value, helper, charge, handle, priority);
   if (s.ok() && value == nullptr && distribute_cache_res_) {
     size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
@@ -233,6 +235,12 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
     assert(s.ok());
+  }
+  // Warm up the secondary cache with the compressed block. The secondary
+  // cache may choose to ignore it based on the admission policy.
+  if (value != nullptr && compressed_value != Slice()) {
+    Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
+    assert(status.ok());
   }
 
   return s;

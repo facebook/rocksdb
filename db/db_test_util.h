@@ -936,8 +936,9 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
 
   Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& compressed = Slice(),
+                CompressionType type = kNoCompression) override;
 
   using Cache::Release;
   bool Release(Handle* handle, bool erase_if_last_ref = false) override;

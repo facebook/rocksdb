@@ -71,7 +71,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   if (cache_options_.compression_type == kNoCompression ||
       cache_options_.do_not_compress_roles.Contains(helper->role)) {
     s = helper->create_cb(Slice(ptr->get(), handle_value_charge),
-                          create_context, allocator, &value, &charge);
+                          kNoCompression, create_context, allocator, &value,
+                          &charge);
   } else {
     UncompressionContext uncompression_context(cache_options_.compression_type);
     UncompressionInfo uncompression_info(uncompression_context,
@@ -88,7 +89,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
       return nullptr;
     }
     s = helper->create_cb(Slice(uncompressed.get(), uncompressed_size),
-                          create_context, allocator, &value, &charge);
+                          kNoCompression, create_context, allocator, &value,
+                          &charge);
   }
 
   if (!s.ok()) {

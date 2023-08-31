@@ -37,7 +37,8 @@ Status SaveToCallbackFail(Cache::ObjectPtr /*obj*/, size_t /*offset*/,
   return Status::NotSupported();
 }
 
-Status CreateCallback(const Slice& data, Cache::CreateContext* context,
+Status CreateCallback(const Slice& data, CompressionType /*type*/,
+                      Cache::CreateContext* context,
                       MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                       size_t* out_charge) {
   auto t = static_cast<TestCreateContext*>(context);
@@ -72,6 +73,24 @@ auto GenerateHelpersByRole(
   }
   return a;
 }
+
+void NoopDelete(Cache::ObjectPtr, MemoryAllocator*) {}
+
+size_t SliceSize(Cache::ObjectPtr obj) {
+  return static_cast<Slice*>(obj)->size();
+}
+
+Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset, size_t length,
+                   char* out) {
+  const Slice& slice = *static_cast<Slice*>(from_obj);
+  std::memcpy(out, slice.data() + from_offset, length);
+  return Status::OK();
+}
+
+Status FailCreate(const Slice&, CompressionType, Cache::CreateContext*,
+                  MemoryAllocator*, Cache::ObjectPtr*, size_t*) {
+  return Status::NotSupported("Only for dumping data into SecondaryCache");
+}
 }  // namespace
 
 const Cache::CacheItemHelper* WithCacheType::GetHelper(
@@ -89,6 +108,15 @@ const Cache::CacheItemHelper* WithCacheType::GetHelper(
 
 const Cache::CacheItemHelper* WithCacheType::GetHelperFail(CacheEntryRole r) {
   return GetHelper(r, true, true);
+}
+
+const Cache::CacheItemHelper* GetNoopHelper() {
+  static const Cache::CacheItemHelper helper_no_secondary{CacheEntryRole::kMisc,
+                                                          &NoopDelete};
+  static const Cache::CacheItemHelper helper{
+      CacheEntryRole::kMisc, &NoopDelete, &SliceSize,
+      &SliceSaveTo,          &FailCreate, &helper_no_secondary};
+  return &helper;
 }
 
 }  // namespace secondary_cache_test_util

@@ -275,7 +275,8 @@ struct CompactionOptionsFIFO {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kNonVolatileBlockTier = 0x01,
+  kVolatileCompressedTier = 0x01,
+  kNonVolatileBlockTier = 0x02,
 };
 
 enum UpdateStatus {     // Return status For inplace update callback

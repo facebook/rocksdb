@@ -70,12 +70,13 @@ class Block_kMetaIndex : public Block {
 struct BlockCreateContext : public Cache::CreateContext {
   BlockCreateContext() {}
   BlockCreateContext(const BlockBasedTableOptions* _table_options,
-                     Statistics* _statistics, bool _using_zstd,
-                     uint8_t _protection_bytes_per_key,
+                     const ImmutableOptions* _ioptions, Statistics* _statistics,
+                     bool _using_zstd, uint8_t _protection_bytes_per_key,
                      const Comparator* _raw_ucmp,
                      bool _index_value_is_full = false,
                      bool _index_has_first_key = false)
       : table_options(_table_options),
+        ioptions(_ioptions),
         statistics(_statistics),
         using_zstd(_using_zstd),
         protection_bytes_per_key(_protection_bytes_per_key),
@@ -84,20 +85,34 @@ struct BlockCreateContext : public Cache::CreateContext {
         index_has_first_key(_index_has_first_key) {}
 
   const BlockBasedTableOptions* table_options = nullptr;
+  const ImmutableOptions* ioptions = nullptr;
+  uint32_t format_version;
   Statistics* statistics = nullptr;
   bool using_zstd = false;
   uint8_t protection_bytes_per_key = 0;
   const Comparator* raw_ucmp = nullptr;
   bool index_value_is_full;
   bool index_has_first_key;
+  const UncompressionDict* dict = nullptr;
 
   // For TypedCacheInterface
   template <typename TBlocklike>
   inline void Create(std::unique_ptr<TBlocklike>* parsed_out,
                      size_t* charge_out, const Slice& data,
-                     MemoryAllocator* alloc) {
-    Create(parsed_out,
-           BlockContents(AllocateAndCopyBlock(data, alloc), data.size()));
+                     CompressionType type, MemoryAllocator* alloc) {
+    BlockContents uncompressed_block_contents;
+    if (type != CompressionType::kNoCompression) {
+      assert(dict != nullptr);
+      UncompressionContext context(type);
+      UncompressionInfo info(context, *dict, type);
+      Status s = UncompressBlockData(
+          info, data.data(), data.size(), &uncompressed_block_contents,
+          table_options->format_version, *ioptions, alloc);
+    } else {
+      uncompressed_block_contents =
+          BlockContents(AllocateAndCopyBlock(data, alloc), data.size());
+    }
+    Create(parsed_out, std::move(uncompressed_block_contents));
     *charge_out = parsed_out->get()->ApproximateMemoryUsage();
   }
 

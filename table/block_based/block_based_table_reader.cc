@@ -683,7 +683,7 @@ Status BlockBasedTable::Open(
        rep->table_properties->compression_name ==
            CompressionTypeToString(kZSTDNotFinalCompression));
   rep->create_context = BlockCreateContext(
-      &rep->table_options, rep->ioptions.stats,
+      &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
       rep->index_has_first_key);
@@ -1303,8 +1303,8 @@ Cache::Priority BlockBasedTable::GetCachePriority() const {
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block,
-    GetContext* get_context) const {
+    CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
+    const UncompressionDict* dict) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1313,6 +1313,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache) {
+    BlockCreateContext create_ctx = rep_->create_context;
+    create_ctx.dict = dict;
     assert(!cache_key.empty());
     auto cache_handle = block_cache.LookupFull(
         cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
@@ -1380,7 +1382,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     BlockCacheTypedHandle<TBlocklike>* cache_handle = nullptr;
     s = block_cache.InsertFull(cache_key, block_holder.get(), charge,
                                &cache_handle, GetCachePriority<TBlocklike>(),
-                               rep_->ioptions.lowest_used_cache_tier);
+                               rep_->ioptions.lowest_used_cache_tier,
+                               block_contents.data, block_comp_type);
 
     if (s.ok()) {
       assert(cache_handle != nullptr);
@@ -1500,7 +1503,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     if (!contents) {
       if (use_block_cache_for_lookup) {
         s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
-                                  get_context);
+                                  get_context, &uncompression_dict);
         // Value could still be null at this point, so check the cache handle
         // and update the read pattern for prefetching
         if (out_parsed_block->GetValue() ||

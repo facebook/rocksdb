@@ -1716,12 +1716,12 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
-                                                 ObjectPtr value,
-                                                 const CacheItemHelper* helper,
-                                                 size_t charge, Handle** handle,
-                                                 Priority priority) {
-  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+Status TargetCacheChargeTrackingCache<R>::Insert(
+    const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+    size_t charge, Handle** handle, Priority priority, const Slice& compressed,
+    CompressionType type) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
   if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;

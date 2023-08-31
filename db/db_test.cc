@@ -7031,8 +7031,9 @@ TEST_F(DBTest, RowCache) {
     using CacheWrapper::CacheWrapper;
     const char* Name() const override { return "FailInsertionCache"; }
     Status Insert(const Slice&, Cache::ObjectPtr, const CacheItemHelper*,
-                  size_t, Handle** = nullptr,
-                  Priority = Priority::LOW) override {
+                  size_t, Handle** = nullptr, Priority = Priority::LOW,
+                  const Slice& /*compressed*/ = Slice(),
+                  CompressionType /*type*/ = kNoCompression) override {
       return Status::MemoryLimit();
     }
   };
