@@ -23,12 +23,12 @@ void WideColumnsHelper::DumpWideColumns(const WideColumns& columns,
   }
 }
 Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,
-                                                 std::ostream& oss, bool hex) {
+                                                 std::ostream& os, bool hex) {
   WideColumns columns;
   Slice value_copy = value;
   const Status s = WideColumnSerialization::Deserialize(value_copy, columns);
   if (s.ok()) {
-    DumpWideColumns(columns, oss, hex);
+    DumpWideColumns(columns, os, hex);
   }
   return s;
 }
