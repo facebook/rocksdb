@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 #include "db/column_family.h"
@@ -175,6 +174,11 @@ Slice BaseDeltaIterator::value() const {
     merge_result_.PinSelf();
     return merge_result_;
   }
+}
+
+Slice BaseDeltaIterator::timestamp() const {
+  return current_at_base_ ? base_iterator_->timestamp()
+                          : delta_iterator_->Entry().timestamp;
 }
 
 Status BaseDeltaIterator::status() const {
@@ -607,8 +611,9 @@ WriteEntry WBWIIteratorImpl::Entry() const {
   // this is guaranteed with Valid()
   assert(iter_entry != nullptr &&
          iter_entry->column_family == column_family_id_);
+  Slice key_with_ts;
   auto s = write_batch_->GetEntryFromDataOffset(
-      iter_entry->offset, &ret.type, &ret.key, &ret.value, &blob, &xid);
+      iter_entry->offset, &ret.type, &key_with_ts, &ret.value, &blob, &xid);
   assert(s.ok());
   assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
          ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
@@ -616,8 +621,9 @@ WriteEntry WBWIIteratorImpl::Entry() const {
   // Make sure entry.key does not include user-defined timestamp.
   const Comparator* const ucmp = comparator_->GetComparator(column_family_id_);
   size_t ts_sz = ucmp->timestamp_size();
+  ret.key = StripTimestampFromUserKey(key_with_ts, ts_sz);
   if (ts_sz > 0) {
-    ret.key = StripTimestampFromUserKey(ret.key, ts_sz);
+    ret.timestamp = ExtractTimestampFromUserKey(key_with_ts, ts_sz);
   }
   return ret;
 }
@@ -739,4 +745,3 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <map>
@@ -15,8 +14,10 @@
 
 #include "db/column_family.h"
 #include "port/stack_trace.h"
+#include "rocksdb/options.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
@@ -181,6 +182,13 @@ static std::string PrintContents(WriteBatchWithIndex* batch, KVMap* base_map,
     result.append(key.ToString());
     result.append(":");
     result.append(value.ToString());
+
+    if (column_family) {
+      Slice ts = iter->timestamp();
+      result.append(":");
+      result.append(ts.ToString());
+    }
+
     result.append(",");
 
     iter->Next();
@@ -2247,18 +2255,15 @@ TEST_F(WBWIOverwriteTest, TestBadMergeOperator) {
   ASSERT_OK(batch_->GetFromBatch(column_family, options_, "b", &value));
 }
 
-TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
+TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestampBulkTsUpdate) {
   ColumnFamilyHandleImplDummy cf2(2,
                                   test::BytewiseComparatorWithU64TsWrapper());
 
   // Sanity checks
-  ASSERT_TRUE(batch_->Put(&cf2, "key", "ts", "value").IsNotSupported());
   ASSERT_TRUE(batch_->Put(/*column_family=*/nullptr, "key", "ts", "value")
                   .IsInvalidArgument());
-  ASSERT_TRUE(batch_->Delete(&cf2, "key", "ts").IsNotSupported());
   ASSERT_TRUE(batch_->Delete(/*column_family=*/nullptr, "key", "ts")
                   .IsInvalidArgument());
-  ASSERT_TRUE(batch_->SingleDelete(&cf2, "key", "ts").IsNotSupported());
   ASSERT_TRUE(batch_->SingleDelete(/*column_family=*/nullptr, "key", "ts")
                   .IsInvalidArgument());
   {
@@ -2378,6 +2383,126 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
+  ColumnFamilyHandleImplDummy cf2(2,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+
+  // Sanity checks
+  ASSERT_TRUE(batch_->Put(/*column_family=*/nullptr, "key", "ts", "value")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(batch_->Delete(/*column_family=*/nullptr, "key", "ts")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(batch_->SingleDelete(/*column_family=*/nullptr, "key", "ts")
+                  .IsInvalidArgument());
+  {
+    std::string value;
+    ASSERT_TRUE(batch_
+                    ->GetFromBatchAndDB(
+                        /*db=*/nullptr, ReadOptions(), &cf2, "key", &value)
+                    .IsInvalidArgument());
+  }
+  {
+    constexpr size_t num_keys = 2;
+    std::array<Slice, num_keys> keys{{Slice(), Slice()}};
+    std::array<PinnableSlice, num_keys> pinnable_vals{
+        {PinnableSlice(), PinnableSlice()}};
+    std::array<Status, num_keys> statuses{{Status(), Status()}};
+    constexpr bool sorted_input = false;
+    batch_->MultiGetFromBatchAndDB(/*db=*/nullptr, ReadOptions(), &cf2,
+                                   num_keys, keys.data(), pinnable_vals.data(),
+                                   statuses.data(), sorted_input);
+    for (const auto& s : statuses) {
+      ASSERT_TRUE(s.IsInvalidArgument());
+    }
+  }
+
+  constexpr uint32_t kMaxKey = 10;
+
+  // Put keys
+  for (uint32_t i = 0; i < kMaxKey; ++i) {
+    std::string key;
+    PutFixed32(&key, i);
+    std::string ts;
+    PutFixed64(&ts, i);
+    Status s = batch_->Put(&cf2, key, ts, "value" + std::to_string(i));
+    ASSERT_OK(s);
+  }
+
+  WriteBatch* wb = batch_->GetWriteBatch();
+  assert(wb);
+
+  // Point lookup
+  for (uint32_t i = 0; i < kMaxKey; ++i) {
+    std::string value;
+    std::string key;
+    PutFixed32(&key, i);
+    Status s = batch_->GetFromBatch(&cf2, Options(), key, &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("value" + std::to_string(i), value);
+  }
+
+  // Iterator
+  {
+    std::unique_ptr<WBWIIterator> it(batch_->NewIterator(&cf2));
+    uint32_t start = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++start) {
+      std::string key;
+      PutFixed32(&key, start);
+      std::string ts;
+      PutFixed64(&ts, start);
+      ASSERT_OK(it->status());
+      ASSERT_EQ(key, it->Entry().key);
+      ASSERT_EQ("value" + std::to_string(start), it->Entry().value);
+      ASSERT_EQ(WriteType::kPutRecord, it->Entry().type);
+      ASSERT_EQ(ts, it->Entry().timestamp);
+    }
+    ASSERT_EQ(kMaxKey, start);
+  }
+
+  // Delete the keys with Delete() or SingleDelete()
+  for (uint32_t i = 0; i < kMaxKey; ++i) {
+    std::string key;
+    PutFixed32(&key, i);
+    Status s;
+    if (0 == (i % 2)) {
+      s = batch_->Delete(&cf2, key);
+    } else {
+      s = batch_->SingleDelete(&cf2, key);
+    }
+    ASSERT_OK(s);
+  }
+
+  for (uint32_t i = 0; i < kMaxKey; ++i) {
+    std::string value;
+    std::string key;
+    PutFixed32(&key, i);
+    Status s = batch_->GetFromBatch(&cf2, Options(), key, &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+
+  // Iterator
+  {
+    const bool overwrite = GetParam();
+    std::unique_ptr<WBWIIterator> it(batch_->NewIterator(&cf2));
+    uint32_t start = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++start) {
+      std::string key;
+      PutFixed32(&key, start);
+      ASSERT_EQ(key, it->Entry().key);
+      if (!overwrite) {
+        ASSERT_EQ(WriteType::kPutRecord, it->Entry().type);
+        it->Next();
+        ASSERT_TRUE(it->Valid());
+      }
+      if (0 == (start % 2)) {
+        ASSERT_EQ(WriteType::kDeleteRecord, it->Entry().type);
+      } else {
+        ASSERT_EQ(WriteType::kSingleDeleteRecord, it->Entry().type);
+      }
+    }
+  }
+}
+
 TEST_P(WriteBatchWithIndexTest, IndexNoTs) {
   const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
   ColumnFamilyHandleImplDummy cf(1, ucmp);
@@ -2398,6 +2523,21 @@ TEST_P(WriteBatchWithIndexTest, IndexNoTs) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, IndexWithTs) {
+  const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  ColumnFamilyHandleImplDummy cf(1, ucmp);
+  WriteBatchWithIndex wbwi;
+  ASSERT_OK(wbwi.Put(&cf, "a", "0", "a0"));
+  ASSERT_OK(wbwi.Put(&cf, "a", "1", "a1"));
+
+  {
+    std::string value;
+    Status s = wbwi.GetFromBatch(&cf, options_, "a", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("a1", value);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -2406,4 +2546,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

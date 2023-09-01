@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
@@ -17,11 +16,30 @@
 #include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/slice.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+Slice CreateKeyWithTsSlice(const Slice& key, const Slice& ts) {
+  std::array<Slice, 2> key_with_ts{{key, ts}};
+  size_t totalSize = sizeof(uint32_t) + key.size() + ts.size();
+
+  std::string prefixed_key_with_ts;
+  prefixed_key_with_ts.reserve(totalSize);
+
+  PutLengthPrefixedSliceParts(&prefixed_key_with_ts,
+                              SliceParts(key_with_ts.data(), 2));
+
+  return Slice(prefixed_key_with_ts);
+}
+
+}  // namespace
+
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
                size_t max_bytes = 0, bool _overwrite_key = false,
@@ -335,13 +353,18 @@ Status WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
 }
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
-                                const Slice& /*key*/, const Slice& /*ts*/,
-                                const Slice& /*value*/) {
+                                const Slice& key, const Slice& ts,
+                                const Slice& value) {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be nullptr");
   }
-  // TODO: support WBWI::Put() with timestamp.
-  return Status::NotSupported();
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Put(column_family, key, ts, value);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
+                          kPutRecord);
+  }
+  return s;
 }
 
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
@@ -364,12 +387,17 @@ Status WriteBatchWithIndex::Delete(const Slice& key) {
 }
 
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
-                                   const Slice& /*key*/, const Slice& /*ts*/) {
+                                   const Slice& key, const Slice& ts) {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be nullptr");
   }
-  // TODO: support WBWI::Delete() with timestamp.
-  return Status::NotSupported();
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Delete(column_family, key, ts);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
+                          kDeleteRecord);
+  }
+  return s;
 }
 
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
@@ -392,13 +420,17 @@ Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
 }
 
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
-                                         const Slice& /*key*/,
-                                         const Slice& /*ts*/) {
+                                         const Slice& key, const Slice& ts) {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be nullptr");
   }
-  // TODO: support WBWI::SingleDelete() with timestamp.
-  return Status::NotSupported();
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.SingleDelete(column_family, key, ts);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
+                          kSingleDeleteRecord);
+  }
+  return s;
 }
 
 Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,

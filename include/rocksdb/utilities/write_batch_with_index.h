@@ -10,7 +10,6 @@
 // inserted.
 #pragma once
 
-
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,6 +47,7 @@ struct WriteEntry {
   WriteType type = kUnknownRecord;
   Slice key;
   Slice value;
+  Slice timestamp;
 };
 
 // Iterator of one column family out of a WriteBatchWithIndex.
@@ -301,4 +301,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
