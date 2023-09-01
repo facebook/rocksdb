@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.5.3 (09/01/2023)
+### Bug Fixes
+* Fixed a race condition in `GenericRateLimiter` that could cause it to stop granting requests
+
 ## 8.5.2 (08/31/2023)
 ### Bug fixes
 * Fix a bug where iterator may return incorrect result for DeleteRange() users if there was an error reading from a file.
