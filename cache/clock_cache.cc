@@ -3032,28 +3032,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
 
 AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     const UniqueId64x2& hashed_key) {
-  // Reading length_info_ is not strictly required for Lookup, if we were
-  // to increment shift sizes until we see a shift size match on the
-  // relevant head pointer. Thus, reading with relaxed memory order gives
-  // us a safe and almost always up-to-date jump into finding the correct
-  // home and head.
-  size_t home;
-  int home_shift;
-  GetHomeIndexAndShift(length_info_.load(std::memory_order_relaxed),
-                       hashed_key[1], &home, &home_shift);
-  assert(home_shift > 0);
-
-  // TODO? for efficiency, consider probing home slot without checking head
-  // pointer.
-
-  // These ops are wait-free with low occurrence of retries, back-tracking,
+  // Lookups are wait-free with low occurrence of retries, back-tracking,
   // and fallback. We do not have the benefit of holding a rewrite lock on
   // the chain so must be prepared for many kinds of mayhem, most notably
   // "falling off our chain" where a slot that Lookup has identified but
   // has not read-referenced is removed from one chain and inserted into
-  // another. The algorithm uses these mitigation strategies to ensure
-  // every relevant entry inserted before this Lookup, and not yet evicted,
-  // is seen by Lookup, without excessive backtracking etc.:
+  // another. The full algorithm uses the following mitigation strategies to
+  // ensure every relevant entry inserted before this Lookup, and not yet
+  // evicted, is seen by Lookup, without excessive backtracking etc.:
   // * Keep a known good read ref in the chain for "island hopping." When
   // we observe that a concurrent write takes us off to another chain, we
   // only need to fall back to our last known good read ref (most recent
@@ -3065,16 +3051,89 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
   // progress by looking at shift in the next pointer tags (rather than
   // re-checking length_info_).
   // * SplitForGrow, Insert, and PurgeImplLocked ensure that there are no
-  // transient states that might cause Lookup to skip over live entries.
-  HandleImpl* const arr = array_.Get();
+  // transient states that might cause this full Lookup algorithm to skip over
+  // live entries.
 
+  // Reading length_info_ is not strictly required for Lookup, if we were
+  // to increment shift sizes until we see a shift size match on the
+  // relevant head pointer. Thus, reading with relaxed memory order gives
+  // us a safe and almost always up-to-date jump into finding the correct
+  // home and head.
+  size_t home;
+  int home_shift;
+  GetHomeIndexAndShift(length_info_.load(std::memory_order_relaxed),
+                       hashed_key[1], &home, &home_shift);
+  assert(home_shift > 0);
+
+  // The full Lookup algorithm however is not great for hot path efficiency,
+  // because of the extra careful tracking described above. Overwhelmingly,
+  // we can find what we're looking for with a naive linked list traversal
+  // of the chain. Even if we "fall off our chain" to another, we don't
+  // violate memory safety. We just won't match the key we're looking for.
+  // And we would eventually reach an end state, possibly even experiencing a
+  // cycle as an entry is freed and reused during our traversal (though at
+  // any point in time the structure doesn't have cycles).
+  //
+  // So for hot path efficiency, we start with a naive Lookup attempt, and
+  // then fall back on full Lookup if we don't find the correct entry. To
+  // cap how much we invest into the naive Lookup, we simply cap the traversal
+  // length before falling back. Also, when we do fall back on full Lookup,
+  // we aren't paying much penalty by starting over. Much or most of the cost
+  // of Lookup is memory latency in following the chain pointers, and the
+  // naive Lookup has warmed the CPU cache for these entries, using as tight
+  // of a loop as possible.
+
+  HandleImpl* const arr = array_.Get();
+  uint64_t next_with_shift = arr[home].head_next_with_shift;
+  for (size_t i = 0; !HandleImpl::IsEnd(next_with_shift) && i < 10; ++i) {
+    HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+    // Attempt cheap key match without acquiring a read ref. This could give a
+    // false positive, which is re-checked after acquiring read ref, or false
+    // negative, which is re-checked in the full Lookup.
+
+    // We need to make the reads relaxed atomic to avoid TSAN reporting
+    // race conditions. And we can skip the cheap key match optimization
+    // altogether if 64-bit atomics not supported lock-free. Also, using
+    // & rather than && to give more flexibility to the compiler and CPU.
+    if (!std::atomic<uint64_t>::is_always_lock_free ||
+        sizeof(std::atomic<uint64_t>) != sizeof(uint64_t) ||
+        (int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[0])
+                 .load(std::memory_order_relaxed) == hashed_key[0]} &
+         int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[1])
+                 .load(std::memory_order_relaxed) == hashed_key[1]})) {
+      // Increment acquire counter for definitive check
+      uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
+                                            std::memory_order_acquire);
+      // Check if it's a referencable (sharable) entry
+      if (LIKELY(old_meta & (uint64_t{ClockHandle::kStateShareableBit}
+                             << ClockHandle::kStateShift))) {
+        assert(GetRefcount(old_meta + ClockHandle::kAcquireIncrement) > 0);
+        if (LIKELY(h->hashed_key == hashed_key) &&
+            LIKELY(old_meta & (uint64_t{ClockHandle::kStateVisibleBit}
+                               << ClockHandle::kStateShift))) {
+          return h;
+        } else {
+          Unref(*h);
+        }
+      } else {
+        // For non-sharable states, incrementing the acquire counter has no
+        // effect so we don't need to undo it. Furthermore, we cannot safely
+        // undo it because we did not acquire a read reference to lock the entry
+        // in a Shareable state.
+      }
+    }
+
+    next_with_shift = h->chain_next_with_shift.load(std::memory_order_relaxed);
+  }
+
+  // If we get here, falling back on full Lookup algorithm.
   HandleImpl* h = nullptr;
   HandleImpl* read_ref_on_chain = nullptr;
 
   for (size_t i = 0;; ++i) {
     CHECK_TOO_MANY_ITERATIONS(i);
     // Read head or chain pointer
-    uint64_t next_with_shift =
+    next_with_shift =
         h ? h->chain_next_with_shift : arr[home].head_next_with_shift;
     int shift = GetShiftFromNextWithShift(next_with_shift);
 
