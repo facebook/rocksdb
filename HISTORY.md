@@ -1,4 +1,10 @@
 # Rocksdb Change Log
+## 8.3.3 (09/01/2023)
+### Bug Fixes
+* Fix a bug where if there is an error reading from offset 0 of a file from L1+ and that the file is not the first file in the sorted run, data can be lost in compaction and read/scan can return incorrect results.
+* Fix a bug where iterator may return incorrect result for DeleteRange() users if there was an error reading from a file.
+* Fixed a race condition in `GenericRateLimiter` that could cause it to stop granting requests
+
 ## 8.3.2 (06/14/2023)
 ### Bug Fixes
 * Reduced cases of illegally using Env::Default() during static destruction by never destroying the internal PosixEnv itself (except for builds checking for memory leaks). (#11538)
