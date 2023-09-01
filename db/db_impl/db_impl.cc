@@ -106,6 +106,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/udt_util.h"
 #include "utilities/trace/replayer_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -148,24 +149,6 @@ void DumpSupportInfo(Logger* logger) {
                    crc32c::IsFastCrc32Supported().c_str());
 
   ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
-}
-
-// `start` is the inclusive lower user key bound without user-defined timestamp
-// `limit` is the exclusive upper user key bound without user-defined timestamp
-std::tuple<Slice, Slice> MaybeAddTimestampsToRange(const Slice& start,
-                                                   const Slice& limit,
-                                                   size_t ts_sz,
-                                                   std::string* start_with_ts,
-                                                   std::string* limit_with_ts) {
-  if (ts_sz == 0) {
-    return std::make_tuple(start, limit);
-  }
-  // Maximum timestamp means including all key with any timestamp
-  AppendKeyWithMaxTimestamp(start_with_ts, start, ts_sz);
-  // Append a maximum timestamp as the range limit is exclusive:
-  // [start, limit)
-  AppendKeyWithMaxTimestamp(limit_with_ts, limit, ts_sz);
-  return std::make_tuple(Slice(*start_with_ts), Slice(*limit_with_ts));
 }
 }  // namespace
 
@@ -1693,7 +1676,8 @@ Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
   }
   InstrumentedMutexLock l(&mutex_);
   *ts_low = cfd->GetFullHistoryTsLow();
-  assert(cfd->user_comparator()->timestamp_size() == ts_low->size());
+  assert(ts_low->empty() ||
+         cfd->user_comparator()->timestamp_size() == ts_low->size());
   return Status::OK();
 }
 
@@ -4280,10 +4264,12 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   // Add timestamp if needed
   std::string start_with_ts, limit_with_ts;
   auto [start, limit] = MaybeAddTimestampsToRange(
-      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
+      &range.start, &range.limit, ts_sz, &start_with_ts, &limit_with_ts);
+  assert(start.has_value());
+  assert(limit.has_value());
   // Convert user_key into a corresponding internal key.
-  InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
-  InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k1(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(limit.value(), kMaxSequenceNumber, kValueTypeForSeek);
   MemTable::MemTableStats memStats =
       sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
   MemTable::MemTableStats immStats =
@@ -4316,11 +4302,14 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    auto [start, limit] = MaybeAddTimestampsToRange(
-        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
+    auto [start, limit] =
+        MaybeAddTimestampsToRange(&range[i].start, &range[i].limit, ts_sz,
+                                  &start_with_ts, &limit_with_ts);
+    assert(start.has_value());
+    assert(limit.has_value());
     // Convert user_key into a corresponding internal key.
-    InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k1(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k2(limit.value(), kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
