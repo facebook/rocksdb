@@ -1034,30 +1034,37 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
-  SpecialEnv env(env_);
-  Options options;
-  options.env = &env;
+  for (bool use_direct_reads : {true, false}) {
+    SpecialEnv env(env_);
+    Options options;
+    options.env = &env;
 
-  options.compaction_readahead_size = 0;
-  options.level0_file_num_compaction_trigger = 2;
-  const std::string kValue(1024, 'v');
-  Reopen(options);
+    options.use_direct_reads = use_direct_reads;
+    options.level0_file_num_compaction_trigger = 2;
+    const std::string kValue(1024, 'v');
+    Status s = TryReopen(options);
+    if (use_direct_reads && (s.IsNotSupported() || s.IsInvalidArgument())) {
+      continue;
+    } else {
+      ASSERT_OK(s);
+    }
 
-  ASSERT_EQ(1024 * 1024 * 2,
-            dbfull()->GetDBOptions().compaction_readahead_size);
-  ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
-  ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
-  for (int i = 0; i < 1024; i++) {
-    ASSERT_OK(Put(Key(i), kValue));
+    ASSERT_EQ(1024 * 1024 * 2,
+              dbfull()->GetDBOptions().compaction_readahead_size);
+    ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
+    ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
+    for (int i = 0; i < 1024; i++) {
+      ASSERT_OK(Put(Key(i), kValue));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < 1024 * 2; i++) {
+      ASSERT_OK(Put(Key(i), kValue));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(256, env_->compaction_readahead_size_);
+    Close();
   }
-  ASSERT_OK(Flush());
-  for (int i = 0; i < 1024 * 2; i++) {
-    ASSERT_OK(Put(Key(i), kValue));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(256, env_->compaction_readahead_size_);
-  Close();
 }
 
 TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {

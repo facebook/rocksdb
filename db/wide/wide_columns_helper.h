@@ -2,25 +2,20 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// This file includes the common definitions used in the port/,
-// the public API (this directory), and other directories
 
 #pragma once
+#include <ostream>
+#include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-namespace port {
-class CondVar;
-}
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
+class WideColumnsHelper {
+ public:
+  static void DumpWideColumns(const WideColumns& columns, std::ostream& oss,
+                              bool hex);
+  static Status DumpSliceAsWideColumns(const Slice& value, std::ostream& oss,
+                                       bool hex);
 };
-
 }  // namespace ROCKSDB_NAMESPACE

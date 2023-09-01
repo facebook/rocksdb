@@ -1557,24 +1557,15 @@ bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
   if (full_history_ts_low.empty()) {
     return false;
   }
-#ifndef NDEBUG
-  Slice last_table_newest_udt;
-#endif /* !NDEBUG */
   for (const Slice& table_newest_udt :
        imm()->GetTablesNewestUDT(max_memtable_id)) {
     assert(table_newest_udt.size() == full_history_ts_low.size());
-    assert(last_table_newest_udt.empty() ||
-           ucmp->CompareTimestamp(table_newest_udt, last_table_newest_udt) >=
-               0);
     // Checking the newest UDT contained in MemTable with ascending ID up to
-    // `max_memtable_id`. MemTable with bigger ID will have newer UDT, return
-    // immediately on finding the first MemTable that needs postponing.
+    // `max_memtable_id`. Return immediately on finding the first MemTable that
+    // needs postponing.
     if (ucmp->CompareTimestamp(table_newest_udt, full_history_ts_low) >= 0) {
       return true;
     }
-#ifndef NDEBUG
-    last_table_newest_udt = table_newest_udt;
-#endif /* !NDEBUG */
   }
   return false;
 }
