@@ -956,6 +956,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
     return IOStatus::OK();
   }
 
+  IOStatus ret;
   if (ctx->rand.OneIn(ctx->one_in)) {
     if (ctx->count == 0) {
       ctx->message = "";
@@ -972,7 +973,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
       // Likely non-per read status code for MultiRead
       ctx->message += "error; ";
       ret_fault_injected = true;
-      return IOStatus::IOError();
+      ret = IOStatus::IOError();
     } else if (Random::GetTLSInstance()->OneIn(8)) {
       assert(result);
       // For a small chance, set the failure to status but turn the
@@ -1000,10 +1001,13 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
     } else {
       ctx->message += "error result multiget single; ";
       ret_fault_injected = true;
-      return IOStatus::IOError();
+      ret = IOStatus::IOError();
     }
   }
-  return IOStatus::OK();
+  if (ctx->retryable) {
+    ret.SetRetryable(true);
+  }
+  return ret;
 }
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,

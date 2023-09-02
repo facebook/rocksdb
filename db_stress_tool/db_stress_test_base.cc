@@ -773,8 +773,9 @@ void StressTest::OperateDb(ThreadState* thread) {
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in) {
-    fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
-                                                   FLAGS_read_fault_one_in);
+    fault_fs_guard->SetThreadLocalReadErrorContext(
+        thread->shared->GetSeed(), FLAGS_read_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */);
   }
 #endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
