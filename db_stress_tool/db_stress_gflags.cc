@@ -1027,8 +1027,8 @@ DEFINE_int32(open_write_fault_one_in, 0,
 DEFINE_int32(open_read_fault_one_in, 0,
              "On non-zero, enables fault injection on file reads "
              "during DB reopen.");
-DEFINE_int32(injest_error_severity, 1,
-             "The severity of the injested IO Error. 1 is soft error (e.g. "
+DEFINE_int32(inject_error_severity, 1,
+             "The severity of the injected IO Error. 1 is soft error (e.g. "
              "retryable error), 2 is fatal error, and the default is "
              "retryable error.");
 DEFINE_int32(prepopulate_block_cache,
