@@ -1082,6 +1082,29 @@ std::string LDBCommand::PrintKeyValue(const std::string& key,
   return PrintKeyValue(key, value, is_hex, is_hex);
 }
 
+std::string LDBCommand::PrintKeyValueOrWideColumns(
+    const Slice& key, const Slice& value, const WideColumns& wide_columns,
+    bool is_key_hex, bool is_value_hex) {
+  if (wide_columns.empty() ||
+      (wide_columns.size() == 1 &&
+       wide_columns.front().name() == kDefaultWideColumnName)) {
+    return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
+                         is_value_hex);
+  }
+  /*
+  // Sample plaintext output (first column is kDefaultWideColumnName)
+  key_1 ==> :foo attr_name1:bar attr_name2:baz
+
+  // Sample hex output (first column is kDefaultWideColumnName)
+  0x6669727374 ==> :0x68656C6C6F 0x617474725F6E616D6531:0x666F6F
+  */
+  std::ostringstream oss;
+  WideColumnsHelper::DumpWideColumns(wide_columns, oss, is_value_hex);
+  return PrintKeyValue(key.ToString(), oss.str().c_str(), is_key_hex,
+                       false);  // is_value_hex_ is already honored in oss.
+                                // avoid double-hexing it.
+}
+
 std::string LDBCommand::HelpRangeCmdArgs() {
   std::ostringstream str_stream;
   str_stream << " ";
@@ -2200,30 +2223,14 @@ void DBDumperCommand::DoDumpCommand() {
         fprintf(stdout, "%s ", TimeToHumanString(rawtime).c_str());
       }
       // (TODO) TTL Iterator does not support wide columns yet.
-      if (is_db_ttl_ || iter->columns().empty() ||
-          (iter->columns().size() == 1 &&
-           iter->columns().front().name() == kDefaultWideColumnName)) {
-        std::string str =
-            PrintKeyValue(iter->key().ToString(), iter->value().ToString(),
-                          is_key_hex_, is_value_hex_);
-        fprintf(stdout, "%s\n", str.c_str());
-      } else {
-        /*
-        // Sample plaintext output (first column is kDefaultWideColumnName)
-        key_1 ==> :foo attr_name1:bar attr_name2:baz
-
-        // Sample hex output (first column is kDefaultWideColumnName)
-        0x6669727374 ==> :0x68656C6C6F 0x617474725F6E616D6531:0x666F6F
-        */
-
-        std::ostringstream oss;
-        WideColumnsHelper::DumpWideColumns(iter->columns(), oss, is_value_hex_);
-        std::string str = PrintKeyValue(
-            iter->key().ToString(), oss.str().c_str(), is_key_hex_,
-            false);  // is_value_hex_ is already honored in oss. avoid
-                     // double-hexing it.
-        fprintf(stdout, "%s\n", str.c_str());
-      }
+      std::string str =
+          is_db_ttl_
+              ? PrintKeyValue(iter->key().ToString(), iter->value().ToString(),
+                              is_key_hex_, is_value_hex_)
+              : PrintKeyValueOrWideColumns(iter->key(), iter->value(),
+                                           iter->columns(), is_key_hex_,
+                                           is_value_hex_);
+      fprintf(stdout, "%s\n", str.c_str());
     }
   }
 
@@ -3073,47 +3080,22 @@ void ScanCommand::DoCommand() {
       }
     }
 
-    Slice key_slice = it->key();
-
-    std::string formatted_key;
-    if (is_key_hex_) {
-      formatted_key = "0x" + key_slice.ToString(true /* hex */);
-      key_slice = formatted_key;
-    } else if (ldb_options_.key_formatter) {
-      formatted_key = ldb_options_.key_formatter->Format(key_slice);
-      key_slice = formatted_key;
-    }
-
     if (no_value_) {
-      fprintf(stdout, "%.*s\n", static_cast<int>(key_slice.size()),
-              key_slice.data());
-      // (TODO) TTL Iterator does not support wide columns yet.
-    } else if (is_db_ttl_ || it->columns().empty() ||
-               (it->columns().size() == 1 &&
-                it->columns().front().name() == kDefaultWideColumnName)) {
-      Slice val_slice = it->value();
-      std::string formatted_value;
-      if (is_value_hex_) {
-        formatted_value = "0x" + val_slice.ToString(true /* hex */);
-        val_slice = formatted_value;
+      std::string key_str = it->key().ToString();
+      if (is_key_hex_) {
+        key_str = StringToHex(key_str);
+      } else if (ldb_options_.key_formatter) {
+        key_str = ldb_options_.key_formatter->Format(key_str);
       }
-      fprintf(stdout, "%.*s : %.*s\n", static_cast<int>(key_slice.size()),
-              key_slice.data(), static_cast<int>(val_slice.size()),
-              val_slice.data());
+      fprintf(stdout, "%s\n", key_str.c_str());
     } else {
-      /*
-      // Sample plaintext output (first column is kDefaultWideColumnName)
-      key_1 : :foo attr_name1:bar attr_name2:baz
-
-      // Sample hex output (first column is kDefaultWideColumnName)
-      0x6669727374 : :0x68656C6C6F 0x617474725F6E616D6531:0x666F6F
-      */
-
-      std::ostringstream oss;
-      WideColumnsHelper::DumpWideColumns(it->columns(), oss, is_value_hex_);
-      fprintf(stdout, "%.*s : %.*s\n", static_cast<int>(key_slice.size()),
-              key_slice.data(), static_cast<int>(oss.str().length()),
-              oss.str().c_str());
+      std::string str = is_db_ttl_ ? PrintKeyValue(it->key().ToString(),
+                                                   it->value().ToString(),
+                                                   is_key_hex_, is_value_hex_)
+                                   : PrintKeyValueOrWideColumns(
+                                         it->key(), it->value(), it->columns(),
+                                         is_key_hex_, is_value_hex_);
+      fprintf(stdout, "%s\n", str.c_str());
     }
 
     num_keys_scanned++;

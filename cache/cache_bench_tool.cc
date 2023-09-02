@@ -57,6 +57,9 @@ DEFINE_uint32(value_bytes_estimate, 0,
               "If > 0, overrides estimated_entry_charge or "
               "min_avg_entry_charge depending on cache_type.");
 
+DEFINE_int32(
+    degenerate_hash_bits, 0,
+    "With HCC, fix this many hash bits to increase table hash collisions");
 DEFINE_uint32(skew, 5, "Degree of skew in key selection. 0 = no skew");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
 
@@ -242,6 +245,20 @@ struct KeyGen {
       raw = std::min(raw, rnd.Next());
     }
     uint64_t key = FastRange64(raw, max_key);
+    if (FLAGS_degenerate_hash_bits) {
+      uint64_t key_hash =
+          Hash64(reinterpret_cast<const char*>(&key), sizeof(key));
+      // HCC uses the high 64 bits and a lower bit mask for starting probe
+      // location, so we fix hash bits starting at the bottom of that word.
+      auto hi_hash = uint64_t{0x9e3779b97f4a7c13U} ^
+                     (key_hash << 1 << (FLAGS_degenerate_hash_bits - 1));
+      uint64_t un_hi, un_lo;
+      BijectiveUnhash2x64(hi_hash, key_hash, &un_hi, &un_lo);
+      un_lo ^= BitwiseAnd(FLAGS_seed, INT32_MAX);
+      EncodeFixed64(key_data, un_lo);
+      EncodeFixed64(key_data + 8, un_hi);
+      return Slice(key_data, kCacheKeySize);
+    }
     // Variable size and alignment
     size_t off = key % 8;
     key_data[0] = char{42};
