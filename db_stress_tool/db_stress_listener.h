@@ -104,7 +104,8 @@ class DbStressListener : public EventListener {
       // Hardcoded to inject retryable error as a non-retryable error would put
       // the DB in read-only mode and then it would crash on the next write.
       fault_fs_guard->SetThreadLocalReadErrorContext(
-          FLAGS_seed, FLAGS_read_fault_one_in, true /* retryable */);
+          static_cast<uint32_t>(FLAGS_seed), FLAGS_read_fault_one_in,
+          true /* retryable */);
       fault_fs_guard->EnableErrorInjection();
     }
   }
