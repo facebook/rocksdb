@@ -3091,16 +3091,11 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     // false positive, which is re-checked after acquiring read ref, or false
     // negative, which is re-checked in the full Lookup.
 
-    // We need to make the reads relaxed atomic to avoid TSAN reporting
-    // race conditions. And we can skip the cheap key match optimization
-    // altogether if 64-bit atomics not supported lock-free. Also, using
-    // & rather than && to give more flexibility to the compiler and CPU.
-    if (!std::atomic<uint64_t>::is_always_lock_free ||
-        sizeof(std::atomic<uint64_t>) != sizeof(uint64_t) ||
-        (int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[0])
-                 .load(std::memory_order_relaxed) == hashed_key[0]} &
-         int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[1])
-                 .load(std::memory_order_relaxed) == hashed_key[1]})) {
+    // ReadAllowRace suppresses TSAN report on these reads. Also, using
+    // & rather than && to give more flexibility to the compiler and CPU,
+    // as it is safe to access [1] even if [0] doesn't match.
+    if ((int{ReadAllowRace(h->hashed_key[0]) == hashed_key[0]} &
+         int{ReadAllowRace(h->hashed_key[1]) == hashed_key[1]})) {
       // Increment acquire counter for definitive check
       uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
                                             std::memory_order_acquire);
