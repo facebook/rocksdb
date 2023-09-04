@@ -69,6 +69,13 @@ constexpr bool kMustFreeHeapAllocations = false;
 #define TSAN_SUPPRESSION
 #endif  // TSAN_SUPPRESSION
 
+// Read memory while allowing data races. Only use where it is OK to read
+// the wrong value, e.g. where reading the latest value improves performance.
+template <typename T>
+TSAN_SUPPRESSION inline T ReadAllowRace(const T& v) {
+  return v;
+}
+
 // Compile-time CPU feature testing compatibility
 //
 // A way to be extra sure these defines have been included.
