@@ -124,10 +124,10 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("put_entity x4")
         self.assertRunFAIL("put_entity x4 cv1")
         self.assertRunOK("put_entity x4 :cv1", "OK")
-        self.assertRunOK("get_entity x4", "x4 ==> cv1")
+        self.assertRunOK("get_entity x4", ":cv1")
 
         self.assertRunOK("put_entity x5 cn1:cv1 cn2:cv2", "OK")
-        self.assertRunOK("get_entity x5", "x5 ==> cn1:cv1 cn2:cv2")
+        self.assertRunOK("get_entity x5", "cn1:cv1 cn2:cv2")
 
         self.assertRunOK(
             "scan --from=x1 --to=z",

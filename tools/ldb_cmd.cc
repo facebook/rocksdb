@@ -2881,14 +2881,10 @@ void GetEntityCommand::DoCommand() {
   Status st = db_->GetEntity(ReadOptions(), GetCfHandle(), key_,
                              &pinnable_wide_columns);
   if (st.ok()) {
-    if (pinnable_wide_columns.serialized_size() > 0) {
-      std::string output = PrintKeyValueOrWideColumns(
-          key_, pinnable_wide_columns.columns().front().value(),
-          pinnable_wide_columns.columns(), is_key_hex_, is_value_hex_);
-      fprintf(stdout, "%s\n", output.c_str());
-    } else {
-      fprintf(stdout, "\n");
-    }
+    std::ostringstream oss;
+    WideColumnsHelper::DumpWideColumns(pinnable_wide_columns.columns(), oss,
+                                       is_value_hex_);
+    fprintf(stdout, "%s\n", oss.str().c_str());
   } else {
     std::stringstream oss;
     oss << "GetEntity failed: " << st.ToString();
