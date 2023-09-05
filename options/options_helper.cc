@@ -668,6 +668,163 @@ Status GetStringFromCompressionType(std::string* compression_str,
   }
 }
 
+std::string GetStringFromCompactionReason(CompactionReason compression_reason) {
+  std::string result;
+  switch (compression_reason) {
+    case CompactionReason::kUnknown:
+      result = "Unknown";
+      break;
+    case CompactionReason::kLevelL0FilesNum:
+      result = "LevelL0FilesNum";
+      break;
+    case CompactionReason::kLevelMaxLevelSize:
+      result = "LevelMaxLevelSize";
+      break;
+    case CompactionReason::kUniversalSizeAmplification:
+      result = "UniversalSizeAmplification";
+      break;
+    case CompactionReason::kUniversalSizeRatio:
+      result = "UniversalSizeRatio";
+      break;
+    case CompactionReason::kUniversalSortedRunNum:
+      result = "UniversalSortedRunNum";
+      break;
+    case CompactionReason::kFIFOMaxSize:
+      result = "FIFOMaxSize";
+      break;
+    case CompactionReason::kFIFOReduceNumFiles:
+      result = "FIFOReduceNumFiles";
+      break;
+    case CompactionReason::kFIFOTtl:
+      result = "FIFOTtl";
+      break;
+    case CompactionReason::kManualCompaction:
+      result = "ManualCompaction";
+      break;
+    case CompactionReason::kFilesMarkedForCompaction:
+      result = "FilesMarkedForCompaction";
+      break;
+    case CompactionReason::kBottommostFiles:
+      result = "BottommostFiles";
+      break;
+    case CompactionReason::kTtl:
+      result = "Ttl";
+      break;
+    case CompactionReason::kFlush:
+      result = "Flush";
+      break;
+    case CompactionReason::kExternalSstIngestion:
+      result = "ExternalSstIngestion";
+      break;
+    case CompactionReason::kPeriodicCompaction:
+      result = "PeriodicCompaction";
+      break;
+    case CompactionReason::kChangeTemperature:
+      result = "ChangeTemperature";
+      break;
+    case CompactionReason::kForcedBlobGC:
+      result = "ForcedBlobGC";
+      break;
+    case CompactionReason::kRoundRobinTtl:
+      result = "RoundRobinTtl";
+      break;
+    case CompactionReason::kRefitLevel:
+      result = "RefitLevel";
+      break;
+    case CompactionReason::kNumOfReasons:
+      result = "NumOfReasons";
+      break;
+    default:
+      result = "UnSupport";
+      break;
+  }
+  return result;
+}
+
+std::string GetStringFromFlushReason(FlushReason flush_reason) {
+  std::string result;
+  switch (flush_reason) {
+    case FlushReason::kOthers:
+      result = "Others";
+      break;
+    case FlushReason::kGetLiveFiles:
+      result = "GetLiveFiles";
+      break;
+    case FlushReason::kShutDown:
+      result = "ShutDown";
+      break;
+    case FlushReason::kExternalFileIngestion:
+      result = "ExternalFileIngestion";
+      break;
+    case FlushReason::kManualCompaction:
+      result = "ManualCompaction";
+      break;
+    case FlushReason::kWriteBufferManager:
+      result = "WriteBufferManager";
+      break;
+    case FlushReason::kWriteBufferFull:
+      result = "WriteBufferFull";
+      break;
+    case FlushReason::kTest:
+      result = "Test";
+      break;
+    case FlushReason::kDeleteFiles:
+      result = "DeleteFiles";
+      break;
+    case FlushReason::kAutoCompaction:
+      result = "AutoCompaction";
+      break;
+    case FlushReason::kManualFlush:
+      result = "ManualFlush";
+      break;
+    case FlushReason::kErrorRecovery:
+      result = "ErrorRecovery";
+      break;
+    case FlushReason::kErrorRecoveryRetryFlush:
+      result = "ErrorRecoveryRetryFlush";
+      break;
+    case FlushReason::kWalFull:
+      result = "WalFull";
+      break;
+    default:
+      result = "UnSupport";
+      break;
+  }
+  return result;
+}
+
+std::string GetStringFromBackgroundErrorReason(
+    BackgroundErrorReason background_error_reason) {
+  std::string result;
+  switch (background_error_reason) {
+    case BackgroundErrorReason::kFlush:
+      result = "Flush";
+      break;
+    case BackgroundErrorReason::kCompaction:
+      result = "Compaction";
+      break;
+    case BackgroundErrorReason::kWriteCallback:
+      result = "WriteCallback";
+      break;
+    case BackgroundErrorReason::kMemTable:
+      result = "MemTable";
+      break;
+    case BackgroundErrorReason::kManifestWrite:
+      result = "ManifestWrite";
+      break;
+    case BackgroundErrorReason::kFlushNoWAL:
+      result = "FlushNoWAL";
+      break;
+    case BackgroundErrorReason::kManifestWriteNoWAL:
+      result = "ManifestWriteNoWAL";
+      break;
+    default:
+      result = "UnSupport";
+      break;
+  }
+  return result;
+}
+
 Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,

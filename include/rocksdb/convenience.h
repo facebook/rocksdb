@@ -401,11 +401,20 @@ Status GetStringFromDBOptions(std::string* opts_str,
 Status GetStringFromColumnFamilyOptions(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& cf_options,
                                         std::string* opts_str);
+
 Status GetStringFromColumnFamilyOptions(std::string* opts_str,
                                         const ColumnFamilyOptions& cf_options,
                                         const std::string& delimiter = ";  ");
+
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
+
+std::string GetStringFromCompactionReason(CompactionReason compression_reason);
+
+std::string GetStringFromFlushReason(FlushReason flush_reason);
+
+std::string GetStringFromBackgroundErrorReason(
+    BackgroundErrorReason background_error_reason);
 
 std::vector<CompressionType> GetSupportedCompressions();
 
