@@ -386,10 +386,6 @@ typedef struct {
 #define XXPH_STATIC_LINKING_ONLY
 #endif
 
-/* BEGIN RocksDB customizations */
-#include "port/lang.h" /* for FALLTHROUGH_INTENDED, inserted as appropriate */
-/* END RocksDB customizations */
-
 /* *************************************
 *  Compiler Specific Options
 ***************************************/
