@@ -6,7 +6,6 @@
 //
 #include "rocksdb/utilities/ldb_cmd.h"
 
-#include <cinttypes>
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
