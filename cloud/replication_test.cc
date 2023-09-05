@@ -323,6 +323,7 @@ class ReplicationTest : public testing::Test {
 protected:
   std::shared_ptr<Logger> info_log_;
   bool replicate_epoch_number_{true};
+  bool consistency_check_on_epoch_replication{true};
   void resetFollowerSequence(int new_seq) {
     followerSequence_ = new_seq;
   }
@@ -454,10 +455,10 @@ size_t ReplicationTest::catchUpFollower(
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
   unsigned flags = DB::AR_EVICT_OBSOLETE_FILES;
+  flags |= DB::AR_RESET_IF_EPOCH_MISMATCH;
   if (replicate_epoch_number_) {
     flags |= DB::AR_REPLICATE_EPOCH_NUM;
-  } else {
-    flags |= DB::AR_RESET_IF_EPOCH_MISMATCH;
+    flags |= DB::AR_CONSISTENCY_CHECK_ON_EPOCH_REPLICATION;
   }
   for (; followerSequence_ < (int)log_records_.size(); ++followerSequence_) {
     if (num_records && ret >= *num_records) {
@@ -1139,13 +1140,14 @@ TEST_F(ReplicationTest, EvictObsoleteFiles) {
 }
 
 class ReplicationTestWithParam : public ReplicationTest,
-                                 public testing::WithParamInterface<bool> {
+                                 public testing::WithParamInterface<std::pair<bool, bool>> {
  public:
   ReplicationTestWithParam()
     : ReplicationTest() {}
 
   void SetUp() override {
-    replicate_epoch_number_ = GetParam();
+    std::tie(replicate_epoch_number_, consistency_check_on_epoch_replication) =
+        GetParam();
   }
 };
 
@@ -1231,7 +1233,13 @@ TEST_P(ReplicationTestWithParam, Stress) {
 }
 
 INSTANTIATE_TEST_CASE_P(ReplicationTest, ReplicationTestWithParam,
-                        ::testing::Values(false, true));
+                        ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
+                            // don't replicate epoch
+                            {false, true},
+                            // replicate epoch but no consistency check
+                            {true, false},
+                            // replicate epoch and do consistency check
+                            {true, true}}));
 
 TEST_F(ReplicationTest, DeleteRange) {
   auto leader = openLeader();

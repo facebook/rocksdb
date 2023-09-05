@@ -132,6 +132,9 @@ std::string Status::ToString() const {
     case kMaxCode:
       assert(false);
       break;
+    case kPoison:
+      type = "Poison: ";
+      break;
   }
   char tmp[30];
   if (type == nullptr) {

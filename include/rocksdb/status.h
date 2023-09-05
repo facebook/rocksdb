@@ -89,6 +89,8 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
+    // Temporary status code for rocksdb upgrade
+    kPoison = 100,
     kMaxCode
   };
 
@@ -176,6 +178,9 @@ class Status {
   }
   static Status Corruption(SubCode msg = kNone) {
     return Status(kCorruption, msg);
+  }
+  static Status Poison(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kPoison, msg, msg2);
   }
 
   static Status NotSupported(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -310,6 +315,11 @@ class Status {
   bool IsCorruption() const {
     MarkChecked();
     return code() == kCorruption;
+  }
+
+  bool IsPoison() const {
+    MarkChecked();
+    return code() == kPoison;
   }
 
   // Returns true iff the status indicates a NotSupported error.

@@ -1335,7 +1335,10 @@ class DB {
     // backwards. So follower needs to rewind it.
     // 2. follower reopens db, causing `next_epoch_number` on follower to go
     // backwards. So follower needs to advance it
-    AR_RESET_IF_EPOCH_MISMATCH = 1U << 2
+    AR_RESET_IF_EPOCH_MISMATCH = 1U << 2,
+
+    // Check the consistency of epoch number during replication
+    AR_CONSISTENCY_CHECK_ON_EPOCH_REPLICATION = 1U << 3
   };
   using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
   virtual Status ApplyReplicationLogRecord(ReplicationLogRecord record,
