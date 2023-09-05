@@ -1312,7 +1312,7 @@ class NonBatchedOpsStressTest : public StressTest {
     pending_expected_value.Commit();
 
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -1371,7 +1371,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1402,7 +1402,7 @@ class NonBatchedOpsStressTest : public StressTest {
       pending_expected_value.Commit();
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1464,7 +1464,7 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->DeleteRange(write_opts, cfh, key, end_key);
     }
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||

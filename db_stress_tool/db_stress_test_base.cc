@@ -773,17 +773,18 @@ void StressTest::OperateDb(ThreadState* thread) {
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in) {
-    fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
-                                                   FLAGS_read_fault_one_in);
+    fault_fs_guard->SetThreadLocalReadErrorContext(
+        thread->shared->GetSeed(), FLAGS_read_fault_one_in,
+        FLAGS_inject_error_severity == 1 /* retryable */);
   }
 #endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
     IOStatus error_msg;
-    if (FLAGS_injest_error_severity <= 1 || FLAGS_injest_error_severity > 2) {
+    if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
       error_msg = IOStatus::IOError("Retryable IO Error");
       error_msg.SetRetryable(true);
-    } else if (FLAGS_injest_error_severity == 2) {
-      // Ingest the fatal error
+    } else if (FLAGS_inject_error_severity == 2) {
+      // Inject a fatal error
       error_msg = IOStatus::IOError("Fatal IO Error");
       error_msg.SetDataLoss(true);
     }
@@ -2684,14 +2685,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     RegisterAdditionalListeners();
 
     if (!FLAGS_use_txn) {
-      // Determine whether we need to ingest file metadata write failures
+      // Determine whether we need to inject file metadata write failures
       // during DB reopen. If it does, enable it.
-      // Only ingest metadata error if it is reopening, as initial open
+      // Only inject metadata error if it is reopening, as initial open
       // failure doesn't need to be handled.
       // TODO cover transaction DB is not covered in this fault test too.
-      bool ingest_meta_error = false;
-      bool ingest_write_error = false;
-      bool ingest_read_error = false;
+      bool inject_meta_error = false;
+      bool inject_write_error = false;
+      bool inject_read_error = false;
       if ((FLAGS_open_metadata_write_fault_one_in ||
            FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) &&
           fault_fs_guard
@@ -2704,15 +2705,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           // solve it, skip WAL from failure injection.
           fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
         }
-        ingest_meta_error = FLAGS_open_metadata_write_fault_one_in;
-        ingest_write_error = FLAGS_open_write_fault_one_in;
-        ingest_read_error = FLAGS_open_read_fault_one_in;
-        if (ingest_meta_error) {
+        inject_meta_error = FLAGS_open_metadata_write_fault_one_in;
+        inject_write_error = FLAGS_open_write_fault_one_in;
+        inject_read_error = FLAGS_open_read_fault_one_in;
+        if (inject_meta_error) {
           fault_fs_guard->EnableMetadataWriteErrorInjection();
           fault_fs_guard->SetRandomMetadataWriteError(
               FLAGS_open_metadata_write_fault_one_in);
         }
-        if (ingest_write_error) {
+        if (inject_write_error) {
           fault_fs_guard->SetFilesystemDirectWritable(false);
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
@@ -2720,7 +2721,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
               IOStatus::IOError("Injected Open Error"),
               /*inject_for_all_file_types=*/true, /*types=*/{});
         }
-        if (ingest_read_error) {
+        if (inject_read_error) {
           fault_fs_guard->SetRandomReadError(FLAGS_open_read_fault_one_in);
         }
       }
@@ -2752,14 +2753,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           }
         }
 
-        if (ingest_meta_error || ingest_write_error || ingest_read_error) {
+        if (inject_meta_error || inject_write_error || inject_read_error) {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           fault_fs_guard->DisableWriteErrorInjection();
           fault_fs_guard->SetSkipDirectWritableTypes({});
           fault_fs_guard->SetRandomReadError(0);
           if (s.ok()) {
-            // Ingested errors might happen in background compactions. We
+            // Injected errors might happen in background compactions. We
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
@@ -2776,9 +2777,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             // After failure to opening a DB due to IO error, retry should
             // successfully open the DB with correct data if no IO error shows
             // up.
-            ingest_meta_error = false;
-            ingest_write_error = false;
-            ingest_read_error = false;
+            inject_meta_error = false;
+            inject_write_error = false;
+            inject_read_error = false;
 
             // TODO: Unsynced data loss during DB reopen is not supported yet in
             //  stress test. Will need to recreate expected state if we decide
