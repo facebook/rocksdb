@@ -77,7 +77,8 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
     }
   }
 
-  // Acquire SuperVersion
+  // In read-only mode Get(), no super version operation is needed (i.e.
+  // GetAndRefSuperVersion and ReturnAndCleanupSuperVersion)
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
@@ -108,7 +109,6 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
-    PERF_TIMER_GUARD(get_post_process_time);
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (get_impl_options.value) {
