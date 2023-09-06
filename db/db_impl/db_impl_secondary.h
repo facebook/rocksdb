@@ -107,7 +107,9 @@ class DBImplSecondary : public DBImpl {
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns* columns) override;
+                   PinnableWideColumns* columns) override {
+    return DBImpl::GetEntity(options, column_family, key, columns);
+  }
 
   using DBImpl::GetImpl;
   Status GetImpl(const ReadOptions& options, const Slice& key,

@@ -1945,25 +1945,27 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-Status DBImpl::GetEntity(const ReadOptions& read_options,
+Status DBImpl::GetEntity(const ReadOptions& _read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          PinnableWideColumns* columns) {
   if (!column_family) {
     return Status::InvalidArgument(
         "Cannot call GetEntity without a column family handle");
   }
-
   if (!columns) {
     return Status::InvalidArgument(
         "Cannot call GetEntity without a PinnableWideColumns object");
   }
-
-  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
         "Cannot call GetEntity with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`");
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
-
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
   columns->Reset();
 
   GetImplOptions get_impl_options;
