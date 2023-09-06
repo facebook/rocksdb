@@ -110,6 +110,13 @@ class DbStressListener : public EventListener {
     }
   }
 
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& /* si */) override {
+    if (FLAGS_read_fault_one_in) {
+      (void)fault_fs_guard->GetAndResetErrorCount();
+      fault_fs_guard->DisableErrorInjection();
+    }
+  }
+
   void OnTableFileCreationStarted(
       const TableFileCreationBriefInfo& /*info*/) override {
     ++num_pending_file_creations_;
