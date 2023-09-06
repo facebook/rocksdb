@@ -1120,7 +1120,6 @@ static inline Function Choose_Extend() {
   #ifdef _MSC_VER
   #pragma warning(disable: 4551)
   #endif
-  #pragma warning(disable: 4551)
   (void)ExtendImpl<DefaultCRC32>;  // suppress unused warning
   #ifdef _MSC_VER
   #pragma warning(default: 4551)
