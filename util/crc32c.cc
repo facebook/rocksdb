@@ -1119,7 +1119,7 @@ static inline Function Choose_Extend() {
   // NOTE: runtime detection no longer supported on x86
   #pragma warning(disable: 4551)
   (void)ExtendImpl<DefaultCRC32>;  // suppress unused warning
-  #pragma warning(enable: 4551)
+  #pragma warning(default: 4551)
   return crc32c_3way;
 #else
   return ExtendImpl<DefaultCRC32>;
