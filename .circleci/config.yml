@@ -206,6 +206,9 @@ executors:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
       - image: zjay437/rocksdb:0.6
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKHERHUB_TOKEN
 
 jobs:
   build-macos:
