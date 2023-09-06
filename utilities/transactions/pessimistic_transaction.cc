@@ -53,7 +53,6 @@ PessimisticTransaction::PessimisticTransaction(
       deadlock_detect_depth_(0),
       skip_concurrency_control_(false) {
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
-  db_impl_ = static_cast_with_check<DBImpl>(db_);
   if (init) {
     Initialize(txn_options);
   }
@@ -172,7 +171,7 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
         "`Env::IOActivity::kUnknown`");
   }
   column_family =
-      column_family ? column_family : db_impl_->DefaultColumnFamily();
+      column_family ? column_family : dbimpl_->DefaultColumnFamily();
   assert(column_family);
   if (!read_options.timestamp) {
     const Comparator* const ucmp = column_family->GetComparator();
@@ -183,7 +182,7 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
                                                value, exclusive, do_validate);
     }
   } else {
-    Status s = db_impl_->FailIfTsMismatchCf(
+    Status s = dbimpl_->FailIfTsMismatchCf(
         column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
@@ -403,7 +402,7 @@ Status WriteCommittedTxn::Operate(ColumnFamilyHandle* column_family,
     return s;
   }
   column_family =
-      column_family ? column_family : db_impl_->DefaultColumnFamily();
+      column_family ? column_family : dbimpl_->DefaultColumnFamily();
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -562,18 +561,18 @@ Status WriteCommittedTxn::PrepareInternal() {
    private:
     DBImpl* db_;
     bool two_write_queues_;
-  } mark_log_callback(db_impl_,
-                      db_impl_->immutable_db_options().two_write_queues);
+  } mark_log_callback(dbimpl_,
+                      dbimpl_->immutable_db_options().two_write_queues);
 
   WriteCallback* const kNoWriteCallback = nullptr;
   const uint64_t kRefNoLog = 0;
   const bool kDisableMemtable = true;
   SequenceNumber* const KIgnoreSeqUsed = nullptr;
   const size_t kNoBatchCount = 0;
-  s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          kNoWriteCallback, &log_number_, kRefNoLog,
-                          kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
-                          &mark_log_callback);
+  s = dbimpl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                         kNoWriteCallback, &log_number_, kRefNoLog,
+                         kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
+                         &mark_log_callback);
   return s;
 }
 
@@ -634,7 +633,7 @@ Status PessimisticTransaction::Commit() {
     s = CommitInternal();
 
     if (!s.ok()) {
-      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+      ROCKS_LOG_WARN(dbimpl_->immutable_db_options().info_log,
                      "Commit write failed");
       return s;
     }
@@ -696,7 +695,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   }
 
   uint64_t seq_used = kMaxSequenceNumber;
-  SnapshotCreationCallback snapshot_creation_cb(db_impl_, commit_timestamp_,
+  SnapshotCreationCallback snapshot_creation_cb(dbimpl_, commit_timestamp_,
                                                 snapshot_notifier_, snapshot_);
   PostMemTableCallback* post_mem_cb = nullptr;
   if (snapshot_needed_) {
@@ -706,11 +705,11 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
       post_mem_cb = &snapshot_creation_cb;
     }
   }
-  auto s = db_impl_->WriteImpl(write_options_, wb,
-                               /*callback*/ nullptr, /*log_used*/ nullptr,
-                               /*log_ref*/ 0, /*disable_memtable*/ false,
-                               &seq_used, /*batch_cnt=*/0,
-                               /*pre_release_callback=*/nullptr, post_mem_cb);
+  auto s = dbimpl_->WriteImpl(write_options_, wb,
+                              /*callback*/ nullptr, /*log_used*/ nullptr,
+                              /*log_ref*/ 0, /*disable_memtable*/ false,
+                              &seq_used, /*batch_cnt=*/0,
+                              /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -720,9 +719,9 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
 
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ 0,
-                               /*disable_memtable*/ false, &seq_used);
+  auto s = dbimpl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
+                              /*log_used*/ nullptr, /*log_ref*/ 0,
+                              /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -782,7 +781,7 @@ Status WriteCommittedTxn::CommitInternal() {
   assert(s.ok());
 
   uint64_t seq_used = kMaxSequenceNumber;
-  SnapshotCreationCallback snapshot_creation_cb(db_impl_, commit_timestamp_,
+  SnapshotCreationCallback snapshot_creation_cb(dbimpl_, commit_timestamp_,
                                                 snapshot_notifier_, snapshot_);
   PostMemTableCallback* post_mem_cb = nullptr;
   if (snapshot_needed_) {
@@ -793,11 +792,11 @@ Status WriteCommittedTxn::CommitInternal() {
       post_mem_cb = &snapshot_creation_cb;
     }
   }
-  s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
-                          /*log_used*/ nullptr, /*log_ref*/ log_number_,
-                          /*disable_memtable*/ false, &seq_used,
-                          /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
-                          post_mem_cb);
+  s = dbimpl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+                         /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                         /*disable_memtable*/ false, &seq_used,
+                         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+                         post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -847,7 +846,7 @@ Status WriteCommittedTxn::RollbackInternal() {
   WriteBatch rollback_marker;
   auto s = WriteBatchInternal::MarkRollback(&rollback_marker, name_);
   assert(s.ok());
-  s = db_impl_->WriteImpl(write_options_, &rollback_marker);
+  s = dbimpl_->WriteImpl(write_options_, &rollback_marker);
   return s;
 }
 
@@ -986,7 +985,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   }
 
   const ColumnFamilyHandle* const cfh =
-      column_family ? column_family : db_impl_->DefaultColumnFamily();
+      column_family ? column_family : dbimpl_->DefaultColumnFamily();
   assert(cfh);
   const Comparator* const ucmp = cfh->GetComparator();
   assert(ucmp);
@@ -1076,7 +1075,7 @@ Status PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
                                             const Endpoint& start_endp,
                                             const Endpoint& end_endp) {
   ColumnFamilyHandle* cfh =
-      column_family ? column_family : db_impl_->DefaultColumnFamily();
+      column_family ? column_family : dbimpl_->DefaultColumnFamily();
   uint32_t cfh_id = GetColumnFamilyID(cfh);
 
   Status s = txn_db_impl_->TryRangeLock(this, cfh_id, start_endp, end_endp);
@@ -1107,7 +1106,7 @@ Status PessimisticTransaction::ValidateSnapshot(
       return Status::OK();
     }
   } else {
-    snap_seq = db_impl_->GetLatestSequenceNumber();
+    snap_seq = dbimpl_->GetLatestSequenceNumber();
   }
 
   // Otherwise we have either
@@ -1119,7 +1118,7 @@ Status PessimisticTransaction::ValidateSnapshot(
   *tracked_at_seq = snap_seq;
 
   ColumnFamilyHandle* cfh =
-      column_family ? column_family : db_impl_->DefaultColumnFamily();
+      column_family ? column_family : dbimpl_->DefaultColumnFamily();
 
   assert(cfh);
   const Comparator* const ucmp = cfh->GetComparator();
@@ -1132,7 +1131,7 @@ Status PessimisticTransaction::ValidateSnapshot(
   }
 
   return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
+      dbimpl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
       false /* cache_only */);
 }
 

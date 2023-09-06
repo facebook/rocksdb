@@ -151,7 +151,6 @@ class PessimisticTransaction : public TransactionBaseImpl {
   void Clear() override;
 
   PessimisticTransactionDB* txn_db_impl_;
-  DBImpl* db_impl_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // microseconds according to Env->NowMicros())
