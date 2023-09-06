@@ -1117,9 +1117,14 @@ static inline Function Choose_Extend() {
   }
 #elif defined(__SSE4_2__) && defined(__PCLMUL__) && !defined NO_THREEWAY_CRC32C
   // NOTE: runtime detection no longer supported on x86
+  #ifdef _MSC_VER
+  #pragma warning(disable: 4551)
+  #endif
   #pragma warning(disable: 4551)
   (void)ExtendImpl<DefaultCRC32>;  // suppress unused warning
+  #ifdef _MSC_VER
   #pragma warning(default: 4551)
+  #endif
   return crc32c_3way;
 #else
   return ExtendImpl<DefaultCRC32>;
