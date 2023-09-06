@@ -29,6 +29,100 @@ DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
 DBImplReadOnly::~DBImplReadOnly() {}
 
 // Implementations of the DB interface
+Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
+                               const Slice& key,
+                               GetImplOptions& get_impl_options) {
+  assert(get_impl_options.value != nullptr ||
+         get_impl_options.columns != nullptr);
+  assert(get_impl_options.column_family);
+
+  if (read_options.timestamp) {
+    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
+                                        *(read_options.timestamp),
+                                        /*ts_for_read=*/true);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    const Status s = FailIfCfHasTs(get_impl_options.column_family);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (get_impl_options.timestamp) {
+    get_impl_options.timestamp->clear();
+  }
+
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
+  PERF_TIMER_GUARD(get_snapshot_time);
+
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  assert(ucmp);
+  std::string* ts =
+      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+  Status s;
+  SequenceNumber snapshot = versions_->LastSequence();
+  GetWithTimestampReadCallback read_cb(snapshot);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      get_impl_options.column_family);
+  auto cfd = cfh->cfd();
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(get_impl_options.column_family, key);
+    }
+  }
+
+  // Acquire SuperVersion
+  SuperVersion* super_version = cfd->GetSuperVersion();
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  LookupKey lkey(key, snapshot, read_options.timestamp);
+  PERF_TIMER_STOP(get_snapshot_time);
+
+  // Look up starts here
+  if (super_version->mem->Get(
+          lkey,
+          get_impl_options.value ? get_impl_options.value->GetSelf() : nullptr,
+          get_impl_options.columns, ts, &s, &merge_context,
+          &max_covering_tombstone_seq, read_options,
+          false /* immutable_memtable */, &read_cb)) {
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
+    RecordTick(stats_, MEMTABLE_HIT);
+  } else {
+    PERF_TIMER_GUARD(get_from_output_files_time);
+    PinnedIteratorsManager pinned_iters_mgr;
+    super_version->current->Get(
+        read_options, lkey, get_impl_options.value, get_impl_options.columns,
+        ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+        /*value_found*/ nullptr,
+        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
+        /*is_blob*/ nullptr,
+        /*do_merge*/ true);
+    RecordTick(stats_, MEMTABLE_MISS);
+  }
+  {
+    PERF_TIMER_GUARD(get_post_process_time);
+    RecordTick(stats_, NUMBER_KEYS_READ);
+    size_t size = 0;
+    if (get_impl_options.value) {
+      size = get_impl_options.value->size();
+    } else if (get_impl_options.columns) {
+      size = get_impl_options.columns->serialized_size();
+    }
+    RecordTick(stats_, BYTES_READ, size);
+    RecordInHistogram(stats_, BYTES_PER_READ, size);
+    PERF_COUNTER_ADD(get_read_bytes, size);
+  }
+  return s;
+}
+
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* pinnable_val) {
@@ -50,82 +144,38 @@ Status DBImplReadOnly::Get(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGet;
   }
-  assert(pinnable_val != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-  PERF_TIMER_GUARD(get_snapshot_time);
+  return GetImpl(read_options, column_family, key, pinnable_val, timestamp);
+}
 
-  assert(column_family);
-  if (read_options.timestamp) {
-    const Status s =
-        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    const Status s = FailIfCfHasTs(column_family);
-    if (!s.ok()) {
-      return s;
-    }
+Status DBImplReadOnly::GetEntity(const ReadOptions& _read_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key,
+                                 PinnableWideColumns* columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without a column family handle");
   }
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without a PinnableWideColumns object");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  columns->Reset();
 
-  // Clear the timestamps for returning results so that we can distinguish
-  // between tombstone or key that has never been written
-  if (timestamp) {
-    timestamp->clear();
-  }
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = columns;
 
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
-
-  Status s;
-  SequenceNumber snapshot = versions_->LastSequence();
-  GetWithTimestampReadCallback read_cb(snapshot);
-  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  auto cfd = cfh->cfd();
-  if (tracer_) {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      tracer_->Get(column_family, key);
-    }
-  }
-  SuperVersion* super_version = cfd->GetSuperVersion();
-  if (read_options.timestamp && read_options.timestamp->size() > 0) {
-    s = FailIfReadCollapsedHistory(cfd, super_version,
-                                   *(read_options.timestamp));
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  MergeContext merge_context;
-  SequenceNumber max_covering_tombstone_seq = 0;
-  LookupKey lkey(key, snapshot, read_options.timestamp);
-  PERF_TIMER_STOP(get_snapshot_time);
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
-                              /*columns=*/nullptr, ts, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options,
-                              false /* immutable_memtable */, &read_cb)) {
-    pinnable_val->PinSelf();
-    RecordTick(stats_, MEMTABLE_HIT);
-  } else {
-    PERF_TIMER_GUARD(get_from_output_files_time);
-    PinnedIteratorsManager pinned_iters_mgr;
-    super_version->current->Get(
-        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
-        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
-        /*value_found*/ nullptr,
-        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
-        /*is_blob*/ nullptr,
-        /*do_merge*/ true);
-    RecordTick(stats_, MEMTABLE_MISS);
-  }
-  RecordTick(stats_, NUMBER_KEYS_READ);
-  size_t size = pinnable_val->size();
-  RecordTick(stats_, BYTES_READ, size);
-  RecordInHistogram(stats_, BYTES_PER_READ, size);
-  PERF_COUNTER_ADD(get_read_bytes, size);
-  return s;
+  return GetImpl(read_options, key, get_impl_options);
 }
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,

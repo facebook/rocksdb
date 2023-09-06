@@ -643,8 +643,8 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.value
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options);
+  virtual Status GetImpl(const ReadOptions& options, const Slice& key,
+                         GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,

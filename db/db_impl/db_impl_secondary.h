@@ -104,9 +104,14 @@ class DBImplSecondary : public DBImpl {
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, std::string* timestamp) override;
 
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 std::string* timestamp);
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
+
+  using DBImpl::GetImpl;
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options) override;
 
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being

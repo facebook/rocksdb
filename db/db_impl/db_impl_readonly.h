@@ -32,6 +32,15 @@ class DBImplReadOnly : public DBImpl {
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, std::string* timestamp) override;
 
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
+
+  using DBImpl::GetImpl;
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options) override;
+
   // TODO: Implement ReadOnly MultiGet?
 
   using DBImpl::NewIterator;
