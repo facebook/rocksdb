@@ -158,9 +158,8 @@ default_params = {
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
     "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
-    # Disable compaction_readahead_size because the test is not passing.
-    # "compaction_readahead_size" : lambda : random.choice(
-    #    [0, 0, 1024 * 1024]),
+    "compaction_readahead_size" : lambda : random.choice(
+        [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
