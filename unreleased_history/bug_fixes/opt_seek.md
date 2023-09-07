@@ -1,0 +1,1 @@
+During seek, the iterator seeks every file on L0. In async_io, it submit the requests to seek on every file on L0 asynchronously using RocksDB FilePrefetchBuffer. However, FilePrefetchBuffer does alignment and reads extra bytes then needed that can increase the throughput. Added a fix to avoid that alignment when direct_io is disabled.
