@@ -446,6 +446,8 @@ class Env : public Customizable {
     kDBIterator = 5,
     kVerifyDBChecksum = 6,
     kVerifyFileChecksums = 7,
+    kGetEntity = 8,
+    kMultiGetEntity = 9,
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 

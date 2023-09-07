@@ -1957,14 +1957,14 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
         "Cannot call GetEntity without a PinnableWideColumns object");
   }
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
     return Status::InvalidArgument(
         "Cannot call GetEntity with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
   }
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
+    read_options.io_activity = Env::IOActivity::kGetEntity;
   }
   columns->Reset();
 
