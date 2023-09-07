@@ -456,26 +456,30 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
                          const std::deque<Slice>& operand_list,
                          std::string* new_value,
                          Logger* /*logger*/) const override {
-    size_t operand_count = operand_list.size();
-    std::vector<const char*> operand_pointers(operand_count);
-    std::vector<size_t> operand_sizes(operand_count);
-    for (size_t i = 0; i < operand_count; ++i) {
-      Slice operand(operand_list[i]);
-      operand_pointers[i] = operand.data();
-      operand_sizes[i] = operand.size();
-    }
+    unsigned char success = 0;
+    size_t new_value_len = 0;
+    char* tmp_new_value = NULL;
+    if (partial_merge_ != nullptr) {
+      size_t operand_count = operand_list.size();
+      std::vector<const char*> operand_pointers(operand_count);
+      std::vector<size_t> operand_sizes(operand_count);
+      for (size_t i = 0; i < operand_count; ++i) {
+        Slice operand(operand_list[i]);
+        operand_pointers[i] = operand.data();
+        operand_sizes[i] = operand.size();
+      }
 
-    unsigned char success;
-    size_t new_value_len;
-    char* tmp_new_value = (*partial_merge_)(
-        state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
-        static_cast<int>(operand_count), &success, &new_value_len);
-    new_value->assign(tmp_new_value, new_value_len);
+      tmp_new_value = (*partial_merge_)(
+          state_, key.data(), key.size(), &operand_pointers[0],
+          &operand_sizes[0], static_cast<int>(operand_count), &success,
+          &new_value_len);
+      new_value->assign(tmp_new_value, new_value_len);
 
-    if (delete_value_ != nullptr) {
-      (*delete_value_)(state_, tmp_new_value, new_value_len);
-    } else {
-      free(tmp_new_value);
+      if (delete_value_ != nullptr) {
+        (*delete_value_)(state_, tmp_new_value, new_value_len);
+      } else {
+        free(tmp_new_value);
+      }
     }
 
     return success;
