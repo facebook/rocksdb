@@ -2899,11 +2899,11 @@ TEST_F(FilePrefetchBufferTest, SeekWithoutAlignment) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Without readahead enabled, there will be no alignment and offset of buffer
-  // will be n/2.
+  // will be n.
   {
     FilePrefetchBuffer fpb(
         /*readahead_size=*/8192, /*max_readahead_size=*/16384, /*enable=*/true,
-        /*track_min_offset=*/false, /*implicit_auto_readahead_size=*/true,
+        /*track_min_offset=*/false, /*implicit_auto_readahead=*/true,
         /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/2,
         /*upper_bound_offset=*/0, fs());
 
@@ -2935,7 +2935,7 @@ TEST_F(FilePrefetchBufferTest, SeekWithoutAlignment) {
     read_async_called = false;
     FilePrefetchBuffer fpb(
         /*readahead_size=*/16384, /*max_readahead_size=*/16384, /*enable=*/true,
-        /*track_min_offset=*/false, /*implicit_auto_readahead_size=*/false,
+        /*track_min_offset=*/false, /*implicit_auto_readahead=*/false,
         /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/2,
         /*upper_bound_offset=*/0, fs());
 
