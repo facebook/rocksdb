@@ -187,6 +187,30 @@ Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
 
 /*
  * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    verifyFileChecksum
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_IngestExternalFileOptions_verifyFileChecksum(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  return static_cast<jboolean>(options->verify_file_checksum);
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    setVerifyFileChecksum
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_IngestExternalFileOptions_setVerifyFileChecksum(
+    JNIEnv*, jobject, jlong jhandle, jboolean jverify_file_checksum) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  options->verify_file_checksum = static_cast<bool>(jverify_file_checksum);
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */

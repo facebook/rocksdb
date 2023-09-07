@@ -201,6 +201,27 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * Whether checksum needs to be verify when ingest sst files.
+   *
+   * @return true if wants to verify the sst file checksum.
+   */
+  public boolean verifyFileChecksum() {
+    return verifyFileChecksum(nativeHandle_);
+  }
+
+  /**
+   * Set to true if you wants to verify the sst file checksum of ingested files.
+   *
+   * @param verifyFileChecksum
+   *
+   * @return the reference to the current IngestExternalFileOptions.
+   */
+  public IngestExternalFileOptions setVerifyFileChecksum(final boolean verifyFileChecksum) {
+    setVerifyFileChecksum(handle, verifyFileChecksum);
+    return this;
+  }
+
   private static native long newIngestExternalFileOptions();
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
@@ -224,4 +245,6 @@ public class IngestExternalFileOptions extends RocksObject {
   private native boolean writeGlobalSeqno(final long handle);
   private native void setWriteGlobalSeqno(final long handle,
       final boolean writeGlobalSeqNo);
+  private native boolean verifyFileChecksum(final long handle);
+  private native void setVerifyFileChecksum(final long handle, final boolean verifyFileChecksum);
 }
