@@ -3089,13 +3089,15 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
     // Attempt cheap key match without acquiring a read ref. This could give a
     // false positive, which is re-checked after acquiring read ref, or false
-    // negative, which is re-checked in the full Lookup.
-
-    // ReadAllowRace suppresses TSAN report on these reads. Also, using
-    // & rather than && to give more flexibility to the compiler and CPU,
-    // as it is safe to access [1] even if [0] doesn't match.
-    if ((int{ReadAllowRace(h->hashed_key[0]) == hashed_key[0]} &
-         int{ReadAllowRace(h->hashed_key[1]) == hashed_key[1]})) {
+    // negative, which is re-checked in the full Lookup. Also, this is a
+    // technical UB data race according to TSAN, but we don't need to read
+    // a "correct" value here for correct overall behavior.
+#ifdef __SANITIZE_THREAD__
+    bool probably_equal = Random::GetTLSInstance()->OneIn(2);
+#else
+    bool probably_equal = h->hashed_key == hashed_key;
+#endif
+    if (probably_equal) {
       // Increment acquire counter for definitive check
       uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
                                             std::memory_order_acquire);
