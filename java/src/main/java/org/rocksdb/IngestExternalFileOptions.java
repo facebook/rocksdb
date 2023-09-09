@@ -218,7 +218,7 @@ public class IngestExternalFileOptions extends RocksObject {
    * @return the reference to the current IngestExternalFileOptions.
    */
   public IngestExternalFileOptions setVerifyFileChecksum(final boolean verifyFileChecksum) {
-    setVerifyFileChecksum(handle, verifyFileChecksum);
+    setVerifyFileChecksum(nativeHandle_, verifyFileChecksum);
     return this;
   }
 
