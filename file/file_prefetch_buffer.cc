@@ -896,18 +896,24 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   //   - prefetch_size on second.
   // Calculate length and offsets for reading.
   if (!DoesBufferContainData(curr_)) {
+    uint64_t roundup_len1;
     // Prefetch full data + prefetch_size in curr_.
-    rounddown_start1 = Rounddown(offset_to_read, alignment);
-    roundup_end1 = Roundup(offset_to_read + n + prefetch_size, alignment);
-    uint64_t roundup_len1 = roundup_end1 - rounddown_start1;
-    assert(roundup_len1 >= alignment);
-    assert(roundup_len1 % alignment == 0);
-
+    if (is_eligible_for_prefetching || reader->use_direct_io()) {
+      rounddown_start1 = Rounddown(offset_to_read, alignment);
+      roundup_end1 = Roundup(offset_to_read + n + prefetch_size, alignment);
+      roundup_len1 = roundup_end1 - rounddown_start1;
+      assert(roundup_len1 >= alignment);
+      assert(roundup_len1 % alignment == 0);
+    } else {
+      rounddown_start1 = offset_to_read;
+      roundup_end1 = offset_to_read + n;
+      roundup_len1 = roundup_end1 - rounddown_start1;
+    }
     CalculateOffsetAndLen(alignment, rounddown_start1, roundup_len1, curr_,
                           false, chunk_len1);
     assert(chunk_len1 == 0);
     assert(roundup_len1 >= chunk_len1);
-    read_len1 = static_cast<size_t>(roundup_len1 - chunk_len1);
+    read_len1 = static_cast<size_t>(roundup_len1);
     bufs_[curr_].offset_ = rounddown_start1;
   }
 
