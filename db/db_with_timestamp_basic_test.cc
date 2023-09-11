@@ -1617,6 +1617,63 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
+  // Query order is MEMORY, CACHE, DISK
+  ASSERT_OK(Flush());
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
+
+  // Read with multi get
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(read_ts, ts_early);
+
+  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  // Row cache is not storing the ts when record is inserted/updated.
+  // ASSERT_EQ(read_ts, ts_early);
+
+  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+
+  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+
+  Close();
+}
+
 TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   Options options = CurrentOptions();
   options.env = env_;

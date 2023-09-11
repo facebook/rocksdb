@@ -60,6 +60,24 @@ void AppendVarint64(IterKey* key, uint64_t v) {
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
 
+// Get the sequence number for row cache key
+uint64_t GetSequenceNumber(const ReadOptions& options, const FileDescriptor& fd,
+                           const Slice& internal_key, GetContext* get_context) {
+  uint64_t seq_no = 0;
+
+  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
+  if (options.snapshot != nullptr &&
+      (get_context->has_callback() ||
+       static_cast_with_check<const SnapshotImpl>(options.snapshot)
+               ->GetSequenceNumber() <= fd.largest_seqno)) {
+    // We should consider to use options.snapshot->GetSequenceNumber()
+    // instead of GetInternalKeySeqno(k), which will make the code
+    // easier to understand.
+    seq_no = 1 + GetInternalKeySeqno(internal_key);
+  }
+
+  return seq_no;
+}
 
 }  // anonymous namespace
 
@@ -365,17 +383,7 @@ void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
   // the same as there is no snapshot. The exception is that if
   // a seq-checking callback is registered, some internal keys
   // may still be filtered out.
-  uint64_t seq_no = 0;
-  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
-  if (options.snapshot != nullptr &&
-      (get_context->has_callback() ||
-       static_cast_with_check<const SnapshotImpl>(options.snapshot)
-               ->GetSequenceNumber() <= fd.largest_seqno)) {
-    // We should consider to use options.snapshot->GetSequenceNumber()
-    // instead of GetInternalKeySeqno(k), which will make the code
-    // easier to understand.
-    seq_no = 1 + GetInternalKeySeqno(internal_key);
-  }
+  uint64_t seq_no = GetSequenceNumber(options, fd, internal_key, get_context);
 
   // Compute row cache key.
   row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
@@ -385,7 +393,8 @@ void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
 }
 
 bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
-                                 size_t prefix_size, GetContext* get_context) {
+                                 size_t prefix_size, GetContext* get_context,
+                                 SequenceNumber seq_no) {
   bool found = false;
 
   row_cache_key.TrimAppend(prefix_size, user_key.data(), user_key.size());
@@ -402,8 +411,10 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
     // get_context.pinnable_slice_. Cache entry is released when
     // get_context.pinnable_slice_ is reset.
     row_cache.RegisterReleaseAsCleanup(row_handle, value_pinner);
+    // If row cache hit, knowing cache key is the same to row_cache_key,
+    // can use row_cache_key's seq no to construct InternalKey.
     replayGetContextLog(*row_cache.Value(row_handle), user_key, get_context,
-                        &value_pinner);
+                        &value_pinner, seq_no);
     RecordTick(ioptions_.stats, ROW_CACHE_HIT);
     found = true;
   } else {
@@ -426,13 +437,14 @@ Status TableCache::Get(
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
 
-  // Check row cache if enabled. Since row cache does not currently store
-  // sequence numbers, we cannot use it if we need to fetch the sequence.
+  // Check row cache if enabled.
+  // Reuse row_cache_key sequence number when row cache hits.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
     auto user_key = ExtractUserKey(k);
     CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
     done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
-                           get_context);
+                           get_context,
+                           GetSequenceNumber(options, fd, k, get_context));
     if (!done) {
       row_cache_entry = &row_cache_entry_buffer;
     }

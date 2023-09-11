@@ -267,7 +267,8 @@ class TableCache {
   // Helper function to lookup the row cache for a key. It appends the
   // user key to row_cache_key at offset prefix_size
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
-                       size_t prefix_size, GetContext* get_context);
+                       size_t prefix_size, GetContext* get_context,
+                       SequenceNumber seq_no = kMaxSequenceNumber);
 
   const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
