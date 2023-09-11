@@ -1,0 +1,1 @@
+Fix a race condition in SetOptions for block_based_table_factory options. The fix has some subtle behavior changes because of copying and replacing the TableFactory on a change with SetOptions, including requiring an Iterator::Refresh() for an existing Iterator to use the latest options.

@@ -275,7 +275,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"block_based_table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+              OptionTypeFlags::kMutable,
           // Parses the input value and creates a BlockBasedTableFactory
           [](const ConfigOptions& opts, const std::string& name,
              const std::string& value, void* addr) {
@@ -287,6 +288,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
                   table_factory->get()->GetOptions<BlockBasedTableOptions>();
             }
             if (name == "block_based_table_factory") {
+              // For safe mutation (e.g. SetOptions) we create and
+              // emplace a new factory with the replacement options
               std::unique_ptr<TableFactory> new_factory;
               if (old_opts != nullptr) {
                 new_factory.reset(NewBlockBasedTableFactory(*old_opts));
@@ -299,6 +302,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
               }
               return s;
             } else if (old_opts != nullptr) {
+              // In case of safely mutable subcomponents of the table factory
               return table_factory->get()->ConfigureOption(opts, name, value);
             } else {
               return Status::NotFound("Mismatched table option: ", name);
