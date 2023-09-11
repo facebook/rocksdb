@@ -149,12 +149,6 @@ class GetContext {
 
   bool NeedTimestamp() { return timestamp_ != nullptr; }
 
-  Slice GetTimeStamp() {
-    if (timestamp_) return Slice(*timestamp_);
-
-    return Slice();
-  }
-
   void SetTimestampFromRangeTombstone(const Slice& timestamp) {
     assert(timestamp_);
     timestamp_->assign(timestamp.data(), timestamp.size());
