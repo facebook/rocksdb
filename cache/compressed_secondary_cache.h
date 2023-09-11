@@ -80,11 +80,8 @@ class CompressedSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* helper,
                 bool force_insert) override;
 
-  Status InsertSaved(const Slice& /* key */, const Slice& /* saved */,
-                     CompressionType /* type */,
-                     CacheTier /* source */) override {
-    return Status::OK();
-  }
+  Status InsertSaved(const Slice& key, const Slice& saved, CompressionType type,
+                     CacheTier source) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
@@ -124,6 +121,40 @@ class CompressedSecondaryCache : public SecondaryCache {
     void Free() { delete[] reinterpret_cast<char*>(this); }
   };
 
+  static void NoopDelete(Cache::ObjectPtr /*obj*/,
+                         MemoryAllocator* /*allocator*/) {
+    assert(false);
+  }
+
+  static size_t SliceSize(Cache::ObjectPtr obj) {
+    return static_cast<Slice*>(obj)->size();
+  }
+
+  static Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset,
+                            size_t length, char* out) {
+    const Slice& slice = *static_cast<Slice*>(from_obj);
+    std::memcpy(out, slice.data() + from_offset, length);
+    return Status::OK();
+  }
+
+  static Status NoopCreate(const Slice& /*data*/, CompressionType /*type*/,
+                           Cache::CreateContext* /*ctx*/,
+                           MemoryAllocator* /*allocator*/,
+                           Cache::ObjectPtr* /*out_obj*/,
+                           size_t* /*out_charge*/) {
+    assert(false);
+  }
+
+  static const Cache::CacheItemHelper* GetSliceHelper() {
+    static Cache::CacheItemHelper basic_helper(CacheEntryRole::kMisc,
+                                               &NoopDelete);
+    static Cache::CacheItemHelper slice_helper{
+        CacheEntryRole::kMisc, &NoopDelete, &SliceSize,
+        &SliceSaveTo,          &NoopCreate, &basic_helper,
+    };
+    return &slice_helper;
+  }
+
   // Split value into chunks to better fit into jemalloc bins. The chunks
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
@@ -135,6 +166,12 @@ class CompressedSecondaryCache : public SecondaryCache {
   // the charge is recalculated.
   CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
                                           size_t& charge);
+
+  bool MaybeInsertDummy(const Slice& key);
+
+  Status InsertInternal(const Slice& key, Cache::ObjectPtr value,
+                        const Cache::CacheItemHelper* helper,
+                        CompressionType type, CacheTier source);
 
   // TODO: clean up to use cleaner interfaces in typed_cache.h
   const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;

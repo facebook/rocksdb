@@ -1317,8 +1317,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
     create_ctx.dict = dict;
     assert(!cache_key.empty());
     auto cache_handle = block_cache.LookupFull(
-        cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
-        statistics, rep_->ioptions.lowest_used_cache_tier);
+        cache_key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
+        rep_->ioptions.lowest_used_cache_tier);
 
     // Avoid updating metrics here if the handle is not complete yet. This
     // happens with MultiGet and secondary cache. So update the metrics only
@@ -1534,7 +1534,9 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           TBlocklike::kBlockType != BlockType::kFilter &&
           TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
           rep_->blocks_maybe_compressed;
-      const bool do_uncompress = maybe_compressed;
+      // This flag, if true, tells BlockFetcher to return the uncompressed
+      // block when ReadBlockContents() is called.
+      const bool do_uncompress = !rep_->uncompress_in_reader;
       CompressionType contents_comp_type;
       // Maybe serialized or uncompressed
       BlockContents tmp_contents;
@@ -1542,6 +1544,14 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
                                               : READ_BLOCK_GET_MICROS;
         StopWatch sw(rep_->ioptions.clock, statistics, histogram);
+        // Setting do_uncompress to false may cause an extra mempcy in the
+        // following cases -
+        // 1. Compression is enabled, but block is not actually compressed
+        // 2. Compressed block is in the prefetch buffer
+        // 3. Direct IO
+        //
+        // It would also cause a memory allocation to be used rather than
+        // stack if the compressed block size is < 5KB
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,

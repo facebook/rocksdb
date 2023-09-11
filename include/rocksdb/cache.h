@@ -481,6 +481,10 @@ enum TieredAdmissionPolicy {
   // Same as kAdmPolicyPlaceholder, but also if an entry in the primary cache
   // was a hit, then force insert it into the compressed secondary cache
   kAdmPolicyAllowCacheHits,
+  // An admission policy for three cache tiers - primary uncompressed,
+  // compressed secondary, and a compressed local flash (non-volatile) cache.
+  // Each tier is managed as an independent queue.
+  kAdmPolicyThreeQueue,
   kAdmPolicyMax,
 };
 
@@ -490,13 +494,16 @@ enum TieredAdmissionPolicy {
 // cache. Any cache memory reservations, such as WriteBufferManager
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
-struct TieredVolatileCacheOptions {
+struct TieredCacheOptions {
   ShardedCacheOptions* cache_opts;
   PrimaryCacheType cache_type;
   TieredAdmissionPolicy adm_policy;
   CompressedSecondaryCacheOptions comp_cache_opts;
+  // An optional secondary cache that will serve as the persistent cache
+  // tier. If present, compressed blocks will be written to this
+  // secondary cache.
+  std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
-extern std::shared_ptr<Cache> NewTieredVolatileCache(
-    TieredVolatileCacheOptions& cache_opts);
+extern std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& cache_opts);
 }  // namespace ROCKSDB_NAMESPACE

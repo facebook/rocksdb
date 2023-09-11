@@ -251,7 +251,8 @@ class Cache {
   // Along with the object pointer, the caller may pass a Slice pointing to
   // the compressed serialized data of the object. If compressed is
   // non-empty, then the caller must pass the type indicating the compression
-  // algorithm used.
+  // algorithm used. The cache may, optionally, also insert the compressed
+  // block into one or more cache tiers.
   //
   // When the inserted entry is no longer needed, it will be destroyed using
   // helper->del_cb (if non-nullptr).

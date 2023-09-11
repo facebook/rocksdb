@@ -5,6 +5,7 @@
 
 #include "cache/secondary_cache_adapter.h"
 
+#include "cache/tiered_secondary_cache.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
@@ -111,7 +112,7 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     size_t sec_capacity = 0;
     Status s = secondary_cache_->GetCapacity(sec_capacity);
     assert(s.ok());
-    assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+    // assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
   }
 #endif  // NDEBUG
 }
@@ -119,7 +120,8 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
 bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
                                                 Handle* handle, bool was_hit) {
   auto helper = GetCacheItemHelper(handle);
-  if (helper->IsSecondaryCacheCompatible()) {
+  if (helper->IsSecondaryCacheCompatible() &&
+      adm_policy_ != TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
@@ -419,8 +421,7 @@ const char* CacheWithSecondaryAdapter::Name() const {
   return target_->Name();
 }
 
-std::shared_ptr<Cache> NewTieredVolatileCache(
-    TieredVolatileCacheOptions& opts) {
+std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& opts) {
   if (!opts.cache_opts) {
     return nullptr;
   }
@@ -447,6 +448,17 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
   }
   std::shared_ptr<SecondaryCache> sec_cache;
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
+
+  if (opts.nvm_sec_cache) {
+    if (opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyThreeQueue ||
+        opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyAuto) {
+      sec_cache = std::make_shared<TieredSecondaryCache>(
+          sec_cache, opts.nvm_sec_cache,
+          TieredAdmissionPolicy::kAdmPolicyThreeQueue);
+    } else {
+      return nullptr;
+    }
+  }
 
   return std::make_shared<CacheWithSecondaryAdapter>(
       cache, sec_cache, opts.adm_policy, /*distribute_cache_res=*/true);

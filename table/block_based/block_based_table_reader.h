@@ -15,6 +15,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
+#include "cache/secondary_cache_adapter.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"
@@ -568,7 +569,15 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        // TODO: This flag indicates whether to uncompress a block in
+        // BlockFetcher or in MaybeReadBlockAndLoadToCache. The latter is
+        // preferred when we want to warm up the cache with the compressed
+        // blocks. Find a better way to do this, maybe by having BlockFetcher
+        // cache a pointer to the compressed block, or by narrowing it down
+        // to the tiered cache case.
+        uncompress_in_reader(dynamic_cast<CacheWithSecondaryAdapter*>(
+                                 table_options.block_cache.get()) != nullptr) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -657,6 +666,8 @@ struct BlockBasedTable::Rep {
   // partitioned filters), the `first_internal_key` in `IndexValue`, the
   // `end_key` for range deletion entries.
   const bool user_defined_timestamps_persisted;
+
+  bool uncompress_in_reader;
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
