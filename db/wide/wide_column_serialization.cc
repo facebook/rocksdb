@@ -9,6 +9,7 @@
 #include <cassert>
 #include <limits>
 
+#include "db/wide/wide_columns_helper.h"
 #include "rocksdb/slice.h"
 #include "util/autovector.h"
 #include "util/coding.h"
@@ -169,12 +170,12 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
     return s;
   }
 
-  if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
+  if (!WideColumnsHelper::HasDefaultColumn(columns)) {
     value.clear();
     return Status::OK();
   }
 
-  value = columns[0].value();
+  value = WideColumnsHelper::GetDefaultColumn(columns);
 
   return Status::OK();
 }

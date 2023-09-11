@@ -113,12 +113,9 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 
           } else {
             assert(iter->columns);
-            assert(!iter->columns->columns().empty());
-            assert(iter->columns->columns().front().name() ==
-                   kDefaultWideColumnName);
 
-            tmp_s =
-                blob_index.DecodeFrom(iter->columns->columns().front().value());
+            tmp_s = blob_index.DecodeFrom(
+                WideColumnsHelper::GetDefaultColumn(iter->columns->columns()));
           }
 
           if (tmp_s.ok()) {

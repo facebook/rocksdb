@@ -11,6 +11,7 @@
 
 #include <type_traits>
 
+#include "db/wide/wide_columns_helper.h"
 #include "util/overload.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -63,8 +64,7 @@ bool MergeOperator::FullMergeV3(const MergeOperationInputV3& merge_in,
           },
           [&](const WideColumns& existing_columns) -> bool {
             const bool has_default_column =
-                !existing_columns.empty() &&
-                existing_columns.front().name() == kDefaultWideColumnName;
+                WideColumnsHelper::HasDefaultColumn(existing_columns);
 
             Slice value_of_default;
             if (has_default_column) {

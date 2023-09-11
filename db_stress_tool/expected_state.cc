@@ -6,8 +6,8 @@
 #include <atomic>
 #ifdef GFLAGS
 
-
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/expected_state.h"
@@ -363,7 +363,6 @@ bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
 
-
 namespace {
 
 // An `ExpectedStateTraceRecordHandler` applies a configurable number of
@@ -462,10 +461,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                            column_family_id, key, columns);
     }
 
-    assert(!columns.empty());
-    assert(columns.front().name() == kDefaultWideColumnName);
-
-    const uint32_t value_base = GetValueBase(columns.front().value());
+    const uint32_t value_base =
+        GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
 
     state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
 
