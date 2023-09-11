@@ -39,6 +39,7 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/file_util.h"
 #include "table/compaction_merging_iterator.h"
 
@@ -2452,12 +2453,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                                   fp.GetHitFileLevel());
 
         if (is_blob_index && do_merge && (value || columns)) {
-          assert(!columns ||
-                 (!columns->columns().empty() &&
-                  columns->columns().front().name() == kDefaultWideColumnName));
-
           Slice blob_index =
-              value ? *value : columns->columns().front().value();
+              value ? *value
+                    : WideColumnsHelper::GetDefaultColumn(columns->columns());
 
           TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
                                    &blob_index);
