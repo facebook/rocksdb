@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.2 (09/11/2023)
+### Bug Fixes
+* Add a fix for async_io where during seek, when reading a block for seeking a target key in a file without any readahead, the iterator aligned the read on a page boundary and reading more than necessary. This increased the storage read bandwidth usage.
+
 ## 8.6.1 (08/30/2023)
 ### Public API Changes
 * `Options::compaction_readahead_size` 's default value is changed from 0 to 2MB.
