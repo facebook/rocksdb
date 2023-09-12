@@ -2523,7 +2523,7 @@ std::vector<Status> DBImpl::MultiGet(
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
     } else {
-      mgd.cfd->GetSuperVersion()->Unref();
+      mgd.super_version->Unref();
     }
   }
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
@@ -2545,9 +2545,13 @@ Status DBImpl::MultiCFSnapshot(
     T* cf_list, SequenceNumber* snapshot, bool* unref_only) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
+  assert(unref_only);
+  *unref_only = false;
   Status s = Status::OK();
   const bool check_read_ts =
       read_options.timestamp && read_options.timestamp->size() > 0;
+  // unref_only set to true means the SuperVersion to be cleaned up is acquired
+  // directly via ColumnFamilyData instead of thread local.
   const auto sv_cleanup_func = [&]() -> void {
     for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
          ++cf_iter) {
@@ -2555,7 +2559,11 @@ Status DBImpl::MultiCFSnapshot(
       SuperVersion* super_version = node->super_version;
       ColumnFamilyData* cfd = node->cfd;
       if (super_version != nullptr) {
-        ReturnAndCleanupSuperVersion(cfd, super_version);
+        if (*unref_only) {
+          super_version->Unref();
+        } else {
+          ReturnAndCleanupSuperVersion(cfd, super_version);
+        }
       }
       node->super_version = nullptr;
     }
@@ -2676,14 +2684,12 @@ Status DBImpl::MultiCFSnapshot(
     }
   }
 
+  // Keep track of bytes that we read for statistics-recording later
+  PERF_TIMER_STOP(get_snapshot_time);
+  *unref_only = last_try;
   if (!s.ok()) {
     sv_cleanup_func();
   }
-
-  // Keep track of bytes that we read for statistics-recording later
-  PERF_TIMER_STOP(get_snapshot_time);
-
-  *unref_only = last_try;
   return s;
 }
 
@@ -2862,7 +2868,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
-      iter.cfd->GetSuperVersion()->Unref();
+      iter.super_version->Unref();
     }
   }
 }

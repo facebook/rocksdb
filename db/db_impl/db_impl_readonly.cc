@@ -160,7 +160,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
     const Status s = FailIfReadCollapsedHistory(cfd, super_version,
                                                 *(read_options.timestamp));
     if (!s.ok()) {
-      CleanupSuperVersion(super_version);
+      cfd->GetSuperVersion()->Unref();
       return NewErrorIterator(s);
     }
   }
@@ -231,7 +231,7 @@ Status DBImplReadOnly::NewIterators(
           FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
       if (!s.ok()) {
         for (auto prev_entry : cfd_to_sv) {
-          CleanupSuperVersion(std::get<1>(prev_entry));
+          std::get<1>(prev_entry)->Unref();
         }
         return s;
       }
