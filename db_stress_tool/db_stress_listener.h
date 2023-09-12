@@ -9,6 +9,7 @@
 #include <mutex>
 #include <unordered_set>
 
+#include "db_stress_tool/db_stress_shared_state.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/db.h"
@@ -19,8 +20,11 @@
 #include "rocksdb/unique_id.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 DECLARE_int32(compact_files_one_in);
+
+extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -93,6 +97,24 @@ class DbStressListener : public EventListener {
     }
     // pretending doing some work here
     RandomSleep();
+  }
+
+  void OnSubcompactionBegin(const SubcompactionJobInfo& /* si */) override {
+    if (FLAGS_read_fault_one_in) {
+      // Hardcoded to inject retryable error as a non-retryable error would put
+      // the DB in read-only mode and then it would crash on the next write.
+      fault_fs_guard->SetThreadLocalReadErrorContext(
+          static_cast<uint32_t>(FLAGS_seed), FLAGS_read_fault_one_in,
+          true /* retryable */);
+      fault_fs_guard->EnableErrorInjection();
+    }
+  }
+
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& /* si */) override {
+    if (FLAGS_read_fault_one_in) {
+      (void)fault_fs_guard->GetAndResetErrorCount();
+      fault_fs_guard->DisableErrorInjection();
+    }
   }
 
   void OnTableFileCreationStarted(

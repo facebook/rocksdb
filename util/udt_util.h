@@ -246,4 +246,23 @@ Status ValidateUserDefinedTimestampsOptions(
     const Comparator* new_comparator, const std::string& old_comparator_name,
     bool new_persist_udt, bool old_persist_udt,
     bool* mark_sst_files_has_no_udt);
+
+// Given a cutoff user-defined timestamp formatted as uint64_t, get the
+// effective `full_history_ts_low` timestamp, which is the next immediately
+// bigger timestamp. Used by the UDT in memtable only feature when flushing
+// memtables and remove timestamps. This process collapses history and increase
+// the effective `full_history_ts_low`.
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low);
+
+// `start` is the inclusive lower user key bound without user-defined timestamp.
+// `end` is the upper user key bound without user-defined timestamp.
+// By default, `end` is treated as being exclusive. If `exclusive_end` is set to
+// false, it's treated as an inclusive upper bound.
+// If any of these two bounds is nullptr, an empty std::optional<Slice> is
+// returned for that bound.
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end = true);
 }  // namespace ROCKSDB_NAMESPACE

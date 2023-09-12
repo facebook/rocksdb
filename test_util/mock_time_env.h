@@ -11,6 +11,7 @@
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/mock_time_env.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -86,7 +87,10 @@ class MockSystemClock : public SystemClockWrapper {
     std::this_thread::yield();
     bool mock_timeout = Random::GetTLSInstance()->OneIn(2);
     if (mock_timeout) {
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPreSleep");
       current_time_us_.fetch_add(delay_micros);
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPostSleep1");
+      TEST_SYNC_POINT("MockSystemClock::TimedWait:UnlockedPostSleep2");
     }
     cv->GetMutex()->Lock();
     return mock_timeout;

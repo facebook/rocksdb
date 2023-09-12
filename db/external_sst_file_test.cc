@@ -588,6 +588,63 @@ TEST_F(ExternalSSTFileTest, BasicWideColumn) {
                          kRangeDelSkipConfigs));
 }
 
+TEST_F(ExternalSSTFileTest, BasicMixed) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    std::string file = sst_files_dir_ + "mixed_file.sst";
+    ASSERT_OK(sst_file_writer.Open(file));
+    for (int k = 0; k < 100; k++) {
+      if (k % 5 == 0) {
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_OK(sst_file_writer.PutEntity(Key(k), columns));
+      } else {
+        ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+      }
+    }
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file_info.file_path, file);
+    ASSERT_EQ(file_info.num_entries, 100);
+    ASSERT_EQ(file_info.smallest_key, Key(0));
+    ASSERT_EQ(file_info.largest_key, Key(99));
+    ASSERT_EQ(file_info.num_range_del_entries, 0);
+    ASSERT_EQ(file_info.smallest_range_del_key, "");
+    ASSERT_EQ(file_info.largest_range_del_key, "");
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    ASSERT_OK(DeprecatedAddFile({file}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 10; k++) {
+      if (k % 5 == 0) {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 Key(k), &result));
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns expected_columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_EQ(result.columns(), expected_columns);
+      } else {
+        ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+      }
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
   explicit SstFileWriterCollector(const std::string prefix) : prefix_(prefix) {

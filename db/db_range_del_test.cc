@@ -3511,6 +3511,138 @@ TEST_F(DBRangeDelTest, MemtableMaxRangeDeletions) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_EQ(3, NumTableFilesAtLevel(0));
 }
+
+TEST_F(DBRangeDelTest, RangeDelReseekAfterFileReadError) {
+  // This is to test a bug that is fixed in
+  // https://github.com/facebook/rocksdb/pull/11786.
+  Options opts = CurrentOptions();
+  opts.num_levels = 7;
+
+  // Set up LSM
+  //
+  // L4: F1: [key1] F2: [key2]
+  // L5:   F3:[DeleteRange(key3, key6)]
+  // L6:               F4:[key3, key6]
+  // Will inject error when reading from F2.
+  // SeekToFirst() should land on key1.
+  // Next() should encounter error when reading from F2,
+  // and range del reseek should not reset this status.
+  Random rnd(301);
+  // L6
+  ASSERT_OK(Put(Key(3), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(6), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // L5
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(3),
+                             Key(6)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // L4
+  ASSERT_OK(Put(Key(2), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+  std::string fname;
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  for (auto& meta : live_files) {
+    if (meta.level == 4) {
+      fname = meta.name;
+      break;
+    }
+  }
+  ASSERT_TRUE(!fname.empty());
+  ASSERT_OK(Put(Key(1), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::BeforeReturn", [&fname](void* pair_ptr) {
+        auto p =
+            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        if (p->first->find(fname) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), Key(1));
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter.reset();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Reverse scan
+  // LSM setup
+  // L4: F1: [key2]  F2: [key7, key8]
+  // L5:        F3:[[key3, key6)]
+  // L6:        F4:[key1, key5]
+  // Ingest error when read from F1.
+  // SeekToLast() should land on key8.
+  // During Prev(), MergingIterator will encounter error when reading from F1
+  // and do a range del reseek (it sees key5 covered by a range tombstone).
+  DestroyAndReopen(opts);
+  // L6
+  ASSERT_OK(Put(Key(1), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(5), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // L5
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(3),
+                             Key(6)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // L4
+  ASSERT_OK(Put(Key(2), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+  live_files.clear();
+  db_->GetLiveFilesMetaData(&live_files);
+  for (auto& meta : live_files) {
+    if (meta.level == 4) {
+      fname = meta.name;
+      break;
+    }
+  }
+  ASSERT_TRUE(!fname.empty());
+  ASSERT_OK(Put(Key(7), rnd.RandomString(100)));
+  ASSERT_OK(Put(Key(8), rnd.RandomString(100)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::AnyOffset", [&fname](void* pair_ptr) {
+        auto p =
+            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        if (p->first->find(fname) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), Key(8));
+  // Note that for reverse scan, DBIter will need to ensure
+  // the key it returns is the one with the highest sequence number.
+  // To return key7, it internally calls MergingIterator::Prev()
+  // until it reaches a previous user key.
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+
+  iter.reset();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

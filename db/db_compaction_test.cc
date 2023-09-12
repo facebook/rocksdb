@@ -6025,23 +6025,18 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   options.use_direct_io_for_flush_and_compaction = GetParam();
   options.env = MockEnv::Create(Env::Default());
   Reopen(options);
-  bool readahead = false;
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::OpenCompactionOutputFile", [&](void* arg) {
         bool* use_direct_writes = static_cast<bool*>(arg);
         ASSERT_EQ(*use_direct_writes,
                   options.use_direct_io_for_flush_and_compaction);
       });
-  if (options.use_direct_io_for_flush_and_compaction) {
-    SyncPoint::GetInstance()->SetCallBack(
-        "SanitizeOptions:direct_io", [&](void* /*arg*/) { readahead = true; });
-  }
   SyncPoint::GetInstance()->EnableProcessing();
   CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
   Compact(1, "p", "q");
-  ASSERT_EQ(readahead, options.use_direct_reads);
+  ASSERT_EQ(false, options.use_direct_reads);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);
   delete options.env;
@@ -10042,6 +10037,83 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
       "processed.";
   ASSERT_TRUE(std::strstr(s.getState(), expect));
 }
+
+TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
+  // This is to test a bug that is fixed in
+  // https://github.com/facebook/rocksdb/pull/11782.
+  //
+  // Ingest error when reading from a file with offset = 0,
+  // See if compaction handles it correctly.
+  Options opts = CurrentOptions();
+  opts.num_levels = 7;
+  opts.compression = kNoCompression;
+  DestroyAndReopen(opts);
+
+  // Set up LSM
+  // L5: F1 [key0, key99], F2 [key100, key199]
+  // L6:        F3 [key50, key149]
+  Random rnd(301);
+  const int kValLen = 100;
+  for (int error_file = 1; error_file <= 3; ++error_file) {
+    for (int i = 50; i < 150; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(6);
+
+    std::vector<std::string> values;
+    for (int i = 0; i < 100; ++i) {
+      values.emplace_back(rnd.RandomString(kValLen));
+      ASSERT_OK(Put(Key(i), values.back()));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(5);
+
+    for (int i = 100; i < 200; ++i) {
+      values.emplace_back(rnd.RandomString(kValLen));
+      ASSERT_OK(Put(Key(i), values.back()));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(5);
+
+    ASSERT_EQ(2, NumTableFilesAtLevel(5));
+    ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+    std::atomic_int count = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "RandomAccessFileReader::Read::BeforeReturn",
+        [&count, &error_file](void* pair_ptr) {
+          auto p =
+              reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+          int cur = ++count;
+          if (cur == error_file) {
+            IOStatus* io_s = p->second;
+            *io_s = IOStatus::IOError();
+            io_s->SetRetryable(true);
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    // Failed compaction should not lose data.
+    PinnableSlice slice;
+    for (int i = 0; i < 200; ++i) {
+      ASSERT_OK(Get(Key(i), &slice));
+      ASSERT_EQ(slice, values[i]);
+    }
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsIOError());
+    s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(s);
+    for (int i = 0; i < 200; ++i) {
+      ASSERT_OK(Get(Key(i), &slice));
+      ASSERT_EQ(slice, values[i]);
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
+    DestroyAndReopen(opts);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

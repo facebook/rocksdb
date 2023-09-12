@@ -13,6 +13,7 @@
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
@@ -135,7 +136,7 @@ Status MergeHelper::TimedFullMergeWithEntity(
   }
 
   const bool has_default_column =
-      !base_columns.empty() && base_columns[0].name() == kDefaultWideColumnName;
+      WideColumnsHelper::HasDefaultColumn(base_columns);
 
   Slice value_of_default;
   if (has_default_column) {

@@ -9,6 +9,7 @@
 
 #include "db_stress_tool/expected_state.h"
 #ifdef GFLAGS
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/fault_injection_fs.h"
@@ -165,9 +166,8 @@ class NonBatchedOpsStressTest : public StressTest {
           if (s.ok()) {
             const WideColumns& columns = result.columns();
 
-            if (!columns.empty() &&
-                columns.front().name() == kDefaultWideColumnName) {
-              from_db = columns.front().value().ToString();
+            if (WideColumnsHelper::HasDefaultColumn(columns)) {
+              from_db = WideColumnsHelper::GetDefaultColumn(columns).ToString();
             }
 
             if (!VerifyWideColumns(columns)) {
@@ -251,9 +251,9 @@ class NonBatchedOpsStressTest : public StressTest {
             if (statuses[j].ok()) {
               const WideColumns& columns = results[j].columns();
 
-              if (!columns.empty() &&
-                  columns.front().name() == kDefaultWideColumnName) {
-                from_db = columns.front().value().ToString();
+              if (WideColumnsHelper::HasDefaultColumn(columns)) {
+                from_db =
+                    WideColumnsHelper::GetDefaultColumn(columns).ToString();
               }
 
               if (!VerifyWideColumns(columns)) {
@@ -1276,7 +1276,6 @@ class NonBatchedOpsStressTest : public StressTest {
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
-
     Status s;
 
     if (FLAGS_use_merge) {
@@ -1312,7 +1311,7 @@ class NonBatchedOpsStressTest : public StressTest {
     pending_expected_value.Commit();
 
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -1371,7 +1370,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1402,7 +1401,7 @@ class NonBatchedOpsStressTest : public StressTest {
       pending_expected_value.Commit();
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -1464,7 +1463,7 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->DeleteRange(write_opts, cfh, key, end_key);
     }
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
