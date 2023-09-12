@@ -9,7 +9,6 @@
 
 #include "db/compaction/compaction_picker_universal.h"
 
-#include <cinttypes>
 #include <cstdint>
 #include <limits>
 #include <queue>
@@ -159,6 +158,7 @@ class UniversalCompactionBuilder {
       return 0;
     }
 
+    assert(start_index <= end_index && sorted_runs_.size() > end_index);
     assert(mutable_cf_options_.level0_stop_writes_trigger > 0);
     const std::size_t level0_stop_writes_trigger = static_cast<std::size_t>(
         mutable_cf_options_.level0_stop_writes_trigger);
