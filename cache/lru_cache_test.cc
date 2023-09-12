@@ -1027,7 +1027,7 @@ class TestSecondaryCache : public SecondaryCache {
     if (insert_saved_) {
       return Insert(key, const_cast<Slice*>(&saved),
                     secondary_cache_test_util::GetNoopHelper(),
-                    /*force_insert=*/ true);
+                    /*force_insert=*/true);
     } else {
       return Status::OK();
     }

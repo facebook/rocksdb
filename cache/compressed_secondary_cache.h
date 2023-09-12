@@ -143,6 +143,7 @@ class CompressedSecondaryCache : public SecondaryCache {
                            Cache::ObjectPtr* /*out_obj*/,
                            size_t* /*out_charge*/) {
     assert(false);
+    return Status::NotSupported();
   }
 
   static const Cache::CacheItemHelper* GetSliceHelper() {
