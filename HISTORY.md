@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.3 (09/12/2023)
+### Bug Fixes
+* Fix a bug where if there is an error reading from offset 0 of a file from L1+ and that the file is not the first file in the sorted run, data can be lost in compaction and read/scan can return incorrect results.
+* Fix a bug where iterator may return incorrect result for DeleteRange() users if there was an error reading from a file.
+
 ## 8.6.2 (09/11/2023)
 ### Bug Fixes
 * Add a fix for async_io where during seek, when reading a block for seeking a target key in a file without any readahead, the iterator aligned the read on a page boundary and reading more than necessary. This increased the storage read bandwidth usage.
