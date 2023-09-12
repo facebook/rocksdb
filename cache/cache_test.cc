@@ -175,7 +175,7 @@ class LRUCacheTest : public CacheTest {};
 TEST_P(CacheTest, UsageTest) {
   // cache is std::shared_ptr and will be automatically cleaned up.
   const size_t kCapacity = 100000;
-  auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
+  auto cache = NewCache(kCapacity, 6, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
   size_t baseline_meta_usage = precise_cache->GetUsage();
@@ -193,9 +193,13 @@ TEST_P(CacheTest, UsageTest) {
     ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, kv_size));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
-    if (IsHyperClock()) {
+    if (GetParam() == kFixedHyperClock) {
       ASSERT_EQ(baseline_meta_usage + usage, precise_cache->GetUsage());
     } else {
+      // AutoHyperClockCache meta usage grows in proportion to lifetime
+      // max number of entries. LRUCache in proportion to resident number of
+      // entries, though there is an untracked component proportional to
+      // lifetime max number of entries.
       ASSERT_LT(usage, precise_cache->GetUsage());
     }
   }
@@ -203,7 +207,11 @@ TEST_P(CacheTest, UsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  if (GetParam() != kAutoHyperClock) {
+    // NOTE: AutoHyperClockCache meta usage grows in proportion to lifetime
+    // max number of entries.
+    ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  }
 
   // make sure the cache will be overloaded
   for (size_t i = 1; i < kCapacity; ++i) {
@@ -318,7 +326,11 @@ TEST_P(CacheTest, PinnedUsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  if (GetParam() != kAutoHyperClock) {
+    // NOTE: AutoHyperClockCache meta usage grows in proportion to lifetime
+    // max number of entries.
+    ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
+  }
 }
 
 TEST_P(CacheTest, HitAndMiss) {

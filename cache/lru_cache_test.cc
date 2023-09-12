@@ -534,7 +534,7 @@ TYPED_TEST(ClockCacheTest, Limits) {
     // (Cleverly using mostly zero-charge entries, but some non-zero to
     // verify usage tracking on detached entries.)
     {
-      size_t n = shard.GetTableAddressCount() + 1;
+      size_t n = kCapacity * 5 + 1;
       std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [n] {} };
       Status s;
       for (size_t i = 0; i < n && s.ok(); ++i) {
@@ -559,6 +559,8 @@ TYPED_TEST(ClockCacheTest, Limits) {
       } else {
         EXPECT_OK(s);
       }
+
+      EXPECT_EQ(shard.GetOccupancyCount(), shard.GetOccupancyLimit());
 
       // Regardless, we didn't allow table to actually get full
       EXPECT_LT(shard.GetOccupancyCount(), shard.GetTableAddressCount());

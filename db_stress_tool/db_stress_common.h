@@ -37,6 +37,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -254,6 +255,7 @@ DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+DECLARE_bool(verification_only);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -346,6 +348,7 @@ DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
 DECLARE_bool(use_io_uring);
+DECLARE_bool(auto_readahead_size);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -627,13 +630,7 @@ inline std::string WideColumnsToHex(const WideColumns& columns) {
 
   std::ostringstream oss;
 
-  oss << std::hex;
-
-  auto it = columns.begin();
-  oss << *it;
-  for (++it; it != columns.end(); ++it) {
-    oss << ' ' << *it;
-  }
+  WideColumnsHelper::DumpWideColumns(columns, oss, true);
 
   return oss.str();
 }

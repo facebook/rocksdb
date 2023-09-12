@@ -402,7 +402,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // seed is the seed for the random number generator, and one_in determines
   // the probability of injecting error (i.e an error is injected with
   // 1/one_in probability)
-  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in) {
+  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in,
+                                      bool retryable) {
     struct ErrorContext* ctx =
         static_cast<struct ErrorContext*>(thread_local_error_->Get());
     if (ctx == nullptr) {
@@ -411,6 +412,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
     ctx->one_in = one_in;
     ctx->count = 0;
+    ctx->retryable = retryable;
   }
 
   static void DeleteThreadLocalErrorContext(void* p) {
@@ -556,12 +558,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     std::string message;
     int frames;
     ErrorType type;
+    bool retryable;
 
     explicit ErrorContext(uint32_t seed)
         : rand(seed),
           enable_error_injection(false),
           callstack(nullptr),
-          frames(0) {}
+          frames(0),
+          retryable(false) {}
     ~ErrorContext() {
       if (callstack) {
         free(callstack);

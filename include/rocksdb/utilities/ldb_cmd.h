@@ -226,6 +226,12 @@ class LDBCommand {
   static std::string PrintKeyValue(const std::string& key,
                                    const std::string& value, bool is_hex);
 
+  static std::string PrintKeyValueOrWideColumns(const Slice& key,
+                                                const Slice& value,
+                                                const WideColumns& wide_columns,
+                                                bool is_key_hex,
+                                                bool is_value_hex);
+
   /**
    * Return true if the specified flag is present in the specified flags vector
    */
@@ -313,4 +319,3 @@ class LDBCommandRunner {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

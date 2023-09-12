@@ -63,7 +63,7 @@ bool JemallocNodumpAllocator::IsSupported(std::string* why) {
 }
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    JemallocAllocatorOptions& options)
+    const JemallocAllocatorOptions& options)
     : options_(options)
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
       ,
@@ -283,7 +283,7 @@ void JemallocNodumpAllocator::DestroyThreadSpecificCache(void* ptr) {
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
   if (memory_allocator == nullptr) {
     return Status::InvalidArgument("memory_allocator must be non-null.");

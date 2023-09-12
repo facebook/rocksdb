@@ -23,6 +23,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/concurrent_task_limiter_impl.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -947,26 +948,14 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                                 end_without_ts, "" /*trim_ts*/);
   }
 
-  std::string begin_str;
-  std::string end_str;
+  std::string begin_str, end_str;
+  auto [begin, end] =
+      MaybeAddTimestampsToRange(begin_without_ts, end_without_ts, ts_sz,
+                                &begin_str, &end_str, false /*exclusive_end*/);
 
-  // CompactRange compact all keys: [begin, end] inclusively. Add maximum
-  // timestamp to include all `begin` keys, and add minimal timestamp to include
-  // all `end` keys.
-  if (begin_without_ts != nullptr) {
-    AppendKeyWithMaxTimestamp(&begin_str, *begin_without_ts, ts_sz);
-  }
-  if (end_without_ts != nullptr) {
-    AppendKeyWithMinTimestamp(&end_str, *end_without_ts, ts_sz);
-  }
-  Slice begin(begin_str);
-  Slice end(end_str);
-
-  Slice* begin_with_ts = begin_without_ts ? &begin : nullptr;
-  Slice* end_with_ts = end_without_ts ? &end : nullptr;
-
-  return CompactRangeInternal(options, column_family, begin_with_ts,
-                              end_with_ts, "" /*trim_ts*/);
+  return CompactRangeInternal(
+      options, column_family, begin.has_value() ? &begin.value() : nullptr,
+      end.has_value() ? &end.value() : nullptr, "" /*trim_ts*/);
 }
 
 Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,

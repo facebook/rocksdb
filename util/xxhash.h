@@ -11,9 +11,6 @@
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
 #endif  // !defined(XXH_NAMESPACE)
-
-// for FALLTHROUGH_INTENDED, inserted as appropriate
-#include "port/lang.h"
 /* END RocksDB customizations */
 
 // clang-format off

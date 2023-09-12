@@ -888,14 +888,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
     Handler() {}
 
     void RecordKey(uint32_t column_family_id, const Slice& key) {
-      std::string key_str = key.ToString();
-
       auto& cfh_keys = keys_[column_family_id];
-      auto iter = cfh_keys.find(key_str);
-      if (iter == cfh_keys.end()) {
-        // key not yet seen, store it.
-        cfh_keys.insert({std::move(key_str)});
-      }
+      cfh_keys.insert(key.ToString());
     }
 
     Status PutCF(uint32_t column_family_id, const Slice& key,

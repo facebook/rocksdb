@@ -3295,6 +3295,176 @@ TEST_F(DBIteratorTest, IteratorRefreshReturnSV) {
   Close();
 }
 
+TEST_F(DBIteratorTest, ErrorWhenReadFile) {
+  // This is to test a bug that is fixed in
+  // https://github.com/facebook/rocksdb/pull/11782.
+  //
+  // Ingest error when reading from a file, and
+  // see if Iterator handles it correctly.
+  Options opts = CurrentOptions();
+  opts.num_levels = 7;
+  opts.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  // Always do I/O
+  bbto.no_block_cache = true;
+  opts.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(opts);
+
+  // Set up LSM
+  // L5: F1 [key0, key99], F2 [key100, key199]
+  // L6:        F3 [key50, key149]
+  Random rnd(301);
+  const int kValLen = 100;
+  for (int i = 50; i < 150; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  std::vector<std::string> values;
+  for (int i = 0; i < 100; ++i) {
+    values.emplace_back(rnd.RandomString(kValLen));
+    ASSERT_OK(Put(Key(i), values.back()));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  for (int i = 100; i < 200; ++i) {
+    values.emplace_back(rnd.RandomString(kValLen));
+    ASSERT_OK(Put(Key(i), values.back()));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  ASSERT_EQ(2, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+  // Get file names for F1, F2 and F3.
+  // These are file names, not full paths.
+  std::string f1, f2, f3;
+  for (auto& file_meta : files) {
+    if (file_meta.level == 6) {
+      f3 = file_meta.name;
+    } else {
+      if (file_meta.smallestkey == Key(0)) {
+        f1 = file_meta.name;
+      } else {
+        f2 = file_meta.name;
+      }
+    }
+  }
+  ASSERT_TRUE(!f1.empty());
+  ASSERT_TRUE(!f2.empty());
+  ASSERT_TRUE(!f3.empty());
+
+  std::string error_file;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::BeforeReturn",
+      [&error_file](void* io_s_ptr) {
+        auto p =
+            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(io_s_ptr);
+        if (p->first->find(error_file) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // Error reading F1
+  error_file = f1;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // This does not require reading the first block.
+  iter->Seek(Key(90));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[90]);
+  // iter has ok status before this Seek.
+  iter->Seek(Key(1));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+
+  // Error reading F2
+  error_file = f2;
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->Seek(Key(99));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[99]);
+  // Need to read from F2.
+  iter->Next();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->Seek(Key(190));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[190]);
+  // Seek for first key of F2.
+  iter->Seek(Key(100));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[199]);
+  // SeekForPrev for first key of F2.
+  iter->SeekForPrev(Key(100));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // Does not read first block (offset 0).
+  iter->SeekForPrev(Key(98));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[98]);
+
+  // Error reading F3
+  error_file = f3;
+  iter.reset(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->Seek(Key(50));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  iter->SeekForPrev(Key(50));
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  // Does not read file 3
+  iter->Seek(Key(150));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[150]);
+
+  // Test when file read error occurs during Prev().
+  // This requires returning an error when reading near the end of a file
+  // instead of offset 0.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read::AnyOffset", [&f1](void* pair_ptr) {
+        auto p =
+            reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+        if (p->first->find(f1) != std::string::npos) {
+          *p->second = IOStatus::IOError();
+          p->second->SetRetryable(true);
+        }
+      });
+  iter->SeekForPrev(Key(101));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), values[101]);
+  // DBIter will not stop at Key(100) since it needs
+  // to make sure the key it returns has the max sequence number for Key(100).
+  // So it will call MergingIterator::Prev() which will read F1.
+  iter->Prev();
+  ASSERT_NOK(iter->status());
+  ASSERT_TRUE(iter->status().IsIOError());
+  SyncPoint::GetInstance()->DisableProcessing();
+  iter->Reset();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

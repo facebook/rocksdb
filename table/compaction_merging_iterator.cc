@@ -329,6 +329,7 @@ void CompactionMergingIterator::FindNextVisibleKey() {
       assert(current->iter.status().ok());
       minHeap_.replace_top(current);
     } else {
+      considerStatus(current->iter.status());
       minHeap_.pop();
     }
     if (range_tombstone_iters_[current->level]) {

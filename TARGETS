@@ -103,6 +103,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/wal_manager.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
+        "db/wide/wide_columns_helper.cc",
         "db/write_batch.cc",
         "db/write_batch_base.cc",
         "db/write_controller.cc",
@@ -5548,6 +5549,12 @@ cpp_unittest_wrapper(name="wal_manager_test",
 
 cpp_unittest_wrapper(name="wide_column_serialization_test",
             srcs=["db/wide/wide_column_serialization_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="wide_columns_helper_test",
+            srcs=["db/wide/wide_columns_helper_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

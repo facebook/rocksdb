@@ -2164,6 +2164,121 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
   }
 }
 
+// This test checks if readahead_size is trimmed when upper_bound is reached
+// during Seek in async_io and it goes for polling without any extra
+// prefetching.
+TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBoundSeekOnly) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  // First param is if the mockFS support_prefetch or not
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(FileSystem::Default(), false);
+
+  bool use_direct_io = false;
+  if (std::get<0>(GetParam())) {
+    use_direct_io = true;
+  }
+
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  Random rnd(309);
+  WriteBatch batch;
+
+  for (int i = 0; i < 26; i++) {
+    std::string key = "my_key_";
+
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(batch.Put(key, rnd.RandomString(1000)));
+    }
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = "my_key_a";
+
+  std::string end_key = "my_key_";
+  for (int j = 0; j < 10; j++) {
+    end_key += char('a' + 25);
+  }
+
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  s = TryReopen(options);
+  ASSERT_OK(s);
+
+  int buff_count_with_tuning = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
+      [&](void*) { buff_count_with_tuning++; });
+
+  bool read_async_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "UpdateResults::io_uring_result",
+      [&](void* /*arg*/) { read_async_called = true; });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ropts;
+  if (std::get<1>(GetParam())) {
+    ropts.readahead_size = 32768;
+  }
+  ropts.async_io = true;
+
+  Slice ub = Slice("my_key_aaa");
+  ropts.iterate_upper_bound = &ub;
+  Slice seek_key = Slice("my_key_aaa");
+
+  // With tuning readahead_size.
+  {
+    ASSERT_OK(options.statistics->Reset());
+    ropts.auto_readahead_size = true;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+
+    iter->Seek(seek_key);
+
+    ASSERT_OK(iter->status());
+
+    // Verify results.
+    uint64_t readhahead_trimmed =
+        options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+    // Readahead got trimmed.
+    if (read_async_called) {
+      ASSERT_GT(readhahead_trimmed, 0);
+      // Seek called PrefetchAsync to poll the data.
+      ASSERT_EQ(1, buff_count_with_tuning);
+    } else {
+      // async_io disabled.
+      ASSERT_GE(readhahead_trimmed, 0);
+      ASSERT_EQ(0, buff_count_with_tuning);
+    }
+  }
+  Close();
+}
+
 namespace {
 #ifdef GFLAGS
 const int kMaxArgCount = 100;
@@ -2760,6 +2875,89 @@ TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
   ASSERT_TRUE(
       fpb.TryReadFromCacheAsync(io_opts, r.get(), 8192, 8192, &result, &s));
+}
+
+// Test to ensure when PrefetchAsync is called during seek, it doesn't do any
+// alignment or prefetch extra if readahead is not enabled during seek.
+TEST_F(FilePrefetchBufferTest, SeekWithoutAlignment) {
+  std::string fname = "seek-wwithout-alignment";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  size_t alignment = r->file()->GetRequiredBufferAlignment();
+  size_t n = alignment / 2;
+
+  int read_async_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::ReadAsync",
+      [&](void* /*arg*/) { read_async_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Without readahead enabled, there will be no alignment and offset of buffer
+  // will be n.
+  {
+    FilePrefetchBuffer fpb(
+        /*readahead_size=*/8192, /*max_readahead_size=*/16384, /*enable=*/true,
+        /*track_min_offset=*/false, /*implicit_auto_readahead=*/true,
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/2,
+        /*upper_bound_offset=*/0, fs());
+
+    Slice result;
+    // Simulate a seek of half of alignment bytes at offset n. Due to the
+    // readahead settings, it won't prefetch extra or do any alignment and
+    // offset of buffer will be n.
+    Status s = fpb.PrefetchAsync(IOOptions(), r.get(), n, n, &result);
+
+    // Platforms that don't have IO uring may not support async IO.
+    if (s.IsNotSupported()) {
+      return;
+    }
+
+    ASSERT_TRUE(s.IsTryAgain());
+
+    IOOptions io_opts;
+    io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+    ASSERT_TRUE(fpb.TryReadFromCacheAsync(io_opts, r.get(), n, n, &result, &s));
+
+    if (read_async_called) {
+      ASSERT_EQ(fpb.GetPrefetchOffset(), n);
+    }
+  }
+
+  // With readahead enabled, it will do the alignment and prefetch and offset of
+  // buffer will be 0.
+  {
+    read_async_called = false;
+    FilePrefetchBuffer fpb(
+        /*readahead_size=*/16384, /*max_readahead_size=*/16384, /*enable=*/true,
+        /*track_min_offset=*/false, /*implicit_auto_readahead=*/false,
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/2,
+        /*upper_bound_offset=*/0, fs());
+
+    Slice result;
+    // Simulate a seek of half of alignment bytes at offset n.
+    Status s = fpb.PrefetchAsync(IOOptions(), r.get(), n, n, &result);
+
+    // Platforms that don't have IO uring may not support async IO.
+    if (s.IsNotSupported()) {
+      return;
+    }
+
+    ASSERT_TRUE(s.IsTryAgain());
+
+    IOOptions io_opts;
+    io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+    ASSERT_TRUE(fpb.TryReadFromCacheAsync(io_opts, r.get(), n, n, &result, &s));
+
+    if (read_async_called) {
+      ASSERT_EQ(fpb.GetPrefetchOffset(), 0);
+    }
+  }
 }
 
 TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {

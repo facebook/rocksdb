@@ -14,6 +14,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
+#include "util/udt_util.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -384,6 +385,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
   ts_options.persist_user_defined_timestamps = persist_udt;
   bool avoid_flush_during_recovery = true;
 
+  std::string full_history_ts_low;
   ReadOptions read_opts;
   do {
     Slice ts_slice = ts1;
@@ -439,6 +441,8 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
     CheckGet(read_opts, 1, "foo", "v4", ts3);
     CheckGet(read_opts, 1, "bar", "v2", ts2);
     CheckGet(read_opts, 1, "baz", "v5", ts1);
+    ASSERT_OK(db_->GetFullHistoryTsLow(handles_[1], &full_history_ts_low));
+    ASSERT_TRUE(full_history_ts_low.empty());
   } while (ChangeWalOptions());
 }
 
@@ -470,6 +474,8 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
 
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
+  std::string full_history_ts_low;
+  ASSERT_OK(db_->GetFullHistoryTsLow(handles_[1], &full_history_ts_low));
   ASSERT_GT(level_to_files.size(), 1);
   // L0 only has one SST file.
   ASSERT_EQ(level_to_files[0].size(), 1);
@@ -477,9 +483,14 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
   if (persist_udt) {
     ASSERT_EQ(smallest_ukey_without_ts + write_ts, meta.smallest.user_key());
     ASSERT_EQ(largest_ukey_without_ts + write_ts, meta.largest.user_key());
+    ASSERT_TRUE(full_history_ts_low.empty());
   } else {
     ASSERT_EQ(smallest_ukey_without_ts + min_ts, meta.smallest.user_key());
     ASSERT_EQ(largest_ukey_without_ts + min_ts, meta.largest.user_key());
+    std::string effective_cutoff;
+    Slice write_ts_slice = write_ts;
+    GetFullHistoryTsLowFromU64CutoffTs(&write_ts_slice, &effective_cutoff);
+    ASSERT_EQ(effective_cutoff, full_history_ts_low);
   }
 }
 

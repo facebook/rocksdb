@@ -472,6 +472,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
       ROCKS_LOG_INFO(
           db_options_.info_log,
           "ErrorHandler: Compaction will schedule by itself to resume\n");
+      // Not used in this code path.
+      new_bg_io_err.PermitUncheckedError();
       return bg_error_;
     } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
                BackgroundErrorReason::kManifestWriteNoWAL == reason) {

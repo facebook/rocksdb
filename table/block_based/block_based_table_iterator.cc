@@ -79,12 +79,19 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (read_options_.auto_readahead_size && read_options_.iterate_upper_bound) {
+  if (read_options_.auto_readahead_size && read_options_.iterate_upper_bound &&
+      is_first_pass) {
     FindReadAheadSizeUpperBound();
     if (target) {
       index_iter_->Seek(*target);
     } else {
       index_iter_->SeekToFirst();
+    }
+
+    // Check for IO error.
+    if (!index_iter_->Valid()) {
+      ResetDataIter();
+      return;
     }
   }
 

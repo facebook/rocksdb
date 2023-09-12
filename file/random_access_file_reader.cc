@@ -271,6 +271,14 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
     file_read_hist_->Add(elapsed);
   }
 
+#ifndef NDEBUG
+  auto pair = std::make_pair(&file_name_, &io_s);
+  if (offset == 0) {
+    TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read::BeforeReturn",
+                             &pair);
+  }
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read::AnyOffset", &pair);
+#endif
   return io_s;
 }
 
