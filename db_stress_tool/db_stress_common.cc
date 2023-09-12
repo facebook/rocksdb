@@ -270,10 +270,7 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
 
   WideColumns columns = GenerateWideColumns(value_base, slice);
 
-  std::sort(columns.begin(), columns.end(),
-            [](const WideColumn& lhs, const WideColumn& rhs) {
-              return lhs.name().compare(rhs.name()) < 0;
-            });
+  WideColumnsHelper::SortColumns(columns);
 
   return columns;
 }

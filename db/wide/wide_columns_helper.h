@@ -28,6 +28,8 @@ class WideColumnsHelper {
     assert(HasDefaultColumn(columns));
     return columns.front().value();
   }
+
+  static void SortColumns(WideColumns& columns);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
