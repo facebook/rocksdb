@@ -21,6 +21,7 @@
 #ifdef __SSE4_2__
 #ifdef _WIN32
 #include <intrin.h>
+#define _rdtsc() __rdtsc()
 #else
 #include <x86intrin.h>
 #endif
@@ -189,7 +190,7 @@ void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
   // Use timing information (if available) to add to entropy. (Not a disaster
   // if unavailable on some platforms. High performance is important.)
 #ifdef __SSE4_2__  // More than enough to guarantee rdtsc instruction
-  extra_entropy = static_cast<uint64_t>(__rdtsc());
+  extra_entropy = static_cast<uint64_t>(_rdtsc());
 #else
   extra_entropy = SystemClock::Default()->NowNanos();
 #endif
