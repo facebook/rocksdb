@@ -10,6 +10,7 @@
 #include "db/compaction/compaction_picker_universal.h"
 
 #include <cinttypes>
+#include <cstdint>
 #include <limits>
 #include <queue>
 #include <string>
@@ -129,7 +130,7 @@ class UniversalCompactionBuilder {
 
   uint64_t GetMaxOverlappingBytes() const;
 
-  // To conditionally exclude some L0 input files (newest first)
+  // To conditionally exclude some of the newest L0 files
   // from a size amp compaction. This is to prevent a large number of L0
   // files from being locked by a size amp compaction, potentially leading to
   // write stop with a few more flushes.
@@ -153,7 +154,7 @@ class UniversalCompactionBuilder {
   // `candidate_size` will be modified accordingly
   std::size_t MightExcludeNewL0sToReduceWriteStop(
       std::size_t num_l0_input_pre_exclusion, std::size_t end_index,
-      std::size_t& start_index, std::size_t& candidate_size) const {
+      std::size_t& start_index, uint64_t& candidate_size) const {
     if (num_l0_input_pre_exclusion == 0) {
       return 0;
     }
@@ -165,17 +166,22 @@ class UniversalCompactionBuilder {
         mutable_cf_options_.compaction_options_universal.max_merge_width);
     const std::size_t min_merge_width = static_cast<std::size_t>(
         mutable_cf_options_.compaction_options_universal.min_merge_width);
-    const std::size_t max_size_amplification_percent = static_cast<std::size_t>(
+    const uint64_t max_size_amplification_percent =
         mutable_cf_options_.compaction_options_universal
-            .max_size_amplification_percent);
-    const size_t base_sr_size = sorted_runs_[end_index].size;
+            .max_size_amplification_percent;
+    const uint64_t base_sr_size = sorted_runs_[end_index].size;
 
     // Leave at least 1 L0 file and 2 input sorted runs after exclusion
     const std::size_t max_num_l0_to_exclude =
         std::min(num_l0_input_pre_exclusion - 1, end_index - start_index - 1);
+    // In universal compaction, sorted runs from non L0 levels are counted
+    // toward `level0_stop_writes_trigger`. Therefore we need to subtract the
+    // total number of sorted runs picked originally for this compaction from
+    // `level0_stop_writes_trigger` to calculate
+    // `num_extra_l0_before_write_stop`
     const std::size_t num_extra_l0_before_write_stop =
         level0_stop_writes_trigger -
-        std::min(level0_stop_writes_trigger, num_l0_input_pre_exclusion);
+        std::min(level0_stop_writes_trigger, end_index - start_index + 1);
     const std::size_t num_l0_to_exclude_for_max_merge_width =
         std::min(max_merge_width -
                      std::min(max_merge_width, num_extra_l0_before_write_stop),
@@ -186,13 +192,13 @@ class UniversalCompactionBuilder {
                  max_num_l0_to_exclude);
 
     std::size_t num_l0_to_exclude = 0;
-    std::size_t candidate_size_post_exclusion = candidate_size;
+    uint64_t candidate_size_post_exclusion = candidate_size;
 
     for (std::size_t possible_num_l0_to_exclude =
              num_l0_to_exclude_for_min_merge_width;
          possible_num_l0_to_exclude <= num_l0_to_exclude_for_max_merge_width;
          ++possible_num_l0_to_exclude) {
-      std::size_t current_candidate_size = candidate_size_post_exclusion;
+      uint64_t current_candidate_size = candidate_size_post_exclusion;
       for (std::size_t j = num_l0_to_exclude; j < possible_num_l0_to_exclude;
            ++j) {
         current_candidate_size -=
@@ -888,7 +894,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   const uint64_t base_sr_size = sorted_runs_[end_index].size;
   size_t start_index = end_index;
   uint64_t candidate_size = 0;
-  size_t l0_candidate_count = 0;
+  size_t num_l0_files = 0;
 
   // Get longest span (i.e, [start_index, end_index]) of available sorted runs
   while (start_index > 0) {
@@ -904,7 +910,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       break;
     }
     candidate_size += sr->compensated_file_size;
-    l0_candidate_count += sr->level == 0 ? 1 : 0;
+    num_l0_files += sr->level == 0 ? 1 : 0;
     --start_index;
   }
 
@@ -914,7 +920,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
 
   {
     const size_t num_l0_to_exclude = MightExcludeNewL0sToReduceWriteStop(
-        l0_candidate_count, end_index, start_index, candidate_size);
+        num_l0_files, end_index, start_index, candidate_size);
     ROCKS_LOG_BUFFER(log_buffer_,
                      "[%s] Universal: Excluding %" ROCKSDB_PRIszt
                      " latest L0 files to reduce potential write stop "

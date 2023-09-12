@@ -1010,7 +1010,14 @@ TEST_F(CompactionPickerTest,
         .max_size_amplification_percent = 1;
     mutable_cf_options_.compaction_options_universal.max_merge_width =
         test_no_exclusion
-            ? mutable_cf_options_.level0_stop_writes_trigger - kL0FileCount
+            // In universal compaction, sorted runs from non L0 levels are
+            // counted toward `level0_stop_writes_trigger`. Therefore we need to
+            // subtract the total number of sorted runs picked originally for
+            // this compaction (i.e, kL0FileCount + kLastLevelFileCount) from
+            // `level0_stop_writes_trigger` to calculate `max_merge_width` that
+            // results in no L0 exclusion for testing purpose.
+            ? mutable_cf_options_.level0_stop_writes_trigger -
+                  (kL0FileCount + kLastLevelFileCount)
             : UINT_MAX;
 
     UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
