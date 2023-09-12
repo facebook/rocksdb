@@ -6040,6 +6040,64 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   delete itr;
 }
 
+#ifndef OS_WIN
+// CPUMicros() is not supported. See WinClock::CPUMicros().
+TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
+  int record_count = 0;
+  class TestStatistics : public StatisticsImpl {
+   public:
+    explicit TestStatistics(int* record_count)
+        : StatisticsImpl(nullptr), record_count_(record_count) {}
+    void recordTick(uint32_t ticker_type, uint64_t count) override {
+      if (ticker_type == COMPACTION_CPU_TOTAL_TIME) {
+        ASSERT_GT(count, 0);
+        (*record_count_)++;
+      }
+      StatisticsImpl::recordTick(ticker_type, count);
+    }
+
+    int* record_count_;
+  };
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options.statistics = std::make_shared<TestStatistics>(&record_count);
+  options.statistics->set_stats_level(kExceptTimeForMutex);
+  options.max_subcompactions = max_subcompactions_;
+  DestroyAndReopen(options);
+
+  int n = 0;
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 1000; ++i) {
+      ASSERT_OK(Put(std::to_string(table * 1000 + i), "val"));
+      ++n;
+    }
+    // Overlapping tables
+    ASSERT_OK(Put(std::to_string(0), "val"));
+    ++n;
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Hard-coded number in CompactionJob::ProcessKeyValueCompaction().
+  const int kRecordStatsEvery = 1000;
+  // The stat COMPACTION_CPU_TOTAL_TIME should be recorded
+  // during compaction and once more after compaction.
+  ASSERT_EQ(n / kRecordStatsEvery + 1, record_count);
+
+  // Check that COMPACTION_CPU_TOTAL_TIME correctly
+  // records compaction time after a compaction.
+  HistogramData h;
+  options.statistics->histogramData(COMPACTION_CPU_TIME, &h);
+  ASSERT_EQ(1, h.count);
+  ASSERT_EQ(h.max, TestGetTickerCount(options, COMPACTION_CPU_TOTAL_TIME));
+}
+#endif
+
 TEST_F(DBTest, TestLogCleanup) {
   Options options = CurrentOptions();
   options.write_buffer_size = 64 * 1024;  // very small
