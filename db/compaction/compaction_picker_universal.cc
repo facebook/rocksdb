@@ -797,9 +797,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   if (sorted_runs_[end_index].being_compacted) {
     return nullptr;
   }
-  const size_t base_sr_size = sorted_runs_[end_index].size;
+  const uint64_t base_sr_size = sorted_runs_[end_index].size;
   size_t start_index = end_index;
-  size_t candidate_size = 0;
+  uint64_t candidate_size = 0;
 
   // Get longest span (i.e, [start_index, end_index]) of available sorted runs
   while (start_index > 0) {
