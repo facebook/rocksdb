@@ -1637,12 +1637,10 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   Slice ts_later_slice = ts_later;
 
   ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
-  // Query order is MEMORY, CACHE, DISK
   ASSERT_OK(Flush());
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
 
-  // Read with multi get
   ReadOptions read_opts;
   read_opts.timestamp = &ts_later_slice;
 
@@ -1659,17 +1657,22 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
   // Row cache is not storing the ts when record is inserted/updated.
+  // To be fixed after enabling ROW_CACHE with timestamp.
   // ASSERT_EQ(read_ts, ts_early);
 
+  std::string ts_nothing = Timestamp(0, 0);
+  Slice ts_nothing_slice = ts_nothing;
+  read_opts.timestamp = &ts_nothing_slice;
+  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_NOK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+
+  read_opts.timestamp = &ts_later_slice;
   s = db_->Get(read_opts, "foo", &read_value, &read_ts);
   ASSERT_OK(s);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-
-  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-  ASSERT_OK(s);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
 
   Close();
 }
