@@ -5,6 +5,8 @@
 
 #include "db/wide/wide_columns_helper.h"
 
+#include <algorithm>
+
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -22,6 +24,7 @@ void WideColumnsHelper::DumpWideColumns(const WideColumns& columns,
     os << ' ' << *it;
   }
 }
+
 Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,
                                                  std::ostream& os, bool hex) {
   WideColumns columns;
@@ -31,6 +34,13 @@ Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,
     DumpWideColumns(columns, os, hex);
   }
   return s;
+}
+
+void WideColumnsHelper::SortColumns(WideColumns& columns) {
+  std::sort(columns.begin(), columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
@@ -134,10 +135,7 @@ struct SstFileWriter::Rep {
 
   Status AddEntity(const Slice& user_key, const WideColumns& columns) {
     WideColumns sorted_columns(columns);
-    std::sort(sorted_columns.begin(), sorted_columns.end(),
-              [](const WideColumn& lhs, const WideColumn& rhs) {
-                return lhs.name().compare(rhs.name()) < 0;
-              });
+    WideColumnsHelper::SortColumns(sorted_columns);
 
     std::string entity;
     const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
