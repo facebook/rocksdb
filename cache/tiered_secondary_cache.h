@@ -28,7 +28,9 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
                        TieredAdmissionPolicy adm_policy)
       : SecondaryCacheWrapper(comp_sec_cache),
         nvm_sec_cache_(nvm_sec_cache),
-        adm_policy_(adm_policy) {}
+        adm_policy_(adm_policy) {
+    assert(adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue);
+  }
 
   ~TieredSecondaryCache() override {}
 

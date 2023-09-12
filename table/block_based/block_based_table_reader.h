@@ -576,8 +576,15 @@ struct BlockBasedTable::Rep {
         // blocks. Find a better way to do this, maybe by having BlockFetcher
         // cache a pointer to the compressed block, or by narrowing it down
         // to the tiered cache case.
-        uncompress_in_reader(dynamic_cast<CacheWithSecondaryAdapter*>(
-                                 table_options.block_cache.get()) != nullptr) {}
+        uncompress_in_reader(
+#ifdef ROCKSDB_USE_RTTI
+            dynamic_cast<CacheWithSecondaryAdapter*>(
+                table_options.block_cache.get()) != nullptr
+#else
+            true
+#endif
+        ) {
+  }
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
