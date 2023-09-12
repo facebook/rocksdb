@@ -3089,18 +3089,15 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
     // Attempt cheap key match without acquiring a read ref. This could give a
     // false positive, which is re-checked after acquiring read ref, or false
-    // negative, which is re-checked in the full Lookup.
-
-    // We need to make the reads relaxed atomic to avoid TSAN reporting
-    // race conditions. And we can skip the cheap key match optimization
-    // altogether if 64-bit atomics not supported lock-free. Also, using
-    // & rather than && to give more flexibility to the compiler and CPU.
-    if (!std::atomic<uint64_t>::is_always_lock_free ||
-        sizeof(std::atomic<uint64_t>) != sizeof(uint64_t) ||
-        (int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[0])
-                 .load(std::memory_order_relaxed) == hashed_key[0]} &
-         int{reinterpret_cast<std::atomic<uint64_t>&>(h->hashed_key[1])
-                 .load(std::memory_order_relaxed) == hashed_key[1]})) {
+    // negative, which is re-checked in the full Lookup. Also, this is a
+    // technical UB data race according to TSAN, but we don't need to read
+    // a "correct" value here for correct overall behavior.
+#ifdef __SANITIZE_THREAD__
+    bool probably_equal = Random::GetTLSInstance()->OneIn(2);
+#else
+    bool probably_equal = h->hashed_key == hashed_key;
+#endif
+    if (probably_equal) {
       // Increment acquire counter for definitive check
       uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
                                             std::memory_order_acquire);

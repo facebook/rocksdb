@@ -1087,7 +1087,7 @@ std::string LDBCommand::PrintKeyValueOrWideColumns(
     bool is_key_hex, bool is_value_hex) {
   if (wide_columns.empty() ||
       (wide_columns.size() == 1 &&
-       wide_columns.front().name() == kDefaultWideColumnName)) {
+       WideColumnsHelper::HasDefaultColumn(wide_columns))) {
     return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
                          is_value_hex);
   }

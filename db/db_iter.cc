@@ -18,6 +18,7 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "memory/arena.h"
@@ -230,9 +231,8 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     return false;
   }
 
-  if (!wide_columns_.empty() &&
-      wide_columns_[0].name() == kDefaultWideColumnName) {
-    value_ = wide_columns_[0].value();
+  if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+    value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
   }
 
   return true;

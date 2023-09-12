@@ -296,15 +296,11 @@ bool VerifyWideColumns(const Slice& value, const WideColumns& columns) {
 }
 
 bool VerifyWideColumns(const WideColumns& columns) {
-  if (columns.empty()) {
+  if (!WideColumnsHelper::HasDefaultColumn(columns)) {
     return false;
   }
 
-  if (columns.front().name() != kDefaultWideColumnName) {
-    return false;
-  }
-
-  const Slice& value_of_default = columns.front().value();
+  const Slice& value_of_default = WideColumnsHelper::GetDefaultColumn(columns);
 
   return VerifyWideColumns(value_of_default, columns);
 }
