@@ -3536,7 +3536,7 @@ TEST_P(DBCompactionWaitForCompactTest,
   // (has_unpersisted_data_ true) Check to make sure there's no extra L0 file
   // created from WAL. Re-opening DB won't trigger any flush or compaction
 
-  int compaction_finished = 0;
+  std::atomic_int compaction_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:Finish",
       [&](void*) { compaction_finished++; });
