@@ -16,6 +16,7 @@
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
+#include "rocksjni/jni_get_helpers.h"
 
 #if defined(_MSC_VER)
 #pragma warning(push)
