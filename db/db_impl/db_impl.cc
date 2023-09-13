@@ -2523,7 +2523,7 @@ std::vector<Status> DBImpl::MultiGet(
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
     } else {
-      mgd.super_version->Unref();
+      mgd.cfd->GetSuperVersion()->Unref();
     }
   }
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
@@ -2868,7 +2868,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
-      iter.super_version->Unref();
+      iter.cfd->GetSuperVersion()->Unref();
     }
   }
 }
