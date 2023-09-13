@@ -111,11 +111,6 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::string GetPrintableOptions() const override { return ""; }
 
-  void PrintCapacity() {
-    fprintf(stderr, "Cap: %lu, Usage = %lu\n", cache_.get()->GetCapacity(),
-            cache_.get()->GetUsage());
-  }
-
   uint32_t num_insert_saved() { return num_insert_saved_; }
 
   uint32_t num_hits() { return num_hits_; }
