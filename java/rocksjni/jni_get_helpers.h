@@ -9,6 +9,7 @@
 #pragma once
 
 #include <jni.h>
+
 #include <functional>
 
 #include "rocksdb/convenience.h"
@@ -17,20 +18,17 @@
 namespace ROCKSDB_NAMESPACE {
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
-    //const ROCKSDB_NAMESPACE::ReadOptions&,
-    const ROCKSDB_NAMESPACE::Slice&,
-    ROCKSDB_NAMESPACE::PinnableSlice*)>
+    // const ROCKSDB_NAMESPACE::ReadOptions&,
+    const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::PinnableSlice*)>
     FnGet;
 
-jbyteArray rocksjni_get_helper(
-    JNIEnv* env,
-    const ROCKSDB_NAMESPACE::FnGet& fn_get,
-    jbyteArray jkey, jint jkey_off, jint jkey_len);
+jbyteArray rocksjni_get_helper(JNIEnv* env,
+                               const ROCKSDB_NAMESPACE::FnGet& fn_get,
+                               jbyteArray jkey, jint jkey_off, jint jkey_len);
 
-jint rocksjni_get_helper(
-    JNIEnv* env, 
-    const ROCKSDB_NAMESPACE::FnGet& fn_get,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
-    jint jval_off, jint jval_len, bool* has_exception);
+jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
+                         jbyteArray jkey, jint jkey_off, jint jkey_len,
+                         jbyteArray jval, jint jval_off, jint jval_len,
+                         bool* has_exception);
 
-}; // namespace ROCKSDB_NAMESPACE
+};  // namespace ROCKSDB_NAMESPACE

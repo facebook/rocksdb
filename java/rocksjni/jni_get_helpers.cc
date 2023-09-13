@@ -7,14 +7,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksjni/jni_get_helpers.h"
+
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-jbyteArray rocksjni_get_helper(
-    JNIEnv* env,
-    const ROCKSDB_NAMESPACE::FnGet& fn_get,
-    jbyteArray jkey, jint jkey_off, jint jkey_len) {
+jbyteArray rocksjni_get_helper(JNIEnv* env,
+                               const ROCKSDB_NAMESPACE::FnGet& fn_get,
+                               jbyteArray jkey, jint jkey_off, jint jkey_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -49,11 +49,10 @@ jbyteArray rocksjni_get_helper(
   return nullptr;
 }
 
-jint rocksjni_get_helper(
-    JNIEnv* env, 
-    const ROCKSDB_NAMESPACE::FnGet& fn_get,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
-    jint jval_off, jint jval_len, bool* has_exception) {
+jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
+                         jbyteArray jkey, jint jkey_off, jint jkey_len,
+                         jbyteArray jval, jint jval_off, jint jval_len,
+                         bool* has_exception) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
 
@@ -69,7 +68,7 @@ jint rocksjni_get_helper(
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
   ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
   ROCKSDB_NAMESPACE::Status s = fn_get(key_slice, &pinnable_value);
-  
+
   // cleanup
   delete[] key;
 
@@ -107,4 +106,4 @@ jint rocksjni_get_helper(
   return pinnable_value_len;
 }
 
-}; // namespace ROCKSDB_NAMESPACE
+};  // namespace ROCKSDB_NAMESPACE

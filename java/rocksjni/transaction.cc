@@ -17,6 +17,7 @@
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/jni_get_helpers.h"
+#include "rocksjni/portal.h"
 
 #if defined(_MSC_VER)
 #pragma warning(push)
@@ -219,54 +220,12 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
     jint jval_off, jint jval_part_len, jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
-  try {
-    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
-                                                     jval_part_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, txn->Get(*read_options, column_family_handle, key.slice(),
-                      &value.pinnable_slice()));
-    return value.Fetch();
-  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
-    return e.Code();
-  }
-}
 
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    getDirect
- * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)I
- */
-jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
-                                            jlong jread_options_handle,
-                                            jobject jkey_bb, jint jkey_off,
-                                            jint jkey_part_len, jobject jval_bb,
-                                            jint jval_off, jint jval_part_len,
-                                            jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+      return txn->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle), key_slice, value_slice);
+    };
 
-  try {
-    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
-                                              jkey_part_len);
-    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
-                                                        jval_part_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, txn->Get(*read_options, column_family_handle, key.slice(),
-                      &value.pinnable_slice()));
-    return value.Fetch();
-  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
-    return e.Code();
-  }
+  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, 0, jkey_part_len);
 }
 
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
@@ -489,55 +448,15 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     jint jval_off, jint jval_len, jlong jcolumn_family_handle,
     jboolean jexclusive, jboolean jdo_validate) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
-  try {
-    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
-                                                     jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
-        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
-                          &value.pinnable_slice(), jexclusive, jdo_validate));
-    return value.Fetch();
-  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
-    return e.Code();
-  }
-}
 
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    getDirectForUpdate
- * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZZ)I
- */
-jint Java_org_rocksdb_Transaction_getDirectForUpdate(
-    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jobject jkey_bb, jint jkey_off, jint jkey_part_len, jobject jval_bb,
-    jint jval_off, jint jval_len, jlong jcolumn_family_handle,
-    jboolean jexclusive, jboolean jdo_validate) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+      return txn->GetForUpdate(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+        key_slice, value_slice,
+        jexclusive, jdo_validate);
+    };
 
-  try {
-    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
-                                              jkey_part_len);
-    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
-                                                        jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
-        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
-                          &value.pinnable_slice(), jexclusive, jdo_validate));
-    return value.Fetch();
-  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
-    return e.Code();
-  }
+  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, 0, jkey_part_len);
 }
 
 /*
