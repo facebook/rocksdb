@@ -1594,71 +1594,6 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
   }
 }
 
-jint rocksdb_get_helper(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
-    jint jval_off, jint jval_len, bool* has_exception) {
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    delete[] key;
-    *has_exception = true;
-    return kStatusError;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
-  ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
-  } else {
-    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
-                &pinnable_value);
-  }
-
-  // cleanup
-  delete[] key;
-
-  if (s.IsNotFound()) {
-    *has_exception = false;
-    return kNotFound;
-  } else if (!s.ok()) {
-    *has_exception = true;
-    // Here since we are throwing a Java exception from c++ side.
-    // As a result, c++ does not know calling this function will in fact
-    // throwing an exception.  As a result, the execution flow will
-    // not stop here, and codes after this throw will still be
-    // executed.
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-
-    // Return a dummy const value to avoid compilation error, although
-    // java side might not have a chance to get the return value :)
-    return kStatusError;
-  }
-
-  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
-  const jint length = std::min(jval_len, pinnable_value_len);
-
-  env->SetByteArrayRegion(jval, jval_off, length,
-                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
-                              pinnable_value.data())));
-  pinnable_value.Reset();
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    *has_exception = true;
-    return kStatusError;
-  }
-
-  *has_exception = false;
-  return pinnable_value_len;
-}
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
@@ -1669,11 +1604,13 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jobject,
                                                jbyteArray jkey, jint jkey_off,
                                                jint jkey_len, jbyteArray jval,
                                                jint jval_off, jint jval_len) {
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);  
+  auto fn_get = [db](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+    return db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(), key_slice, value_slice);
+  };
   bool has_exception = false;
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey, jkey_off, jkey_len, jval,
-      jval_off, jval_len, &has_exception);
+  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
 }
 
 /*
@@ -1687,14 +1624,17 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jobject,
                                                 jint jkey_len, jbyteArray jval,
                                                 jint jval_off, jint jval_len,
                                                 jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len, jval,
-                              jval_off, jval_len, &has_exception);
+    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+      return db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key_slice, value_slice);
+    };
+    return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get,
+      jkey, jkey_off, jkey_len,
+      jval, jval_off, jval_len, &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -1715,11 +1655,14 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jobject,
                                                 jbyteArray jkey, jint jkey_off,
                                                 jint jkey_len, jbyteArray jval,
                                                 jint jval_off, jint jval_len) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);                                                
   bool has_exception = false;
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
-      jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
+  auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+      return db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), db->DefaultColumnFamily(), key_slice, value_slice);
+    };
+  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get,
+      jkey, jkey_off, jkey_len,
+      jval, jval_off, jval_len, &has_exception);
 }
 
 /*
@@ -1731,16 +1674,19 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
     jint jkey_off, jint jkey_len, jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto& ro_opt =
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* cf_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ro_opt, cf_handle, jkey, jkey_off,
-                              jkey_len, jval, jval_off, jval_len,
-                              &has_exception);
+    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
+      return db->Get(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        cf_handle,
+        key_slice, value_slice);
+    };
+    return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get,
+      jkey, jkey_off, jkey_len,
+      jval, jval_off, jval_len, &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(

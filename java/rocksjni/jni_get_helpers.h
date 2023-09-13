@@ -27,4 +27,10 @@ jbyteArray rocksjni_get_helper(
     const ROCKSDB_NAMESPACE::FnGet& fn_get,
     jbyteArray jkey, jint jkey_off, jint jkey_len);
 
+jint rocksjni_get_helper(
+    JNIEnv* env, 
+    const ROCKSDB_NAMESPACE::FnGet& fn_get,
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
+    jint jval_off, jint jval_len, bool* has_exception);
+
 }; // namespace ROCKSDB_NAMESPACE
