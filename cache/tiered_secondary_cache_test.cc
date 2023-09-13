@@ -79,6 +79,7 @@ class TestSecondaryCache : public SecondaryCache {
       type = static_cast<CompressionType>(DecodeFixed16(ptr));
       ptr += sizeof(uint16_t);
       source = static_cast<CacheTier>(DecodeFixed16(ptr));
+      assert(source == CacheTier::kVolatileTier);
       ptr += sizeof(uint16_t);
       s = helper->create_cb(Slice(ptr, size), type, create_context,
                             /*alloc*/ nullptr, &value, &charge);

@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#pragma once
+
 #include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
 
@@ -26,10 +28,12 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
   TieredSecondaryCache(std::shared_ptr<SecondaryCache> comp_sec_cache,
                        std::shared_ptr<SecondaryCache> nvm_sec_cache,
                        TieredAdmissionPolicy adm_policy)
-      : SecondaryCacheWrapper(comp_sec_cache),
-        nvm_sec_cache_(nvm_sec_cache),
-        adm_policy_(adm_policy) {
-    assert(adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue);
+      : SecondaryCacheWrapper(comp_sec_cache), nvm_sec_cache_(nvm_sec_cache) {
+#ifndef NDEBUG
+    assert(adm_policy == TieredAdmissionPolicy::kAdmPolicyThreeQueue);
+#else
+    (void)adm_policy;
+#endif
   }
 
   ~TieredSecondaryCache() override {}
@@ -41,7 +45,6 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
   virtual Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*obj*/,
                         const Cache::CacheItemHelper* /*helper*/,
                         bool /*force_insert*/) override {
-    assert(adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue);
     return Status::OK();
   }
 
@@ -50,7 +53,6 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
       const Slice& key, const Slice& saved,
       CompressionType type = CompressionType::kNoCompression,
       CacheTier source = CacheTier::kVolatileTier) override {
-    assert(adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue);
     return nvm_sec_cache_->InsertSaved(key, saved, type, source);
   }
 
@@ -147,7 +149,6 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
 
   std::shared_ptr<SecondaryCache> comp_sec_cache_;
   std::shared_ptr<SecondaryCache> nvm_sec_cache_;
-  TieredAdmissionPolicy adm_policy_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
