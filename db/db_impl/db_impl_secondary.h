@@ -122,7 +122,7 @@ class DBImplSecondary : public DBImpl {
                         ColumnFamilyHandle* column_family) override;
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& read_options,
-                                      ColumnFamilyData* cfd,
+                                      ColumnFamilyData* cfd, SuperVersion* sv,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,

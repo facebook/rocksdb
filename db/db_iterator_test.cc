@@ -107,7 +107,10 @@ class DBIteratorTest : public DBIteratorBaseTest,
       read_callbacks_.push_back(
           std::unique_ptr<DummyReadCallback>(read_callback));
     }
-    return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
+    DBImpl* db_impl = dbfull();
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
+    return db_impl->NewIteratorImpl(read_options, cfd, super_version, seq,
+                                    read_callback);
   }
 
  private:
@@ -3130,8 +3133,10 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
   // The iterator are suppose to see data before seq1.
-  Iterator* iter =
-      dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq2, &callback1);
+  DBImpl* db_impl = dbfull();
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl);
+  Iterator* iter = db_impl->NewIteratorImpl(ReadOptions(), cfd, super_version,
+                                            seq2, &callback1);
 
   // Seek
   // The latest value of "foo" before seq1 is "v3"
@@ -3209,7 +3214,9 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   SequenceNumber seq4 = db_->GetLatestSequenceNumber();
 
   // The iterator is suppose to see data before seq3.
-  iter = dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq4, &callback2);
+  super_version = cfd->GetReferencedSuperVersion(db_impl);
+  iter = db_impl->NewIteratorImpl(ReadOptions(), cfd, super_version, seq4,
+                                  &callback2);
   // Seek to "z", which is visible.
   iter->Seek("z");
   ASSERT_TRUE(iter->Valid());
