@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.4 (09/13/2023)
+### Public API changes
+* Add a column family option `default_temperature` that is used for file reading accounting purpose, such as io statistics, for files that don't have an explicitly set temperature.
+
 ## 8.6.3 (09/12/2023)
 ### Bug Fixes
 * Fix a bug where if there is an error reading from offset 0 of a file from L1+ and that the file is not the first file in the sorted run, data can be lost in compaction and read/scan can return incorrect results.
