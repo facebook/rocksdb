@@ -2522,6 +2522,7 @@ std::vector<Status> DBImpl::MultiGet(
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
     } else {
+      TEST_SYNC_POINT("DBImpl::MultiGet::BeforeLastTryUnRefSV");
       mgd.cfd->GetSuperVersion()->Unref();
     }
   }
@@ -2677,6 +2678,7 @@ Status DBImpl::MultiCFSnapshot(
       if (!retry) {
         if (last_try) {
           mutex_.Unlock();
+          TEST_SYNC_POINT("DBImpl::MultiGet::AfterLastTryRefSV");
         }
         break;
       }
@@ -2867,6 +2869,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
+      TEST_SYNC_POINT("DBImpl::MultiGet::BeforeLastTryUnRefSV");
       iter.cfd->GetSuperVersion()->Unref();
     }
   }
