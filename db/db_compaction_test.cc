@@ -3541,7 +3541,7 @@ TEST_P(DBCompactionWaitForCompactTest,
       "DBImpl::BackgroundCompaction:Finish",
       [&](void*) { compaction_finished++; });
 
-  int flush_finished = 0;
+  std::atomic_int flush_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::End", [&](void*) { flush_finished++; });
 
