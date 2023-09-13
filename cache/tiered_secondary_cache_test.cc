@@ -223,6 +223,11 @@ class DBTieredSecondaryCacheTest : public DBTestBase {
 // each data block contains exactly 4 KV pairs. Metadata blocks are not
 // cached, so we can accurately estimate the cache usage.
 TEST_F(DBTieredSecondaryCacheTest, BasicTest) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
   BlockBasedTableOptions table_options;
   // We want a block cache of size 5KB, and a compressed secondary cache of
   // size 5KB. However, we specify a block cache size of 256KB here in order
@@ -337,6 +342,11 @@ TEST_F(DBTieredSecondaryCacheTest, BasicTest) {
 // This test is very similar to BasicTest, except it calls MultiGet rather
 // than Get, in order to exercise the async lookup and WaitAll path.
 TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewCache(260 * 1024, 10 * 1024, 256 * 1024);
   table_options.block_size = 4 * 1024;

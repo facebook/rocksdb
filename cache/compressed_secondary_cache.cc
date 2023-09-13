@@ -138,85 +138,6 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   return handle;
 }
 
-#if 0
-Status CompressedSecondaryCache::Insert(const Slice& key,
-                                        Cache::ObjectPtr value,
-                                        const Cache::CacheItemHelper* helper,
-                                        bool force_insert) {
-  if (value == nullptr) {
-    return Status::InvalidArgument();
-  }
-
-  if (disable_cache_) {
-    return Status::OK();
-  }
-
-  auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
-  if (!force_insert) {
-    Cache::Handle* lru_handle = cache_->Lookup(key);
-    if (lru_handle == nullptr) {
-      PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
-      // Insert a dummy handle if the handle is evicted for the first time.
-      return cache_->Insert(key, /*obj=*/nullptr, internal_helper,
-                            /*charge=*/0);
-    } else {
-      cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
-    }
-  }
-
-  size_t size = (*helper->size_cb)(value);
-  CacheAllocationPtr ptr =
-      AllocateBlock(size, cache_options_.memory_allocator.get());
-
-  Status s = (*helper->saveto_cb)(value, 0, size, ptr.get());
-  if (!s.ok()) {
-    return s;
-  }
-  Slice val(ptr.get(), size);
-
-  std::string compressed_val;
-  if (cache_options_.compression_type != kNoCompression &&
-      !cache_options_.do_not_compress_roles.Contains(helper->role)) {
-    PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, size);
-    CompressionOptions compression_opts;
-    CompressionContext compression_context(cache_options_.compression_type,
-                                           compression_opts);
-    uint64_t sample_for_compression{0};
-    CompressionInfo compression_info(
-        compression_opts, compression_context, CompressionDict::GetEmptyDict(),
-        cache_options_.compression_type, sample_for_compression);
-
-    bool success =
-        CompressData(val, compression_info,
-                     cache_options_.compress_format_version, &compressed_val);
-
-    if (!success) {
-      return Status::Corruption("Error compressing value.");
-    }
-
-    val = Slice(compressed_val);
-    size = compressed_val.size();
-    PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, size);
-
-    if (!cache_options_.enable_custom_split_merge) {
-      ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
-      memcpy(ptr.get(), compressed_val.data(), size);
-    }
-  }
-
-  PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
-  if (cache_options_.enable_custom_split_merge) {
-    size_t charge{0};
-    CacheValueChunk* value_chunks_head =
-        SplitValueIntoChunks(val, cache_options_.compression_type, charge);
-    return cache_->Insert(key, value_chunks_head, internal_helper, charge);
-  } else {
-    CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-    return cache_->Insert(key, buf, internal_helper, size);
-  }
-}
-#endif
-
 bool CompressedSecondaryCache::MaybeInsertDummy(const Slice& key) {
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -286,7 +207,6 @@ Status CompressedSecondaryCache::InsertInternal(
     val = Slice(compressed_val);
     data_size = compressed_val.size();
     total_size = header_size + data_size;
-    type = cache_options_.compression_type;
     PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, data_size);
 
     if (!cache_options_.enable_custom_split_merge) {

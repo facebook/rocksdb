@@ -108,6 +108,10 @@ struct BlockCreateContext : public Cache::CreateContext {
       Status s = UncompressBlockData(
           info, data.data(), data.size(), &uncompressed_block_contents,
           table_options->format_version, *ioptions, alloc);
+      if (!s.ok()) {
+        parsed_out->reset();
+        return;
+      }
     } else {
       uncompressed_block_contents =
           BlockContents(AllocateAndCopyBlock(data, alloc), data.size());
