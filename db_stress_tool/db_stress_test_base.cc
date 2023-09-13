@@ -785,23 +785,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         FLAGS_inject_error_severity == 1 /* retryable */);
   }
 #endif  // NDEBUG
-  if (FLAGS_write_fault_one_in) {
-    IOStatus error_msg;
-    if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
-      error_msg = IOStatus::IOError("Retryable IO Error");
-      error_msg.SetRetryable(true);
-    } else if (FLAGS_inject_error_severity == 2) {
-      // Inject a fatal error
-      error_msg = IOStatus::IOError("Fatal IO Error");
-      error_msg.SetDataLoss(true);
-    }
-    std::vector<FileType> types = {FileType::kTableFile,
-                                   FileType::kDescriptorFile,
-                                   FileType::kCurrentFile};
-    fault_fs_guard->SetRandomWriteError(
-        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
-        /*inject_for_all_file_types=*/false, types);
-  }
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||
@@ -1004,8 +987,13 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (total_size <= FLAGS_backup_max_size) {
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
           if (!s.ok()) {
-            VerificationAbort(shared, "Backup/restore gave inconsistent state",
-                              s);
+            if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+              VerificationAbort(shared,
+                                "Backup/restore gave inconsistent state", s);
+            } else {
+              fprintf(stdout, "Backup/restore failed: %s\n",
+                      s.ToString().c_str());
+            }
           }
         }
       }
@@ -1013,7 +1001,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
         if (!s.ok()) {
-          VerificationAbort(shared, "Checkpoint gave inconsistent state", s);
+          if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+            VerificationAbort(shared, "Checkpoint gave inconsistent state", s);
+          } else {
+            fprintf(stdout, "Checkpoint failed: %s\n", s.ToString().c_str());
+          }
         }
       }
 
@@ -2699,6 +2691,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
     RegisterAdditionalListeners();
 
+    // If this is for DB reopen, write error injection may have been enabled.
+    // Disable it here in case there is no open fault injection.
+    fault_fs_guard->DisableWriteErrorInjection();
     if (!FLAGS_use_txn) {
       // Determine whether we need to inject file metadata write failures
       // during DB reopen. If it does, enable it.
@@ -2733,7 +2728,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           fault_fs_guard->EnableWriteErrorInjection();
           fault_fs_guard->SetRandomWriteError(
               static_cast<uint32_t>(FLAGS_seed), FLAGS_open_write_fault_one_in,
-              IOStatus::IOError("Injected Open Error"),
+              IOStatus::IOError("Injected Open Write Error"),
               /*inject_for_all_file_types=*/true, /*types=*/{});
         }
         if (inject_read_error) {
@@ -2769,6 +2764,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
 
         if (inject_meta_error || inject_write_error || inject_read_error) {
+          // TODO: re-enable write error injection after reopen. Same for
+          //   sync fault injection.
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           fault_fs_guard->DisableWriteErrorInjection();

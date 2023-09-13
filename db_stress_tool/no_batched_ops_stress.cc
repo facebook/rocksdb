@@ -1568,11 +1568,13 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     if (!s.ok()) {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
-      thread->shared->SafeTerminate();
-    }
-
-    for (size_t i = 0; i < pending_expected_values.size(); ++i) {
-      pending_expected_values[i].Commit();
+      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        thread->shared->SafeTerminate();
+      }
+    } else {
+      for (size_t i = 0; i < pending_expected_values.size(); ++i) {
+        pending_expected_values[i].Commit();
+      }
     }
   }
 
