@@ -5920,7 +5920,7 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
 
       if (status.ok()) {
         // Delete [clip_end_key, largest_use_key]
-        if (ucmp->Compare(end_key, largest_user_key) < 0) {
+        if (ucmp->Compare(end_key, largest_user_key) <= 0) {
           status = DeleteRange(wo, column_family, end_key, largest_user_key);
           if (status.ok()) {
             status = Delete(wo, column_family, largest_user_key);
