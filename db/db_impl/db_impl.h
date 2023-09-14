@@ -2633,9 +2633,6 @@ class DBImpl : public DB {
   // initialized with startup time.
   uint64_t delete_obsolete_files_last_run_;
 
-  // last time stats were dumped to LOG
-  std::atomic<uint64_t> last_stats_dump_time_microsec_;
-
   // The thread that wants to switch memtable, can wait on this cv until the
   // pending writes to memtable finishes.
   std::condition_variable switch_cv_;
