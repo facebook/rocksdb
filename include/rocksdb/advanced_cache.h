@@ -66,7 +66,7 @@ class Cache {
   enum class Priority { HIGH, LOW, BOTTOM };
 
   // A set of callbacks to allow objects in the primary block cache to be
-  // be persisted in a secondary cache. The purpose of the secondary cache
+  // persisted in a secondary cache. The purpose of the secondary cache
   // is to support other ways of caching the object, such as persistent or
   // compressed data, that may require the object to be parsed and transformed
   // in some way. Since the primary cache holds C++ objects and the secondary
