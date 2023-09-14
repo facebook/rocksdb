@@ -135,6 +135,7 @@ void DBIter::Next() {
 
   PERF_COUNTER_ADD(iter_next_count, 1);
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
+  StopWatch sw(clock_, statistics_, DB_NEXT);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetBlobValue();

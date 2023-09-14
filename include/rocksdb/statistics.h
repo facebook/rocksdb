@@ -554,6 +554,7 @@ enum Histograms : uint32_t {
   WRITE_RAW_BLOCK_MICROS,
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
+  DB_NEXT,
   WRITE_STALL,
   // Time spent in reading block-based or plain SST table
   SST_READ_MICROS,

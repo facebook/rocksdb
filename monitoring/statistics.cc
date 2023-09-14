@@ -278,6 +278,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros"},
     {NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction"},
     {DB_SEEK, "rocksdb.db.seek.micros"},
+    {DB_NEXT, "rocksdb.db.next.micros"},
     {WRITE_STALL, "rocksdb.db.write.stall"},
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
     {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
