@@ -2012,8 +2012,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
-                                        *(read_options.timestamp),
-                                        /*ts_for_read=*/true);
+                                        *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -2060,7 +2059,16 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    const Status s =
+        FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+    if (!s.ok()) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
+      return s;
+    }
+  }
 
+  TEST_SYNC_POINT_CALLBACK("DBImpl::GetImpl:AfterAcquireSv", nullptr);
   TEST_SYNC_POINT("DBImpl::GetImpl:1");
   TEST_SYNC_POINT("DBImpl::GetImpl:2");
 
@@ -2336,8 +2344,7 @@ std::vector<Status> DBImpl::MultiGet(
     assert(column_family[i]);
     if (read_options.timestamp) {
       stat_list[i] =
-          FailIfTsMismatchCf(column_family[i], *(read_options.timestamp),
-                             /*ts_for_read=*/true);
+          FailIfTsMismatchCf(column_family[i], *(read_options.timestamp));
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2369,8 +2376,6 @@ std::vector<Status> DBImpl::MultiGet(
     }
   }
 
-  SequenceNumber consistent_seqnum;
-
   UnorderedMap<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
@@ -2388,10 +2393,21 @@ std::vector<Status> DBImpl::MultiGet(
           [](UnorderedMap<uint32_t, MultiGetColumnFamilyData>::iterator&
                  cf_iter) { return &cf_iter->second; };
 
-  bool unref_only =
+  SequenceNumber consistent_seqnum;
+  bool unref_only;
+  Status status =
       MultiCFSnapshot<UnorderedMap<uint32_t, MultiGetColumnFamilyData>>(
           read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-          &consistent_seqnum);
+          &consistent_seqnum, &unref_only);
+
+  if (!status.ok()) {
+    for (auto& s : stat_list) {
+      if (s.ok()) {
+        s = status;
+      }
+    }
+    return stat_list;
+  }
 
   TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum1");
   TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum2");
@@ -2522,21 +2538,49 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 template <class T>
-bool DBImpl::MultiCFSnapshot(
+Status DBImpl::MultiCFSnapshot(
     const ReadOptions& read_options, ReadCallback* callback,
     std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
         iter_deref_func,
-    T* cf_list, SequenceNumber* snapshot) {
+    T* cf_list, SequenceNumber* snapshot, bool* unref_only) {
   PERF_TIMER_GUARD(get_snapshot_time);
+
+  assert(unref_only);
+  *unref_only = false;
+  Status s = Status::OK();
+  const bool check_read_ts =
+      read_options.timestamp && read_options.timestamp->size() > 0;
+  // unref_only set to true means the SuperVersion to be cleaned up is acquired
+  // directly via ColumnFamilyData instead of thread local.
+  const auto sv_cleanup_func = [&]() -> void {
+    for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
+         ++cf_iter) {
+      auto node = iter_deref_func(cf_iter);
+      SuperVersion* super_version = node->super_version;
+      ColumnFamilyData* cfd = node->cfd;
+      if (super_version != nullptr) {
+        if (*unref_only) {
+          super_version->Unref();
+        } else {
+          ReturnAndCleanupSuperVersion(cfd, super_version);
+        }
+      }
+      node->super_version = nullptr;
+    }
+  };
 
   bool last_try = false;
   if (cf_list->size() == 1) {
-    // Fast path for a single column family. We can simply get the thread loca
+    // Fast path for a single column family. We can simply get the thread local
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
     node->super_version = GetAndRefSuperVersion(node->cfd);
-    if (read_options.snapshot != nullptr) {
+    if (check_read_ts) {
+      s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
+                                     *(read_options.timestamp));
+    }
+    if (s.ok() && read_options.snapshot != nullptr) {
       // Note: In WritePrepared txns this is not necessary but not harmful
       // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
       // a snapshot is specified we should be fine with skipping seq numbers
@@ -2550,7 +2594,7 @@ bool DBImpl::MultiCFSnapshot(
       if (callback) {
         *snapshot = std::max(*snapshot, callback->max_visible_seq());
       }
-    } else {
+    } else if (s.ok()) {
       // Since we get and reference the super version before getting
       // the snapshot number, without a mutex protection, it is possible
       // that a memtable switch happened in the middle and not all the
@@ -2564,26 +2608,17 @@ bool DBImpl::MultiCFSnapshot(
       *snapshot = GetLastPublishedSequence();
     }
   } else {
-    // If we end up with the same issue of memtable geting sealed during 2
+    // If we end up with the same issue of memtable getting sealed during 2
     // consecutive retries, it means the write rate is very high. In that case
-    // its probably ok to take the mutex on the 3rd try so we can succeed for
-    // sure
+    // it's probably ok to take the mutex on the 3rd try so we can succeed for
+    // sure.
     constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
       last_try = (i == num_retries - 1);
       bool retry = false;
 
       if (i > 0) {
-        for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
-             ++cf_iter) {
-          auto node = iter_deref_func(cf_iter);
-          SuperVersion* super_version = node->super_version;
-          ColumnFamilyData* cfd = node->cfd;
-          if (super_version != nullptr) {
-            ReturnAndCleanupSuperVersion(cfd, super_version);
-          }
-          node->super_version = nullptr;
-        }
+        sv_cleanup_func();
       }
       if (read_options.snapshot == nullptr) {
         if (last_try) {
@@ -2607,6 +2642,19 @@ bool DBImpl::MultiCFSnapshot(
           node->super_version = node->cfd->GetSuperVersion()->Ref();
         }
         TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
+        if (check_read_ts) {
+          s = FailIfReadCollapsedHistory(node->cfd, node->super_version,
+                                         *(read_options.timestamp));
+          if (!s.ok()) {
+            // If read timestamp check failed, a.k.a ReadOptions.timestamp <
+            // super_version.full_history_ts_low. There is no need to continue
+            // because this check will keep failing for the same and newer
+            // SuperVersions, instead we fail fast and ask user to provide
+            // a higher read timestamp.
+            retry = false;
+            break;
+          }
+        }
         if (read_options.snapshot != nullptr || last_try) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
@@ -2638,8 +2686,11 @@ bool DBImpl::MultiCFSnapshot(
 
   // Keep track of bytes that we read for statistics-recording later
   PERF_TIMER_STOP(get_snapshot_time);
-
-  return last_try;
+  *unref_only = last_try;
+  if (!s.ok()) {
+    sv_cleanup_func();
+  }
+  return s;
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
@@ -2689,8 +2740,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
     if (read_options.timestamp) {
-      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp),
-                                       /*ts_for_read=*/true);
+      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp));
       if (!statuses[i].ok()) {
         should_fail = true;
       }
@@ -2773,10 +2823,20 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
           };
 
   SequenceNumber consistent_seqnum;
-  bool unref_only = MultiCFSnapshot<
+  bool unref_only;
+  Status s = MultiCFSnapshot<
       autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>(
       read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum);
+      &consistent_seqnum, &unref_only);
+
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
@@ -2785,7 +2845,6 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     read_callback = &timestamp_read_callback;
   }
 
-  Status s;
   auto cf_iter = multiget_cf_data.begin();
   for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
     s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
@@ -2961,9 +3020,13 @@ void DBImpl::MultiGetWithCallback(
 
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum;
-  bool unref_only = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
+  bool unref_only;
+  Status s = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
       read_options, callback, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum);
+      &consistent_seqnum, &unref_only);
+  if (!s.ok()) {
+    return;
+  }
 #ifndef NDEBUG
   assert(!unref_only);
 #else
@@ -2998,9 +3061,9 @@ void DBImpl::MultiGetWithCallback(
     read_callback = &timestamp_read_callback;
   }
 
-  Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
-                          multiget_cf_data[0].super_version, consistent_seqnum,
-                          read_callback);
+  s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
+                   multiget_cf_data[0].super_version, consistent_seqnum,
+                   read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
@@ -3470,8 +3533,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
 
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
-                           /*ts_for_read=*/true);
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -3486,8 +3548,16 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    const Status s =
+        FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+    if (!s.ok()) {
+      CleanupSuperVersion(sv);
+      return NewErrorIterator(s);
+    }
+  }
   if (read_options.tailing) {
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
@@ -3499,7 +3569,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
-    result = NewIteratorImpl(read_options, cfd,
+    result = NewIteratorImpl(read_options, cfd, sv,
                              (read_options.snapshot != nullptr)
                                  ? read_options.snapshot->GetSequenceNumber()
                                  : kMaxSequenceNumber,
@@ -3508,14 +3578,10 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   return result;
 }
 
-ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
-                                            ColumnFamilyData* cfd,
-                                            SequenceNumber snapshot,
-                                            ReadCallback* read_callback,
-                                            bool expose_blob_index,
-                                            bool allow_refresh) {
-  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-
+ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
+    const ReadOptions& read_options, ColumnFamilyData* cfd, SuperVersion* sv,
+    SequenceNumber snapshot, ReadCallback* read_callback,
+    bool expose_blob_index, bool allow_refresh) {
   TEST_SYNC_POINT("DBImpl::NewIterator:1");
   TEST_SYNC_POINT("DBImpl::NewIterator:2");
 
@@ -3615,8 +3681,7 @@ Status DBImpl::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
-                                          /*ts_for_read=*/true);
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
       if (!s.ok()) {
         return s;
       }
@@ -3634,10 +3699,27 @@ Status DBImpl::NewIterators(
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
+  autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+  const bool check_read_ts =
+      read_options.timestamp && read_options.timestamp->size() > 0;
+  for (auto cfh : column_families) {
+    auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+    cfd_to_sv.emplace_back(cfd, sv);
+    if (check_read_ts) {
+      const Status s =
+          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+      if (!s.ok()) {
+        for (auto prev_entry : cfd_to_sv) {
+          CleanupSuperVersion(std::get<1>(prev_entry));
+        }
+        return s;
+      }
+    }
+  }
+  assert(cfd_to_sv.size() == column_families.size());
   if (read_options.tailing) {
-    for (auto cfh : column_families) {
-      auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+    for (auto [cfd, sv] : cfd_to_sv) {
       auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
@@ -3653,12 +3735,9 @@ Status DBImpl::NewIterators(
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
-    for (size_t i = 0; i < column_families.size(); ++i) {
-      auto* cfd =
-          static_cast_with_check<ColumnFamilyHandleImpl>(column_families[i])
-              ->cfd();
+    for (auto [cfd, sv] : cfd_to_sv) {
       iterators->push_back(
-          NewIteratorImpl(read_options, cfd, snapshot, read_callback));
+          NewIteratorImpl(read_options, cfd, sv, snapshot, read_callback));
     }
   }
 

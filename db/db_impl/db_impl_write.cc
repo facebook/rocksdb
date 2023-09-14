@@ -30,7 +30,7 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
 
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& ts, const Slice& val) {
-  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  const Status s = FailIfTsMismatchCf(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -64,7 +64,7 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
 
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
                      const Slice& key, const Slice& ts, const Slice& val) {
-  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  const Status s = FailIfTsMismatchCf(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -83,7 +83,7 @@ Status DBImpl::Delete(const WriteOptions& write_options,
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& ts) {
-  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  const Status s = FailIfTsMismatchCf(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -103,7 +103,7 @@ Status DBImpl::SingleDelete(const WriteOptions& write_options,
 Status DBImpl::SingleDelete(const WriteOptions& write_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& ts) {
-  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  const Status s = FailIfTsMismatchCf(column_family, ts);
   if (!s.ok()) {
     return s;
   }
@@ -124,7 +124,7 @@ Status DBImpl::DeleteRange(const WriteOptions& write_options,
                            ColumnFamilyHandle* column_family,
                            const Slice& begin_key, const Slice& end_key,
                            const Slice& ts) {
-  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  const Status s = FailIfTsMismatchCf(column_family, ts);
   if (!s.ok()) {
     return s;
   }

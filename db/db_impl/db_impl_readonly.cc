@@ -58,8 +58,7 @@ Status DBImplReadOnly::Get(const ReadOptions& _read_options,
   assert(column_family);
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
-                           /*ts_for_read=*/true);
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -92,6 +91,13 @@ Status DBImplReadOnly::Get(const ReadOptions& _read_options,
     }
   }
   SuperVersion* super_version = cfd->GetSuperVersion();
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    s = FailIfReadCollapsedHistory(cfd, super_version,
+                                   *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
+  }
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
@@ -137,8 +143,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
   assert(column_family);
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsMismatchCf(column_family, *(read_options.timestamp),
-                           /*ts_for_read=*/true);
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -151,6 +156,14 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    const Status s = FailIfReadCollapsedHistory(cfd, super_version,
+                                                *(read_options.timestamp));
+    if (!s.ok()) {
+      cfd->GetSuperVersion()->Unref();
+      return NewErrorIterator(s);
+    }
+  }
   SequenceNumber latest_snapshot = versions_->LastSequence();
   SequenceNumber read_seq =
       read_options.snapshot != nullptr
@@ -177,8 +190,7 @@ Status DBImplReadOnly::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
-                                          /*ts_for_read=*/true);
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
       if (!s.ok()) {
         return s;
       }
@@ -206,9 +218,27 @@ Status DBImplReadOnly::NewIterators(
                 ->number_
           : latest_snapshot;
 
+  autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+
+  const bool check_read_ts =
+      read_options.timestamp && read_options.timestamp->size() > 0;
   for (auto cfh : column_families) {
     auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
+    cfd_to_sv.emplace_back(cfd, sv);
+    if (check_read_ts) {
+      const Status s =
+          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+      if (!s.ok()) {
+        for (auto prev_entry : cfd_to_sv) {
+          std::get<1>(prev_entry)->Unref();
+        }
+        return s;
+      }
+    }
+  }
+  assert(cfd_to_sv.size() == column_families.size());
+  for (auto [cfd, sv] : cfd_to_sv) {
     auto* db_iter = NewArenaWrappedDbIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         sv->current, read_seq,

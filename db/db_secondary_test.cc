@@ -1561,6 +1561,55 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorsReadTimestampSizeMismatch) {
   Close();
 }
 
+TEST_F(DBSecondaryTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Use UDT in memtable only feature for this test, so we can control that
+  // newly set `full_history_ts_low` collapse history when Flush happens.
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val1"));
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                          full_history_ts_low));
+  ASSERT_OK(Flush(0));
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  // Reading below full_history_ts_low fails a sanity check.
+  std::string read_ts;
+  PutFixed64(&read_ts, 2);
+  Slice read_ts_slice = read_ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+
+  // Get()
+  std::string value;
+  ASSERT_TRUE(db_->Get(read_opts, "foo", &value).IsInvalidArgument());
+
+  // NewIterator()
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_opts, db_->DefaultColumnFamily()));
+  ASSERT_TRUE(iter->status().IsInvalidArgument());
+
+  // NewIterators()
+  std::vector<ColumnFamilyHandle*> cfhs = {db_->DefaultColumnFamily()};
+  std::vector<Iterator*> iterators;
+  ASSERT_TRUE(
+      db_->NewIterators(read_opts, cfhs, &iterators).IsInvalidArgument());
+  Close();
+}
+
 TEST_F(DBSecondaryTestWithTimestamp,
        IteratorsReadTimestampSpecifiedWithoutWriteTimestamp) {
   const int kNumKeysPerFile = 128;
