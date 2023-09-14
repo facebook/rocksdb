@@ -69,5 +69,5 @@ public abstract class RocksCallbackObject extends
     disposeInternal(nativeHandle_);
   }
 
-  private native void disposeInternal(final long handle);
+  private static native void disposeInternal(final long handle);
 }

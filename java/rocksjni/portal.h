@@ -2140,8 +2140,8 @@ class JniUtil {
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice,
                                               ROCKSDB_NAMESPACE::Slice)>
           op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
-      jbyteArray jvalue, jint jvalue_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len, jbyteArray jvalue,
+      jint jvalue_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
@@ -2182,7 +2182,7 @@ class JniUtil {
    */
   static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op(
       std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
-      JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
+      JNIEnv* env, jbyteArray jkey, jint jkey_len) {
     jbyte* key = env->GetByteArrayElements(jkey, nullptr);
     if (env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError

@@ -795,57 +795,60 @@ public class ReadOptions extends RocksObject {
   private static native long newReadOptions();
   private static native long newReadOptions(final boolean verifyChecksums, final boolean fillCache);
   private static native long copyReadOptions(long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native boolean verifyChecksums(long handle);
-  private native void setVerifyChecksums(long handle, boolean verifyChecksums);
-  private native boolean fillCache(long handle);
-  private native void setFillCache(long handle, boolean fillCache);
-  private native long snapshot(long handle);
-  private native void setSnapshot(long handle, long snapshotHandle);
-  private native byte readTier(long handle);
-  private native void setReadTier(long handle, byte readTierValue);
-  private native boolean tailing(long handle);
-  private native void setTailing(long handle, boolean tailing);
-  private native boolean managed(long handle);
-  private native void setManaged(long handle, boolean managed);
-  private native boolean totalOrderSeek(long handle);
-  private native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
-  private native boolean prefixSameAsStart(long handle);
-  private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
-  private native boolean pinData(long handle);
-  private native void setPinData(long handle, boolean pinData);
-  private native boolean backgroundPurgeOnIteratorCleanup(final long handle);
-  private native void setBackgroundPurgeOnIteratorCleanup(final long handle,
-      final boolean backgroundPurgeOnIteratorCleanup);
-  private native long readaheadSize(final long handle);
-  private native void setReadaheadSize(final long handle,
-      final long readaheadSize);
-  private native long maxSkippableInternalKeys(final long handle);
-  private native void setMaxSkippableInternalKeys(final long handle,
-      final long maxSkippableInternalKeys);
-  private native boolean ignoreRangeDeletions(final long handle);
-  private native void setIgnoreRangeDeletions(final long handle,
-      final boolean ignoreRangeDeletions);
-  private native void setIterateUpperBound(final long handle,
-      final long upperBoundSliceHandle);
-  private native long iterateUpperBound(final long handle);
-  private native void setIterateLowerBound(final long handle,
-      final long lowerBoundSliceHandle);
-  private native long iterateLowerBound(final long handle);
-  private native void setTableFilter(final long handle, final long tableFilterHandle);
-  private native boolean autoPrefixMode(final long handle);
-  private native void setAutoPrefixMode(final long handle, final boolean autoPrefixMode);
-  private native long timestamp(final long handle);
-  private native void setTimestamp(final long handle, final long timestampSliceHandle);
-  private native long iterStartTs(final long handle);
-  private native void setIterStartTs(final long handle, final long iterStartTsHandle);
-  private native long deadline(final long handle);
-  private native void setDeadline(final long handle, final long deadlineTime);
-  private native long ioTimeout(final long handle);
-  private native void setIoTimeout(final long handle, final long ioTimeout);
-  private native long valueSizeSoftLimit(final long handle);
-  private native void setValueSizeSoftLimit(final long handle, final long softLimit);
   private native boolean asyncIo(final long handle);
   private native void setAsyncIo(final long handle, final boolean asyncIO);
+  private static native boolean verifyChecksums(long handle);
+  private static native void setVerifyChecksums(long handle, boolean verifyChecksums);
+  private static native boolean fillCache(long handle);
+  private static native void setFillCache(long handle, boolean fillCache);
+  private static native long snapshot(long handle);
+  private static native void setSnapshot(long handle, long snapshotHandle);
+  private static native byte readTier(long handle);
+  private static native void setReadTier(long handle, byte readTierValue);
+  private static native boolean tailing(long handle);
+  private static native void setTailing(long handle, boolean tailing);
+  private static native boolean managed(long handle);
+  private static native void setManaged(long handle, boolean managed);
+  private static native boolean totalOrderSeek(long handle);
+  private static native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
+  private static native boolean prefixSameAsStart(long handle);
+  private static native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
+  private static native boolean pinData(long handle);
+  private static native void setPinData(long handle, boolean pinData);
+  private static native boolean backgroundPurgeOnIteratorCleanup(final long handle);
+  private static native void setBackgroundPurgeOnIteratorCleanup(
+      final long handle, final boolean backgroundPurgeOnIteratorCleanup);
+  private static native long readaheadSize(final long handle);
+  private static native void setReadaheadSize(final long handle, final long readaheadSize);
+  private static native long maxSkippableInternalKeys(final long handle);
+  private static native void setMaxSkippableInternalKeys(
+      final long handle, final long maxSkippableInternalKeys);
+  private static native boolean ignoreRangeDeletions(final long handle);
+  private static native void setIgnoreRangeDeletions(
+      final long handle, final boolean ignoreRangeDeletions);
+  private static native void setIterateUpperBound(
+      final long handle, final long upperBoundSliceHandle);
+  private static native long iterateUpperBound(final long handle);
+  private static native void setIterateLowerBound(
+      final long handle, final long lowerBoundSliceHandle);
+  private static native long iterateLowerBound(final long handle);
+  private static native void setTableFilter(final long handle, final long tableFilterHandle);
+  private static native boolean autoPrefixMode(final long handle);
+  private static native void setAutoPrefixMode(final long handle, final boolean autoPrefixMode);
+  private static native long timestamp(final long handle);
+  private static native void setTimestamp(final long handle, final long timestampSliceHandle);
+  private static native long iterStartTs(final long handle);
+  private static native void setIterStartTs(final long handle, final long iterStartTsHandle);
+  private static native long deadline(final long handle);
+  private static native void setDeadline(final long handle, final long deadlineTime);
+  private static native long ioTimeout(final long handle);
+  private static native void setIoTimeout(final long handle, final long ioTimeout);
+  private static native long valueSizeSoftLimit(final long handle);
+  private static native void setValueSizeSoftLimit(final long handle, final long softLimit);
 }

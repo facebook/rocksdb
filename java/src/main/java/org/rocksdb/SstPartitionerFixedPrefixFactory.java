@@ -15,5 +15,9 @@ public class SstPartitionerFixedPrefixFactory extends SstPartitionerFactory {
 
   private static native long newSstPartitionerFixedPrefixFactory0(long prefixLength);
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 }

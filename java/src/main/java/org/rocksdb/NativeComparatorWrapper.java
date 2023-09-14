@@ -53,5 +53,5 @@ public abstract class NativeComparatorWrapper
     disposeInternal(nativeHandle_);
   }
 
-  private native void disposeInternal(final long handle);
+  private static native void disposeInternal(final long handle);
 }

@@ -148,14 +148,18 @@ public class Statistics extends RocksObject {
   private static native long newStatistics(
       final byte[] ignoreHistograms, final long otherStatisticsHandle);
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+  private static native void disposeInternalJni(final long handle);
 
-  private native byte statsLevel(final long handle);
-  private native void setStatsLevel(final long handle, final byte statsLevel);
-  private native long getTickerCount(final long handle, final byte tickerType);
-  private native long getAndResetTickerCount(final long handle, final byte tickerType);
-  private native HistogramData getHistogramData(final long handle, final byte histogramType);
-  private native String getHistogramString(final long handle, final byte histogramType);
-  private native void reset(final long nativeHandle) throws RocksDBException;
-  private native String toString(final long nativeHandle);
+  private static native byte statsLevel(final long handle);
+  private static native void setStatsLevel(final long handle, final byte statsLevel);
+  private static native long getTickerCount(final long handle, final byte tickerType);
+  private static native long getAndResetTickerCount(final long handle, final byte tickerType);
+  private static native HistogramData getHistogramData(final long handle, final byte histogramType);
+  private static native String getHistogramString(final long handle, final byte histogramType);
+  private static native void reset(final long nativeHandle) throws RocksDBException;
+  private static native String toString(final long nativeHandle);
 }

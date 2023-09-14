@@ -426,31 +426,35 @@ public class BackupEngineOptions extends RocksObject {
   }
 
   private static native long newBackupEngineOptions(final String path);
-  private native String backupDir(long handle);
-  private native void setBackupEnv(final long handle, final long envHandle);
-  private native void setShareTableFiles(long handle, boolean flag);
-  private native boolean shareTableFiles(long handle);
-  private native void setInfoLog(final long handle, final long infoLogHandle);
-  private native void setSync(long handle, boolean flag);
-  private native boolean sync(long handle);
-  private native void setDestroyOldData(long handle, boolean flag);
-  private native boolean destroyOldData(long handle);
-  private native void setBackupLogFiles(long handle, boolean flag);
-  private native boolean backupLogFiles(long handle);
-  private native void setBackupRateLimit(long handle, long rateLimit);
-  private native long backupRateLimit(long handle);
-  private native void setBackupRateLimiter(long handle, long rateLimiterHandle);
-  private native void setRestoreRateLimit(long handle, long rateLimit);
-  private native long restoreRateLimit(long handle);
-  private native void setRestoreRateLimiter(final long handle,
-      final long rateLimiterHandle);
-  private native void setShareFilesWithChecksum(long handle, boolean flag);
-  private native boolean shareFilesWithChecksum(long handle);
-  private native void setMaxBackgroundOperations(final long handle,
-      final int maxBackgroundOperations);
-  private native int maxBackgroundOperations(final long handle);
-  private native void setCallbackTriggerIntervalSize(final long handle,
-      long callbackTriggerIntervalSize);
-  private native long callbackTriggerIntervalSize(final long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  private static native String backupDir(long handle);
+  private static native void setBackupEnv(final long handle, final long envHandle);
+  private static native void setShareTableFiles(long handle, boolean flag);
+  private static native boolean shareTableFiles(long handle);
+  private static native void setInfoLog(final long handle, final long infoLogHandle);
+  private static native void setSync(long handle, boolean flag);
+  private static native boolean sync(long handle);
+  private static native void setDestroyOldData(long handle, boolean flag);
+  private static native boolean destroyOldData(long handle);
+  private static native void setBackupLogFiles(long handle, boolean flag);
+  private static native boolean backupLogFiles(long handle);
+  private static native void setBackupRateLimit(long handle, long rateLimit);
+  private static native long backupRateLimit(long handle);
+  private static native void setBackupRateLimiter(long handle, long rateLimiterHandle);
+  private static native void setRestoreRateLimit(long handle, long rateLimit);
+  private static native long restoreRateLimit(long handle);
+  private static native void setRestoreRateLimiter(final long handle, final long rateLimiterHandle);
+  private static native void setShareFilesWithChecksum(long handle, boolean flag);
+  private static native boolean shareFilesWithChecksum(long handle);
+  private static native void setMaxBackgroundOperations(
+      final long handle, final int maxBackgroundOperations);
+  private static native int maxBackgroundOperations(final long handle);
+  private static native void setCallbackTriggerIntervalSize(
+      final long handle, long callbackTriggerIntervalSize);
+  private static native long callbackTriggerIntervalSize(final long handle);
+  @Override
+  protected final void disposeInternal(final long handle) {
+    disposeInternalJni(handle);
+  }
+
+  private static native void disposeInternalJni(final long handle);
 }
