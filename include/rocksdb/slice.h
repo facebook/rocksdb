@@ -129,6 +129,19 @@ class Slice {
   // Intentionally copyable
 };
 
+class SliceBuffer {
+ public:
+  inline std::string* String() { return buf_; }
+  SliceBuffer& operator=(std::string* buf) {
+    this->buf_ = buf;
+    return *this;
+  }
+
+ private:
+  friend class PinnableSlice;
+  std::string* buf_;
+};
+
 /**
  * A Slice that can be pinned with some cleanup tasks, which will be run upon
  * ::Reset() or object destruction, whichever is invoked first. This can be used
@@ -137,8 +150,8 @@ class Slice {
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
-  PinnableSlice() { buf_ = &self_space_; }
-  explicit PinnableSlice(std::string* buf) { buf_ = buf; }
+  PinnableSlice() { slice_buffer_ = &self_space_; }
+  explicit PinnableSlice(std::string* buf) { slice_buffer_ = buf; }
 
   PinnableSlice(PinnableSlice&& other);
   PinnableSlice& operator=(PinnableSlice&& other);
@@ -170,16 +183,16 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
-    buf_->assign(slice.data(), slice.size());
-    data_ = buf_->data();
-    size_ = buf_->size();
+    slice_buffer_.buf_->assign(slice.data(), slice.size());
+    data_ = slice_buffer_.buf_->data();
+    size_ = slice_buffer_.buf_->size();
     assert(!pinned_);
   }
 
   inline void PinSelf() {
     assert(!pinned_);
-    data_ = buf_->data();
-    size_ = buf_->size();
+    data_ = slice_buffer_.buf_->data();
+    size_ = slice_buffer_.buf_->size();
     assert(!pinned_);
   }
 
@@ -188,7 +201,7 @@ class PinnableSlice : public Slice, public Cleanable {
     if (pinned_) {
       size_ -= n;
     } else {
-      buf_->erase(size() - n, n);
+      slice_buffer_.buf_->erase(size() - n, n);
       PinSelf();
     }
   }
@@ -199,7 +212,7 @@ class PinnableSlice : public Slice, public Cleanable {
       data_ += n;
       size_ -= n;
     } else {
-      buf_->erase(0, n);
+      slice_buffer_.buf_->erase(0, n);
       PinSelf();
     }
   }
@@ -210,14 +223,14 @@ class PinnableSlice : public Slice, public Cleanable {
     size_ = 0;
   }
 
-  inline std::string* GetSelf() { return buf_; }
+  inline SliceBuffer* GetSelf() { return &slice_buffer_; }
 
   inline bool IsPinned() const { return pinned_; }
 
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
-  std::string* buf_;
+  SliceBuffer slice_buffer_;
   bool pinned_ = false;
 };
 

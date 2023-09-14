@@ -150,7 +150,7 @@ inline void PinnableWideColumns::MoveValue(PinnableSlice&& value) {
 }
 
 inline void PinnableWideColumns::MoveValue(std::string&& value) {
-  std::string* const buf = value_.GetSelf();
+  std::string* const buf = value_.GetSelf()->String();
   assert(buf);
 
   *buf = std::move(value);

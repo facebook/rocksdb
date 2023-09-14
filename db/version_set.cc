@@ -2529,7 +2529,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
-          *(value->GetSelf()) = std::move(result);
+          *(value->GetSelf()->String()) = std::move(result);
           value->PinSelf();
         } else {
           assert(columns != nullptr);
@@ -2780,7 +2780,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           /* result_operand */ nullptr, /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
-        *iter->value->GetSelf() = std::move(result);
+        *iter->value->GetSelf()->String() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
       } else {

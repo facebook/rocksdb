@@ -19,12 +19,17 @@ public class RocksDBException extends Exception {
    * @param msg the specified error message.
    */
   public RocksDBException(final String msg) {
-    this(msg, null);
+    this(msg, (Status) null);
   }
 
   public RocksDBException(final String msg, final Status status) {
     super(msg);
     this.status = status;
+  }
+
+  public RocksDBException(final String msg, final Throwable cause) {
+    super(msg, cause);
+    this.status = null;
   }
 
   public RocksDBException(final Status status) {

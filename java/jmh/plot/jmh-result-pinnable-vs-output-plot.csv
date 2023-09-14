@@ -1,0 +1,10 @@
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,16,366671.391796
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,256,276216.508405
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,1024,177283.928193
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,4096,85678.355999
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,16384,55410.937016
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,16,352288.848929
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,256,259777.517245
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,1024,174463.661324
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,4096,86777.562295
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,16384,59797.895296

@@ -38,10 +38,8 @@
     </scm>
 
     <properties>
-        <project.build.source>1.7</project.build.source>
-        <project.build.target>1.7</project.build.target>
+        <project.build.release>19</project.build.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
         <jmh.version>1.22</jmh.version>
         <uberjar.name>benchmarks</uberjar.name>
     </properties>
@@ -50,7 +48,7 @@
         <dependency>
             <groupId>org.rocksdb</groupId>
             <artifactId>rocksdbjni</artifactId>
-            <version>7.9.0-SNAPSHOT</version>
+            <version>8.1.0</version>
         </dependency>
 
         <dependency>
@@ -73,9 +71,11 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.8.1</version>
                 <configuration>
-                    <source>${project.build.source}</source>
-                    <target>${project.build.target}</target>
+                    <release>${project.build.release}</release>
                     <encoding>${project.build.sourceEncoding}</encoding>
+                    <compilerArgs>--enable-preview</compilerArgs>
+                    <source>19</source>
+                    <target>19</target>
                 </configuration>
             </plugin>
 

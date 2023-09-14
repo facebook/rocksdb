@@ -263,7 +263,7 @@ TEST_F(CleanableTest, PinnableSlice) {
 
   {
     PinnableSlice4Test value;
-    std::string* self_str_ptr = value.GetSelf();
+    std::string* self_str_ptr = value.GetSelf()->String();
     self_str_ptr->assign(const_str);
     value.PinSelf();
     std::string str;

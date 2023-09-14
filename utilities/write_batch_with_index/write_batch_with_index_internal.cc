@@ -157,19 +157,19 @@ Slice BaseDeltaIterator::value() const {
       return delta_entry.value;
     } else if (delta_entry.type == kDeleteRecord ||
                delta_entry.type == kSingleDeleteRecord) {
-      status_ =
-          wbwii_->MergeKey(delta_entry.key, nullptr, merge_result_.GetSelf());
+      status_ = wbwii_->MergeKey(delta_entry.key, nullptr,
+                                 merge_result_.GetSelf()->String());
     } else if (delta_entry.type == kPutRecord) {
       status_ = wbwii_->MergeKey(delta_entry.key, &delta_entry.value,
-                                 merge_result_.GetSelf());
+                                 merge_result_.GetSelf()->String());
     } else if (delta_entry.type == kMergeRecord) {
       if (equal_keys_) {
         Slice base_value = base_iterator_->value();
         status_ = wbwii_->MergeKey(delta_entry.key, &base_value,
-                                   merge_result_.GetSelf());
+                                   merge_result_.GetSelf()->String());
       } else {
-        status_ =
-            wbwii_->MergeKey(delta_entry.key, nullptr, merge_result_.GetSelf());
+        status_ = wbwii_->MergeKey(delta_entry.key, nullptr,
+                                   merge_result_.GetSelf()->String());
       }
     }
     merge_result_.PinSelf();

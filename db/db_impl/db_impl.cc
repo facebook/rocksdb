@@ -2140,14 +2140,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
-              get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
-              false /* immutable_memtable */, get_impl_options.callback,
-              get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(lkey,
+                       get_impl_options.value
+                           ? get_impl_options.value->GetSelf()->String()
+                           : nullptr,
+                       get_impl_options.columns, timestamp, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */,
+                       get_impl_options.callback,
+                       get_impl_options.is_blob_index)) {
         done = true;
 
         if (get_impl_options.value) {
@@ -2158,7 +2159,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->Get(lkey,
                               get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
+                                  ? get_impl_options.value->GetSelf()->String()
                                   : nullptr,
                               get_impl_options.columns, timestamp, &s,
                               &merge_context, &max_covering_tombstone_seq,

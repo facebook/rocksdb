@@ -5,31 +5,40 @@ Results associated with [Improve Java API `get()` performance by reducing copies
 ## Build/Run
 
 Mac
-```
+```bash
 make clean jclean
 DEBUG_LEVEL=0 make -j12 rocksdbjava
-(cd java/target; cp rocksdbjni-7.9.0-osx.jar rocksdbjni-7.9.0-SNAPSHOT-osx.jar)
-mvn install:install-file -Dfile=./java/target/rocksdbjni-7.9.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.9.0-SNAPSHOT -Dpackaging=jar
+(cd java/target; cp rocksdbjni-7.10.0-osx.jar rocksdbjni-7.10.0-SNAPSHOT-osx.jar)
+mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.10.0-SNAPSHOT -Dpackaging=jar
 ```
 
 Linux
-```
+```bash
 make clean jclean
 DEBUG_LEVEL=0 make -j12 rocksdbjava
-(cd java/target; cp rocksdbjni-7.9.0-linux64.jar rocksdbjni-7.9.0-SNAPSHOT-linux64.jar)
-mvn install:install-file -Dfile=./java/target/rocksdbjni-7.9.0-SNAPSHOT-linux64.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.9.0-SNAPSHOT -Dpackaging=jar
+(cd java/target; cp rocksdbjni-7.10.0-linux64.jar rocksdbjni-7.10.0-SNAPSHOT-linux64.jar)
+mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-linux64.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.10.0-SNAPSHOT -Dpackaging=jar
 ```
 
 Build jmh test package, on either platform
-```
+```bash
 pushd java/jmh
 mvn clean package
 ```
 
 A quick test run, just as a sanity check, using a small number of keys, would be
-```
+```bash
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000 -p keySize=128 -p valueSize=32768 -p columnFamilyTestType="no_column_family" GetBenchmarks
 ```
+or when we are previewing new features (e.g. Panama FFI in Java 19)
+```bash
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000 -p keySize=128 -p valueSize=32768 -p columnFamilyTestType="no_column_family" GetBenchmarks
+```
+to reduce the time to an absolute minimum, append these parameters
+```bash
+-wi 1 -to 1m -i 1
+```
+
 The long performance run (as big as we can make it on our Ubuntu box without filling the disk)
 ```
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,50000 -p keySize=128 -p valueSize=1024,16384 -p columnFamilyTestType="1_column_family","20_column_families" GetBenchmarks.get GetBenchmarks.preallocatedByteBufferGet GetBenchmarks.preallocatedGet

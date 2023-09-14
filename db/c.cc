@@ -5895,7 +5895,7 @@ rocksdb_pinnableslice_t* rocksdb_transaction_get_pinned_for_update(
     const char* key, size_t klen, unsigned char exclusive, char** errptr) {
   rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
   Status s = txn->rep->GetForUpdate(options->rep, Slice(key, klen),
-                                    v->rep.GetSelf(), exclusive);
+                                    v->rep.GetSelf()->String(), exclusive);
   v->rep.PinSelf();
   if (!s.ok()) {
     delete (v);

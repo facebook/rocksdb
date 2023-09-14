@@ -515,7 +515,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
-  std::string& batch_value = *pinnable_val->GetSelf();
+  std::string& batch_value = *pinnable_val->GetSelf()->String();
   auto result = wbwii.GetFromBatch(this, key, &batch_value, &s);
 
   if (result == WBWIIteratorImpl::kFound) {
@@ -553,7 +553,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       }
       if (s.ok()) {
         pinnable_val->Reset();
-        *pinnable_val->GetSelf() = std::move(merge_result);
+        *pinnable_val->GetSelf()->String() = std::move(merge_result);
         pinnable_val->PinSelf();
       }
     }
@@ -604,7 +604,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
         wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
-      *pinnable_val->GetSelf() = std::move(batch_value);
+      *pinnable_val->GetSelf()->String() = std::move(batch_value);
       pinnable_val->PinSelf();
       continue;
     }
@@ -652,7 +652,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
         }
         if (key.s->ok()) {
           key.value->Reset();
-          *key.value->GetSelf() = std::move(merged_value);
+          *key.value->GetSelf()->String() = std::move(merged_value);
           key.value->PinSelf();
         }
       }

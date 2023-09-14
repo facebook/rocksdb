@@ -485,7 +485,7 @@ void GetContext::Merge(const Slice* value) {
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
-    *(pinnable_val_->GetSelf()) = std::move(result);
+    *(pinnable_val_->GetSelf()->String()) = std::move(result);
     pinnable_val_->PinSelf();
     return;
   }
@@ -515,8 +515,8 @@ void GetContext::MergeWithEntity(Slice entity) {
       // nullptr) since a failure must be propagated regardless of its value.
       const Status s = MergeHelper::TimedFullMerge(
           merge_operator_, user_key_, &value_of_default,
-          merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
-          statistics_, clock_, /* result_operand */ nullptr,
+          merge_context_->GetOperands(), pinnable_val_->GetSelf()->String(),
+          logger_, statistics_, clock_, /* result_operand */ nullptr,
           /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (!s.ok()) {

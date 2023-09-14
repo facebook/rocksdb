@@ -303,7 +303,8 @@ class Transaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* pinnable_val) {
     assert(pinnable_val != nullptr);
-    auto s = Get(options, column_family, key, pinnable_val->GetSelf());
+    auto s =
+        Get(options, column_family, key, pinnable_val->GetSelf()->String());
     pinnable_val->PinSelf();
     return s;
   }
@@ -313,7 +314,7 @@ class Transaction {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      PinnableSlice* pinnable_val) {
     assert(pinnable_val != nullptr);
-    auto s = Get(options, key, pinnable_val->GetSelf());
+    auto s = Get(options, key, pinnable_val->GetSelf()->String());
     pinnable_val->PinSelf();
     return s;
   }
@@ -401,7 +402,8 @@ class Transaction {
                           do_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,
-                            pinnable_val->GetSelf(), exclusive, do_validate);
+                            pinnable_val->GetSelf()->String(), exclusive,
+                            do_validate);
       pinnable_val->PinSelf();
       return s;
     }

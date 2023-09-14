@@ -130,6 +130,8 @@ JAVA_TESTS = \
 	org.rocksdb.CompressionOptionsTest\
 	org.rocksdb.CompressionTypesTest\
 	org.rocksdb.DBOptionsTest\
+	org.rocksdb.FFIDBTest\
+	org.rocksdb.FFIDBBulkTest\
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
@@ -329,7 +331,7 @@ clean-downloaded:
 
 javadocs: java
 	$(AM_V_GEN)mkdir -p $(JAVADOC)
-	$(AM_V_at)$(JAVADOC_CMD) -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
+	$(AM_V_at)$(JAVADOC_CMD) $(JAVADOC_ARGS) -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
 
 javalib: java java_test javadocs
 
