@@ -36,15 +36,16 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
          get_impl_options.columns != nullptr);
   assert(get_impl_options.column_family);
 
+  Status s;
+
   if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
-                                        *(read_options.timestamp),
-                                        /*ts_for_read=*/true);
+    s = FailIfTsMismatchCf(get_impl_options.column_family,
+                           *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
   } else {
-    const Status s = FailIfCfHasTs(get_impl_options.column_family);
+    s = FailIfCfHasTs(get_impl_options.column_family);
     if (!s.ok()) {
       return s;
     }
@@ -64,7 +65,6 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
   assert(ucmp);
   std::string* ts =
       ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
-  Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
@@ -80,6 +80,13 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
   // In read-only mode Get(), no super version operation is needed (i.e.
   // GetAndRefSuperVersion and ReturnAndCleanupSuperVersion)
   SuperVersion* super_version = cfd->GetSuperVersion();
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    s = FailIfReadCollapsedHistory(cfd, super_version,
+                                   *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
+  }
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
