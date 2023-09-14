@@ -2322,7 +2322,7 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // `unref_only` being set to true indicates that the SuperVersions were
+  // `sv_from_thread_local` being set to false indicates that the SuperVersions
   // obtained from the ColumnFamilyData, whereas false indicates they are thread
   // local.
   // A non-OK status will be returned if for a column family that enables
@@ -2333,7 +2333,7 @@ class DBImpl : public DB {
       const ReadOptions& read_options, ReadCallback* callback,
       std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
           iter_deref_func,
-      T* cf_list, SequenceNumber* snapshot, bool* unref_only);
+      T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
