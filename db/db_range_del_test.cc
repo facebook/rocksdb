@@ -3704,39 +3704,39 @@ TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(6));
-  iter->Refresh(snapshot);
+  ASSERT_OK(iter->Refresh(snapshot));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(4));
   // Immutable Memtable
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
-  iter->Refresh(nullptr);
+  ASSERT_OK(iter->Refresh(nullptr));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(6));
-  iter->Refresh(snapshot);
+  ASSERT_OK(iter->Refresh(snapshot));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(4));
   // L0
   ASSERT_OK(Flush());
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  iter->Refresh(nullptr);
+  ASSERT_OK(iter->Refresh(nullptr));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(6));
-  iter->Refresh(snapshot);
+  ASSERT_OK(iter->Refresh(snapshot));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(4));
   // L1
   MoveFilesToLevel(1);
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
-  iter->Refresh(nullptr);
+  ASSERT_OK(iter->Refresh(nullptr));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(6));
-  iter->Refresh(snapshot);
+  ASSERT_OK(iter->Refresh(snapshot));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(4));
@@ -3747,12 +3747,12 @@ TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   ASSERT_EQ(2, NumTableFilesAtLevel(1));
-  iter->Refresh(nullptr);
+  ASSERT_OK(iter->Refresh(nullptr));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   // LevelIterator is at the first file
   ASSERT_EQ(iter->key(), Key(2));
-  iter->Refresh(snapshot);
+  ASSERT_OK(iter->Refresh(snapshot));
   // Will enter the second file, and create a new range tombstone iterator.
   // It should use the snapshot sequence number.
   iter->SeekToFirst();
