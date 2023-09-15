@@ -1044,6 +1044,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
+        ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         if (FLAGS_use_multi_get_entity) {
           constexpr uint64_t max_batch_size = 64;
           const uint64_t batch_size = std::min(
@@ -1054,17 +1055,15 @@ void StressTest::OperateDb(ThreadState* thread) {
           assert(i + batch_size <= ops_per_open);
 
           rand_keys = GenerateNKeys(thread, static_cast<int>(batch_size), i);
-
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGETENTITY);
           TestMultiGetEntity(thread, read_opts, rand_column_families,
                              rand_keys);
-
           i += batch_size - 1;
         } else if (FLAGS_use_get_entity) {
-          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_GETENTITY);
           TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
-          ThreadStatusUtil::ResetThreadStatus();
         } else if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
           // batch. This is to ensure that each thread does exactly the same
@@ -1075,19 +1074,16 @@ void StressTest::OperateDb(ThreadState* thread) {
           // If its the last iteration, ensure that multiget_batch_size is 1
           multiget_batch_size = std::max(multiget_batch_size, 1);
           rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
-          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_MULTIGET);
           TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
-          ThreadStatusUtil::ResetThreadStatus();
           i += multiget_batch_size - 1;
         } else {
-          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_GET);
           TestGet(thread, read_opts, rand_column_families, rand_keys);
-          ThreadStatusUtil::ResetThreadStatus();
         }
+        ThreadStatusUtil::ResetThreadStatus();
       } else if (prob_op < prefix_bound) {
         assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan

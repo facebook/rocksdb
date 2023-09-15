@@ -2995,7 +2995,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     sorted_keys[i] = &key_context[i];
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
-  MultiGetWithCallback(read_options, column_family, nullptr, &sorted_keys);
+  MultiGetWithCallbackImpl(read_options, column_family, nullptr, &sorted_keys);
 }
 
 void DBImpl::MultiGetWithCallback(
@@ -3012,7 +3012,13 @@ void DBImpl::MultiGetWithCallback(
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
+  MultiGetWithCallbackImpl(read_options, column_family, callback, sorted_keys);
+}
 
+void DBImpl::MultiGetWithCallbackImpl(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    ReadCallback* callback,
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
   multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
   std::function<MultiGetColumnFamilyData*(
@@ -3198,20 +3204,54 @@ Status DBImpl::MultiGetImpl(
   return s;
 }
 
-void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
+void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             ColumnFamilyHandle** column_families,
                             const Slice* keys, PinnableWideColumns* results,
                             Status* statuses, bool sorted_input) {
-  MultiGetCommon(options, num_keys, column_families, keys, /* values */ nullptr,
-                 results, /* timestamps */ nullptr, statuses, sorted_input);
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+  MultiGetCommon(read_options, num_keys, column_families, keys,
+                 /* values */ nullptr, results, /* timestamps */ nullptr,
+                 statuses, sorted_input);
 }
 
-void DBImpl::MultiGetEntity(const ReadOptions& options,
+void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                             ColumnFamilyHandle* column_family, size_t num_keys,
                             const Slice* keys, PinnableWideColumns* results,
                             Status* statuses, bool sorted_input) {
-  MultiGetCommon(options, column_family, num_keys, keys, /* values */ nullptr,
-                 results, /* timestamps */ nullptr, statuses, sorted_input);
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+  MultiGetCommon(read_options, column_family, num_keys, keys,
+                 /* values */ nullptr, results, /* timestamps */ nullptr,
+                 statuses, sorted_input);
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
