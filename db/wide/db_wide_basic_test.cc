@@ -208,6 +208,11 @@ TEST_F(DBWideBasicTest, PutEntity) {
   ASSERT_OK(Flush());
 
   verify();
+
+  // Reopen as Readonly DB and verify
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  verify();
 }
 
 TEST_F(DBWideBasicTest, PutEntityColumnFamily) {

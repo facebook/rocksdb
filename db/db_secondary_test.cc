@@ -164,12 +164,22 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Reopen(options);
   ASSERT_OK(Put("foo", "foo_value"));
   ASSERT_OK(Put("bar", "bar_value"));
+  WideColumns columns{{kDefaultWideColumnName, "attr_default_val"},
+                      {"attr_name1", "attr_value_1"},
+                      {"attr_name2", "attr_value_2"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "baz",
+                           columns));
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
   Close();
 
   ASSERT_OK(ReopenAsSecondary(options));
   ASSERT_EQ("foo_value", Get("foo"));
   ASSERT_EQ("bar_value", Get("bar"));
+  PinnableWideColumns result;
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "baz",
+                           &result));
+  ASSERT_EQ(result.columns(), columns);
+
   ReadOptions ropts;
   ropts.verify_checksums = true;
   auto db1 = static_cast<DBImplSecondary*>(db_);
@@ -182,13 +192,16 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
       ASSERT_EQ("bar", iter->key().ToString());
       ASSERT_EQ("bar_value", iter->value().ToString());
     } else if (1 == count) {
+      ASSERT_EQ("baz", iter->key().ToString());
+      ASSERT_EQ(columns, iter->columns());
+    } else if (2 == count) {
       ASSERT_EQ("foo", iter->key().ToString());
       ASSERT_EQ("foo_value", iter->value().ToString());
     }
     ++count;
   }
   delete iter;
-  ASSERT_EQ(2, count);
+  ASSERT_EQ(3, count);
 }
 
 TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
