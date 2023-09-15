@@ -3691,6 +3691,76 @@ TEST_F(DBRangeDelTest, ReleaseSnapshotAfterIteratorCreation) {
 
   delete iter;
 }
+
+TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
+  ASSERT_OK(Put(Key(4), "4"));
+  ASSERT_OK(Put(Key(6), "6"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(3),
+                             Key(5)));
+
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  // Live Memtable
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  iter->Refresh(snapshot);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // Immutable Memtable
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  iter->Refresh(nullptr);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  iter->Refresh(snapshot);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L0
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  iter->Refresh(nullptr);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  iter->Refresh(snapshot);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L1
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  iter->Refresh(nullptr);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  iter->Refresh(snapshot);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L1 with two file.
+  // Test that when LevelIterator enters a new file,
+  // it remembers which snapshot sequence number to use.
+  ASSERT_OK(Put(Key(2), "2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  iter->Refresh(nullptr);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  // LevelIterator is at the first file
+  ASSERT_EQ(iter->key(), Key(2));
+  iter->Refresh(snapshot);
+  // Will enter the second file, and create a new range tombstone iterator.
+  // It should use the snapshot sequence number.
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  iter.reset();
+  db_->ReleaseSnapshot(snapshot);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
