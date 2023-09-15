@@ -2344,6 +2344,11 @@ class DBImpl : public DB {
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
+  void MultiGetWithCallbackImpl(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+
   Status DisableFileDeletionsWithLock();
 
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
