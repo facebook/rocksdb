@@ -305,6 +305,7 @@ struct TestHandler : public WriteBatch::Handler {
     }
     return Status::OK();
   }
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
     if (column_family_id == 0) {
@@ -506,6 +507,7 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                    const Slice& /*value*/) override {
       ADD_FAILURE();
@@ -557,6 +559,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                    const Slice& /*value*/) override {
       ADD_FAILURE();
@@ -589,6 +592,7 @@ TEST_F(WriteBatchTest, Continue) {
       ++num_seen;
       return TestHandler::SingleDeleteCF(column_family_id, key);
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       ++num_seen;

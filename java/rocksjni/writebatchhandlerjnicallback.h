@@ -31,6 +31,7 @@ class WriteBatchHandlerJniCallback : public JniCallback,
   WriteBatchHandlerJniCallback(JNIEnv* env, jobject jWriteBackHandler);
   Status PutCF(uint32_t column_family_id, const Slice& key, const Slice& value);
   void Put(const Slice& key, const Slice& value);
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value);
   void Merge(const Slice& key, const Slice& value);

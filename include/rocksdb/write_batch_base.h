@@ -55,10 +55,18 @@ class WriteBatchBase {
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& ts, const Slice& value) = 0;
 
-  // variant that takes SliceParts
   virtual Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
                        const SliceParts& value);
   virtual Status Merge(const SliceParts& key, const SliceParts& value);
+
+  // Eager variants
+  struct EagerMergeMode {};
+  static constexpr EagerMergeMode kEagerMerge{};
+
+  virtual Status Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+                       const Slice& key, const Slice& value) = 0;
+  virtual Status Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+                       const SliceParts& key, const SliceParts& value) = 0;
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   virtual Status Delete(ColumnFamilyHandle* column_family,

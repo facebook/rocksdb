@@ -215,6 +215,7 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
       return Status::OK();
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
       if (rollback_merge_operands_) {
         txn_->TrackKey(cf, key.ToString(), kMaxSequenceNumber,
@@ -319,6 +320,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
       return AddUntrackedKey(cf, key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
       if (rollback_merge_operands_) {
         return AddUntrackedKey(cf, key);
@@ -434,6 +436,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
       return wb_->SingleDelete(handles_.at(cf), key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
       return wb_->Merge(handles_.at(cf), key, value);
     }

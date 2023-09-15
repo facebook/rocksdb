@@ -393,6 +393,7 @@ Status WritePreparedTxn::RollbackInternal() {
       return Rollback(cf, key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key,
                    const Slice& /*val*/) override {
       if (rollback_merge_operands_) {

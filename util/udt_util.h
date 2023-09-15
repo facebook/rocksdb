@@ -124,6 +124,8 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
                        const Slice& end_key) override;
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override;
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t cf, const Slice& key,
+                 const Slice& value) override;
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& value) override;

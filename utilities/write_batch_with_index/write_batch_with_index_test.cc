@@ -57,6 +57,7 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
     Entry e;
@@ -2406,4 +2407,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

@@ -1090,6 +1090,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
     AddKey(cf, key);
     return Status::OK();
   }
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
     AddKey(cf, key);
     return Status::OK();

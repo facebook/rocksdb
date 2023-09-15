@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "rocksdb/utilities/debug.h"
 
 #include "db/db_impl/db_impl.h"
@@ -38,7 +37,9 @@ static std::unordered_map<std::string, ValueType> value_type_string_map = {
     {"TypeCommitXIDAndTimestamp", ValueType::kTypeCommitXIDAndTimestamp},
     {"TypeWideColumnEntity", ValueType::kTypeWideColumnEntity},
     {"TypeColumnFamilyWideColumnEntity",
-     ValueType::kTypeColumnFamilyWideColumnEntity}};
+     ValueType::kTypeColumnFamilyWideColumnEntity},
+    {"TypeEagerMerge", ValueType::kTypeEagerMerge},
+    {"TypeColumnFamilyEagerMerge", ValueType::kTypeColumnFamilyEagerMerge}};
 
 std::string KeyVersion::GetTypeName() const {
   std::string type_name;
@@ -115,4 +116,3 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

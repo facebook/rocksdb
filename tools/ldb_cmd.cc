@@ -2593,6 +2593,13 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t cf, const Slice& key,
+                 const Slice& value) override {
+    row_ << "MERGE_EAGER(" << cf << ") : ";
+    commonPutMerge(key, value);
+    return Status::OK();
+  }
+
   Status MarkNoop(bool) override {
     row_ << "NOOP ";
     return Status::OK();

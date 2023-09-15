@@ -551,6 +551,21 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return PutCF(column_family_id, key, value);
   }
 
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t column_family_id,
+                 const Slice& key_with_ts, const Slice& value) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::Merge(WriteBatchBase::kEagerMerge,
+                                       buffered_writes_.get(), column_family_id,
+                                       key, value);
+    }
+
+    return PutCF(column_family_id, key, value);
+  }
+
   Status MarkBeginPrepare(bool = false) override {
     assert(!buffered_writes_);
     buffered_writes_.reset(new WriteBatch());

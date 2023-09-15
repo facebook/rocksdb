@@ -31,6 +31,8 @@
 //    kTypeBeginUnprepareXID
 //    kTypeWideColumnEntity varstring varstring
 //    kTypeColumnFamilyWideColumnEntity varint32 varstring varstring
+//    kTypeEagerMerge varstring varstring
+//    kTypeColumnFamilyEagerMerge varint32 varstring varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -121,6 +123,12 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 
   Status MergeCF(uint32_t, const Slice&, const Slice&) override {
+    content_flags |= ContentFlags::HAS_MERGE;
+    return Status::OK();
+  }
+
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t, const Slice&,
+                 const Slice&) override {
     content_flags |= ContentFlags::HAS_MERGE;
     return Status::OK();
   }
@@ -467,6 +475,17 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch PutEntity");
       }
       break;
+    case kTypeColumnFamilyEagerMerge:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch Merge");
+      }
+      FALLTHROUGH_INTENDED;
+    case kTypeEagerMerge:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch Merge");
+      }
+      break;
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -702,6 +721,17 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         if (LIKELY(s.ok())) {
           empty_batch = false;
           ++found;
+        }
+        break;
+      case kTypeColumnFamilyEagerMerge:
+      case kTypeEagerMerge:
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
+        s = handler->MergeCF(WriteBatchBase::kEagerMerge, column_family, key,
+                             value);
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found++;
         }
         break;
       default:
@@ -1438,8 +1468,9 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
       "Cannot call this method on column family enabling timestamp");
 }
 
-Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
-                                 const Slice& key, const Slice& value) {
+Status WriteBatchInternal::MergeImpl(WriteBatch* b, uint32_t column_family_id,
+                                     const Slice& key, const Slice& value,
+                                     ValueType basic_type, ValueType cf_type) {
   if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("key is too large");
   }
@@ -1450,9 +1481,9 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->rep_.push_back(static_cast<char>(kTypeMerge));
+    b->rep_.push_back(static_cast<char>(basic_type));
   } else {
-    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
+    b->rep_.push_back(static_cast<char>(cf_type));
     PutVarint32(&b->rep_, column_family_id);
   }
   PutLengthPrefixedSlice(&b->rep_, key);
@@ -1464,14 +1495,28 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVO()`.
     b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVO(key, value, kTypeMerge)
+                                             .ProtectKVO(key, value, basic_type)
                                              .ProtectC(column_family_id));
   }
   return save.commit();
 }
 
-Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                         const Slice& value) {
+Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
+                                 const Slice& key, const Slice& value) {
+  return MergeImpl(b, column_family_id, key, value, kTypeMerge,
+                   kTypeColumnFamilyMerge);
+}
+
+Status WriteBatchInternal::Merge(WriteBatchBase::EagerMergeMode, WriteBatch* b,
+                                 uint32_t column_family_id, const Slice& key,
+                                 const Slice& value) {
+  return MergeImpl(b, column_family_id, key, value, kTypeEagerMerge,
+                   kTypeColumnFamilyEagerMerge);
+}
+
+Status WriteBatch::MergeImpl(ColumnFamilyHandle* column_family,
+                             const Slice& key, const Slice& value,
+                             ValueType basic_type, ValueType cf_type) {
   size_t ts_sz = 0;
   uint32_t cf_id = 0;
   Status s;
@@ -1485,7 +1530,8 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Merge(this, cf_id, key, value);
+    return WriteBatchInternal::MergeImpl(this, cf_id, key, value, basic_type,
+                                         cf_type);
   }
 
   needs_in_place_update_ts_ = true;
@@ -1493,8 +1539,21 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
 
-  return WriteBatchInternal::Merge(
-      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
+  return WriteBatchInternal::MergeImpl(
+      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1),
+      basic_type, cf_type);
+}
+
+Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
+                         const Slice& value) {
+  return MergeImpl(column_family, key, value, kTypeMerge,
+                   kTypeColumnFamilyMerge);
+}
+
+Status WriteBatch::Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+                         const Slice& key, const Slice& value) {
+  return MergeImpl(column_family, key, value, kTypeEagerMerge,
+                   kTypeColumnFamilyEagerMerge);
 }
 
 Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
@@ -1511,9 +1570,10 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
       this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
 }
 
-Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
-                                 const SliceParts& key,
-                                 const SliceParts& value) {
+Status WriteBatchInternal::MergeImpl(WriteBatch* b, uint32_t column_family_id,
+                                     const SliceParts& key,
+                                     const SliceParts& value,
+                                     ValueType basic_type, ValueType cf_type) {
   Status s = CheckSlicePartsLength(key, value);
   if (!s.ok()) {
     return s;
@@ -1522,9 +1582,9 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->rep_.push_back(static_cast<char>(kTypeMerge));
+    b->rep_.push_back(static_cast<char>(basic_type));
   } else {
-    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
+    b->rep_.push_back(static_cast<char>(cf_type));
     PutVarint32(&b->rep_, column_family_id);
   }
   PutLengthPrefixedSliceParts(&b->rep_, key);
@@ -1536,14 +1596,30 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVO()`.
     b->prot_info_->entries_.emplace_back(ProtectionInfo64()
-                                             .ProtectKVO(key, value, kTypeMerge)
+                                             .ProtectKVO(key, value, basic_type)
                                              .ProtectC(column_family_id));
   }
   return save.commit();
 }
 
-Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
-                         const SliceParts& key, const SliceParts& value) {
+Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
+                                 const SliceParts& key,
+                                 const SliceParts& value) {
+  return MergeImpl(b, column_family_id, key, value, kTypeMerge,
+                   kTypeColumnFamilyMerge);
+}
+
+Status WriteBatchInternal::Merge(WriteBatchBase::EagerMergeMode, WriteBatch* b,
+                                 uint32_t column_family_id,
+                                 const SliceParts& key,
+                                 const SliceParts& value) {
+  return MergeImpl(b, column_family_id, key, value, kTypeEagerMerge,
+                   kTypeColumnFamilyEagerMerge);
+}
+
+Status WriteBatch::MergeImpl(ColumnFamilyHandle* column_family,
+                             const SliceParts& key, const SliceParts& value,
+                             ValueType basic_type, ValueType cf_type) {
   size_t ts_sz = 0;
   uint32_t cf_id = 0;
   Status s;
@@ -1557,11 +1633,24 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
   }
 
   if (0 == ts_sz) {
-    return WriteBatchInternal::Merge(this, cf_id, key, value);
+    return WriteBatchInternal::MergeImpl(this, cf_id, key, value, basic_type,
+                                         cf_type);
   }
 
   return Status::InvalidArgument(
       "Cannot call this method on column family enabling timestamp");
+}
+
+Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
+                         const SliceParts& key, const SliceParts& value) {
+  return MergeImpl(column_family, key, value, kTypeMerge,
+                   kTypeColumnFamilyMerge);
+}
+
+Status WriteBatch::Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+                         const SliceParts& key, const SliceParts& value) {
+  return MergeImpl(column_family, key, value, kTypeEagerMerge,
+                   kTypeColumnFamilyEagerMerge);
 }
 
 Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
@@ -1726,6 +1815,10 @@ Status WriteBatch::VerifyChecksum() const {
       case kTypeColumnFamilyWideColumnEntity:
       case kTypeWideColumnEntity:
         tag = kTypeWideColumnEntity;
+        break;
+      case kTypeColumnFamilyEagerMerge:
+      case kTypeEagerMerge:
+        tag = kTypeEagerMerge;
         break;
       default:
         return Status::Corruption(
@@ -2421,9 +2514,100 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
+  Status AddMergeOperand(uint32_t column_family_id, const Slice& key,
+                         const Slice& value,
+                         const ProtectionInfoKVOC64* kv_prot_info) {
+    MemTable* const mem = cf_mems_->GetMemTable();
+    assert(mem);
+
+    if (kv_prot_info) {
+      auto mem_kv_prot_info =
+          kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+      return mem->Add(sequence_, kTypeMerge, key, value, &mem_kv_prot_info,
+                      concurrent_memtable_writes_, get_post_process_info(mem));
+    }
+
+    return mem->Add(sequence_, kTypeMerge, key, value,
+                    nullptr /* kv_prot_info */, concurrent_memtable_writes_,
+                    get_post_process_info(mem));
+  }
+
+  Status TryMerge(uint32_t column_family_id, const Slice& key,
+                  const Slice& value, ValueType value_type,
+                  const ProtectionInfoKVOC64* kv_prot_info) {
+    assert(!recovering_log_number_);
+
+    // 1) Get the existing value
+    std::string get_value;
+
+    // Pass in the sequence number so that we also include previous merge
+    // operations in the same batch.
+    SnapshotImpl read_from_snapshot;
+    read_from_snapshot.number_ = sequence_;
+
+    // TODO: plumb Env::IOActivity
+    ReadOptions read_options;
+    read_options.snapshot = &read_from_snapshot;
+
+    auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+    if (!cf_handle) {
+      cf_handle = db_->DefaultColumnFamily();
+    }
+
+    const Status get_status =
+        db_->Get(read_options, cf_handle, key, &get_value);
+    if (!get_status.ok()) {
+      // Failed to read a key we know exists. Store the delta in memtable.
+      return AddMergeOperand(column_family_id, key, value, kv_prot_info);
+    }
+
+    const Slice get_value_slice = Slice(get_value);
+
+    // 2) Apply this merge
+    MemTable* const mem = cf_mems_->GetMemTable();
+    assert(mem);
+
+    auto* const moptions = mem->GetImmutableMemTableOptions();
+    assert(moptions);
+
+    auto merge_operator = moptions->merge_operator;
+    assert(merge_operator);
+
+    std::string new_value;
+    // `op_failure_scope` (an output parameter) is not provided (set to
+    // nullptr) since a failure must be propagated regardless of its value.
+    const Status merge_status = MergeHelper::TimedFullMerge(
+        merge_operator, key, &get_value_slice, {value}, &new_value,
+        moptions->info_log, moptions->statistics, SystemClock::Default().get(),
+        /* result_operand */ nullptr,
+        /* update_num_ops_stats */ false,
+        /* op_failure_scope */ nullptr);
+
+    if (!merge_status.ok()) {
+      // Failed to merge!
+      // Store the delta in memtable
+      return AddMergeOperand(column_family_id, key, value, kv_prot_info);
+    }
+
+    // 3) Add value to memtable
+    assert(!concurrent_memtable_writes_);
+    if (kv_prot_info) {
+      auto merged_kv_prot_info =
+          kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+      merged_kv_prot_info.UpdateV(value, new_value);
+      merged_kv_prot_info.UpdateO(value_type, kTypeValue);
+      return mem->Add(sequence_, kTypeValue, key, new_value,
+                      &merged_kv_prot_info);
+    }
+
+    return mem->Add(sequence_, kTypeValue, key, new_value,
+                    nullptr /* kv_prot_info */);
+  }
+
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
+
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
@@ -2433,33 +2617,44 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     Status ret_status;
+
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
-        assert(!write_after_commit_);
-        // The CF is probably flushed and hence no need for insert but we still
-        // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
-        ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
-                                               column_family_id, key, value);
-        if (ret_status.ok()) {
-          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+      if (ret_status.ok()) {
+        if (rebuilding_trx_ != nullptr) {
+          assert(!write_after_commit_);
+          // The CF is probably flushed and hence no need for insert but we
+          // still need to keep track of the keys for upcoming rollback/commit.
+          // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
+          ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
+                                                 column_family_id, key, value);
+          if (ret_status.ok()) {
+            MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+          }
+        } else {
+          MaybeAdvanceSeq(false /* batch_boundary */);
         }
-      } else if (ret_status.ok()) {
-        MaybeAdvanceSeq(false /* batch_boundary */);
       }
+
       if (UNLIKELY(ret_status.IsTryAgain())) {
         DecrementProtectionInfoIdxForTryAgain();
       }
+
       return ret_status;
     }
+
     assert(ret_status.ok());
 
     MemTable* mem = cf_mems_->GetMemTable();
+    assert(mem);
+
     auto* moptions = mem->GetImmutableMemTableOptions();
+    assert(moptions);
+
     if (moptions->merge_operator == nullptr) {
       return Status::InvalidArgument(
           "Merge requires `ColumnFamilyOptions::merge_operator != nullptr`");
     }
+
     bool perform_merge = false;
     assert(!concurrent_memtable_writes_ ||
            moptions->max_successive_merges == 0);
@@ -2470,7 +2665,6 @@ class MemTableInserter : public WriteBatch::Handler {
     // So we disable merge in recovery
     if (moptions->max_successive_merges > 0 && db_ != nullptr &&
         recovering_log_number_ == 0) {
-      assert(!concurrent_memtable_writes_);
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
@@ -2483,88 +2677,20 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     if (perform_merge) {
-      // 1) Get the existing value
-      std::string get_value;
-
-      // Pass in the sequence number so that we also include previous merge
-      // operations in the same batch.
-      SnapshotImpl read_from_snapshot;
-      read_from_snapshot.number_ = sequence_;
-      // TODO: plumb Env::IOActivity
-      ReadOptions read_options;
-      read_options.snapshot = &read_from_snapshot;
-
-      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-      if (cf_handle == nullptr) {
-        cf_handle = db_->DefaultColumnFamily();
-      }
-      Status get_status = db_->Get(read_options, cf_handle, key, &get_value);
-      if (!get_status.ok()) {
-        // Failed to read a key we know exists. Store the delta in memtable.
-        perform_merge = false;
-      } else {
-        Slice get_value_slice = Slice(get_value);
-
-        // 2) Apply this merge
-        auto merge_operator = moptions->merge_operator;
-        assert(merge_operator);
-
-        std::string new_value;
-        // `op_failure_scope` (an output parameter) is not provided (set to
-        // nullptr) since a failure must be propagated regardless of its value.
-        Status merge_status = MergeHelper::TimedFullMerge(
-            merge_operator, key, &get_value_slice, {value}, &new_value,
-            moptions->info_log, moptions->statistics,
-            SystemClock::Default().get(), /* result_operand */ nullptr,
-            /* update_num_ops_stats */ false,
-            /* op_failure_scope */ nullptr);
-
-        if (!merge_status.ok()) {
-          // Failed to merge!
-          // Store the delta in memtable
-          perform_merge = false;
-        } else {
-          // 3) Add value to memtable
-          assert(!concurrent_memtable_writes_);
-          if (kv_prot_info != nullptr) {
-            auto merged_kv_prot_info =
-                kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-            merged_kv_prot_info.UpdateV(value, new_value);
-            merged_kv_prot_info.UpdateO(kTypeMerge, kTypeValue);
-            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
-                                  &merged_kv_prot_info);
-          } else {
-            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
-                                  nullptr /* kv_prot_info */);
-          }
-        }
-      }
-    }
-
-    if (!perform_merge) {
-      assert(ret_status.ok());
-      // Add merge operand to memtable
-      if (kv_prot_info != nullptr) {
-        auto mem_kv_prot_info =
-            kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-        ret_status =
-            mem->Add(sequence_, kTypeMerge, key, value, &mem_kv_prot_info,
-                     concurrent_memtable_writes_, get_post_process_info(mem));
-      } else {
-        ret_status = mem->Add(
-            sequence_, kTypeMerge, key, value, nullptr /* kv_prot_info */,
-            concurrent_memtable_writes_, get_post_process_info(mem));
-      }
+      ret_status =
+          TryMerge(column_family_id, key, value, kTypeMerge, kv_prot_info);
+    } else {
+      ret_status = AddMergeOperand(column_family_id, key, value, kv_prot_info);
     }
 
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
-      const bool kBatchBoundary = true;
-      MaybeAdvanceSeq(kBatchBoundary);
+      MaybeAdvanceSeq(true /* batch_boundary */);
     } else if (ret_status.ok()) {
       MaybeAdvanceSeq();
       CheckMemtableFull();
     }
+
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -2576,9 +2702,95 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
     }
+
     if (UNLIKELY(ret_status.IsTryAgain())) {
       DecrementProtectionInfoIdxForTryAgain();
     }
+
+    return ret_status;
+  }
+
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t column_family_id,
+                 const Slice& key, const Slice& value) override {
+    const auto* kv_prot_info = NextProtectionInfo();
+
+    // optimize for non-recovery mode
+    if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
+      return WriteBatchInternal::Merge(WriteBatchBase::kEagerMerge,
+                                       rebuilding_trx_, column_family_id, key,
+                                       value);
+      // else insert the values to the memtable right away
+    }
+
+    Status ret_status;
+
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      if (ret_status.ok()) {
+        if (rebuilding_trx_ != nullptr) {
+          assert(!write_after_commit_);
+          // The CF is probably flushed and hence no need for insert but we
+          // still need to keep track of the keys for upcoming rollback/commit.
+          // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
+          ret_status = WriteBatchInternal::Merge(WriteBatchBase::kEagerMerge,
+                                                 rebuilding_trx_,
+                                                 column_family_id, key, value);
+          if (ret_status.ok()) {
+            MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+          }
+        } else {
+          MaybeAdvanceSeq(false /* batch_boundary */);
+        }
+      }
+
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
+      }
+
+      return ret_status;
+    }
+
+    assert(ret_status.ok());
+
+    MemTable* mem = cf_mems_->GetMemTable();
+    assert(mem);
+
+    auto* moptions = mem->GetImmutableMemTableOptions();
+    assert(moptions);
+
+    if (moptions->merge_operator == nullptr) {
+      return Status::InvalidArgument(
+          "Merge requires `ColumnFamilyOptions::merge_operator != nullptr`");
+    }
+
+    ret_status =
+        TryMerge(column_family_id, key, value, kTypeEagerMerge, kv_prot_info);
+
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      assert(seq_per_batch_);
+      MaybeAdvanceSeq(true /* batch_boundary */);
+    } else if (ret_status.ok()) {
+      MaybeAdvanceSeq();
+      CheckMemtableFull();
+    }
+
+    // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
+    if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
+      assert(!write_after_commit_);
+      // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
+      ret_status = WriteBatchInternal::Merge(WriteBatchBase::kEagerMerge,
+                                             rebuilding_trx_, column_family_id,
+                                             key, value);
+    }
+
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+
     return ret_status;
   }
 
@@ -3001,6 +3213,11 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
     return UpdateProtInfo(cf, key, val, kTypeMerge);
+  }
+
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t cf, const Slice& key,
+                 const Slice& val) override {
+    return UpdateProtInfo(cf, key, val, kTypeEagerMerge);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,

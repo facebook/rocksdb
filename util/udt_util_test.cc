@@ -55,6 +55,7 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
       return AddKey(cf, end_key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
       if (value.compare(kValuePlaceHolder) != 0) {
         return Status::InvalidArgument();

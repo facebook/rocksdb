@@ -10,7 +10,6 @@
 // inserted.
 #pragma once
 
-
 #include <memory>
 #include <string>
 #include <vector>
@@ -132,6 +131,17 @@ class WriteBatchWithIndex : public WriteBatchBase {
                const Slice& /*ts*/, const Slice& /*value*/) override {
     return Status::NotSupported(
         "Merge does not support user-defined timestamp");
+  }
+
+  Status Merge(EagerMergeMode, ColumnFamilyHandle* /* column_family */,
+               const Slice& /* key */, const Slice& /* value */) override {
+    return Status::NotSupported("Eager merge not supported");
+  }
+
+  Status Merge(EagerMergeMode, ColumnFamilyHandle* /* column_family */,
+               const SliceParts& /* key */,
+               const SliceParts& /* value */) override {
+    return Status::NotSupported("Eager merge not supported");
   }
 
   using WriteBatchBase::Delete;
@@ -301,4 +311,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

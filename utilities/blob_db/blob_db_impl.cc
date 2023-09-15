@@ -995,6 +995,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                  const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");

@@ -777,6 +777,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
       return txn_->Merge(db_->GetColumnFamilyHandle(cf), key, val);
     }

@@ -37,6 +37,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+enum ValueType : unsigned char;
 class Slice;
 class ColumnFamilyHandle;
 struct SavePoints;
@@ -174,12 +175,17 @@ class WriteBatch : public WriteBatchBase {
   Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
                const Slice& /*ts*/, const Slice& /*value*/) override;
 
-  // variant that takes SliceParts
   Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
                const SliceParts& value) override;
   Status Merge(const SliceParts& key, const SliceParts& value) override {
     return Merge(nullptr, key, value);
   }
+
+  // Eager variants
+  Status Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value) override;
+  Status Merge(EagerMergeMode, ColumnFamilyHandle* column_family,
+               const SliceParts& key, const SliceParts& value) override;
 
   using WriteBatchBase::PutLogData;
   // Append a blob of arbitrary size to the records in this batch. The blob will
@@ -294,6 +300,11 @@ class WriteBatch : public WriteBatchBase {
     }
     // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual void Merge(const Slice& /*key*/, const Slice& /*value*/) {}
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
+    virtual Status MergeCF(EagerMergeMode, uint32_t /* column_family_id */,
+                           const Slice& /* key */, const Slice& /* value */) {
+      return Status::InvalidArgument("Eager mode MergeCF not implemented");
+    }
 
     // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
@@ -445,6 +456,13 @@ class WriteBatch : public WriteBatchBase {
   size_t GetProtectionBytesPerKey() const;
 
  private:
+  Status MergeImpl(ColumnFamilyHandle* column_family, const Slice& key,
+                   const Slice& value, ValueType basic_type, ValueType cf_type);
+
+  Status MergeImpl(ColumnFamilyHandle* column_family, const SliceParts& key,
+                   const SliceParts& value, ValueType basic_type,
+                   ValueType cf_type);
+
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
   // TODO(myabandeh): this is needed for a hack to collapse the write batch and

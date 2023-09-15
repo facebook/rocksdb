@@ -562,6 +562,7 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       return WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
                                      value_with_ts);
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       std::string value_with_ts;

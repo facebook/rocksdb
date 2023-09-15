@@ -213,6 +213,20 @@ Status TimestampRecoveryHandler::MergeCF(uint32_t cf, const Slice& key,
   return WriteBatchInternal::Merge(new_batch_.get(), cf, new_key, value);
 }
 
+Status TimestampRecoveryHandler::MergeCF(WriteBatchBase::EagerMergeMode,
+                                         uint32_t cf, const Slice& key,
+                                         const Slice& value) {
+  std::string new_key_buf;
+  Slice new_key;
+  Status status =
+      ReconcileTimestampDiscrepancy(cf, key, &new_key_buf, &new_key);
+  if (!status.ok()) {
+    return status;
+  }
+  return WriteBatchInternal::Merge(WriteBatchBase::kEagerMerge,
+                                   new_batch_.get(), cf, new_key, value);
+}
+
 Status TimestampRecoveryHandler::PutBlobIndexCF(uint32_t cf, const Slice& key,
                                                 const Slice& value) {
   std::string new_key_buf;

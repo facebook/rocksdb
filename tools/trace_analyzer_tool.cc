@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
@@ -1610,6 +1609,13 @@ Status TraceAnalyzer::DeleteRangeCF(uint32_t column_family_id,
 }
 
 // Handle the Merge request in the write batch of the trace
+Status TraceAnalyzer::MergeCF(WriteBatchBase::EagerMergeMode,
+                              uint32_t column_family_id, const Slice& key,
+                              const Slice& value) {
+  return OutputAnalysisResult(TraceOperationType::kMerge, write_batch_ts_,
+                              column_family_id, key, value.size());
+}
+
 Status TraceAnalyzer::MergeCF(uint32_t column_family_id, const Slice& key,
                               const Slice& value) {
   return OutputAnalysisResult(TraceOperationType::kMerge, write_batch_ts_,

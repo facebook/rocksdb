@@ -50,6 +50,11 @@ class ColumnFamilyCollector : public WriteBatch::Handler {
     return AddColumnFamilyId(column_family_id);
   }
 
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t column_family_id,
+                 const Slice&, const Slice&) override {
+    return AddColumnFamilyId(column_family_id);
+  }
+
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
                         const Slice&) override {
     return AddColumnFamilyId(column_family_id);

@@ -218,6 +218,8 @@ class TraceAnalyzer : private TraceRecord::Handler,
   using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override;
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t column_family_id,
+                 const Slice& key, const Slice& value) override;
 
   // The following hanlders are not implemented, return Status::OK() to avoid
   // the running time assertion and other irrelevant falures.
@@ -326,4 +328,3 @@ class TraceAnalyzer : private TraceRecord::Handler,
 int trace_analyzer_tool(int argc, char** argv);
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -299,6 +299,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
               std::to_string(value.size()) + ")";
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
       seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
               std::to_string(value.size()) + ")";

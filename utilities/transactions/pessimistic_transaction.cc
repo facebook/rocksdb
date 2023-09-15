@@ -897,11 +897,14 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       RecordKey(column_family_id, key);
       return Status::OK();
     }
+
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
+
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       RecordKey(column_family_id, key);
       return Status::OK();

@@ -109,11 +109,23 @@ class WriteBatchInternal {
                             const SliceParts& begin_key,
                             const SliceParts& end_key);
 
+  static Status MergeImpl(WriteBatch* batch, uint32_t column_family_id,
+                          const Slice& key, const Slice& value,
+                          ValueType basic_type, ValueType cf_type);
   static Status Merge(WriteBatch* batch, uint32_t column_family_id,
                       const Slice& key, const Slice& value);
+  static Status Merge(WriteBatchBase::EagerMergeMode, WriteBatch* batch,
+                      uint32_t column_family_id, const Slice& key,
+                      const Slice& value);
 
+  static Status MergeImpl(WriteBatch* batch, uint32_t column_family_id,
+                          const SliceParts& key, const SliceParts& value,
+                          ValueType basic_type, ValueType cf_type);
   static Status Merge(WriteBatch* batch, uint32_t column_family_id,
                       const SliceParts& key, const SliceParts& value);
+  static Status Merge(WriteBatchBase::EagerMergeMode, WriteBatch* batch,
+                      uint32_t column_family_id, const SliceParts& key,
+                      const SliceParts& value);
 
   static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
                              const Slice& key, const Slice& value);
@@ -321,6 +333,11 @@ class TimestampUpdater : public WriteBatch::Handler {
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
+    return UpdateTimestamp(cf, key);
+  }
+
+  Status MergeCF(WriteBatchBase::EagerMergeMode, uint32_t cf, const Slice& key,
+                 const Slice&) override {
     return UpdateTimestamp(cf, key);
   }
 
