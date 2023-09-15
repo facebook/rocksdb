@@ -339,40 +339,6 @@ Status DBImplSecondary::RecoverLogFiles(
   return status;
 }
 
-// Implementation of the DB interface
-Status DBImplSecondary::Get(const ReadOptions& _read_options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            PinnableSlice* value) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
-    return Status::InvalidArgument(
-        "Can only call Get with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
-  }
-  return GetImpl(read_options, column_family, key, value,
-                 /*timestamp*/ nullptr);
-}
-
-Status DBImplSecondary::Get(const ReadOptions& _read_options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            PinnableSlice* value, std::string* timestamp) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
-    return Status::InvalidArgument(
-        "Can only call Get with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
-  }
-  return GetImpl(read_options, column_family, key, value, timestamp);
-}
-
 Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 const Slice& key,
                                 GetImplOptions& get_impl_options) {

@@ -130,30 +130,6 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
-Status DBImplReadOnly::Get(const ReadOptions& read_options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* pinnable_val) {
-  return Get(read_options, column_family, key, pinnable_val,
-             /*timestamp*/ nullptr);
-}
-
-Status DBImplReadOnly::Get(const ReadOptions& _read_options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* pinnable_val,
-                           std::string* timestamp) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
-    return Status::InvalidArgument(
-        "Can only call Get with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
-  }
-  return GetImpl(read_options, column_family, key, pinnable_val, timestamp);
-}
-
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
                                       ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
