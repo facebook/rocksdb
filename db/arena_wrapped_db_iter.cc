@@ -9,7 +9,6 @@
 
 #include "db/arena_wrapped_db_iter.h"
 
-#include "db/snapshot_impl.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -22,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 inline static SequenceNumber GetSeqNum(const DBImpl* db, const Snapshot* s) {
   if (s) {
-    return static_cast_with_check<const SnapshotImpl>(s)->number_;
+    return s->GetSequenceNumber();
   } else {
     return db->GetLatestSequenceNumber();
   }
