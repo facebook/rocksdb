@@ -1775,6 +1775,64 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
   }
 }
 
+TEST_F(DBBloomFilterTest, MutatingRibbonFilterPolicy) {
+  // Test that RibbonFilterPolicy has a mutable bloom_before_level fields that
+  // can be updated through SetOptions
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  auto& stats = *options.statistics;
+  BlockBasedTableOptions table_options;
+  // First config forces Bloom filter, to establish a baseline before
+  // SetOptions().
+  table_options.filter_policy.reset(NewRibbonFilterPolicy(10, INT_MAX));
+  double expected_bpk = 10.0;
+  // Other configs to try, with approx expected bits per key
+  std::vector<std::pair<std::string, double>> configs = {{"-1", 7.0},
+                                                         {"0", 10.0}};
+
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  ASSERT_OK(TryReopen(options));
+
+  char v[] = "a";
+
+  for (;; ++(v[0])) {
+    const int maxKey = 8000;
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), v));
+    }
+    ASSERT_OK(Flush());
+
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Get(Key(i)), v);
+    }
+
+    uint64_t filter_bytes =
+        stats.getAndResetTickerCount(BLOCK_CACHE_FILTER_BYTES_INSERT);
+
+    EXPECT_NEAR(filter_bytes * 8.0 / maxKey, expected_bpk, 0.3);
+
+    if (configs.empty()) {
+      break;
+    }
+
+    ASSERT_OK(
+        db_->SetOptions({{"table_factory.filter_policy.bloom_before_level",
+                          configs.back().first}}));
+
+    // Ensure original object is mutated
+    std::string val;
+    ASSERT_OK(
+        table_options.filter_policy->GetOption({}, "bloom_before_level", &val));
+    ASSERT_EQ(configs.back().first, val);
+
+    expected_bpk = configs.back().second;
+    configs.pop_back();
+  }
+}
+
 class SliceTransformLimitedDomain : public SliceTransform {
   const char* Name() const override { return "SliceTransformLimitedDomain"; }
 

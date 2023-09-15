@@ -290,10 +290,11 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
   const char* Name() const override { return kClassName(); }
   static const char* kNickName();
   const char* NickName() const override { return kNickName(); }
+  static const char* kName();
   std::string GetId() const override;
 
  private:
-  const int bloom_before_level_;
+  std::atomic<int> bloom_before_level_;
 };
 
 // For testing only, but always constructable with internal names

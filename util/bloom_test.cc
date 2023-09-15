@@ -23,6 +23,7 @@ int main() {
 #include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
@@ -1109,12 +1110,16 @@ static void SetTestingLevel(int levelish, FilterBuildingContext* ctx) {
 TEST(RibbonTest, RibbonTestLevelThreshold) {
   BlockBasedTableOptions opts;
   FilterBuildingContext ctx(opts);
+
+  std::shared_ptr<FilterPolicy> reused{NewRibbonFilterPolicy(10)};
+
   // A few settings
   for (CompactionStyle cs : {kCompactionStyleLevel, kCompactionStyleUniversal,
                              kCompactionStyleFIFO, kCompactionStyleNone}) {
     ctx.compaction_style = cs;
-    for (int bloom_before_level : {-1, 0, 1, 10}) {
-      std::vector<std::unique_ptr<const FilterPolicy> > policies;
+    for (int bloom_before_level : {-1, 0, 1, 10, INT_MAX - 1, INT_MAX}) {
+      SCOPED_TRACE("bloom_before_level=" + std::to_string(bloom_before_level));
+      std::vector<std::shared_ptr<FilterPolicy> > policies;
       policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
 
       if (bloom_before_level == 0) {
@@ -1122,16 +1127,22 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
         policies.emplace_back(NewRibbonFilterPolicy(10));
       }
 
-      for (std::unique_ptr<const FilterPolicy>& policy : policies) {
-        // Claim to be generating filter for this level
-        SetTestingLevel(bloom_before_level, &ctx);
+      ASSERT_OK(reused->ConfigureOption({}, "bloom_before_level",
+                                        std::to_string(bloom_before_level)));
 
-        std::unique_ptr<FilterBitsBuilder> builder{
-            policy->GetBuilderWithContext(ctx)};
+      policies.push_back(reused);
 
-        // Must be Ribbon (more space efficient than 10 bits per key)
-        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+      for (auto& policy : policies) {
+        std::unique_ptr<FilterBitsBuilder> builder;
+        if (bloom_before_level < INT_MAX) {
+          // Claim to be generating filter for this level
+          SetTestingLevel(bloom_before_level, &ctx);
 
+          builder.reset(policy->GetBuilderWithContext(ctx));
+
+          // Must be Ribbon (more space efficient than 10 bits per key)
+          ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        }
         if (bloom_before_level >= 0) {
           // Claim to be generating filter for previous level
           SetTestingLevel(bloom_before_level - 1, &ctx);
@@ -1140,6 +1151,10 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 
           if (cs == kCompactionStyleLevel || cs == kCompactionStyleUniversal) {
             // Level is considered.
+            // Must be Bloom (~ 10 bits per key)
+            ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+          } else if (bloom_before_level == INT_MAX) {
+            // Force bloom option
             // Must be Bloom (~ 10 bits per key)
             ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
           } else {
@@ -1155,8 +1170,14 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 
         builder.reset(policy->GetBuilderWithContext(ctx));
 
-        // Must be Ribbon (more space efficient than 10 bits per key)
-        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        if (bloom_before_level < INT_MAX) {
+          // Must be Ribbon (more space efficient than 10 bits per key)
+          ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        } else {
+          // Force bloom option
+          // Must be Bloom (~ 10 bits per key)
+          ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+        }
       }
     }
   }
