@@ -2082,6 +2082,7 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
 
     int buff_count_with_tuning = 0, buff_count_without_tuning = 0;
     int keys_with_tuning = 0, keys_without_tuning = 0;
+    int reseek_keys_with_tuning = 0, reseek_keys_without_tuning = 0;
     buff_prefetch_count = 0;
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -2102,48 +2103,92 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
       ropts.async_io = true;
     }
 
-    Slice ub = Slice("my_key_uuu");
-    ropts.iterate_upper_bound = &ub;
-    Slice seek_key = Slice("my_key_aaa");
-
     // With tuning readahead_size.
     {
       ASSERT_OK(options.statistics->Reset());
+      Slice ub = Slice("my_key_uuu");
+      Slice* ub_ptr = &ub;
+      ropts.iterate_upper_bound = ub_ptr;
       ropts.auto_readahead_size = true;
 
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
 
-      iter->Seek(seek_key);
+      // Seek.
+      {
+        Slice seek_key = Slice("my_key_aaa");
+        iter->Seek(seek_key);
 
-      while (iter->Valid()) {
-        keys_with_tuning++;
-        iter->Next();
+        while (iter->Valid()) {
+          keys_with_tuning++;
+          iter->Next();
+        }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+        buff_count_with_tuning = buff_prefetch_count;
       }
 
-      uint64_t readhahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_GT(readhahead_trimmed, 0);
-      buff_count_with_tuning = buff_prefetch_count;
+      // Reseek with new upper_bound_iterator.
+      {
+        ub = Slice("my_key_y");
+        Slice reseek_key = Slice("my_key_v");
+        iter->Seek(reseek_key);
+
+        while (iter->Valid()) {
+          iter->Next();
+          reseek_keys_with_tuning++;
+        }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+        ASSERT_GT(reseek_keys_with_tuning, 0);
+      }
     }
 
     // Without tuning readahead_size
     {
+      Slice ub = Slice("my_key_uuu");
+      Slice* ub_ptr = &ub;
+      ropts.iterate_upper_bound = ub_ptr;
       buff_prefetch_count = 0;
       ASSERT_OK(options.statistics->Reset());
       ropts.auto_readahead_size = false;
 
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
 
-      iter->Seek(seek_key);
+      // Seek.
+      {
+        Slice seek_key = Slice("my_key_aaa");
+        iter->Seek(seek_key);
 
-      while (iter->Valid()) {
-        keys_without_tuning++;
-        iter->Next();
+        while (iter->Valid()) {
+          keys_without_tuning++;
+          iter->Next();
+        }
+        buff_count_without_tuning = buff_prefetch_count;
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_EQ(readahead_trimmed, 0);
       }
-      buff_count_without_tuning = buff_prefetch_count;
-      uint64_t readhahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_EQ(readhahead_trimmed, 0);
+
+      // Reseek with new upper_bound_iterator.
+      {
+        ub = Slice("my_key_y");
+        Slice reseek_key = Slice("my_key_v");
+        iter->Seek(reseek_key);
+
+        while (iter->Valid()) {
+          iter->Next();
+          reseek_keys_without_tuning++;
+        }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_EQ(readahead_trimmed, 0);
+        ASSERT_GT(reseek_keys_without_tuning, 0);
+      }
     }
 
     {
@@ -2159,6 +2204,8 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
       ASSERT_GT(buff_count_with_tuning, 0);
       // No of keys should be equal.
       ASSERT_EQ(keys_without_tuning, keys_with_tuning);
+      // No of keys after reseek with new upper bound should be equal.
+      ASSERT_EQ(reseek_keys_without_tuning, reseek_keys_with_tuning);
     }
     Close();
   }

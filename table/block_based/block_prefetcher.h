@@ -55,6 +55,11 @@ class BlockPrefetcher {
 
   void SetUpperBoundOffset(uint64_t upper_bound_offset) {
     upper_bound_offset_ = upper_bound_offset;
+    if (prefetch_buffer() != nullptr) {
+      // Upper bound can be changed on reseek. So update that in
+      // FilePrefetchBuffer.
+      prefetch_buffer()->ResetUpperBoundOffset(upper_bound_offset);
+    }
   }
 
  private:
