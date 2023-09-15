@@ -187,7 +187,7 @@ class CompactionJob {
   // REQUIRED: mutex held
   // Add compaction input/output to the current version
   // Releases compaction file through Compaction::ReleaseCompactionFiles().
-  // Sets *compaction_released to true of compaction is released.
+  // Sets *compaction_released to true if compaction is released.
   Status Install(const MutableCFOptions& mutable_cf_options,
                  bool* compaction_released);
 

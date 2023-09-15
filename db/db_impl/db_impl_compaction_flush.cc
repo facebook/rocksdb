@@ -3492,7 +3492,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           ++unscheduled_compactions_;
 
           c.reset();
-          assert(c == nullptr);
           // Don't need to sleep here, because BackgroundCallCompaction
           // will sleep if !s.ok()
           status = Status::CompactionTooLarge();
@@ -3758,7 +3757,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 #endif
     }
 
-    // TODO: add some debug checking that compaction is indeed released
     *made_progress = true;
 
     // Need to make sure SstFileManager does its bookkeeping
