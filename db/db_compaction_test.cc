@@ -10167,12 +10167,7 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   ASSERT_EQ(NumTableFilesAtLevel(3), 3);
 
   SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::LogAndApply:WriteManifestStart", [&](void*) {
-        TEST_SYNC_POINT("Wait for all threads to enter LogAndApply");
-      });
-
-  std::atomic_int count;
+  std::atomic_int count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
         int c = count.fetch_add(1);
@@ -10180,11 +10175,9 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
           TEST_SYNC_POINT("all threads to enter LogAndApply");
         }
       });
-
   SyncPoint::GetInstance()->LoadDependency(
       {{"all threads to enter LogAndApply",
-        "Wait for all threads to enter LogAndApply"}});
-
+        "VersionSet::LogAndApply:WriteManifestStart"}});
   // Verify that compactions are released after writing to MANIFEST
   std::atomic_int after_compact_count = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -10196,8 +10189,8 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
               cfd->compaction_picker()->compactions_in_progress()->empty());
         }
       });
-
   SyncPoint::GetInstance()->EnableProcessing();
+
   std::vector<std::thread> threads;
   threads.emplace_back(std::thread([&]() {
     std::string k1_str = Key(1);
