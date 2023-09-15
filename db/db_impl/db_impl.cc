@@ -1448,12 +1448,13 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                 cfd->SetNextEpochNumber(newFiles.begin()->second.epoch_number);
               }
 
-              // do consistency check by comparing the replicated epoch number against
-              // inferred epoch number
+              // do consistency check by comparing the replicated epoch number
+              // against inferred epoch number No need to
+              // `reset_next_epoch_number` here since we have already done it
               s = InferEpochNumber(&e, cfd, info,
                                    false /* reset_next_epoch_number */);
               if (s.ok() && info->mismatched_epoch_num > 0) {
-                s = Status::Corruption("epoch number consistency check fails");
+                s = Status::Poison("epoch number consistency check fails");
               }
               if (!s.ok()) {
                 break;
