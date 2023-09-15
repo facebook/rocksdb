@@ -2395,11 +2395,11 @@ std::vector<Status> DBImpl::MultiGet(
                  cf_iter) { return &cf_iter->second; };
 
   SequenceNumber consistent_seqnum;
-  bool unref_only;
+  bool sv_from_thread_local;
   Status status =
       MultiCFSnapshot<UnorderedMap<uint32_t, MultiGetColumnFamilyData>>(
           read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-          &consistent_seqnum, &unref_only);
+          &consistent_seqnum, &sv_from_thread_local);
 
   if (!status.ok()) {
     for (auto& s : stat_list) {
@@ -2521,10 +2521,11 @@ std::vector<Status> DBImpl::MultiGet(
 
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    if (!unref_only) {
+    if (sv_from_thread_local) {
       ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
     } else {
-      mgd.cfd->GetSuperVersion()->Unref();
+      TEST_SYNC_POINT("DBImpl::MultiGet::BeforeLastTryUnRefSV");
+      CleanupSuperVersion(mgd.super_version);
     }
   }
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
@@ -2543,16 +2544,16 @@ Status DBImpl::MultiCFSnapshot(
     const ReadOptions& read_options, ReadCallback* callback,
     std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
         iter_deref_func,
-    T* cf_list, SequenceNumber* snapshot, bool* unref_only) {
+    T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  assert(unref_only);
-  *unref_only = false;
+  assert(sv_from_thread_local);
+  *sv_from_thread_local = true;
   Status s = Status::OK();
   const bool check_read_ts =
       read_options.timestamp && read_options.timestamp->size() > 0;
-  // unref_only set to true means the SuperVersion to be cleaned up is acquired
-  // directly via ColumnFamilyData instead of thread local.
+  // sv_from_thread_local set to false means the SuperVersion to be cleaned up
+  // is acquired directly via ColumnFamilyData instead of thread local.
   const auto sv_cleanup_func = [&]() -> void {
     for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
          ++cf_iter) {
@@ -2560,10 +2561,10 @@ Status DBImpl::MultiCFSnapshot(
       SuperVersion* super_version = node->super_version;
       ColumnFamilyData* cfd = node->cfd;
       if (super_version != nullptr) {
-        if (*unref_only) {
-          super_version->Unref();
-        } else {
+        if (*sv_from_thread_local) {
           ReturnAndCleanupSuperVersion(cfd, super_version);
+        } else {
+          CleanupSuperVersion(super_version);
         }
       }
       node->super_version = nullptr;
@@ -2679,6 +2680,7 @@ Status DBImpl::MultiCFSnapshot(
       if (!retry) {
         if (last_try) {
           mutex_.Unlock();
+          TEST_SYNC_POINT("DBImpl::MultiGet::AfterLastTryRefSV");
         }
         break;
       }
@@ -2687,7 +2689,7 @@ Status DBImpl::MultiCFSnapshot(
 
   // Keep track of bytes that we read for statistics-recording later
   PERF_TIMER_STOP(get_snapshot_time);
-  *unref_only = last_try;
+  *sv_from_thread_local = !last_try;
   if (!s.ok()) {
     sv_cleanup_func();
   }
@@ -2824,11 +2826,11 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
           };
 
   SequenceNumber consistent_seqnum;
-  bool unref_only;
+  bool sv_from_thread_local;
   Status s = MultiCFSnapshot<
       autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>(
       read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum, &unref_only);
+      &consistent_seqnum, &sv_from_thread_local);
 
   if (!s.ok()) {
     for (size_t i = 0; i < num_keys; ++i) {
@@ -2866,10 +2868,11 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   }
 
   for (const auto& iter : multiget_cf_data) {
-    if (!unref_only) {
+    if (sv_from_thread_local) {
       ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
-      iter.cfd->GetSuperVersion()->Unref();
+      TEST_SYNC_POINT("DBImpl::MultiGet::BeforeLastTryUnRefSV");
+      CleanupSuperVersion(iter.super_version);
     }
   }
 }
@@ -3021,18 +3024,18 @@ void DBImpl::MultiGetWithCallback(
 
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum;
-  bool unref_only;
+  bool sv_from_thread_local;
   Status s = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
       read_options, callback, iter_deref_lambda, &multiget_cf_data,
-      &consistent_seqnum, &unref_only);
+      &consistent_seqnum, &sv_from_thread_local);
   if (!s.ok()) {
     return;
   }
 #ifndef NDEBUG
-  assert(!unref_only);
+  assert(sv_from_thread_local);
 #else
   // Silence unused variable warning
-  (void)unref_only;
+  (void)sv_from_thread_local;
 #endif  // NDEBUG
 
   if (callback && read_options.snapshot == nullptr) {
