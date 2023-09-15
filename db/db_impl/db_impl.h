@@ -2322,8 +2322,8 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // `sv_from_thread_local` being set to false indicates that the SuperVersions
-  // obtained from the ColumnFamilyData, whereas false indicates they are thread
+  // `sv_from_thread_local` being set to false indicates that the SuperVersion
+  // obtained from the ColumnFamilyData, whereas true indicates they are thread
   // local.
   // A non-OK status will be returned if for a column family that enables
   // user-defined timestamp feature, the specified `ReadOptions.timestamp`
