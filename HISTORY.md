@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.5 (09/15/2023)
+### Bug Fixes
+* Fixed a bug where `rocksdb.file.read.verify.file.checksums.micros` is not populated.
+
 ## 8.6.4 (09/13/2023)
 ### Public API changes
 * Add a column family option `default_temperature` that is used for file reading accounting purpose, such as io statistics, for files that don't have an explicitly set temperature.
