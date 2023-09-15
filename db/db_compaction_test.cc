@@ -10129,115 +10129,68 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   Random rnd(301);
 
   // Construct the following LSM
-  // L1:           [K10-K11]
-  // L2:  [K1-K2]  [K10]          [k100-k101]
-  // L3: [K1]                     [k100]
+  // L2:  [K1-K2]  [K10-K11]      [k100-k101]
+  // L3:  [K1]     [K10]          [k100]
   // We will have 3 threads to run 3 manual compactions.
-  // T0 runs CompactRange(K100, K101)
-  // T1 runs CompactRange(K1, K2)
-  // T2 runs CompactRange(K10, K11)
-  // T1 and T2 will wait for T0 to write to MANIFEST and will be in
-  // same write group.
-  //
-  // A rough timeline of events:
-  // - T0 enters LogAndApply() to write compaction result to manifest
-  // - T0 unlocks mutex when writing to manifest
-  // - T1 starts compaction
-  // - T1 enters LogAndApply(), becomes leader of the next write group,
-  //   and waits for T0 to finish
-  // - T2 starts compaction
-  // - T2 enters LogAndApply(), joins T1's write group, wait for T1 to
-  // finish
-  // - Now T0 resumes, finishes compaction
-  // - T1, T2 groups commits their manifest writes, new version creation,
-  //   and finish compaction
-  //
-  // We check that when T1 and T2 finishes LogAndApply(), they are
-  // unregistered and that CompactionPicker::compactions_in_progress_ is
-  // empty.
+  // The first thread that writes to MANIFEST will not finish
+  // until the next two threads enters LogAndApply() and form
+  // a write group.
+  // We check that compactions are all released after the first
+  // thread from the write group finishes writing to MANIFEST.
 
-  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(3);
+  // L3
   ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
   ASSERT_OK(Flush());
   MoveFilesToLevel(3);
-
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  // L2
   ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
   ASSERT_OK(Put(Key(101), rnd.RandomString(20)));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
   ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
   ASSERT_OK(Put(Key(2), rnd.RandomString(20)));
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
-
   ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
   ASSERT_OK(Put(Key(11), rnd.RandomString(20)));
   ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
+  MoveFilesToLevel(2);
 
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 3);
-  ASSERT_EQ(NumTableFilesAtLevel(3), 2);
-
-  // Assign thread id to facilitate sync point dependencies.
-  std::atomic<int> cnt{0};
-  const auto get_thread_id = [&cnt]() {
-    thread_local int thread_id{cnt++};
-    return thread_id;
-  };
+  ASSERT_EQ(NumTableFilesAtLevel(3), 3);
 
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifestStart", [&](void*) {
-        int thread_id = get_thread_id();
-        if (thread_id == 0) {
-          // T1 starts after this sync point and enters LogAndApply()
-          TEST_SYNC_POINT(
-              "ReleaseCompactionDuringManifestWrite::T0::WriteManifest:0");
-
-          // This sync point waits for T2 to enter LogAndApply()
-          TEST_SYNC_POINT(
-              "ReleaseCompactionDuringManifestWrite::T0::WriteManifest:1");
-        }
+        TEST_SYNC_POINT("Wait for all threads to enter LogAndApply");
       });
 
+  std::atomic_int count;
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
-        int thread_id = get_thread_id();
-        if (thread_id == 1) {
-          // T2 starts after this sync point and joins group commit lead by
-          // T1
-          TEST_SYNC_POINT(
-              "ReleaseCompactionDuringManifestWrite::T1::"
-              "BeforeWriterWaiting::"
-              "0");
-        } else if (thread_id == 2) {
-          TEST_SYNC_POINT(
-              "ReleaseCompactionDuringManifestWrite::T2::"
-              "BeforeWriterWaiting::"
-              "0");
-          // Now T0 can continue
+        int c = count.fetch_add(1);
+        if (c == 2) {
+          TEST_SYNC_POINT("all threads to enter LogAndApply");
         }
       });
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"ReleaseCompactionDuringManifestWrite::T0::WriteManifest:0",
-        "ReleaseCompactionDuringManifestWrite::T1::Start"},
-       {"ReleaseCompactionDuringManifestWrite::T1::BeforeWriterWaiting::0",
-        "ReleaseCompactionDuringManifestWrite::T2::Start"},
-       {"ReleaseCompactionDuringManifestWrite::T2::BeforeWriterWaiting::0",
-        "ReleaseCompactionDuringManifestWrite::T0::WriteManifest:1"}});
+      {{"all threads to enter LogAndApply",
+        "Wait for all threads to enter LogAndApply"}});
 
   // Verify that compactions are released after writing to MANIFEST
+  std::atomic_int after_compact_count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* ptr) {
-        int thread_id = get_thread_id();
-        if (thread_id != 0) {
+        int c = after_compact_count.fetch_add(1);
+        if (c > 0) {
           ColumnFamilyData* cfd = (ColumnFamilyData*)(ptr);
           ASSERT_TRUE(
               cfd->compaction_picker()->compactions_in_progress()->empty());
@@ -10247,27 +10200,19 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<std::thread> threads;
   threads.emplace_back(std::thread([&]() {
-    // T1
     std::string k1_str = Key(1);
     std::string k2_str = Key(2);
     Slice k1 = k1_str;
     Slice k2 = k2_str;
-
-    // Should wait after T0 write manifest
-    TEST_SYNC_POINT("ReleaseCompactionDuringManifestWrite::T1::Start");
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
   }));
   threads.emplace_back(std::thread([&]() {
-    // T2
     std::string k10_str = Key(10);
     std::string k11_str = Key(11);
     Slice k10 = k10_str;
     Slice k11 = k11_str;
-    TEST_SYNC_POINT("ReleaseCompactionDuringManifestWrite::T2::Start");
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
   }));
-
-  // T0
   std::string k100_str = Key(100);
   std::string k101_str = Key(101);
   Slice k100 = k100_str;
