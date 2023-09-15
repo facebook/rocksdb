@@ -535,7 +535,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback, this, cfd,
-      expose_blob_index, read_options.snapshot ? false : allow_refresh);
+      expose_blob_index, allow_refresh);
   auto internal_iter = NewInternalIterator(
       db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
       snapshot, /* allow_unprepared_value */ true, db_iter);

@@ -1345,6 +1345,14 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     const bool support_seek_first_or_last = expect_total_order;
 
+    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0 /* write committed */) &&
+        thread->rand.OneIn(4)) {
+      Status s = iter->Refresh(snapshot_guard.snapshot());
+      assert(s.ok());
+      op_logs += "Refresh ";
+    }
+
     LastIterateOp last_op;
     if (support_seek_first_or_last && thread->rand.OneIn(100)) {
       iter->SeekToFirst();

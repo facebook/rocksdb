@@ -30,6 +30,11 @@ class IteratorWrapperBase {
   }
   ~IteratorWrapperBase() {}
   InternalIteratorBase<TValue>* iter() const { return iter_; }
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) {
+    if (iter_) {
+      iter_->SetRangeDelReadSeqno(read_seqno);
+    }
+  }
 
   // Set the underlying Iterator to _iter and return
   // previous underlying Iterator.

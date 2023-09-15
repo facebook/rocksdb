@@ -2421,32 +2421,92 @@ TEST_P(DBIteratorTest, Refresh) {
 }
 
 TEST_P(DBIteratorTest, RefreshWithSnapshot) {
-  ASSERT_OK(Put("x", "y"));
+  // L1 file, uses LevelIterator internally
+  ASSERT_OK(Put(Key(0), "val0"));
+  ASSERT_OK(Put(Key(5), "val5"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // L0 file, uses table iterator internally
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(4), "val4"));
+  ASSERT_OK(Flush());
+
+  // Memtable
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
   const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(Key(2), "new val"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
+                             Key(7)));
+  const Snapshot* snapshot2 = db_->GetSnapshot();
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
   ReadOptions options;
   options.snapshot = snapshot;
   Iterator* iter = NewIterator(options);
+  ASSERT_OK(Put(Key(6), "val6"));
   ASSERT_OK(iter->status());
 
-  iter->Seek(Slice("a"));
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
+  auto verify_iter = [&](int start, int end, bool new_key2 = false) {
+    for (int i = start; i < end; ++i) {
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), Key(i));
+      if (i == 2 && new_key2) {
+        ASSERT_EQ(iter->value(), "new val");
+      } else {
+        ASSERT_EQ(iter->value(), "val" + std::to_string(i));
+      }
+      iter->Next();
+    }
+  };
 
-  ASSERT_OK(Put("c", "d"));
+  for (int j = 0; j < 2; j++) {
+    iter->Seek(Key(1));
+    verify_iter(1, 3);
+    // Refresh to same snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    iter->Seek(Key(3));
+    verify_iter(3, 6);
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
 
-  iter->Seek(Slice("a"));
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
+    // Refresh to a newer snapshot
+    ASSERT_OK(iter->Refresh(snapshot2));
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    iter->SeekToFirst();
+    verify_iter(0, 4, /*new_key2=*/true);
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
 
-  ASSERT_OK(iter->status());
-  Status s = iter->Refresh();
-  ASSERT_TRUE(s.IsNotSupported());
-  db_->ReleaseSnapshot(snapshot);
+    // Refresh to an older snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    iter->Seek(Key(3));
+    verify_iter(3, 6);
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+
+    // Refresh to no snapshot
+    ASSERT_OK(iter->Refresh());
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    iter->Seek(Key(2));
+    verify_iter(2, 4, /*new_key2=*/true);
+    verify_iter(6, 7);
+    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+
+    // Change LSM shape, new SuperVersion is created.
+    ASSERT_OK(Flush());
+
+    // Refresh back to original snapshot
+    ASSERT_OK(iter->Refresh(snapshot));
+  }
+
   delete iter;
+  db_->ReleaseSnapshot(snapshot);
+  db_->ReleaseSnapshot(snapshot2);
+  ASSERT_OK(db_->Close());
 }
 
 TEST_P(DBIteratorTest, CreationFailure) {
