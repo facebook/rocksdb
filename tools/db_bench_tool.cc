@@ -718,9 +718,9 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_int32(compaction_readahead_size,
-             ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
-             "Compaction readahead size");
+DEFINE_uint64(compaction_readahead_size,
+              ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
+              "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
