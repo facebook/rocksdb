@@ -86,6 +86,7 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
+    assert(sv->version_number >= cur_sv_number);
     SequenceNumber read_seq = GetSeqNum(db_impl_, snapshot);
     if (read_callback_) {
       read_callback_->Refresh(read_seq);
@@ -93,7 +94,7 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
     Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
          sv->current, read_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
+         sv->version_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
          allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
