@@ -60,24 +60,6 @@ void AppendVarint64(IterKey* key, uint64_t v) {
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
 
-// Get the sequence number for row cache key
-uint64_t GetSequenceNumber(const ReadOptions& options, const FileDescriptor& fd,
-                           const Slice& internal_key, GetContext* get_context) {
-  uint64_t seq_no = 0;
-
-  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
-  if (options.snapshot != nullptr &&
-      (get_context->has_callback() ||
-       static_cast_with_check<const SnapshotImpl>(options.snapshot)
-               ->GetSequenceNumber() <= fd.largest_seqno)) {
-    // We should consider to use options.snapshot->GetSequenceNumber()
-    // instead of GetInternalKeySeqno(k), which will make the code
-    // easier to understand.
-    seq_no = 1 + GetInternalKeySeqno(internal_key);
-  }
-
-  return seq_no;
-}
 
 }  // anonymous namespace
 
@@ -367,29 +349,43 @@ Status TableCache::GetRangeTombstoneIterator(
   return s;
 }
 
-void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
-                                         const FileDescriptor& fd,
-                                         const Slice& internal_key,
-                                         GetContext* get_context,
-                                         IterKey& row_cache_key) {
+uint64_t TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
+                                             const FileDescriptor& fd,
+                                             const Slice& internal_key,
+                                             GetContext* get_context,
+                                             IterKey& row_cache_key) {
   uint64_t fd_number = fd.GetNumber();
   // We use the user key as cache key instead of the internal key,
   // otherwise the whole cache would be invalidated every time the
   // sequence key increases. However, to support caching snapshot
-  // reads, we append the sequence number (incremented by 1 to
-  // distinguish from 0) only in this case.
+  // reads, we append a sequence number (incremented by 1 to
+  // distinguish from 0) other than internal_key seq no
+  // to determine row cache entry visibility.
   // If the snapshot is larger than the largest seqno in the file,
   // all data should be exposed to the snapshot, so we treat it
   // the same as there is no snapshot. The exception is that if
   // a seq-checking callback is registered, some internal keys
   // may still be filtered out.
-  uint64_t seq_no = GetSequenceNumber(options, fd, internal_key, get_context);
+  uint64_t cache_entry_seq_no = 0;
+
+  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
+  if (options.snapshot != nullptr &&
+      (get_context->has_callback() ||
+       static_cast_with_check<const SnapshotImpl>(options.snapshot)
+               ->GetSequenceNumber() <= fd.largest_seqno)) {
+    // We should consider to use options.snapshot->GetSequenceNumber()
+    // instead of GetInternalKeySeqno(k), which will make the code
+    // easier to understand.
+    cache_entry_seq_no = 1 + GetInternalKeySeqno(internal_key);
+  }
 
   // Compute row cache key.
   row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
                            row_cache_id_.size());
   AppendVarint64(&row_cache_key, fd_number);
-  AppendVarint64(&row_cache_key, seq_no);
+  AppendVarint64(&row_cache_key, cache_entry_seq_no);
+
+  return cache_entry_seq_no;
 }
 
 bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
@@ -441,10 +437,11 @@ Status TableCache::Get(
   // Reuse row_cache_key sequence number when row cache hits.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
     auto user_key = ExtractUserKey(k);
-    CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
-    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
-                           get_context,
-                           GetSequenceNumber(options, fd, k, get_context));
+    uint64_t cache_entry_seq_no =
+        CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
+    done = GetFromRowCache(
+        user_key, row_cache_key, row_cache_key.Size(), get_context,
+        cache_entry_seq_no == 0 ? 0 : cache_entry_seq_no - 1);
     if (!done) {
       row_cache_entry = &row_cache_entry_buffer;
     }
