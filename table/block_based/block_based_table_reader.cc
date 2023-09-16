@@ -1345,8 +1345,9 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block, BlockContents&& block_contents,
-    CompressionType block_comp_type,
+    CachableEntry<TBlocklike>* out_parsed_block,
+    BlockContents&& uncompressed_block_contents,
+    BlockContents&& compressed_block_contents, CompressionType block_comp_type,
     const UncompressionDict& uncompression_dict,
     MemoryAllocator* memory_allocator, GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -1358,23 +1359,22 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
   Statistics* statistics = ioptions.stats;
 
   std::unique_ptr<TBlocklike> block_holder;
-  if (block_comp_type != kNoCompression) {
+  if (block_comp_type != kNoCompression &&
+      uncompressed_block_contents.data.empty()) {
+    assert(compressed_block_contents.data.data());
     // Retrieve the uncompressed contents into a new buffer
-    BlockContents uncompressed_block_contents;
     UncompressionContext context(block_comp_type);
     UncompressionInfo info(context, uncompression_dict, block_comp_type);
-    s = UncompressBlockData(info, block_contents.data.data(),
-                            block_contents.data.size(),
+    s = UncompressBlockData(info, compressed_block_contents.data.data(),
+                            compressed_block_contents.data.size(),
                             &uncompressed_block_contents, format_version,
                             ioptions, memory_allocator);
     if (!s.ok()) {
       return s;
     }
-    rep_->create_context.Create(&block_holder,
-                                std::move(uncompressed_block_contents));
-  } else {
-    rep_->create_context.Create(&block_holder, std::move(block_contents));
   }
+  rep_->create_context.Create(&block_holder,
+                              std::move(uncompressed_block_contents));
 
   // insert into uncompressed block cache
   if (block_cache && block_holder->own_bytes()) {
@@ -1383,7 +1383,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     s = block_cache.InsertFull(cache_key, block_holder.get(), charge,
                                &cache_handle, GetCachePriority<TBlocklike>(),
                                rep_->ioptions.lowest_used_cache_tier,
-                               block_contents.data, block_comp_type);
+                               compressed_block_contents.data, block_comp_type);
 
     if (s.ok()) {
       assert(cache_handle != nullptr);
@@ -1536,10 +1536,12 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           rep_->blocks_maybe_compressed;
       // This flag, if true, tells BlockFetcher to return the uncompressed
       // block when ReadBlockContents() is called.
-      const bool do_uncompress = !rep_->uncompress_in_reader;
+      const bool do_uncompress = maybe_compressed;
       CompressionType contents_comp_type;
       // Maybe serialized or uncompressed
       BlockContents tmp_contents;
+      BlockContents uncomp_contents;
+      BlockContents comp_contents;
       if (!contents) {
         Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
                                               : READ_BLOCK_GET_MICROS;
@@ -1571,8 +1573,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           s = block_fetcher.ReadBlockContents();
         }
 
-        contents_comp_type = block_fetcher.get_compression_type();
-        contents = &tmp_contents;
+        contents_comp_type = block_fetcher.get_raw_compression_type();
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
@@ -1586,17 +1587,43 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
               break;
           }
         }
+        if (s.ok()) {
+          if (do_uncompress && contents_comp_type != kNoCompression) {
+            comp_contents = BlockContents(block_fetcher.GetCompressedBlock());
+            uncomp_contents = std::move(tmp_contents);
+          } else if (contents_comp_type != kNoCompression) {
+            // do_uncompress must be false, so output of BlockFetcher is
+            // compressed
+            comp_contents = std::move(tmp_contents);
+          } else {
+            uncomp_contents = std::move(tmp_contents);
+          }
+
+          // If filling cache is allowed and a cache is configured, try to put
+          // the block to the cache. Do this here while block_fetcher is in
+          // scope, since comp_contents will be a reference to the compressed
+          // block in block_fetcher
+          s = PutDataBlockToCache(
+              key, block_cache, out_parsed_block, std::move(uncomp_contents),
+              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              GetMemoryAllocator(rep_->table_options), get_context);
+        }
       } else {
         contents_comp_type = GetBlockCompressionType(*contents);
-      }
+        if (contents_comp_type != kNoCompression) {
+          comp_contents = std::move(*contents);
+        } else {
+          uncomp_contents = std::move(*contents);
+        }
 
-      if (s.ok()) {
-        // If filling cache is allowed and a cache is configured, try to put the
-        // block to the cache.
-        s = PutDataBlockToCache(
-            key, block_cache, out_parsed_block, std::move(*contents),
-            contents_comp_type, uncompression_dict,
-            GetMemoryAllocator(rep_->table_options), get_context);
+        if (s.ok()) {
+          // If filling cache is allowed and a cache is configured, try to put
+          // the block to the cache.
+          s = PutDataBlockToCache(
+              key, block_cache, out_parsed_block, std::move(uncomp_contents),
+              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              GetMemoryAllocator(rep_->table_options), get_context);
+        }
       }
     }
   }

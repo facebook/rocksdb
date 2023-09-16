@@ -121,41 +121,6 @@ class CompressedSecondaryCache : public SecondaryCache {
     void Free() { delete[] reinterpret_cast<char*>(this); }
   };
 
-  static void NoopDelete(Cache::ObjectPtr /*obj*/,
-                         MemoryAllocator* /*allocator*/) {
-    assert(false);
-  }
-
-  static size_t SliceSize(Cache::ObjectPtr obj) {
-    return static_cast<Slice*>(obj)->size();
-  }
-
-  static Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset,
-                            size_t length, char* out) {
-    const Slice& slice = *static_cast<Slice*>(from_obj);
-    std::memcpy(out, slice.data() + from_offset, length);
-    return Status::OK();
-  }
-
-  static Status NoopCreate(const Slice& /*data*/, CompressionType /*type*/,
-                           Cache::CreateContext* /*ctx*/,
-                           MemoryAllocator* /*allocator*/,
-                           Cache::ObjectPtr* /*out_obj*/,
-                           size_t* /*out_charge*/) {
-    assert(false);
-    return Status::NotSupported();
-  }
-
-  static const Cache::CacheItemHelper* GetSliceHelper() {
-    static Cache::CacheItemHelper basic_helper(CacheEntryRole::kMisc,
-                                               &NoopDelete);
-    static Cache::CacheItemHelper slice_helper{
-        CacheEntryRole::kMisc, &NoopDelete, &SliceSize,
-        &SliceSaveTo,          &NoopCreate, &basic_helper,
-    };
-    return &slice_helper;
-  }
-
   // Split value into chunks to better fit into jemalloc bins. The chunks
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.

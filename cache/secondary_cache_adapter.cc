@@ -112,7 +112,7 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     size_t sec_capacity = 0;
     Status s = secondary_cache_->GetCapacity(sec_capacity);
     assert(s.ok());
-    // assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+    assert(pri_cache_res_->GetTotalMemoryUsed() == sec_capacity);
   }
 #endif  // NDEBUG
 }
@@ -240,7 +240,7 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
   }
   // Warm up the secondary cache with the compressed block. The secondary
   // cache may choose to ignore it based on the admission policy.
-  if (value != nullptr && compressed_value != Slice()) {
+  if (value != nullptr && !compressed_value.empty()) {
     Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
     assert(status.ok());
   }

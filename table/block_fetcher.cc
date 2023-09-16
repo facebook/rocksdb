@@ -48,6 +48,7 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
     // E.g. plain table or cuckoo table
     compression_type_ = kNoCompression;
   }
+  raw_compression_type_ = compression_type_;
 }
 
 inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
@@ -337,8 +338,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     num_heap_buf_memcpy_++;
 #endif
     compression_type_ = kNoCompression;
+    // Save the compressed block without trailer
+    slice_ = Slice(slice_.data(), block_size_);
   } else {
     GetBlockContents();
+    slice_ = Slice();
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();

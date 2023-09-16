@@ -205,8 +205,6 @@ class DBTieredSecondaryCacheTest : public DBTestBase {
     return cache_;
   }
 
-  void PrintCapacity() { nvm_sec_cache_->PrintCapacity(); }
-
   TestSecondaryCache* nvm_sec_cache() { return nvm_sec_cache_.get(); }
 
  private:

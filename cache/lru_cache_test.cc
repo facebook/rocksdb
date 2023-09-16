@@ -1025,8 +1025,7 @@ class TestSecondaryCache : public SecondaryCache {
                      CompressionType /*type*/ = kNoCompression,
                      CacheTier /*source*/ = CacheTier::kVolatileTier) override {
     if (insert_saved_) {
-      return Insert(key, const_cast<Slice*>(&saved),
-                    secondary_cache_test_util::GetNoopHelper(),
+      return Insert(key, const_cast<Slice*>(&saved), &kSliceCacheItemHelper,
                     /*force_insert=*/true);
     } else {
       return Status::OK();

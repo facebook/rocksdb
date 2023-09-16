@@ -637,4 +637,8 @@ class CacheWrapper : public Cache {
 // reservations
 extern const Cache::CacheItemHelper kNoopCacheItemHelper;
 
+// Useful for cache entries that just need to be copied into a
+// secondary cache, such as compressed blocks
+extern const Cache::CacheItemHelper kSliceCacheItemHelper;
+
 }  // namespace ROCKSDB_NAMESPACE

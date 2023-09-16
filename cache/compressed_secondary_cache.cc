@@ -252,7 +252,7 @@ Status CompressedSecondaryCache::InsertSaved(
     return Status::OK();
   }
 
-  auto slice_helper = GetSliceHelper();
+  auto slice_helper = &kSliceCacheItemHelper;
   if (MaybeInsertDummy(key)) {
     return Status::OK();
   }

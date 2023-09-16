@@ -127,7 +127,5 @@ inline auto GetTestingCacheTypes() {
                          std::string(kAutoHyperClock));
 }
 
-const Cache::CacheItemHelper* GetNoopHelper();
-
 }  // namespace secondary_cache_test_util
 }  // namespace ROCKSDB_NAMESPACE
