@@ -1709,6 +1709,9 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 5);
   }
+
+  db_->ReleaseSnapshot(snap_with_nothing);
+  db_->ReleaseSnapshot(snap_with_foo);
   Close();
 }
 
