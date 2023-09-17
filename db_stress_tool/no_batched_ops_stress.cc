@@ -1067,7 +1067,8 @@ class NonBatchedOpsStressTest : public StressTest {
         is_consistent = false;
       } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
         PinnableWideColumns cmp_result;
-
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GETENTITY);
         const Status cmp_s =
             db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
 

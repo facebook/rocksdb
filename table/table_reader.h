@@ -60,8 +60,14 @@ class TableReader {
       size_t compaction_readahead_size = 0,
       bool allow_unprepared_value = false) = 0;
 
+  // read_options.snapshot needs to outlive this call.
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
+    return nullptr;
+  }
+
+  virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber /* read_seqno */, const Slice* /* timestamp */) {
     return nullptr;
   }
 

@@ -279,6 +279,11 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
+  void ResetUpperBoundOffset(uint64_t upper_bound_offset) {
+    upper_bound_offset_ = upper_bound_offset;
+    readahead_size_ = initial_auto_readahead_size_;
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
@@ -321,7 +326,6 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
-    upper_bound_offset_ = 0;
   }
 
   // Called in case of implicit auto prefetching.

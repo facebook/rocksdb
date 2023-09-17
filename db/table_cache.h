@@ -86,6 +86,8 @@ class TableCache {
   //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
+  // @param range_del_read_seqno If non-nullptr, will be used to create
+  // *range_del_iter.
   InternalIterator* NewIterator(
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -97,6 +99,7 @@ class TableCache {
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       uint8_t protection_bytes_per_key,
+      const SequenceNumber* range_del_read_seqno = nullptr,
       TruncatedRangeDelIterator** range_del_iter = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,

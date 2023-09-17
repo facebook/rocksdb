@@ -994,6 +994,61 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace5) {
   ASSERT_EQ(13, compaction->num_input_files(1));
 }
 
+TEST_F(CompactionPickerTest,
+       PartiallyExcludeL0ToReduceWriteStopForSizeAmpCompaction) {
+  const uint64_t kFileSize = 100000;
+  const uint64_t kL0FileCount = 30;
+  const uint64_t kLastLevelFileCount = 1;
+  const uint64_t kNumLevels = 5;
+
+  for (const uint64_t test_no_exclusion : {false, true}) {
+    const uint64_t kExpectedNumExcludedL0 =
+        test_no_exclusion ? 0 : kL0FileCount * 1 / 10;
+
+    mutable_cf_options_.level0_stop_writes_trigger = 36;
+    mutable_cf_options_.compaction_options_universal
+        .max_size_amplification_percent = 1;
+    mutable_cf_options_.compaction_options_universal.max_merge_width =
+        test_no_exclusion
+            // In universal compaction, sorted runs from non L0 levels are
+            // counted toward `level0_stop_writes_trigger`. Therefore we need to
+            // subtract the total number of sorted runs picked originally for
+            // this compaction (i.e, kL0FileCount + kLastLevelFileCount) from
+            // `level0_stop_writes_trigger` to calculate `max_merge_width` that
+            // results in no L0 exclusion for testing purpose.
+            ? mutable_cf_options_.level0_stop_writes_trigger -
+                  (kL0FileCount + kLastLevelFileCount)
+            : UINT_MAX;
+
+    UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+    NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+
+    for (uint64_t i = 1; i <= kL0FileCount + kLastLevelFileCount; ++i) {
+      Add(i <= kL0FileCount ? 0 : kNumLevels - 1, static_cast<uint32_t>(i),
+          std::to_string((i + 100) * 1000).c_str(),
+          std::to_string((i + 100) * 1000 + 999).c_str(), kFileSize, 0, i * 100,
+          i * 100 + 99);
+    }
+
+    UpdateVersionStorageInfo();
+
+    ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
+    std::unique_ptr<Compaction> compaction(
+        universal_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+            &log_buffer_));
+    ASSERT_TRUE(compaction.get() != nullptr);
+    ASSERT_EQ(compaction->compaction_reason(),
+              CompactionReason::kUniversalSizeAmplification);
+    ASSERT_EQ(compaction->num_input_files(0),
+              kL0FileCount - kExpectedNumExcludedL0);
+    ASSERT_EQ(compaction->num_input_files(kNumLevels - 1), kLastLevelFileCount);
+    for (uint64_t level = 1; level <= kNumLevels - 2; level++) {
+      ASSERT_EQ(compaction->num_input_files(level), 0);
+    }
+  }
+}
+
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const int kFileCount =
@@ -3380,6 +3435,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
   ioptions_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
+  // To avoid any L0 file exclusion in size amp compaction intended for reducing
+  // write stop
+  mutable_cf_options_.compaction_options_universal.max_merge_width = 2;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
@@ -3453,6 +3511,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
   ioptions_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
+  // To avoid any L0 file exclusion in size amp compaction intended for reducing
+  // write stop
+  mutable_cf_options_.compaction_options_universal.max_merge_width = 2;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);

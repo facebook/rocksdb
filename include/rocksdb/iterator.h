@@ -107,10 +107,16 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // If supported, renew the iterator to represent the latest state. The
-  // iterator will be invalidated after the call. Not supported if
-  // ReadOptions.snapshot is given when creating the iterator.
-  virtual Status Refresh() {
+  // If supported, the DB state that the iterator reads from is updated to
+  // the latest state. The iterator will be invalidated after the call.
+  // Regardless of whether the iterator was created/refreshed previously
+  // with or without a snapshot, the iterator will be reading the
+  // latest DB state after this call.
+  virtual Status Refresh() { return Refresh(nullptr); }
+
+  // Similar to Refresh() but the iterator will be reading the latest DB state
+  // under the given snapshot.
+  virtual Status Refresh(const class Snapshot*) {
     return Status::NotSupported("Refresh() is not supported");
   }
 

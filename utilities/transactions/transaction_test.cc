@@ -6759,6 +6759,55 @@ TEST_P(TransactionTest, UnlockWALStallCleared) {
   }
 }
 
+TEST_F(TransactionDBTest, CollapseKey) {
+  ASSERT_OK(ReOpen());
+  ASSERT_OK(db->Put({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+  ASSERT_OK(db->Merge({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+  ASSERT_OK(db->Merge({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+
+  std::string value;
+  ASSERT_OK(db->Get({}, "hello", &value));
+  ASSERT_EQ("world,world,world", value);
+
+  // get merge op info
+  std::vector<PinnableSlice> operands(3);
+  GetMergeOperandsOptions mergeOperandOptions;
+  mergeOperandOptions.expected_max_number_of_operands = 3;
+  int numOperands;
+  ASSERT_OK(db->GetMergeOperands({}, db->DefaultColumnFamily(), "hello",
+                                 operands.data(), &mergeOperandOptions,
+                                 &numOperands));
+  ASSERT_EQ(3, numOperands);
+
+  // collapse key
+  {
+    std::unique_ptr<Transaction> txn0{
+        db->BeginTransaction(WriteOptions{}, TransactionOptions{})};
+    ASSERT_OK(txn0->CollapseKey(ReadOptions{}, "hello"));
+    ASSERT_OK(txn0->Commit());
+  }
+
+  // merge operands should be 1
+  ASSERT_OK(db->GetMergeOperands({}, db->DefaultColumnFamily(), "hello",
+                                 operands.data(), &mergeOperandOptions,
+                                 &numOperands));
+  ASSERT_EQ(1, numOperands);
+
+  // get again after collapse
+  ASSERT_OK(db->Get({}, "hello", &value));
+  ASSERT_EQ("world,world,world", value);
+
+  // collapse of non-existent key
+  {
+    std::unique_ptr<Transaction> txn1{
+        db->BeginTransaction(WriteOptions{}, TransactionOptions{})};
+    ASSERT_TRUE(txn1->CollapseKey(ReadOptions{}, "dummy").IsNotFound());
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
