@@ -46,7 +46,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/hyper_clock_cache.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
-        rocksjni/jni_get_helpers.cc                            \
+        rocksjni/jni_get_helpers.cc
         rocksjni/jnicallback.cc
         rocksjni/loggerjnicallback.cc
         rocksjni/lru_cache.cc
