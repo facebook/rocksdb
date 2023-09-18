@@ -6774,7 +6774,7 @@ TEST_F(TransactionDBTest, CollapseKey) {
 
   // get merge op info
   std::vector<PinnableSlice> operands(3);
-  rocksdb::GetMergeOperandsOptions mergeOperandOptions;
+  GetMergeOperandsOptions mergeOperandOptions;
   mergeOperandOptions.expected_max_number_of_operands = 3;
   int numOperands;
   ASSERT_OK(db->GetMergeOperands({}, db->DefaultColumnFamily(), "hello",

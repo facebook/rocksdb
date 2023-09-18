@@ -526,10 +526,11 @@ DEFINE_double(bloom_bits, 10,
               "Negative means use default settings.");
 
 DEFINE_int32(
-    ribbon_starting_level, 999,
+    bloom_before_level, 999,
     "Use Bloom filter on levels below specified and Ribbon beginning on level "
-    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
-    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
+    "specified. Flush is considered level -1. Setting -1 -> always Ribbon. "
+    "0 -> Ribbon except Bloom for flush. INT_MAX (typically 2147483647) -> "
+    "always Bloom.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
