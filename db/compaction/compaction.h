@@ -289,7 +289,11 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize() const;
 
-  void SetInputVersion(Version* input_version);
+  // TODO(hx235): consider making this function part of the construction
+  void FinalizeInputInfo(Version* input_version) {
+    SetInputVersion(input_version);
+    SetInputTableProperties().PermitUncheckedError();
+  }
 
   struct InputLevelSummaryBuffer {
     char buffer[128];
@@ -326,16 +330,20 @@ class Compaction {
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
 
-  // If called before a compaction finishes, will return
-  // table properties of all compaction input files.
-  // If called after a compaction finished, will return
-  // table properties of all compaction input and output files.
-  const TablePropertiesCollection& GetTableProperties();
+  const TablePropertiesCollection& GetInputTableProperties() const {
+    return input_table_properties_;
+  }
 
+  // TODO(hx235): consider making this function symmetric to
+  // SetInputTableProperties()
   void SetOutputTableProperties(
       const std::string& file_name,
       const std::shared_ptr<const TableProperties>& tp) {
-    table_properties_[file_name] = tp;
+    output_table_properties_[file_name] = tp;
+  }
+
+  const TablePropertiesCollection& GetOutputTableProperties() const {
+    return output_table_properties_;
   }
 
   Slice GetSmallestUserKey() const { return smallest_user_key_; }
@@ -432,6 +440,10 @@ class Compaction {
                                       const int output_level);
 
  private:
+  void SetInputVersion(Version* input_version);
+
+  Status SetInputTableProperties();
+
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
 
@@ -522,9 +534,8 @@ class Compaction {
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
 
-  bool input_table_properties_initialized_ = false;
-  // table properties of output files
-  TablePropertiesCollection table_properties_;
+  TablePropertiesCollection input_table_properties_;
+  TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction
   // includes timestamp if user-defined timestamp is enabled.

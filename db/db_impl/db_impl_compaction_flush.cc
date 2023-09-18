@@ -1462,7 +1462,8 @@ Status DBImpl::CompactFilesImpl(
   // without releasing the lock, so we're guaranteed a compaction can be formed.
   assert(c != nullptr);
 
-  c->SetInputVersion(version);
+  c->FinalizeInputInfo(version);
+
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
 
@@ -3954,7 +3955,12 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
-  compaction_job_info->table_properties = c->GetTableProperties();
+  const auto& input_table_properties = c->GetInputTableProperties();
+  const auto& output_table_properties = c->GetOutputTableProperties();
+  compaction_job_info->table_properties.insert(input_table_properties.begin(),
+                                               input_table_properties.end());
+  compaction_job_info->table_properties.insert(output_table_properties.begin(),
+                                               output_table_properties.end());
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
 

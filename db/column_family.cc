@@ -1119,7 +1119,7 @@ Compaction* ColumnFamilyData::PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
       log_buffer);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   return result;
 }
@@ -1203,7 +1203,7 @@ Compaction* ColumnFamilyData::CompactRange(
       compact_range_options, begin, end, compaction_end, conflict,
       max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
