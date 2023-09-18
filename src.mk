@@ -380,6 +380,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
+  db_stress_tool/expected_state_dump_tool.cc                   \
   db_stress_tool/expected_value.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
   db_stress_tool/multi_ops_txns_stress.cc                      \
@@ -406,6 +407,7 @@ FOLLY_SOURCES =                                                 \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \
+  db_stress_tool/expected_state_dump.cc                                 \
   tools/blob_dump.cc                                                    \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
   tools/db_repl_stress.cc                                               \
