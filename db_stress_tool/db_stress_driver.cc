@@ -84,7 +84,7 @@ bool RunStressTestImpl(SharedState* shared) {
   if (FLAGS_write_fault_one_in) {
     if (!FLAGS_sync_fault_injection) {
       // unsynced WAL loss is not supported without sync_fault_injection
-      fault_fs_guard->SetSkipDirectWritableTypes({kWalFile});
+      fault_fs_guard->SetDirectWritableTypes({kWalFile});
     }
     IOStatus error_msg;
     if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
