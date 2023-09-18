@@ -199,10 +199,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // incompressible, the kSnappyCompression implementation will
   // efficiently detect that and will switch to uncompressed mode.
   //
-  // In kLZ4 compression, the `acceleration` parameter is configurable by
-  // setting level to the negated value. For example, set `level=-10` for
-  // `acceleration=10`.
-  //
   // If you do not set `compression_opts.level`, or set it to
   // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
   // default corresponding to `compression` as follows:
@@ -210,7 +206,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // - kZSTD: 3
   // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
   // - kLZ4HCCompression: 0
-  // - kLZ4: 1 (`acceleration`)
+  // - kLZ4: -1 (i.e., `acceleration=1`; see `CompressionOptions::level` doc)
   // - For all others, we do not specify a compression level
   //
   // Dynamically changeable through SetOptions() API
