@@ -323,8 +323,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     if (!TryParseFileName(file_name, &file_number, &file_type)) {
       return false;
     }
-    return skip_direct_writable_types_.find(file_type) !=
-           skip_direct_writable_types_.end();
+    return direct_writable_types_.find(file_type) !=
+           direct_writable_types_.end();
   }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
@@ -439,9 +439,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     write_error_allowed_types_ = types;
   }
 
-  void SetSkipDirectWritableTypes(const std::set<FileType>& types) {
+  void SetDirectWritableTypes(const std::set<FileType>& types) {
     MutexLock l(&mutex_);
-    skip_direct_writable_types_ = types;
+    direct_writable_types_ = types;
   }
 
   void SetRandomMetadataWriteError(int one_in) {
@@ -583,7 +583,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
   // File types where direct writable is skipped.
-  std::set<FileType> skip_direct_writable_types_;
+  std::set<FileType> direct_writable_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;
   bool fail_get_file_unique_id_;
