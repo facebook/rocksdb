@@ -1512,7 +1512,12 @@ Status DBImpl::CompactFilesImpl(
   TEST_SYNC_POINT("CompactFilesImpl:3");
   mutex_.Lock();
 
-  Status status = compaction_job.Install(*c->mutable_cf_options());
+  bool compaction_released = false;
+  Status status =
+      compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
+  if (!compaction_released) {
+    c->ReleaseCompactionFiles(s);
+  }
   if (status.ok()) {
     assert(compaction_job.io_status().ok());
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
@@ -1523,7 +1528,6 @@ Status DBImpl::CompactFilesImpl(
   // not check compaction_job.io_status() explicitly if we're not calling
   // SetBGError
   compaction_job.io_status().PermitUncheckedError();
-  c->ReleaseCompactionFiles(s);
   // Need to make sure SstFileManager does its bookkeeping
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
@@ -3388,8 +3392,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   std::unique_ptr<TaskLimiterToken> task_token;
 
-  // InternalKey manual_end_storage;
-  // InternalKey* manual_end = &manual_end_storage;
   bool sfm_reserved_compact_space = false;
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
@@ -3525,6 +3527,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
 
   IOStatus io_s;
+  bool compaction_released = false;
   if (!c) {
     // Nothing to do
     ROCKS_LOG_BUFFER(log_buffer, "Compaction nothing to do");
@@ -3547,7 +3550,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
     status = versions_->LogAndApply(
         c->column_family_data(), *c->mutable_cf_options(), read_options,
-        c->edit(), &mutex_, directories_.GetDbDir());
+        c->edit(), &mutex_, directories_.GetDbDir(),
+        /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
+        [&c, &compaction_released](const Status& s) {
+          c->ReleaseCompactionFiles(s);
+          compaction_released = true;
+        });
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
@@ -3613,7 +3621,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
     status = versions_->LogAndApply(
         c->column_family_data(), *c->mutable_cf_options(), read_options,
-        c->edit(), &mutex_, directories_.GetDbDir());
+        c->edit(), &mutex_, directories_.GetDbDir(),
+        /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
+        [&c, &compaction_released](const Status& s) {
+          c->ReleaseCompactionFiles(s);
+          compaction_released = true;
+        });
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
@@ -3663,6 +3676,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Transfer requested token, so it doesn't need to do it again.
     ca->prepicked_compaction->task_token = std::move(task_token);
     ++bg_bottom_compaction_scheduled_;
+    assert(c == nullptr);
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCompactionCallback);
   } else {
@@ -3706,8 +3720,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
-
-    status = compaction_job.Install(*c->mutable_cf_options());
+    status =
+        compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(c->column_family_data(),
@@ -3726,7 +3740,23 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
 
   if (c != nullptr) {
-    c->ReleaseCompactionFiles(status);
+    if (!compaction_released) {
+      c->ReleaseCompactionFiles(status);
+    } else {
+#ifndef NDEBUG
+      // Sanity checking that compaction files are freed.
+      for (size_t i = 0; i < c->num_input_levels(); i++) {
+        for (size_t j = 0; j < c->inputs(i)->size(); j++) {
+          assert(!c->input(i, j)->being_compacted);
+        }
+      }
+      std::unordered_set<Compaction*>* cip = c->column_family_data()
+                                                 ->compaction_picker()
+                                                 ->compactions_in_progress();
+      assert(cip->find(c.get()) == cip->end());
+#endif
+    }
+
     *made_progress = true;
 
     // Need to make sure SstFileManager does its bookkeeping
