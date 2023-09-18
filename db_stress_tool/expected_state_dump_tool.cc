@@ -5,8 +5,7 @@
 
 #include "rocksdb/expected_state_dump_tool.h"
 
-#include <cstdio>
-#include <cstring>
+#include <string>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,9 +36,8 @@ int ExpectedStateDumpTool::Run(int argc, char const* const* argv) {
   size_t max_key = 0;
   size_t num_column_families = 0;
   int64_t tmp_val;
-  bool scan = false;
-  size_t key = 0;
-  size_t cf = 0;
+  int64_t key = 0;
+  int cf = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       file_path = argv[i] + 7;
@@ -49,13 +47,11 @@ int ExpectedStateDumpTool::Run(int argc, char const* const* argv) {
     } else if (ParseIntArg(argv[i], "--num_column_families=",
                            "num_column_families must be numeric", &tmp_val)) {
       num_column_families = static_cast<size_t>(tmp_val);
-    } else if (strcmp(argv[i], "--scan") == 0) {
-      scan = true;
     } else if (ParseIntArg(argv[i], "--key=", "key must be numeric",
                            &tmp_val)) {
-      key = static_cast<size_t>(tmp_val);
+      key = static_cast<int64_t>(tmp_val);
     } else if (ParseIntArg(argv[i], "--cf=", "cf must be numeric", &tmp_val)) {
-      cf = static_cast<size_t>(tmp_val);
+      cf = static_cast<int>(tmp_val);
     }
   }
   if (file_path) {
@@ -64,33 +60,23 @@ int ExpectedStateDumpTool::Run(int argc, char const* const* argv) {
     FileExpectedState file_expected_state(path, max_key, num_column_families);
     Status s = file_expected_state.Open(false /* create */);
     fprintf(stdout, "Status - %s\n", s.ToString().c_str());
-    if (scan) {
-      for (key = 0; key < max_key; key++) {
-        for (cf = 0; cf < num_column_families; cf++) {
-          auto value = file_expected_state.Get(cf, key);
-          if (value.Exists()) {
-            fprintf(stdout, "column family %zu key %zu : %d \n", cf, key,
-                    value.Read());
-          }
-        }
-      }
-    } else {
-      auto value = file_expected_state.Get(cf, key);
-      fprintf(stdout, "column family %zu key %zu ", cf, key);
-      if (value.Exists()) {
-        fprintf(stdout, "Exists - Value: %d. ", value.Read());
-      }
-      if (value.PendingDelete()) {
-        fprintf(stdout, "PendingDelete ");
-      }
-      if (value.PendingWrite()) {
-        fprintf(stdout, "PendingWrite ");
-      }
-      if (value.IsDeleted()) {
-        fprintf(stdout, "IsDeleted ");
-      }
-      fprintf(stdout, "\n");
+
+    auto value = file_expected_state.Get(cf, key);
+    fprintf(stdout, "column family %u key %ld ", cf, key);
+    if (value.Exists()) {
+      fprintf(stdout, "Exists - Value: %d. ", value.Read());
     }
+    if (value.PendingDelete()) {
+      fprintf(stdout, "PendingDelete ");
+    }
+    if (value.PendingWrite()) {
+      fprintf(stdout, "PendingWrite ");
+    }
+    if (value.IsDeleted()) {
+      fprintf(stdout, "IsDeleted ");
+    }
+    fprintf(stdout, "\n");
+
     return 0;
   }
   return 1;
