@@ -3552,7 +3552,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data(), *c->mutable_cf_options(), read_options,
         c->edit(), &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
-        [&c, &compaction_released](Status s) {
+        [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);
           compaction_released = true;
         });
@@ -3623,7 +3623,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data(), *c->mutable_cf_options(), read_options,
         c->edit(), &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
-        [&c, &compaction_released](Status s) {
+        [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);
           compaction_released = true;
         });

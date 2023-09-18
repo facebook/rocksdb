@@ -1780,7 +1780,7 @@ Status CompactionJob::InstallCompactionResults(
     }
   }
 
-  auto manifest_wcb = [&compaction, &compaction_released](Status s) {
+  auto manifest_wcb = [&compaction, &compaction_released](const Status& s) {
     compaction->ReleaseCompactionFiles(s);
     *compaction_released = true;
   };
