@@ -1309,7 +1309,9 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    pending_expected_value.Commit();
+    if (!FLAGS_use_optimistic_txn || s.ok()) {
+      pending_expected_value.Commit();
+    }
 
     if (!s.ok()) {
       if (FLAGS_inject_error_severity >= 2) {
@@ -1367,7 +1369,9 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.Delete(cfh, key);
         });
       }
-      pending_expected_value.Commit();
+      if (!FLAGS_use_optimistic_txn || s.ok()) {
+        pending_expected_value.Commit();
+      }
 
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
@@ -1399,7 +1403,9 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.SingleDelete(cfh, key);
         });
       }
-      pending_expected_value.Commit();
+      if (!FLAGS_use_optimistic_txn || s.ok()) {
+        pending_expected_value.Commit();
+      }
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
         if (FLAGS_inject_error_severity >= 2) {
