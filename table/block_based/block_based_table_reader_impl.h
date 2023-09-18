@@ -49,7 +49,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     BlockType block_type, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
-    Status& s) const {
+    Status& s, bool use_block_cache_for_lookup) const {
   using IterBlocklike = typename IterTraits<TBlockIter>::IterBlocklike;
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
@@ -77,15 +77,15 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const UncompressionDict& dict = uncompression_dict.GetValue()
                                         ? *uncompression_dict.GetValue()
                                         : UncompressionDict::GetEmptyDict();
-    s = RetrieveBlock(prefetch_buffer, ro, handle, dict,
-                      &block.As<IterBlocklike>(), get_context, lookup_context,
-                      for_compaction,
-                      /* use_cache */ true, async_read);
+    s = RetrieveBlock(
+        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
+        get_context, lookup_context, for_compaction,
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   } else {
     s = RetrieveBlock(
         prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
         &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
-        /* use_cache */ true, async_read);
+        /* use_cache */ true, async_read, use_block_cache_for_lookup);
   }
 
   if (s.IsTryAgain() && async_read) {

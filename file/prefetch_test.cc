@@ -1459,6 +1459,69 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   Close();
 }
 
+TEST_P(PrefetchTest, AvoidBlockCacheLookupTwice) {
+  const int kNumKeys = 1000;
+  // Set options
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  bool use_direct_io = std::get<0>(GetParam());
+  bool async_io = std::get<1>(GetParam());
+
+  Options options;
+  SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
+  table_options.block_cache = cache;
+  table_options.no_block_cache = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  // Write to DB.
+  {
+    WriteBatch batch;
+    Random rnd(309);
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+    std::string start_key = BuildKey(0);
+    std::string end_key = BuildKey(kNumKeys - 1);
+    Slice least(start_key.data(), start_key.size());
+    Slice greatest(end_key.data(), end_key.size());
+
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+  }
+
+  ReadOptions ro;
+  ro.async_io = async_io;
+  // Iterate over the keys.
+  {
+    // Each block contains around 4 keys.
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    ASSERT_OK(options.statistics->Reset());
+
+    iter->Seek(BuildKey(99));  // Prefetch data because of seek parallelization.
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS),
+              1);
+  }
+
+  Close();
+}
+
 TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
