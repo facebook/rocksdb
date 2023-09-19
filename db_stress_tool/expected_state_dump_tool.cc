@@ -5,7 +5,12 @@
 
 #include "rocksdb/expected_state_dump_tool.h"
 
+#include <cinttypes>
+#include <cstring>
+#include <sstream>
 #include <string>
+
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -62,18 +67,18 @@ int ExpectedStateDumpTool::Run(int argc, char const* const* argv) {
     fprintf(stdout, "Status - %s\n", s.ToString().c_str());
 
     auto value = file_expected_state.Get(cf, key);
-    fprintf(stdout, "column family %u key %ld ", cf, key);
+    fprintf(stdout, "column family %u key %" PRId64, cf, key);
     if (value.Exists()) {
-      fprintf(stdout, "Exists - Value: %d. ", value.Read());
+      fprintf(stdout, "Exists - Value: %d ", value.Read());
     }
     if (value.PendingDelete()) {
-      fprintf(stdout, "PendingDelete ");
+      fprintf(stdout, " PendingDelete");
     }
     if (value.PendingWrite()) {
-      fprintf(stdout, "PendingWrite ");
+      fprintf(stdout, " PendingWrite");
     }
     if (value.IsDeleted()) {
-      fprintf(stdout, "IsDeleted ");
+      fprintf(stdout, " IsDeleted");
     }
     fprintf(stdout, "\n");
 

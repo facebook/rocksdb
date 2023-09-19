@@ -1858,7 +1858,7 @@ sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
 blob_dump: $(OBJ_DIR)/tools/blob_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-expected_state_dump: $(OBJ_DIR)/db_stress_tool/expected_state_dump.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+expected_state_dump: $(OBJ_DIR)/db_stress_tool/expected_state_dump.o $(STRESS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 repair_test: $(OBJ_DIR)/db/repair_test.o $(TEST_LIBRARY) $(LIBRARY)
