@@ -19,7 +19,7 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
   ResetBlockCacheLookupVar();
-  bool is_first_pass = async_read_in_progress_ ? false : true;
+  bool is_first_pass = !async_read_in_progress_;
   bool autotune_readaheadsize = is_first_pass &&
                                 read_options_.auto_readahead_size &&
                                 read_options_.iterate_upper_bound;
