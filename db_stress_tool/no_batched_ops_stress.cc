@@ -1309,10 +1309,6 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    if (!FLAGS_use_optimistic_txn || s.ok()) {
-      pending_expected_value.Commit();
-    }
-
     if (!s.ok()) {
       if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1327,7 +1323,7 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     }
-
+    pending_expected_value.Commit();
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);
@@ -1369,11 +1365,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.Delete(cfh, key);
         });
       }
-      if (!FLAGS_use_optimistic_txn || s.ok()) {
-        pending_expected_value.Commit();
-      }
 
-      thread->stats.AddDeletes(1);
       if (!s.ok()) {
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
@@ -1389,6 +1381,8 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddDeletes(1);
     } else {
       PendingExpectedValue pending_expected_value =
           shared->PrepareSingleDelete(rand_column_family, rand_key);
@@ -1403,10 +1397,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.SingleDelete(cfh, key);
         });
       }
-      if (!FLAGS_use_optimistic_txn || s.ok()) {
-        pending_expected_value.Commit();
-      }
-      thread->stats.AddSingleDeletes(1);
+
       if (!s.ok()) {
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
@@ -1422,6 +1413,8 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddSingleDeletes(1);
     }
     return s;
   }
