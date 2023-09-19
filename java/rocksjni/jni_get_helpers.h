@@ -31,4 +31,34 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
                          jbyteArray jval, jint jval_off, jint jval_len,
                          bool* has_exception);
 
+/**
+ * @brief keys and key conversions for MultiGet
+ *
+ */
+class MultiGetKeys {
+ private:
+  std::vector<ROCKSDB_NAMESPACE::Slice> keys;
+
+ public:
+  bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
+                      jintArray jkey_lens);
+
+  std::vector<ROCKSDB_NAMESPACE::Slice>& vector();
+
+  ROCKSDB_NAMESPACE::Slice* array();
+
+  size_t size();
+};
+
+/**
+ * @brief values and value conversions for MultiGet
+ *
+ */
+class MultiGetValues {
+ public:
+  template <class TValue>
+  static jobjectArray byteArrays(JNIEnv*, std::vector<TValue>&,
+                                 std::vector<ROCKSDB_NAMESPACE::Status>&);
+};
+
 };  // namespace ROCKSDB_NAMESPACE

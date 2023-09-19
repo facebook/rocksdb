@@ -8,6 +8,7 @@
 
 #include "rocksjni/jni_get_helpers.h"
 
+#include "jni_get_helpers.h"
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -105,5 +106,105 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
   *has_exception = false;
   return pinnable_value_len;
 }
+
+bool MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
+                                  jintArray jkey_offs, jintArray jkey_lens) {
+  const jsize num_keys = env->GetArrayLength(jkeys);
+
+  jint key_offs[num_keys];
+  env->GetIntArrayRegion(jkey_offs, 0, num_keys, key_offs);
+  if (env->ExceptionCheck()) {
+    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+  }
+
+  jint key_lens[num_keys];
+  env->GetIntArrayRegion(jkey_lens, 0, num_keys, key_lens);
+  if (env->ExceptionCheck()) {
+    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+  }
+
+  for (jsize i = 0; i < num_keys; i++) {
+    jobject jkey = env->GetObjectArrayElement(jkeys, i);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      return false;
+    }
+
+    jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
+    const jint len_key = key_lens[i];
+    jbyte* key = new jbyte[len_key];
+    env->GetByteArrayRegion(jkey_ba, key_offs[i], len_key, key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      delete[] key;
+      env->DeleteLocalRef(jkey);
+      return false;
+    }
+
+    keys.push_back(
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
+    env->DeleteLocalRef(jkey);
+  }
+  return true;
+}
+
+std::vector<ROCKSDB_NAMESPACE::Slice>& MultiGetKeys::vector() { return keys; }
+
+ROCKSDB_NAMESPACE::Slice* MultiGetKeys::array() { return keys.data(); }
+
+size_t MultiGetKeys::size() { return keys.size(); }
+
+template <class TValue>
+jobjectArray MultiGetValues::byteArrays(
+    JNIEnv* env, std::vector<TValue>& values,
+    std::vector<ROCKSDB_NAMESPACE::Status>& s) {
+  jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
+      env, static_cast<jsize>(s.size()));
+  if (jresults == nullptr) {
+    // exception occurred
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
+    return nullptr;
+  }
+
+  // add to the jresults
+  for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
+       i++) {
+    if (s[i].ok()) {
+      std::string* value = &values[i];
+      const jsize jvalue_len = static_cast<jsize>(value->size());
+      jbyteArray jentry_value = env->NewByteArray(jvalue_len);
+      if (jentry_value == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      env->SetByteArrayRegion(
+          jentry_value, 0, static_cast<jsize>(jvalue_len),
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value->data())));
+      if (env->ExceptionCheck()) {
+        // exception thrown:
+        // ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jentry_value);
+        return nullptr;
+      }
+
+      env->SetObjectArrayElement(jresults, static_cast<jsize>(i), jentry_value);
+      if (env->ExceptionCheck()) {
+        // exception thrown:
+        // ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jentry_value);
+        return nullptr;
+      }
+
+      env->DeleteLocalRef(jentry_value);
+    }
+  }
+  return jresults;
+}
+
+template jobjectArray MultiGetValues::byteArrays<std::string>(
+    JNIEnv* env, std::vector<std::string>& values,
+    std::vector<ROCKSDB_NAMESPACE::Status>& s);
 
 };  // namespace ROCKSDB_NAMESPACE
