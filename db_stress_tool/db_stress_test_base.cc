@@ -2693,7 +2693,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
     // If this is for DB reopen, write error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
-    fault_fs_guard->DisableWriteErrorInjection();
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableWriteErrorInjection();
+    }
     if (!FLAGS_use_txn) {
       // Determine whether we need to inject file metadata write failures
       // during DB reopen. If it does, enable it.
