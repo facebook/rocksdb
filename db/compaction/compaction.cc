@@ -778,8 +778,18 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
+  context.input_start_level = start_level_;
   context.column_family_id = cfd_->GetID();
   context.reason = TableFileCreationReason::kCompaction;
+  context.input_table_properties = GetInputTableProperties();
+  if (context.input_table_properties.empty()) {
+    ROCKS_LOG_WARN(
+        immutable_options_.info_log,
+        "Unable to set `input_table_properties` of `CompactionFilter::Context` "
+        "for compaction. Please check the previous logs for errors in loading "
+        "table properties during compaction");
+  }
+
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }

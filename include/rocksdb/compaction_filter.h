@@ -16,10 +16,14 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 class Slice;
 class SliceTransform;
@@ -160,10 +164,20 @@ class CompactionFilter : public Customizable {
     // Whether this table file is created as part of a compaction requested by
     // the client.
     bool is_manual_compaction;
+    // The lowest level among all the input files (if any) used in table
+    // creation
+    int input_start_level = kUnknownStartLevel;
     // The column family that will contain the created table file.
     uint32_t column_family_id;
     // Reason this table file is being created.
     TableFileCreationReason reason;
+    // Map from all the input files (if any) used in table creation to their
+    // table properties. When there are such input files but RocksDB fail to
+    // load their table properties, `input_table_properties` will be an empty
+    // map.
+    TablePropertiesCollection input_table_properties;
+
+    static const int kUnknownStartLevel = -1;
   };
 
   virtual ~CompactionFilter() {}
