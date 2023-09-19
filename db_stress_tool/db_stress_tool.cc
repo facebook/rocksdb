@@ -88,6 +88,11 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
+    if (FLAGS_write_fault_one_in) {
+      fault_fs_guard->SetFilesystemDirectWritable(false);
+    } else {
+      fault_fs_guard->SetFilesystemDirectWritable(true);
+    }
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
