@@ -281,7 +281,7 @@ class BlockBasedTable : public TableReader {
                                   std::vector<KVPairBlock>* kv_pair_blocks);
 
   template <typename TBlocklike>
-  bool DoLookup(const BlockHandle& handle) const;
+  bool LookupAndPinBlocksInCache(const BlockHandle& handle) const;
 
   struct Rep;
 

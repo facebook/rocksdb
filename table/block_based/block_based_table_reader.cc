@@ -102,7 +102,8 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
       BlockContents* contents, bool async_read,                                \
       bool use_block_cache_for_lookup) const;                                  \
-  template bool BlockBasedTable::DoLookup<T>(const BlockHandle& handle) const;
+  template bool BlockBasedTable::LookupAndPinBlocksInCache<T>(                 \
+      const BlockHandle& handle) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -1473,13 +1474,14 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
 }
 
 template <typename TBlocklike>
-bool BlockBasedTable::DoLookup(const BlockHandle& handle) const {
+bool BlockBasedTable::LookupAndPinBlocksInCache(
+    const BlockHandle& handle) const {
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
 
   assert(block_cache);
 
-  // 1. Do the lookup.
+  // Do the lookup.
   CacheKey key_data = GetCacheKey(rep_->base_cache_key, handle);
   const Slice key = key_data.AsSlice();
 
@@ -1490,12 +1492,13 @@ bool BlockBasedTable::DoLookup(const BlockHandle& handle) const {
       rep_->ioptions.lowest_used_cache_tier);
 
   if (!cache_handle) {
-    // 2. Add a placeholder for the data block.
+    // Add a placeholder for the data block.
+    // TODO Akanksha:
     return false;
   }
 
-  // 2. Found in Cache. Pin the block.
-
+  // Found in Cache. Pin the block.
+  // TODO Akanksha:
   return true;
 }
 

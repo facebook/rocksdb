@@ -18,7 +18,7 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  ResetLookupVar();
+  ResetBlockCacheLookupVar();
   bool is_first_pass = async_read_in_progress_ ? false : true;
   bool autotune_readaheadsize = is_first_pass &&
                                 read_options_.auto_readahead_size &&
@@ -57,11 +57,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   bool need_seek_index = true;
 
   /*
-     Akanksha:
-     1. In case of readahead_cache_lookup_, index_iter could change to find the
-     readahead size in CacheLookupForReadAheadSize so we need to reseek.
-     2. block_iter_points_to_real_block_ means index_iter_ points to the real
-     block and is valid which can't be true in case of readahead_cache_lookup_.
+    Akanksha Note:
+    In case of readahead_cache_lookup_, index_iter_ could change to find the
+    readahead size in BlockCacheLookupForReadAheadSize so we need to reseek.
   */
 
   if (!readahead_cache_lookup_ && block_iter_points_to_real_block_ &&
@@ -115,8 +113,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  // Akanksha: At this point index_iter_ point to the right key i.e. target in
-  // all cases.
+  // After reseek, index_iter_ point to the right key i.e. target in
+  // case of readahead_cache_lookup_. So index_iter_ can be used directly.
 
   IndexValue v = index_iter_->value();
   const bool same_block = block_iter_points_to_real_block_ &&
@@ -195,7 +193,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   }
 
   SavePrevIndexValue();
-  ResetLookupVar();
+  ResetBlockCacheLookupVar();
 
   // Call Seek() rather than SeekForPrev() in the index block, because the
   // target data block will likely to contain the position for `target`, the
@@ -250,7 +248,7 @@ void BlockBasedTableIterator::SeekToLast() {
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
   SavePrevIndexValue();
-  ResetLookupVar();
+  ResetBlockCacheLookupVar();
 
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -290,7 +288,7 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 void BlockBasedTableIterator::Prev() {
   // TODO akanksha: - How to figure out if after seek, it does prev but
   // index_iter_ moves forward.
-  ResetLookupVar();
+  ResetBlockCacheLookupVar();
   if (is_at_first_key_from_index_) {
     is_at_first_key_from_index_ = false;
 
@@ -332,8 +330,8 @@ void BlockBasedTableIterator::InitDataBlock() {
     std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
     if (readahead_cache_lookup_) {
       readaheadsize_cb =
-          std::bind(&BlockBasedTableIterator::CacheLookupForReadAheadSize, this,
-                    std::placeholders::_1, std::placeholders::_2);
+          std::bind(&BlockBasedTableIterator::BlockCacheLookupForReadAheadSize,
+                    this, std::placeholders::_1, std::placeholders::_2);
     }
 
     // Prefetch additional data for range scans (iterators).
@@ -382,9 +380,9 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
 
       std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
       if (readahead_cache_lookup_) {
-        readaheadsize_cb =
-            std::bind(&BlockBasedTableIterator::CacheLookupForReadAheadSize,
-                      this, std::placeholders::_1, std::placeholders::_2);
+        readaheadsize_cb = std::bind(
+            &BlockBasedTableIterator::BlockCacheLookupForReadAheadSize, this,
+            std::placeholders::_1, std::placeholders::_2);
       }
 
       // Prefetch additional data for range scans (iterators).
@@ -440,9 +438,10 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
 }
 
 /*
-  Akanksha: MaterializeCurrentBlock is called when block is actually read by
+  Akanksha Note:
+  MaterializeCurrentBlock is called when block is actually read by
   calling InitDataBlock. is_at_first_key_from_index_ will be false for block
-  handles placed in blockhandle. So index_ will be calling to actual index.
+  handles placed in blockhandle. So index_ will be calling to current block.
 */
 bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   if (getenv("Print")) {
@@ -463,7 +462,7 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   block_iter_.SeekToFirst();
 
   // After InitDataBlock, index_iter_ can point to different block if
-  // CacheLookupForReadAheadSize is called.
+  // BlockCacheLookupForReadAheadSize is called.
   IndexValue index_val;
   if (!block_handles_.empty()) {
     index_val = block_handles_.front().index_val_;
@@ -497,7 +496,7 @@ void BlockBasedTableIterator::FindKeyForward() {
 }
 
 /*
-  Akanksha:
+  Akanksha Note:
   FindBlockForward is called from Seek() and Next(). So index_iter_ can either
   point to current target or has moved ahead in CacheLookup.
 */
@@ -509,11 +508,9 @@ void BlockBasedTableIterator::FindBlockForward() {
       return;
     }
     // Whether next data block is out of upper bound, if there is one.
-    /*
-      Akanksha.: index_iter_ can point to different block in case of
-      readahead_cache_lookup_. readahead_cache_lookup_ will be handle the
-      upper_bound check.
-    */
+    //  index_iter_ can point to different block in case of
+    //  readahead_cache_lookup_. readahead_cache_lookup_ will be handle the
+    //  upper_bound check.
     const bool next_block_is_out_of_bound =
         IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_ &&
@@ -527,7 +524,7 @@ void BlockBasedTableIterator::FindBlockForward() {
     ResetDataIter();
 
     /*
-      Akanksha:
+      Akanksha Note:
       1. In case of Seek, block_handle will be empty and it should be follow as
       usual doing index_iter_->Next().
       2. If block_handles is empty and it's readahead_cache_lookup_ (during
@@ -535,7 +532,8 @@ void BlockBasedTableIterator::FindBlockForward() {
     */
 
     if (!block_handles_.empty()) {
-      // Advance and point to that next Block handle.
+      // Advance and point to that next Block handle to make that block handle
+      // current.
       if (getenv("Print")) {
         printf("Popping\n");
       }
@@ -552,7 +550,8 @@ void BlockBasedTableIterator::FindBlockForward() {
           printf("Do Next\n");
         }
       } else {
-        // Skip Next.
+        // Skip Next as index_iter_ already points to correct index when it
+        // iterates in BlockCacheLookupForReadAheadSize.
         is_index_at_curr_block_ = true;
         if (getenv("Print")) {
           printf("Skip Next\n");
@@ -679,22 +678,22 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
   }
 }
 
-/*
-  This API is only for sync flow as sync flow is more simpler.
-  Will add support for async flow after this.
-*/
-void BlockBasedTableIterator::CacheLookupForReadAheadSize(
+void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     size_t readahead_size, size_t& updated_readahead_size) {
   if (getenv("Print")) {
-    printf("CacheLookupForReadAheadSize\n");
+    printf("BlockCacheLookupForReadAheadSize\n");
   }
   block_handles_.clear();
   /*
-    1. Call block based table reader to lookup in the data block (from offset
-       till readahead_size).
+    Akanksha Note:
+    1. Call block based table reader to lookup the data block in the cache (from
+    offset till readahead_size).
     2. Iterate over index_block.
     3. If block is in cache, pin the block.
-    4. If block is not in the cache, add block handle to the vector list.
+    4. If block is not in the cache, add place holder in cache.
+    5. Add the handle to the vector.
+    6. Iterate over the vector backwards to find the last cache miss and update
+    readahead_size.
     4. Update readahead_size till last hit within readahead_size.
   */
   updated_readahead_size = readahead_size;
@@ -719,8 +718,8 @@ void BlockBasedTableIterator::CacheLookupForReadAheadSize(
   while (index_iter_->Valid()) {
     BlockHandle block_handle = index_iter_->value().handle;
 
-    // 1. Adding this data block exceeds readahead_size. So this data block
-    // won't be added.
+    // Adding this data block exceeds passed down readahead_size. So this data
+    // block won't be added.
     if (current_readahead_size + block_handle.size() + footer >
         readahead_size) {
       if (getenv("Print")) {
@@ -736,21 +735,21 @@ void BlockBasedTableIterator::CacheLookupForReadAheadSize(
     current_readahead_size += block_handle.size();
     current_readahead_size += footer;
 
-    // 2. For current data block, do the lookup. Lookup should pin the data
-    //    block and do the placeholder for cache.
-    bool found_in_cache = table_->DoLookup<Block_kData>(block_handle);
+    // For current data block, do the lookup in the cache. Lookup should pin the
+    // data block and do the placeholder for cache.
+    bool found_in_cache =
+        table_->LookupAndPinBlocksInCache<Block_kData>(block_handle);
 
-    // Akanksha: Remove this sectionn.
     if (getenv("Print")) {
       if (found_in_cache) {
-        printf("CacheLookupForReadAheadSize Found in Cache\n");
+        printf("BlockCacheLookupForReadAheadSize Found in Cache\n");
       } else {
-        printf("CacheLookupForReadAheadSize Cache Miss\n");
+        printf("BlockCacheLookupForReadAheadSize Cache Miss\n");
       }
       printf("Adding block handle with offset: %lu\n", block_handle.offset());
     }
 
-    // 3. Add the handle to the vector.
+    // Add the handle to the queue.
     BlockHandleStatus block_handle_st(index_iter_->value(), found_in_cache);
     block_handles_.push_back(std::move(block_handle_st));
 
@@ -765,7 +764,7 @@ void BlockBasedTableIterator::CacheLookupForReadAheadSize(
     index_iter_->Next();
   };
 
-  // 4. Iterate cache hit block handles from the end till a Miss is there, to
+  // Iterate cache hit block handles from the end till a Miss is there, to
   // update the readahead_size.
   for (auto it = block_handles_.rbegin();
        it != block_handles_.rend() && it->is_cache_hit_ == true; ++it) {

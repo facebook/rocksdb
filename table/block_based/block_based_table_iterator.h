@@ -62,7 +62,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   /*
-   Akanksha: If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
+   Akanksha Note:
+   If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
    called. It means block_handles is empty and index_ point to current block.
   */
   Slice key() const override {
@@ -113,7 +114,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
   Status status() const override {
     /*
-      Akanksha: We won't add the block to block_handles if it's index is
+      Akanksha Note:
+      We won't add the block to block_handles if it's index is
       invalid.
     */
     // Prefix index set status to NotFound when the prefix does not exist.
@@ -291,10 +293,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   mutable SeekStatState seek_stat_state_ = SeekStatState::kNone;
   bool is_last_level_;
 
+  // If set to true, it'll lookup in the cache ahead to estimate the readahead
+  // size based on cache hit and miss.
   bool readahead_cache_lookup_ = false;
 
+  // It stores all the block handles that are lookuped in cache ahead when
+  // BlockCacheLookupForReadAheadSize is called. Since index_iter_ may point to
+  // different blocks when readahead_size is calculated in
+  // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
+  // block_handles_ is used.
   std::deque<BlockHandleStatus> block_handles_;
 
+  // During cache lookup to find readahead size, index_iter_ is iterated and it
+  // can point to a different block. is_index_at_curr_block_ keeps track of
+  // that.
   bool is_index_at_curr_block_ = true;
 
   // If `target` is null, seek to first.
@@ -338,10 +350,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void FindReadAheadSizeUpperBound();
 
-  void CacheLookupForReadAheadSize(size_t readahead_size,
-                                   size_t& updated_readahead_size);
+  // This API is called to lookup the data blocks ahead in the cache to estimate
+  // the current readahead_size.
+  void BlockCacheLookupForReadAheadSize(size_t readahead_size,
+                                        size_t& updated_readahead_size);
 
-  void ResetLookupVar() {
+  void ResetBlockCacheLookupVar() {
     readahead_cache_lookup_ = false;
     block_handles_.clear();
   }
