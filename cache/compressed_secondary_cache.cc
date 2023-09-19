@@ -22,7 +22,8 @@ CompressedSecondaryCache::CompressedSecondaryCache(
       cache_options_(opts),
       cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
-              cache_))) {}
+              cache_))),
+      disable_cache_(opts.capacity == 0) {}
 
 CompressedSecondaryCache::~CompressedSecondaryCache() {
   assert(cache_res_mgr_->GetTotalReservedCacheSize() == 0);
@@ -33,6 +34,10 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
     bool& kept_in_sec_cache) {
   assert(helper);
+  if (disable_cache_) {
+    return nullptr;
+  }
+
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   kept_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -115,6 +120,10 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
     return Status::InvalidArgument();
   }
 
+  if (disable_cache_) {
+    return Status::OK();
+  }
+
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
   if (!force_insert) {
     Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -186,6 +195,7 @@ Status CompressedSecondaryCache::SetCapacity(size_t capacity) {
   MutexLock l(&capacity_mutex_);
   cache_options_.capacity = capacity;
   cache_->SetCapacity(capacity);
+  disable_cache_ = capacity == 0;
   return Status::OK();
 }
 
