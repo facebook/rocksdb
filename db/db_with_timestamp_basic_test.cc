@@ -1640,6 +1640,7 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
   const Snapshot* snap_with_foo = db_->GetSnapshot();
 
+  // Ensure file has sequence number greater than snapshot_with_foo
   for (int i = 0; i < 10; i++) {
     std::string numStr = std::to_string(i);
     ASSERT_OK(db_->Put(write_opts, numStr, ts_later, numStr));

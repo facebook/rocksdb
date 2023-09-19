@@ -385,7 +385,10 @@ uint64_t TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
   AppendVarint64(&row_cache_key, fd_number);
   AppendVarint64(&row_cache_key, cache_entry_seq_no);
 
-  return cache_entry_seq_no;
+  // Provide a sequence number for callback checking on cache hit.
+  // As cache_entry_seq_no starts at 1, decrease it's value by 1 to get
+  // a sequence number align with get context's logic.
+  return cache_entry_seq_no == 0 ? 0 : cache_entry_seq_no - 1;
 }
 
 bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
@@ -439,9 +442,8 @@ Status TableCache::Get(
     auto user_key = ExtractUserKey(k);
     uint64_t cache_entry_seq_no =
         CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
-    done = GetFromRowCache(
-        user_key, row_cache_key, row_cache_key.Size(), get_context,
-        cache_entry_seq_no == 0 ? 0 : cache_entry_seq_no - 1);
+    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
+                           get_context, cache_entry_seq_no);
     if (!done) {
       row_cache_entry = &row_cache_entry_buffer;
     }
