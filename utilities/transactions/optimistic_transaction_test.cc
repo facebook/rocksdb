@@ -1642,7 +1642,7 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverLargeTest) {
   Transaction* transaction(
       txn_db->BeginTransaction(write_options, transaction_options));
 
-  std::string value(1024 * 1024,'X');
+  std::string value(1024 * 1024, 'X');
   const size_t n_zero = 2;
   std::string s_i;
   Status s;
