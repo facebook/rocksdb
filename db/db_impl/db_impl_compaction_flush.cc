@@ -634,8 +634,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; i != num_cfs; ++i) {
       if (exec_status[i].second.ok() && exec_status[i].first) {
         auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
+        cfds[i]->imm()->RollbackMemtableFlush(
+            mems, /*rollback_succeeding_memtables=*/false);
       }
     }
   }

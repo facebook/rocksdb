@@ -434,21 +434,47 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                                         uint64_t /*file_number*/) {
+                                         bool rollback_succeeding_memtables) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
   assert(!mems.empty());
-
-  // If the flush was not successful, then just reset state.
-  // Maybe a succeeding attempt to flush will be successful.
   for (MemTable* m : mems) {
     assert(m->flush_in_progress_);
     assert(m->file_number_ == 0);
+  }
 
-    m->flush_in_progress_ = false;
-    m->flush_completed_ = false;
-    m->edit_.Clear();
-    num_flush_not_started_++;
+  if (rollback_succeeding_memtables) {
+    // Not assuming that `mems` is ordered.
+    std::list<MemTable*>& memlist = current_->memlist_;
+    auto it = memlist.rbegin();
+    for (; *it != mems[0] && it != memlist.rend(); ++it) {
+    }
+    // mems should be in memlist
+    assert(it != memlist.rend());
+    while (it != memlist.rend()) {
+      MemTable* m = *it;
+      if (m->flush_in_progress_) {
+        m->flush_in_progress_ = false;
+        m->flush_completed_ = false;
+        m->edit_.Clear();
+        m->file_number_ = 0;
+        num_flush_not_started_++;
+        ++it;
+      } else {
+        break;
+      }
+    }
+  }
+
+  for (MemTable* m : mems) {
+    if (m->flush_in_progress_) {
+      assert(m->file_number_ == 0);
+      m->file_number_ = 0;
+      m->flush_in_progress_ = false;
+      m->flush_completed_ = false;
+      m->edit_.Clear();
+      num_flush_not_started_++;
+    }
   }
   imm_flush_needed.store(true, std::memory_order_release);
 }
