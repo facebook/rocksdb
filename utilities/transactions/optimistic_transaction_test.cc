@@ -1636,8 +1636,8 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
 }
 
 #ifdef __SANITIZE_THREAD__
-  // Skip OptimisticTransactionTest.SequenceNumberAfterRecoverLargeTest under TSAN
-  // to avoid false positive because of TSAN lock limit of 64.
+// Skip OptimisticTransactionTest.SequenceNumberAfterRecoverLargeTest under TSAN
+// to avoid false positive because of TSAN lock limit of 64.
 #else
 TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverLargeTest) {
   WriteOptions write_options;
@@ -1674,7 +1674,7 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverLargeTest) {
 
   delete transaction;
 }
-#endif // __SANITIZE_THREAD__
+#endif  // __SANITIZE_THREAD__
 
 TEST_P(OptimisticTransactionTest, TimestampedSnapshotMissingCommitTs) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
