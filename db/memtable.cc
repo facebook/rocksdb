@@ -1054,25 +1054,15 @@ static bool SaveValue(void* arg, const char* entry) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
-            std::string result;
             // `op_failure_scope` (an output parameter) is not provided (set to
             // nullptr) since a failure must be propagated regardless of its
             // value.
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true,
+                merge_operator, s->key->user_key(),
+                MergeHelper::kPlainBaseValue, v, merge_context->GetOperands(),
+                s->logger, s->statistics, s->clock,
+                /* update_num_ops_stats */ true, s->value, s->columns,
                 /* op_failure_scope */ nullptr);
-
-            if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else {
-                assert(s->columns);
-                s->columns->SetPlainValue(std::move(result));
-              }
-            }
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1117,35 +1107,15 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          if (s->value) {
-            Slice value_of_default;
-            *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
-                v, value_of_default);
-            if (s->status->ok()) {
-              // `op_failure_scope` (an output parameter) is not provided (set
-              // to nullptr) since a failure must be propagated regardless of
-              // its value.
-              *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &value_of_default,
-                  merge_context->GetOperands(), s->value, s->logger,
-                  s->statistics, s->clock, /* result_operand */ nullptr,
-                  /* update_num_ops_stats */ true,
-                  /* op_failure_scope */ nullptr);
-            }
-          } else if (s->columns) {
-            std::string result;
-            // `op_failure_scope` (an output parameter) is not provided (set to
-            // nullptr) since a failure must be propagated regardless of its
-            // value.
-            *(s->status) = MergeHelper::TimedFullMergeWithEntity(
-                merge_operator, s->key->user_key(), v,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true,
+          if (s->value || s->columns) {
+            // `op_failure_scope` (an output parameter) is not provided (set
+            // to nullptr) since a failure must be propagated regardless of
+            // its value.
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), MergeHelper::kWideBaseValue,
+                v, merge_context->GetOperands(), s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
                 /* op_failure_scope */ nullptr);
-
-            if (s->status->ok()) {
-              *(s->status) = s->columns->SetWideColumnValue(std::move(result));
-            }
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1176,25 +1146,14 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
           if (s->value || s->columns) {
-            std::string result;
             // `op_failure_scope` (an output parameter) is not provided (set to
             // nullptr) since a failure must be propagated regardless of its
             // value.
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true,
+                merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
+                merge_context->GetOperands(), s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
                 /* op_failure_scope */ nullptr);
-
-            if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else {
-                assert(s->columns);
-                s->columns->SetPlainValue(std::move(result));
-              }
-            }
           } else {
             // We have found a final value (a base deletion) and have newer
             // merge operands that we do not intend to merge. Nothing remains
@@ -1227,25 +1186,14 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
           if (s->value || s->columns) {
-            std::string result;
             // `op_failure_scope` (an output parameter) is not provided (set to
             // nullptr) since a failure must be propagated regardless of its
             // value.
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true,
+                merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
+                merge_context->GetOperands(), s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
                 /* op_failure_scope */ nullptr);
-
-            if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else {
-                assert(s->columns);
-                s->columns->SetPlainValue(std::move(result));
-              }
-            }
           }
 
           *(s->found_final_value) = true;

@@ -41,28 +41,75 @@ class MergeHelper {
               Statistics* stats = nullptr,
               const std::atomic<bool>* shutting_down = nullptr);
 
-  // Wrapper around MergeOperator::FullMergeV2() that records perf statistics.
-  // Result of merge will be written to result if status returned is OK.
-  // If operands is empty, the value will simply be copied to result.
-  // Set `update_num_ops_stats` to true if it is from a user read, so that
-  // the latency is sensitive.
+  // Wrappers around MergeOperator::FullMergeV3() that record perf statistics.
+  // Set `update_num_ops_stats` to true if it is from a user read so that
+  // the corresponding statistics are updated.
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - Corruption: Merge operator reported unsuccessful merge. The scope of the
   //   damage will be stored in `*op_failure_scope` when `op_failure_scope` is
   //   not nullptr
+
+  // Empty tag types to disambiguate overloads
+  struct NoBaseValueTag {};
+  static constexpr NoBaseValueTag kNoBaseValue{};
+
+  struct PlainBaseValueTag {};
+  static constexpr PlainBaseValueTag kPlainBaseValue{};
+
+  struct WideBaseValueTag {};
+  static constexpr WideBaseValueTag kWideBaseValue{};
+
+  // Variants that expose the merge result directly (in serialized form for wide
+  // columns) as well as its value type. Used by iterator and compaction.
   static Status TimedFullMerge(const MergeOperator* merge_operator,
-                               const Slice& key, const Slice* value,
+                               const Slice& key, NoBaseValueTag,
                                const std::vector<Slice>& operands,
-                               std::string* result, Logger* logger,
-                               Statistics* statistics, SystemClock* clock,
-                               Slice* result_operand, bool update_num_ops_stats,
+                               Logger* logger, Statistics* statistics,
+                               SystemClock* clock, bool update_num_ops_stats,
+                               std::string* result, Slice* result_operand,
+                               ValueType* result_type,
                                MergeOperator::OpFailureScope* op_failure_scope);
 
-  static Status TimedFullMergeWithEntity(
-      const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
-      const std::vector<Slice>& operands, std::string* result, Logger* logger,
+  static Status TimedFullMerge(
+      const MergeOperator* merge_operator, const Slice& key, PlainBaseValueTag,
+      const Slice& value, const std::vector<Slice>& operands, Logger* logger,
       Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result, Slice* result_operand, ValueType* result_type,
+      MergeOperator::OpFailureScope* op_failure_scope);
+
+  static Status TimedFullMerge(
+      const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
+      const Slice& entity, const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result, Slice* result_operand, ValueType* result_type,
+      MergeOperator::OpFailureScope* op_failure_scope);
+
+  // Variants that expose the merge result translated to the form requested by
+  // the client. (For example, if the result is a wide-column structure but the
+  // client requested the results in plain-value form, the value of the default
+  // column is returned.) Used by point lookups.
+  static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, NoBaseValueTag,
+                               const std::vector<Slice>& operands,
+                               Logger* logger, Statistics* statistics,
+                               SystemClock* clock, bool update_num_ops_stats,
+                               std::string* result_value,
+                               PinnableWideColumns* result_entity,
+                               MergeOperator::OpFailureScope* op_failure_scope);
+
+  static Status TimedFullMerge(
+      const MergeOperator* merge_operator, const Slice& key, PlainBaseValueTag,
+      const Slice& value, const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result_value, PinnableWideColumns* result_entity,
+      MergeOperator::OpFailureScope* op_failure_scope);
+
+  static Status TimedFullMerge(
+      const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
+      const Slice& entity, const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result_value, PinnableWideColumns* result_entity,
       MergeOperator::OpFailureScope* op_failure_scope);
 
   // During compaction, merge entries until we hit
@@ -198,6 +245,30 @@ class MergeHelper {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
   }
+
+  template <typename Visitor>
+  static Status TimedFullMergeCommonImpl(
+      const MergeOperator* merge_operator, const Slice& key,
+      MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
+      const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      MergeOperator::OpFailureScope* op_failure_scope, Visitor&& visitor);
+
+  static Status TimedFullMergeImpl(
+      const MergeOperator* merge_operator, const Slice& key,
+      MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
+      const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result, Slice* result_operand, ValueType* result_type,
+      MergeOperator::OpFailureScope* op_failure_scope);
+
+  static Status TimedFullMergeImpl(
+      const MergeOperator* merge_operator, const Slice& key,
+      MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
+      const std::vector<Slice>& operands, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      std::string* result_value, PinnableWideColumns* result_entity,
+      MergeOperator::OpFailureScope* op_failure_scope);
 };
 
 // MergeOutputIterator can be used to iterate over the result of a merge.
