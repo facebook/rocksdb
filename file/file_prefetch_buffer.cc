@@ -368,7 +368,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
     if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size &&
-        !IsBufOutOfBound(rounddown_start)) {
+        !IsOffsetOutOfBound(rounddown_start)) {
       uint64_t roundup_end =
           Roundup(rounddown_start + readahead_size, alignment);
       uint64_t roundup_len = roundup_end - rounddown_start;
@@ -567,7 +567,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
 
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (!IsBufOutOfBound(rounddown_start2)) {
+    if (!IsOffsetOutOfBound(rounddown_start2)) {
       uint64_t roundup_len2 = roundup_end2 - rounddown_start2;
       uint64_t chunk_len2 = 0;
       CalculateOffsetAndLen(alignment, rounddown_start2, roundup_len2, second,
@@ -934,7 +934,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (!IsBufOutOfBound(rounddown_start2)) {
+    if (!IsOffsetOutOfBound(rounddown_start2)) {
       roundup_end2 = Roundup(rounddown_start2 + prefetch_size, alignment);
       uint64_t roundup_len2 = roundup_end2 - rounddown_start2;
 

@@ -3117,7 +3117,7 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   // Length should be 4000.
   ASSERT_EQ(async_result.size(), 4000);
   // Data correctness.
-  Slice result(content.c_str() + 3000, 4000);
+  Slice result(&content[3000], 4000);
   ASSERT_EQ(result.size(), 4000);
   ASSERT_EQ(result, async_result);
 }
@@ -3174,7 +3174,7 @@ TEST_F(FilePrefetchBufferTest, IterateUpperBoundTest1) {
   // Length should be 4000.
   ASSERT_EQ(async_result.size(), 4000);
   // Data correctness.
-  Slice result(content.c_str() + 3000, 4000);
+  Slice result(&content[3000], 4000);
   ASSERT_EQ(result.size(), 4000);
   ASSERT_EQ(result, async_result);
 }

@@ -441,7 +441,7 @@ class FilePrefetchBuffer {
     }
   }
 
-  bool IsBufOutOfBound(uint64_t offset) {
+  inline bool IsOffsetOutOfBound(uint64_t offset) {
     if (upper_bound_offset_ > 0) {
       return (offset >= upper_bound_offset_);
     }
