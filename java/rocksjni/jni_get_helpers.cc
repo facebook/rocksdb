@@ -171,7 +171,7 @@ jobjectArray MultiGetValues::byteArrays(
   for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
        i++) {
     if (s[i].ok()) {
-      std::string* value = &values[i];
+      TValue* value = &values[i];
       const jsize jvalue_len = static_cast<jsize>(value->size());
       jbyteArray jentry_value = env->NewByteArray(jvalue_len);
       if (jentry_value == nullptr) {
@@ -205,6 +205,10 @@ jobjectArray MultiGetValues::byteArrays(
 
 template jobjectArray MultiGetValues::byteArrays<std::string>(
     JNIEnv* env, std::vector<std::string>& values,
+    std::vector<ROCKSDB_NAMESPACE::Status>& s);
+
+template jobjectArray MultiGetValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(
+    JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::PinnableSlice>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s);
 
 };  // namespace ROCKSDB_NAMESPACE

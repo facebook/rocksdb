@@ -2274,6 +2274,36 @@ public class RocksDB extends RocksObject {
         keyLengths));
   }
 
+  public List<byte[]> multiGetAsList_intermediate(final List<byte[]> keys)
+      throws RocksDBException {
+    assert(keys.size() != 0);
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGetIntermediate(nativeHandle_, keysArray, keyOffsets,
+        keyLengths));
+  }
+
+  public List<byte[]> multiGetAsList_old(final List<byte[]> keys)
+      throws RocksDBException {
+    assert(keys.size() != 0);
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    return Arrays.asList(multiGetOld(nativeHandle_, keysArray, keyOffsets,
+        keyLengths));
+  }
+
   /**
    * Returns a list of values for the given list of keys. List will contain
    * null for keys which could not be found.
@@ -2488,7 +2518,7 @@ public class RocksDB extends RocksObject {
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (values.size() != keys.size()) {
-      throw new IllegalArgumentException("For each key there must be a corresponding value.");
+      throw new IllegalArgumentException("Mismatch " + keys.size() + " keys, but not the same as " + values.size() + " values.");
     }
 
     // TODO (AP) support indirect buffers
@@ -4959,7 +4989,11 @@ public class RocksDB extends RocksObject {
       final long readOptHandle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
   private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths);
+                                   final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGetIntermediate(final long dbHandle, final byte[][] keys,
+                                       final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGetOld(final long dbHandle, final byte[][] keys,
+                                       final int[] keyOffsets, final int[] keyLengths);
   private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
       final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
