@@ -289,10 +289,13 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize() const;
 
-  // TODO(hx235): consider making this function part of the construction
+  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
+  // status and fail the compaction if needed
+  // TODO(hx235): consider making this function part of the construction so we
+  // don't forget to call it
   void FinalizeInputInfo(Version* input_version) {
     SetInputVersion(input_version);
-    SetInputTableProperties().PermitUncheckedError();
+    InitInputTableProperties().PermitUncheckedError();
   }
 
   struct InputLevelSummaryBuffer {
@@ -335,7 +338,7 @@ class Compaction {
   }
 
   // TODO(hx235): consider making this function symmetric to
-  // SetInputTableProperties()
+  // InitInputTableProperties()
   void SetOutputTableProperties(
       const std::string& file_name,
       const std::shared_ptr<const TableProperties>& tp) {
@@ -442,7 +445,7 @@ class Compaction {
  private:
   void SetInputVersion(Version* input_version);
 
-  Status SetInputTableProperties();
+  Status InitInputTableProperties();
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);

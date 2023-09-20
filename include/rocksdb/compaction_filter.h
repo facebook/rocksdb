@@ -22,9 +22,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-using TablePropertiesCollection =
-    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
-
 class Slice;
 class SliceTransform;
 

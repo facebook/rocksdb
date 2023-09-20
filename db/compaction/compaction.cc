@@ -204,7 +204,7 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-Status Compaction::SetInputTableProperties() {
+Status Compaction::InitInputTableProperties() {
   if (!input_table_properties_.empty()) {
     return Status::OK();
   }
@@ -786,8 +786,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
     ROCKS_LOG_WARN(
         immutable_options_.info_log,
         "Unable to set `input_table_properties` of `CompactionFilter::Context` "
-        "for compaction. Please check the previous logs for errors in loading "
-        "table properties during compaction");
+        "for compaction.");
   }
 
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
