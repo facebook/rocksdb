@@ -558,7 +558,8 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
 }
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context, Cleanable* value_pinner) {
+                         GetContext* get_context, Cleanable* value_pinner,
+                         SequenceNumber seq_no) {
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -569,11 +570,9 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     (void)ret;
 
     bool dont_care __attribute__((__unused__));
-    // Since SequenceNumber is not stored and unknown, we will use
-    // kMaxSequenceNumber.
-    get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        &dont_care, value_pinner);
+
+    ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
+    get_context->SaveValue(ikey, value, &dont_care, value_pinner);
   }
 }
 

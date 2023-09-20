@@ -248,6 +248,7 @@ class GetContext {
 // must have been set by calling GetContext::SetReplayLog().
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
-                         Cleanable* value_pinner = nullptr);
+                         Cleanable* value_pinner = nullptr,
+                         SequenceNumber seq_no = kMaxSequenceNumber);
 
 }  // namespace ROCKSDB_NAMESPACE
