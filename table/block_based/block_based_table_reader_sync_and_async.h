@@ -50,12 +50,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       }
 
       // XXX: use_cache=true means double cache query?
-      statuses[idx_in_batch] =
-          RetrieveBlock(nullptr, options, handle, uncompression_dict,
-                        &results[idx_in_batch].As<Block_kData>(),
-                        mget_iter->get_context, /* lookup_context */ nullptr,
-                        /* for_compaction */ false, /* use_cache */ true,
-                        /* async_read */ false);
+      statuses[idx_in_batch] = RetrieveBlock(
+          nullptr, options, handle, uncompression_dict,
+          &results[idx_in_batch].As<Block_kData>(), mget_iter->get_context,
+          /* lookup_context */ nullptr,
+          /* for_compaction */ false, /* use_cache */ true,
+          /* async_read */ false, /* use_block_cache_for_lookup */ true);
     }
     assert(idx_in_batch == handles->size());
     CO_RETURN;
@@ -269,7 +269,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             nullptr, options, handle, uncompression_dict,
             /*for_compaction=*/false, block_entry, mget_iter->get_context,
             /*lookup_context=*/nullptr, &serialized_block,
-            /*async_read=*/false);
+            /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
@@ -628,7 +628,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               read_options, iiter->value().handle, &next_biter,
               BlockType::kData, get_context, lookup_data_block_context,
               /* prefetch_buffer= */ nullptr, /* for_compaction = */ false,
-              /*async_read = */ false, tmp_s);
+              /*async_read = */ false, tmp_s,
+              /* use_block_cache_for_lookup = */ true);
           biter = &next_biter;
           reusing_prev_block = false;
           later_reused = false;

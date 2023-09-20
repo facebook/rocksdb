@@ -200,7 +200,7 @@ Status PartitionIndexReader::CacheDependencies(
         handle, UncompressionDict::GetEmptyDict(),
         /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
-        /*async_read=*/false);
+        /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
     if (!s.ok()) {
       return s;

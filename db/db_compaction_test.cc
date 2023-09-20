@@ -10114,6 +10114,112 @@ TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
   }
 }
 
+TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
+  // Tests the fix for issue #10257.
+  // Compactions are released in LogAndApply() so that picking a compaction
+  // from the new Version won't see these compactions as registered.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  // Make sure we can run multiple compactions at the same time.
+  env_->SetBackgroundThreads(3, Env::Priority::LOW);
+  env_->SetBackgroundThreads(3, Env::Priority::BOTTOM);
+  options.max_background_compactions = 3;
+  options.num_levels = 4;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Construct the following LSM
+  // L2:  [K1-K2]  [K10-K11]      [k100-k101]
+  // L3:  [K1]     [K10]          [k100]
+  // We will have 3 threads to run 3 manual compactions.
+  // The first thread that writes to MANIFEST will not finish
+  // until the next two threads enters LogAndApply() and form
+  // a write group.
+  // We check that compactions are all released after the first
+  // thread from the write group finishes writing to MANIFEST.
+
+  // L3
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  // L2
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(101), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(11), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 3);
+  ASSERT_EQ(NumTableFilesAtLevel(3), 3);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  std::atomic_int count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        int c = count.fetch_add(1);
+        if (c == 2) {
+          TEST_SYNC_POINT("all threads to enter LogAndApply");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"all threads to enter LogAndApply",
+        "VersionSet::LogAndApply:WriteManifestStart"}});
+  // Verify that compactions are released after writing to MANIFEST
+  std::atomic_int after_compact_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* ptr) {
+        int c = after_compact_count.fetch_add(1);
+        if (c > 0) {
+          ColumnFamilyData* cfd = (ColumnFamilyData*)(ptr);
+          ASSERT_TRUE(
+              cfd->compaction_picker()->compactions_in_progress()->empty());
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::thread> threads;
+  threads.emplace_back(std::thread([&]() {
+    std::string k1_str = Key(1);
+    std::string k2_str = Key(2);
+    Slice k1 = k1_str;
+    Slice k2 = k2_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
+  }));
+  threads.emplace_back(std::thread([&]() {
+    std::string k10_str = Key(10);
+    std::string k11_str = Key(11);
+    Slice k10 = k10_str;
+    Slice k11 = k11_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
+  }));
+  std::string k100_str = Key(100);
+  std::string k101_str = Key(101);
+  Slice k100 = k100_str;
+  Slice k101 = k101_str;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k100, &k101));
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

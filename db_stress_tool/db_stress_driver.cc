@@ -81,11 +81,29 @@ bool RunStressTestImpl(SharedState* shared) {
   stress->InitDb(shared);
   stress->FinishInitDb(shared);
 
+  if (FLAGS_write_fault_one_in) {
+    if (!FLAGS_sync_fault_injection) {
+      // unsynced WAL loss is not supported without sync_fault_injection
+      fault_fs_guard->SetDirectWritableTypes({kWalFile});
+    }
+    IOStatus error_msg;
+    if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
+      error_msg = IOStatus::IOError("Retryable injected write error");
+      error_msg.SetRetryable(true);
+    } else if (FLAGS_inject_error_severity == 2) {
+      error_msg = IOStatus::IOError("Fatal injected write error");
+      error_msg.SetDataLoss(true);
+    }
+    // TODO: inject write error for other file types including
+    //  MANIFEST, CURRENT, and WAL files.
+    fault_fs_guard->SetRandomWriteError(
+        shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
+        /*inject_for_all_file_types=*/false, {FileType::kTableFile});
+    fault_fs_guard->SetFilesystemDirectWritable(false);
+    fault_fs_guard->EnableWriteErrorInjection();
+  }
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
-  }
-  if (FLAGS_write_fault_one_in) {
-    fault_fs_guard->EnableWriteErrorInjection();
   }
 
   uint32_t n = FLAGS_threads;

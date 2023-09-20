@@ -1007,7 +1007,8 @@ DEFINE_string(file_checksum_impl, "none",
               "\"none\" for null.");
 
 DEFINE_int32(write_fault_one_in, 0,
-             "On non-zero, enables fault injection on write");
+             "On non-zero, enables fault injection on write. Currently only"
+             "injects write error when writing to SST files.");
 
 DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "

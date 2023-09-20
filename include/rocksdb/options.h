@@ -206,6 +206,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // - kZSTD: 3
   // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
   // - kLZ4HCCompression: 0
+  // - kLZ4: -1 (i.e., `acceleration=1`; see `CompressionOptions::level` doc)
   // - For all others, we do not specify a compression level
   //
   // Dynamically changeable through SetOptions() API
