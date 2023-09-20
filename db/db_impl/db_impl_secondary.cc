@@ -885,7 +885,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
       *mutable_cf_options, mutable_db_options_, 0));
   assert(c != nullptr);
 
-  c->SetInputVersion(version);
+  c->FinalizeInputInfo(version);
 
   // Create output directory if it's not existed yet
   std::unique_ptr<FSDirectory> output_dir;
