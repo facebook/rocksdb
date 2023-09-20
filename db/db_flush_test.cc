@@ -3193,11 +3193,14 @@ INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
 
 INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
-TEST_F(DBFlushTest, NonAtomicFlushError) {
+TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes1) {
+  // Fix a bug in when atomic_flush=false.
+  // The bug can happen as follows:
   // Start Flush0 for memtable M0 to SST1
   // Start Flush1 for memtable M1 to SST2
   // Flush 1 returns OK, but don't install to MANIFEST and let whoever flushes
-  // M0 to take care of it Flush0 finishes with a Retryable IO error
+  // M0 to take care of it
+  // Flush0 finishes with a Retryable IO error
   //   - It rollbacks M0, (incorrectly) not M1
   //   - Deletes SST1 and SST2
   //
@@ -3205,6 +3208,8 @@ TEST_F(DBFlushTest, NonAtomicFlushError) {
   // thought M1 is flushed
   // Flush2 writes SST3 and finishes OK, tries to install SST3 and SST2
   // Error opening SST2 since it's already deleted
+  //
+  // The fix is to let Flush0 also rollback M1.
   Options opts = CurrentOptions();
   opts.atomic_flush = false;
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
@@ -3244,6 +3249,88 @@ TEST_F(DBFlushTest, NonAtomicFlushError) {
   TEST_SYNC_POINT("Wait for error recover");
   dbfull()->TEST_WaitForErrorRecovery();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
+
+TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
+  // Fix a bug in when atomic_flush=false.
+  // The bug can happen as follows:
+  // Start Flush0 for memtable M0 to SST1
+  // Start Flush1 for memtable M1 to SST2
+  // Flush 1 returns OK, but don't install to MANIFEST and let whoever flushes
+  // M0 to take care of it
+  // Start Flush2 for memtable M2 to SST3
+  // Flush0 finishes with a Retryable IO error
+  //   - It rollbacks M0 AND M1
+  //   - Deletes SST1 and SST2
+  // Flush2 finishes, does not rollback M2, and deletes SST3
+  //   since it release the pending file number that keeps SST3 alive.
+  //
+  // Then auto-recovery starts, error opening SST3
+  //
+  // The fix is to let Flush2 rollback M2 if it finds that
+  // there is a background error.
+  Options opts = CurrentOptions();
+  opts.atomic_flush = false;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 4;
+  env_->SetBackgroundThreads(4, Env::HIGH);
+  DestroyAndReopen(opts);
+  std::atomic_int flush_count = 0;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT("Wait for mem1 to start");
+          TEST_SYNC_POINT("Wait for mem1 flush to finish");
+        } else if (c == 2) {
+          TEST_SYNC_POINT("Mem2 flush write table 1");
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&](void* mems) {
+        autovector<MemTable*>* mems_ptr = (autovector<MemTable*>*)mems;
+        if ((*mems_ptr)[0]->GetID() == 3) {
+          TEST_SYNC_POINT("Mem2 flush write table 2");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Wait for mem1 to start", "Mem1 flush starts"},
+       {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
+       {"StartRecoverFromRetryableBGIOError::in_progress",
+        "Wait for error recover"},
+       // The following events occur while Flush for mem2 is writing output file
+       // without mutex.
+       {"Mem2 flush write table 1", "Wait for mem1 flush to finish"},
+       {"Mem2 flush write table 1", "RollbackMemtableFlush"},
+       {"Mem2 flush write table 1",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RollbackMemtableFlush", "Mem2 flush write table 2"}});
+  // Need first flush to wait for the second flush to finish
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger bg flush mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+  TEST_SYNC_POINT("Mem1 flush starts");
+  // trigger bg flush mem1
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  TEST_SYNC_POINT("Mem2 flush starts");
+  ASSERT_OK(Put(Key(4), "val4"));
+
+  TEST_SYNC_POINT("Wait for error recover");
+  dbfull()->TEST_WaitForErrorRecovery();
+  // Recovery flush writes 3 memtables together into 1 file.
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

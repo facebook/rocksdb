@@ -284,6 +284,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile", nullptr);
   if (s.ok()) {
     flush_job.PickMemTable();
     need_cancel = true;
@@ -296,6 +297,9 @@ Status DBImpl::FlushMemTableToOutputFile(
                      flush_reason);
 
   bool switched_to_mempurge = false;
+  // If we exit a flush job since there is already a bg error,
+  // we should not set the bg error again.
+  bool skip_since_bg_error = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
@@ -304,7 +308,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
-                      &switched_to_mempurge);
+                      &switched_to_mempurge, &skip_since_bg_error,
+                      &error_handler_);
     need_cancel = false;
   }
 
@@ -345,7 +350,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
   }
 
-  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
+  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
+      !skip_since_bg_error) {
     if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming

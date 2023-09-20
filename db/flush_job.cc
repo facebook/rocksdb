@@ -215,7 +215,8 @@ void FlushJob::PickMemTable() {
 }
 
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
-                     bool* switched_to_mempurge) {
+                     bool* switched_to_mempurge, bool* skip_since_bg_error,
+                     ErrorHandler* error_handler) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
@@ -306,15 +307,26 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     cfd_->imm()->RollbackMemtableFlush(
         mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
   } else if (write_manifest_) {
-    TEST_SYNC_POINT("FlushJob::InstallResults");
-    // Replace immutable memtable with the generated Table
-    s = cfd_->imm()->TryInstallMemtableFlushResults(
-        cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
-        meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_,
-        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+    assert(!db_options_.atomic_flush);
+    if (!db_options_.atomic_flush && skip_since_bg_error &&
+        flush_reason_ != FlushReason::kErrorRecovery &&
+        flush_reason_ != FlushReason::kErrorRecoveryRetryFlush &&
+        !error_handler->GetBGError().ok()) {
+      cfd_->imm()->RollbackMemtableFlush(
+          mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
+      s = error_handler->GetBGError();
+      *skip_since_bg_error = true;
+    } else {
+      TEST_SYNC_POINT("FlushJob::InstallResults");
+      // Replace immutable memtable with the generated Table
+      s = cfd_->imm()->TryInstallMemtableFlushResults(
+              cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
+              meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
+              log_buffer_, &committed_flush_jobs_info_,
+              !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
+    }
   }
 
   if (s.ok() && file_meta != nullptr) {
