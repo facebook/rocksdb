@@ -46,7 +46,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()) {}
 
-  ~BlockBasedTableIterator() {}
+  ~BlockBasedTableIterator() { ClearBlockHandles(); }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -250,12 +250,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     kReportOnUseful = 1 << 2,
   };
 
-  struct BlockHandleStatus {
-    BlockHandleStatus(IndexValue index_val, bool is_cache_hit)
-        : index_val_(index_val), is_cache_hit_(is_cache_hit) {}
+  struct BlockHandleInfo {
+    BlockHandleInfo() {}
 
     IndexValue index_val_;
-    bool is_cache_hit_;
+    bool is_cache_hit_ = false;
+    CachableEntry<Block> cachable_entry_;
   };
 
   bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
@@ -302,7 +302,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // different blocks when readahead_size is calculated in
   // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
   // block_handles_ is used.
-  std::deque<BlockHandleStatus> block_handles_;
+  std::deque<BlockHandleInfo*> block_handles_;
 
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block. is_index_at_curr_block_ keeps track of
@@ -357,7 +357,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void ResetBlockCacheLookupVar() {
     readahead_cache_lookup_ = false;
-    block_handles_.clear();
+    ClearBlockHandles();
   }
 
   bool IsNextBlockOutOfBound() {
@@ -369,6 +369,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                 /*b_has_ts=*/false) >= 0
                 ? true
                 : false);
+  }
+
+  void ClearBlockHandles() {
+    while (!block_handles_.empty()) {
+      auto block_handle = block_handles_.front();
+      delete block_handle;
+      block_handles_.pop_front();
+    }
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

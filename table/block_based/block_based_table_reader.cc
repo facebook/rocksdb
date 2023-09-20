@@ -103,7 +103,7 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       BlockContents* contents, bool async_read,                                \
       bool use_block_cache_for_lookup) const;                                  \
   template bool BlockBasedTable::LookupAndPinBlocksInCache<T>(                 \
-      const BlockHandle& handle) const;
+      const BlockHandle& handle, CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -1475,7 +1475,8 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
 
 template <typename TBlocklike>
 bool BlockBasedTable::LookupAndPinBlocksInCache(
-    const BlockHandle& handle) const {
+    const BlockHandle& handle,
+    CachableEntry<TBlocklike>* out_parsed_block) const {
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
 
@@ -1499,6 +1500,8 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
 
   // Found in Cache. Pin the block.
   // TODO Akanksha:
+  TBlocklike* value = block_cache.Value(cache_handle);
+  out_parsed_block->SetCachedValue(value, block_cache.get(), cache_handle);
   return true;
 }
 

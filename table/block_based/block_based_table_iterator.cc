@@ -309,8 +309,14 @@ void BlockBasedTableIterator::Prev() {
 
 void BlockBasedTableIterator::InitDataBlock() {
   BlockHandle data_block_handle;
+  bool is_in_cache = false;
+  if (getenv("Print")) {
+    printf("InitDataBlock\n");
+  }
+
   if (!block_handles_.empty()) {
-    data_block_handle = block_handles_.front().index_val_.handle;
+    data_block_handle = block_handles_.front()->index_val_.handle;
+    is_in_cache = block_handles_.front()->is_cache_hit_;
   } else {
     data_block_handle = index_iter_->value().handle;
   }
@@ -322,34 +328,54 @@ void BlockBasedTableIterator::InitDataBlock() {
     if (block_iter_points_to_real_block_) {
       ResetDataIter();
     }
-    auto* rep = table_->get_rep();
 
     bool is_for_compaction =
         lookup_context_.caller == TableReaderCaller::kCompaction;
 
-    std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
-    if (readahead_cache_lookup_) {
-      readaheadsize_cb =
-          std::bind(&BlockBasedTableIterator::BlockCacheLookupForReadAheadSize,
-                    this, std::placeholders::_1, std::placeholders::_2);
+    // Initialize Data Block From CacheableEntry.
+    if (is_in_cache) {
+      if (getenv("Print")) {
+        if (block_handles_.front()->cachable_entry_.GetCacheHandle() ==
+            nullptr) {
+          printf("Data cache handle empty\n");
+        } else {
+          printf("Data cache handle not empty\n");
+        }
+      }
+      Status s;
+      block_iter_.Invalidate(Status::OK());
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, (block_handles_.front()->cachable_entry_).As<Block>(),
+          &block_iter_, s);
+    } else {
+      auto* rep = table_->get_rep();
+
+      std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
+      if (readahead_cache_lookup_) {
+        readaheadsize_cb = std::bind(
+            &BlockBasedTableIterator::BlockCacheLookupForReadAheadSize, this,
+            std::placeholders::_1, std::placeholders::_2);
+      }
+
+      // Prefetch additional data for range scans (iterators).
+      // Implicit auto readahead:
+      //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
+      // Explicit user requested readahead:
+      //   Enabled from the very first IO when ReadOptions.readahead_size is
+      //   set.
+      block_prefetcher_.PrefetchIfNeeded(
+          rep, data_block_handle, read_options_.readahead_size,
+          is_for_compaction,
+          /*no_sequential_checking=*/false, read_options_, readaheadsize_cb);
+
+      Status s;
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, data_block_handle, &block_iter_, BlockType::kData,
+          /*get_context=*/nullptr, &lookup_context_,
+          block_prefetcher_.prefetch_buffer(),
+          /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
+          /*use_block_cache_for_lookup=*/true);
     }
-
-    // Prefetch additional data for range scans (iterators).
-    // Implicit auto readahead:
-    //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
-    // Explicit user requested readahead:
-    //   Enabled from the very first IO when ReadOptions.readahead_size is set.
-    block_prefetcher_.PrefetchIfNeeded(
-        rep, data_block_handle, read_options_.readahead_size, is_for_compaction,
-        /*no_sequential_checking=*/false, read_options_, readaheadsize_cb);
-
-    Status s;
-    table_->NewDataBlockIterator<DataBlockIter>(
-        read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_,
-        block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
-        /*use_block_cache_for_lookup=*/true);
     block_iter_points_to_real_block_ = true;
 
     CheckDataBlockWithinUpperBound();
@@ -465,7 +491,7 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   // BlockCacheLookupForReadAheadSize is called.
   IndexValue index_val;
   if (!block_handles_.empty()) {
-    index_val = block_handles_.front().index_val_;
+    index_val = block_handles_.front()->index_val_;
   } else {
     index_val = index_iter_->value();
   }
@@ -537,6 +563,8 @@ void BlockBasedTableIterator::FindBlockForward() {
       if (getenv("Print")) {
         printf("Popping\n");
       }
+      auto block_handle_st = block_handles_.front();
+      delete block_handle_st;
       block_handles_.pop_front();
     }
 
@@ -584,7 +612,7 @@ void BlockBasedTableIterator::FindBlockForward() {
     } else {
       if (getenv("Print")) {
         printf("Block forward - offset: %lu \n",
-               block_handles_.front().index_val_.handle.offset());
+               block_handles_.front()->index_val_.handle.offset());
       }
     }
 
@@ -683,7 +711,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   if (getenv("Print")) {
     printf("BlockCacheLookupForReadAheadSize\n");
   }
-  block_handles_.clear();
+  ClearBlockHandles();
   /*
     Akanksha Note:
     1. Call block based table reader to lookup the data block in the cache (from
@@ -707,8 +735,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   size_t current_readahead_size = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
 
-  BlockHandleStatus block_handle_st1(index_iter_->value(), false);
-  block_handles_.push_back(std::move(block_handle_st1));
+  BlockHandleInfo* block_handle_info = new BlockHandleInfo();
+  block_handle_info->index_val_ = index_iter_->value();
+  block_handles_.push_back(std::move(block_handle_info));
 
   // Current block is included in length. Readahead should start from next
   // block.
@@ -736,9 +765,13 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     current_readahead_size += footer;
 
     // For current data block, do the lookup in the cache. Lookup should pin the
-    // data block and do the placeholder for cache.
-    bool found_in_cache =
-        table_->LookupAndPinBlocksInCache<Block_kData>(block_handle);
+    // data block and add the placeholder for cache.
+    block_handle_info = new BlockHandleInfo();
+    block_handle_info->index_val_ = index_iter_->value();
+
+    bool found_in_cache = table_->LookupAndPinBlocksInCache<Block_kData>(
+        block_handle, &(block_handle_info->cachable_entry_).As<Block_kData>());
+    block_handle_info->is_cache_hit_ = found_in_cache;
 
     if (getenv("Print")) {
       if (found_in_cache) {
@@ -750,8 +783,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     }
 
     // Add the handle to the queue.
-    BlockHandleStatus block_handle_st(index_iter_->value(), found_in_cache);
-    block_handles_.push_back(std::move(block_handle_st));
+    block_handles_.push_back(std::move(block_handle_info));
 
     // Can't figure out for current block if current block
     // is out of bound. But for next block we can find that.
@@ -767,11 +799,11 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // Iterate cache hit block handles from the end till a Miss is there, to
   // update the readahead_size.
   for (auto it = block_handles_.rbegin();
-       it != block_handles_.rend() && it->is_cache_hit_ == true; ++it) {
+       it != block_handles_.rend() && (*it)->is_cache_hit_ == true; ++it) {
     if (getenv("Print")) {
       printf("Cache hit from end\n");
     }
-    current_readahead_size -= it->index_val_.handle.size();
+    current_readahead_size -= (*it)->index_val_.handle.size();
     current_readahead_size -= footer;
   }
 
