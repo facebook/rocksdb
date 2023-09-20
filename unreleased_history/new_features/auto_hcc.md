@@ -1,0 +1,1 @@
+Added an experimental new "automatic" variant of HyperClockCache that does not require a prior estimate of the average size of cache entries. This variant is activated when HyperClockCacheOptions::estimated\_entry\_charge = 0 and has essentially the same concurrency benefits as the existing HyperClockCache.
