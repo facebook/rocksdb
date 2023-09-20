@@ -1498,10 +1498,12 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
     return false;
   }
 
-  // Found in Cache. Pin the block.
-  // TODO Akanksha:
+  // Found in Cache.
   TBlocklike* value = block_cache.Value(cache_handle);
   out_parsed_block->SetCachedValue(value, block_cache.get(), cache_handle);
+
+  assert(!out_parsed_block->IsEmpty());
+
   return true;
 }
 

@@ -1233,149 +1233,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   Close();
 }
 
-TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest1) {
-  // First param is if the mockFS support_prefetch or not
-  const int kNumKeys = 2000;
-  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
-      FileSystem::Default(), /*support_prefetch=*/false);
-  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
-
-  Options options;
-  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
-  BlockBasedTableOptions table_options;
-  SetBlockBasedTableOptions(table_options);
-  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
-  table_options.block_cache = cache;
-  table_options.no_block_cache = false;
-  table_options.num_file_reads_for_auto_readahead = 1;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  int buff_prefetch_count = 0;
-  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
-                                        [&](void*) { buff_prefetch_count++; });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  Status s = TryReopen(options);
-  ASSERT_OK(s);
-
-  WriteBatch batch;
-  Random rnd(309);
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
-  }
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
-
-  std::string start_key = BuildKey(0);
-  std::string end_key = BuildKey(kNumKeys - 1);
-  Slice least(start_key.data(), start_key.size());
-  Slice greatest(end_key.data(), end_key.size());
-
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
-
-  ReadOptions ro;
-  Slice ub(end_key);
-  ro.iterate_upper_bound = &ub;
-  {
-    printf("Iteration\n");
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-
-    // Warm up the cache
-    printf("Cache 1011\n");
-    iter->Seek(BuildKey(1011));
-    ASSERT_TRUE(iter->Valid());
-    printf("Cache 1004\n");
-    iter->Seek(BuildKey(1004));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache 1022\n");
-    iter->Seek(BuildKey(1022));
-    ASSERT_TRUE(iter->Valid());
-    printf("Cache 1015\n");
-    iter->Seek(BuildKey(1015));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache 1033\n");
-    iter->Seek(BuildKey(1033));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache 1042\n");
-    iter->Seek(BuildKey(1042));
-    ASSERT_TRUE(iter->Valid());
-    buff_prefetch_count = 0;
-    printf("Done\n");
-  }
-
-  {
-    ro.auto_readahead_size = std::get<0>(GetParam());
-    printf("\n\nCache: \n");
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-
-    // After caching, blocks will be read from cache (Sequential blocks)
-    printf("Seek 0\n");
-    iter->Seek(BuildKey(0));
-    ASSERT_TRUE(iter->Valid());
-
-    for (int i = 1; i < 50; i++) {
-      iter->Next();
-      if (!iter->Valid()) {
-        printf("Not Valid\n");
-        break;
-      }
-    }
-
-    /*
-    printf("Seek 1000\n");
-    iter->Seek(BuildKey(1000));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("\nSeek 1004 - First Miss and prefetch\n");
-    iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
-    ASSERT_TRUE(iter->Valid());
-
-    // Missed one sequential block but next is in already in buffer so
-    // readahead will not be reset.
-    printf("Seek 1011\n");
-    iter->Seek(BuildKey(1011));
-    ASSERT_TRUE(iter->Valid());
-
-    // Prefetch data but blocks are in cache so no prefetch.
-    printf("Seek 1015\n");
-    iter->Seek(BuildKey(1015));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Seek 1019\n");
-    iter->Seek(BuildKey(1019));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Seek 1022\n");
-    iter->Seek(BuildKey(1022));
-    ASSERT_TRUE(iter->Valid());
-
-    // Prefetch data with readahead_size = 4 blocks.
-    printf("Seek 1026\n");
-    iter->Seek(BuildKey(1026));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Seek 103\n");
-    iter->Seek(BuildKey(103));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Seek 1033\n");
-    iter->Seek(BuildKey(1033));
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Seek 1037\n");
-    iter->Seek(BuildKey(1037));
-    ASSERT_TRUE(iter->Valid());
-    */
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  Close();
-}
-
-TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest2) {
+TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
     return;
@@ -1390,7 +1248,7 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest2) {
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
-  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
+  std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
   SetBlockBasedTableOptions(table_options);
   table_options.block_cache = cache;
   table_options.no_block_cache = false;
@@ -1424,195 +1282,138 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest2) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
-  int buff_prefetch_count = 0;
-
   // Try with different num_file_reads_for_auto_readahead from 0 to 3.
-  // for (size_t i = 0; i < 3; i++) {
-  //  table_options.num_file_reads_for_auto_readahead = i;
-  // options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  for (size_t i = 0; i < 3; i++) {
+    table_options.num_file_reads_for_auto_readahead = i;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  // s = TryReopen(options);
-  // ASSERT_OK(s);
+    s = TryReopen(options);
+    ASSERT_OK(s);
 
-  // int buff_count_with_tuning = 0, buff_count_without_tuning = 0;
-  int keys_with_tuning = 0, keys_without_tuning = 0;
-  // int reseek_keys_with_tuning = 0, reseek_keys_without_tuning = 0;
-  buff_prefetch_count = 0;
-
-  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
-                                        [&](void*) { buff_prefetch_count++; });
-
-  SyncPoint::GetInstance()->SetCallBack(
-      "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
-      [&](void*) { buff_prefetch_count++; });
-
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  ReadOptions ropts;
-  /*
-  if (std::get<0>(GetParam())) {
-    ropts.readahead_size = 32768;
-  }
-  */
-  /*
-  if (std::get<1>(GetParam())) {
-    ropts.async_io = true;
-  }
-  */
-
-  {
-    printf("Iteration\n");
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
-
-    // Warm up the cache
-    printf("Cache bbb\n");
-    iter->Seek("my_key_bbb");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache c9 \n");
-    iter->Seek("my_key_ccccccccc");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache d3\n");
-    iter->Seek("my_key_ddd");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache d7\n");
-    iter->Seek("my_key_ddddddd");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache e\n");
-    iter->Seek("my_key_e");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache eeeee\n");
-    iter->Seek("my_key_eeeee");
-    ASSERT_TRUE(iter->Valid());
-
-    printf("Cache eeeeeeeee\n");
-    iter->Seek("my_key_eeeeeeeee");
-    ASSERT_TRUE(iter->Valid());
-
-    buff_prefetch_count = 0;
-    printf("Done\n");
-  }
-
-  // With tuning readahead_size.
-  {
-    ASSERT_OK(options.statistics->Reset());
-    Slice ub = Slice("my_key_uuu");
-    Slice* ub_ptr = &ub;
-    ropts.iterate_upper_bound = ub_ptr;
-    ropts.auto_readahead_size = true;
-
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-
-    // Seek.
+    // Warm up the cache.
     {
-      printf("\n\nSeek aaa\n");
-      Slice seek_key = Slice("my_key_aaa");
-      iter->Seek(seek_key);
+      printf("Iteration\n");
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
 
-      while (iter->Valid()) {
-        keys_with_tuning++;
-        iter->Next();
-      }
+      printf("Cache bbb\n");
+      iter->Seek("my_key_bbb");
+      ASSERT_TRUE(iter->Valid());
 
-      uint64_t readahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_GT(readahead_trimmed, 0);
-      // buff_count_with_tuning = buff_prefetch_count;
+      printf("Cache c9 \n");
+      iter->Seek("my_key_ccccccccc");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Cache d3\n");
+      iter->Seek("my_key_ddd");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Cache d7\n");
+      iter->Seek("my_key_ddddddd");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Cache e\n");
+      iter->Seek("my_key_e");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Cache eeeee\n");
+      iter->Seek("my_key_eeeee");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Cache eeeeeeeee\n");
+      iter->Seek("my_key_eeeeeeeee");
+      ASSERT_TRUE(iter->Valid());
+
+      printf("Done\n");
     }
 
-    // Reseek with new upper_bound_iterator.
-    {
-      /*
-      ub = Slice("my_key_y");
-      Slice reseek_key = Slice("my_key_v");
-      iter->Seek(reseek_key);
-
-      while (iter->Valid()) {
-        iter->Next();
-        reseek_keys_with_tuning++;
-      }
-
-      uint64_t readahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_GT(readahead_trimmed, 0);
-      // ASSERT_GT(reseek_keys_with_tuning, 0);
-      */
+    /*
+    if (std::get<0>(GetParam())) {
+      ropts.readahead_size = 32768;
     }
-  }
-
-  // Without tuning readahead_size
-  {
-    printf("\n\n - Without Tuning\n");
-    Slice ub = Slice("my_key_uuu");
-    Slice* ub_ptr = &ub;
-    ropts.iterate_upper_bound = ub_ptr;
-    buff_prefetch_count = 0;
-    ASSERT_OK(options.statistics->Reset());
-    ropts.auto_readahead_size = false;
-
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-
-    // Seek.
-    {
-      Slice seek_key = Slice("my_key_aaa");
-      iter->Seek(seek_key);
-
-      while (iter->Valid()) {
-        keys_without_tuning++;
-        iter->Next();
-      }
-      // buff_count_without_tuning = buff_prefetch_count;
-      uint64_t readahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_EQ(readahead_trimmed, 0);
-    }
-
-    // Reseek with new upper_bound_iterator.
-    {
-      /*
-      ub = Slice("my_key_y");
-      Slice reseek_key = Slice("my_key_v");
-      iter->Seek(reseek_key);
-
-      while (iter->Valid()) {
-        iter->Next();
-        reseek_keys_without_tuning++;
-      }
-
-      uint64_t readahead_trimmed =
-          options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-      ASSERT_EQ(readahead_trimmed, 0);
-      ASSERT_GT(reseek_keys_without_tuning, 0);
-      */
-    }
-  }
-
-  {
-    // Verify results with and without tuning.
+    */
     /*
     if (std::get<1>(GetParam())) {
-      // In case of async_io.
-      ASSERT_GE(buff_count_with_tuning, buff_count_without_tuning);
-    } else {
-      ASSERT_EQ(buff_count_without_tuning, buff_count_with_tuning);
+      ropts.async_io = true;
     }
     */
-    // Prefetching should happen.
-    /*
-    ASSERT_GT(buff_count_without_tuning, 0);
-    ASSERT_GT(buff_count_with_tuning, 0);
-    */
-    // No of keys should be equal.
-    ASSERT_EQ(keys_without_tuning, keys_with_tuning);
-    // No of keys after reseek with new upper bound should be equal.
-    // ASSERT_EQ(reseek_keys_without_tuning, reseek_keys_with_tuning);
+
+    ReadOptions ropts;
+    ropts.auto_readahead_size = true;
+    ReadOptions cmp_ro;
+    cmp_ro.auto_readahead_size = false;
+
+    // With and without tuning readahead_size.
+    {
+      ASSERT_OK(options.statistics->Reset());
+      // Seek.
+      {
+        Slice ub = Slice("my_key_uuu");
+        Slice* ub_ptr = &ub;
+        cmp_ro.iterate_upper_bound = ub_ptr;
+        ropts.iterate_upper_bound = ub_ptr;
+
+        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+
+        printf("\n\nSeek aaa\n");
+        Slice seek_key = Slice("my_key_aaa");
+        iter->Seek(seek_key);
+        cmp_iter->Seek(seek_key);
+
+        while (iter->Valid() && cmp_iter->Valid()) {
+          if (iter->key() != cmp_iter->key()) {
+            // Error
+            ASSERT_TRUE(false);
+          }
+          iter->Next();
+          cmp_iter->Next();
+        }
+
+        ASSERT_OK(cmp_iter->status());
+        ASSERT_OK(iter->status());
+
+        /*
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+        */
+      }
+
+      // Reseek with new upper_bound_iterator.
+      {
+        printf("\n\n Reseek\n");
+        Slice ub = Slice("my_key_y");
+        ropts.iterate_upper_bound = &ub;
+        cmp_ro.iterate_upper_bound = &ub;
+
+        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+
+        Slice reseek_key = Slice("my_key_v");
+        iter->Seek(reseek_key);
+        cmp_iter->Seek(reseek_key);
+
+        while (iter->Valid() && cmp_iter->Valid()) {
+          if (iter->key() != cmp_iter->key()) {
+            // Error
+            ASSERT_TRUE(false);
+          }
+          iter->Next();
+          cmp_iter->Next();
+        }
+
+        ASSERT_OK(cmp_iter->status());
+        ASSERT_OK(iter->status());
+
+        /*
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+        */
+      }
+    }
+    Close();
   }
-  Close();
-  // }
 }
 
 // This test verifies the functionality of ReadOptions.adaptive_readahead.

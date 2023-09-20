@@ -62,7 +62,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     readahead size in BlockCacheLookupForReadAheadSize so we need to reseek.
   */
 
-  if (!readahead_cache_lookup_ && block_iter_points_to_real_block_ &&
+  if (!IsIndexAtCurr() && block_iter_points_to_real_block_ &&
       block_iter_.Valid()) {
     // Reseek.
     prev_block_offset_ = index_iter_->value().handle.offset();
@@ -97,6 +97,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       return;
     }
   }
+
+  is_index_at_curr_block_ = true;
 
   if (autotune_readaheadsize) {
     FindReadAheadSizeUpperBound();
@@ -209,6 +211,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   // to distinguish the two unless we read the second block. In this case, we'll
   // end up with reading two blocks.
   index_iter_->Seek(target);
+  is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
     auto seek_status = index_iter_->status();
@@ -251,6 +254,8 @@ void BlockBasedTableIterator::SeekToLast() {
   ResetBlockCacheLookupVar();
 
   index_iter_->SeekToLast();
+  is_index_at_curr_block_ = true;
+
   if (!index_iter_->Valid()) {
     ResetDataIter();
     return;
@@ -286,8 +291,9 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // TODO akanksha: - How to figure out if after seek, it does prev but
-  // index_iter_ moves forward.
+  // Akanksha: -
+  // How to figure out if after seek, it does prev but
+  // index_iter_ moves forward ??
   ResetBlockCacheLookupVar();
   if (is_at_first_key_from_index_) {
     is_at_first_key_from_index_ = false;
@@ -708,9 +714,9 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     size_t readahead_size, size_t& updated_readahead_size) {
-  if (getenv("Print")) {
-    printf("BlockCacheLookupForReadAheadSize\n");
-  }
+  // if (getenv("Print")) {
+  printf("BlockCacheLookupForReadAheadSize\n");
+  // }
   ClearBlockHandles();
   /*
     Akanksha Note:
