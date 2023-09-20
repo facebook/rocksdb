@@ -235,9 +235,13 @@ class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
   }
 
   static Status Create(const Slice& data, CompressionType type,
-                       CreateContext* context, MemoryAllocator* allocator,
-                       ObjectPtr* out_obj, size_t* out_charge) {
+                       CacheTier source, CreateContext* context,
+                       MemoryAllocator* allocator, ObjectPtr* out_obj,
+                       size_t* out_charge) {
     std::unique_ptr<TValue> value = nullptr;
+    if (source != CacheTier::kVolatileTier) {
+      return Status::InvalidArgument();
+    }
     if constexpr (sizeof(TCreateContext) > 0) {
       TCreateContext* tcontext = static_cast<TCreateContext*>(context);
       tcontext->Create(&value, out_charge, data, type, allocator);
@@ -321,9 +325,9 @@ class FullTypedCacheInterface
       size_t* out_charge = nullptr) {
     ObjectPtr value;
     size_t charge;
-    Status st = GetFullHelper()->create_cb(data, kNoCompression, create_context,
-                                           this->cache_->memory_allocator(),
-                                           &value, &charge);
+    Status st = GetFullHelper()->create_cb(
+        data, kNoCompression, CacheTier::kVolatileTier, create_context,
+        this->cache_->memory_allocator(), &value, &charge);
     if (out_charge) {
       *out_charge = charge;
     }

@@ -18,21 +18,22 @@ namespace ROCKSDB_NAMESPACE {
 // if we implement demotion from the compressed secondary cache to the nvm
 // cache in the future.
 Status TieredSecondaryCache::MaybeInsertAndCreate(
-    const Slice& data, CompressionType type, Cache::CreateContext* ctx,
-    MemoryAllocator* allocator, Cache::ObjectPtr* out_obj, size_t* out_charge) {
+    const Slice& data, CompressionType type, CacheTier source,
+    Cache::CreateContext* ctx, MemoryAllocator* allocator,
+    Cache::ObjectPtr* out_obj, size_t* out_charge) {
   TieredSecondaryCache::CreateContext* context =
       static_cast<TieredSecondaryCache::CreateContext*>(ctx);
+  assert(source == CacheTier::kVolatileTier);
   if (!context->advise_erase && type != kNoCompression) {
     // Attempt to insert into compressed secondary cache
     // TODO: Don't hardcode the source
-    context->comp_sec_cache
-        ->InsertSaved(*context->key, data, type, CacheTier::kVolatileTier)
+    context->comp_sec_cache->InsertSaved(*context->key, data, type, source)
         .PermitUncheckedError();
   }
   // Primary cache will accept the object, so call its helper to create
   // the object
-  return context->helper->create_cb(data, type, context->inner_ctx, allocator,
-                                    out_obj, out_charge);
+  return context->helper->create_cb(data, type, source, context->inner_ctx,
+                                    allocator, out_obj, out_charge);
 }
 
 // The lookup first looks up in the compressed secondary cache. If its a miss,

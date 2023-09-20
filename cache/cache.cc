@@ -84,7 +84,7 @@ static Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset,
 }
 
 static Status NoopCreate(const Slice& /*data*/, CompressionType /*type*/,
-                         Cache::CreateContext* /*ctx*/,
+                         CacheTier /*source*/, Cache::CreateContext* /*ctx*/,
                          MemoryAllocator* /*allocator*/,
                          Cache::ObjectPtr* /*out_obj*/,
                          size_t* /*out_charge*/) {

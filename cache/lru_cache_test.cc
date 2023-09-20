@@ -1060,7 +1060,8 @@ class TestSecondaryCache : public SecondaryCache {
         char* ptr = cache_.Value(handle);
         size_t size = DecodeFixed64(ptr);
         ptr += sizeof(uint64_t);
-        s = helper->create_cb(Slice(ptr, size), kNoCompression, create_context,
+        s = helper->create_cb(Slice(ptr, size), kNoCompression,
+                              CacheTier::kVolatileTier, create_context,
                               /*alloc*/ nullptr, &value, &charge);
       }
       if (s.ok()) {

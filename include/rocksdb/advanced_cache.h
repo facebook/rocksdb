@@ -15,6 +15,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memory_allocator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
@@ -121,7 +122,7 @@ class Cache {
   // In case of some error, non-OK is returned and the caller should ignore
   // any result in out_obj. (The implementation must clean up after itself.)
   using CreateCallback = Status (*)(const Slice& data, CompressionType type,
-                                    CreateContext* context,
+                                    CacheTier source, CreateContext* context,
                                     MemoryAllocator* allocator,
                                     ObjectPtr* out_obj, size_t* out_charge);
 

@@ -27,6 +27,7 @@ class TestSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* /*helper*/,
                 bool /*force_insert*/) override {
     assert(false);
+    return Status::NotSupported();
   }
 
   Status InsertSaved(const Slice& key, const Slice& saved,
@@ -81,7 +82,7 @@ class TestSecondaryCache : public SecondaryCache {
       source = static_cast<CacheTier>(DecodeFixed16(ptr));
       assert(source == CacheTier::kVolatileTier);
       ptr += sizeof(uint16_t);
-      s = helper->create_cb(Slice(ptr, size), type, create_context,
+      s = helper->create_cb(Slice(ptr, size), type, source, create_context,
                             /*alloc*/ nullptr, &value, &charge);
       if (s.ok()) {
         secondary_handle.reset(new TestSecondaryCacheResultHandle(
@@ -472,6 +473,162 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
   ASSERT_EQ(nvm_sec_cache()->num_misses(), 6u);
   ASSERT_EQ(nvm_sec_cache()->num_hits(), 12u);
+
+  Destroy(options);
+}
+
+TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewCache(250 * 1024, 20 * 1024, 256 * 1024);
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  options.paranoid_file_checks = false;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v;
+    test::CompressibleString(&rnd, 0.5, 1007, &p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  keys.push_back(Key(0));
+  keys.push_back(Key(4));
+  keys.push_back(Key(8));
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  ASSERT_EQ(values.size(), keys.size());
+  for (auto value : values) {
+    ASSERT_EQ(1007, value.size());
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 3u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 3u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 0u);
+
+  keys.clear();
+  values.clear();
+  keys.push_back(Key(12));
+  keys.push_back(Key(16));
+  keys.push_back(Key(20));
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  ASSERT_EQ(values.size(), keys.size());
+  for (auto value : values) {
+    ASSERT_EQ(1007, value.size());
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 6u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 6u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 0u);
+
+  // Insert placeholders for 4 in primary and compressed
+  std::string val = Get(Key(4));
+
+  // Force placeholder 4 out of primary
+  keys.clear();
+  values.clear();
+  keys.push_back(Key(24));
+  keys.push_back(Key(28));
+  keys.push_back(Key(32));
+  keys.push_back(Key(36));
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  ASSERT_EQ(values.size(), keys.size());
+  for (auto value : values) {
+    ASSERT_EQ(1007, value.size());
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 10u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 10u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 1u);
+
+  // Now read 4 again. This will create a placeholder in primary, and insert
+  // in compressed secondary since it already has a placeholder
+  val = Get(Key(4));
+
+  // Now read 0, 4 and 8. While 4 is already in the compressed secondary
+  // cache, 0 and 8 will be read asynchronously from the nvm tier. The
+  // WaitAll will be called for all 3 blocks.
+  keys.clear();
+  values.clear();
+  keys.push_back(Key(0));
+  keys.push_back(Key(4));
+  keys.push_back(Key(8));
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  ASSERT_EQ(values.size(), keys.size());
+  for (auto value : values) {
+    ASSERT_EQ(1007, value.size());
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 10u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 10u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 4u);
+
+  Destroy(options);
+}
+
+// This test is for iteration. It iterates through a set of keys in two
+// passes. First pass loads the compressed blocks into the nvm tier, and
+// the second pass should hit all of those blocks.
+TEST_F(DBTieredSecondaryCacheTest, IterateTest) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewCache(250 * 1024, 10 * 1024, 256 * 1024);
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  options.paranoid_file_checks = false;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v;
+    test::CompressibleString(&rnd, 0.5, 1007, &p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  ReadOptions ro;
+  ro.readahead_size = 256 * 1024;
+  auto iter = dbfull()->NewIterator(ro);
+  iter->SeekToFirst();
+  for (int i = 0; i < 31; ++i) {
+    ASSERT_EQ(Key(i), iter->key().ToString());
+    ASSERT_EQ(1007, iter->value().size());
+    iter->Next();
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 8u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 8u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 0u);
+  delete iter;
+
+  iter = dbfull()->NewIterator(ro);
+  iter->SeekToFirst();
+  for (int i = 0; i < 31; ++i) {
+    ASSERT_EQ(Key(i), iter->key().ToString());
+    ASSERT_EQ(1007, iter->value().size());
+    iter->Next();
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 8u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 8u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 8u);
+  delete iter;
 
   Destroy(options);
 }

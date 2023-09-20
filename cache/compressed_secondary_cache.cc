@@ -87,8 +87,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     if (cache_options_.compression_type == kNoCompression ||
         cache_options_.do_not_compress_roles.Contains(helper->role)) {
       s = helper->create_cb(Slice(data_ptr, handle_value_charge),
-                            kNoCompression, create_context, allocator, &value,
-                            &charge);
+                            kNoCompression, CacheTier::kVolatileTier,
+                            create_context, allocator, &value, &charge);
     } else {
       UncompressionContext uncompression_context(
           cache_options_.compression_type);
@@ -107,13 +107,13 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
         return nullptr;
       }
       s = helper->create_cb(Slice(uncompressed.get(), uncompressed_size),
-                            kNoCompression, create_context, allocator, &value,
-                            &charge);
+                            kNoCompression, CacheTier::kVolatileTier,
+                            create_context, allocator, &value, &charge);
     }
   } else {
     // The item was not compressed by us. Let the helper create_cb
     // uncompress it
-    s = helper->create_cb(Slice(data_ptr, handle_value_charge), type,
+    s = helper->create_cb(Slice(data_ptr, handle_value_charge), type, source,
                           create_context, allocator, &value, &charge);
   }
 

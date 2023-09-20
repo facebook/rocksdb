@@ -25,9 +25,9 @@ Status WarmInCache(Cache* cache, const Slice& key, const Slice& saved,
   assert(helper->create_cb);
   Cache::ObjectPtr value;
   size_t charge;
-  Status st =
-      helper->create_cb(saved, CompressionType::kNoCompression, create_context,
-                        cache->memory_allocator(), &value, &charge);
+  Status st = helper->create_cb(saved, CompressionType::kNoCompression,
+                                CacheTier::kVolatileTier, create_context,
+                                cache->memory_allocator(), &value, &charge);
   if (st.ok()) {
     st =
         cache->Insert(key, value, helper, charge, /*handle*/ nullptr, priority);

@@ -132,6 +132,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     return Status::OK();
   }
   static Status MaybeInsertAndCreate(const Slice& data, CompressionType type,
+                                     CacheTier source,
                                      Cache::CreateContext* ctx,
                                      MemoryAllocator* allocator,
                                      Cache::ObjectPtr* out_obj,

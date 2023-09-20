@@ -38,7 +38,7 @@ Status SaveToCallbackFail(Cache::ObjectPtr /*obj*/, size_t /*offset*/,
 }
 
 Status CreateCallback(const Slice& data, CompressionType /*type*/,
-                      Cache::CreateContext* context,
+                      CacheTier /*source*/, Cache::CreateContext* context,
                       MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                       size_t* out_charge) {
   auto t = static_cast<TestCreateContext*>(context);
