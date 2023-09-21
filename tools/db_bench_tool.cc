@@ -718,7 +718,9 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+DEFINE_uint64(compaction_readahead_size,
+              ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
+              "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
@@ -3606,6 +3608,8 @@ class Benchmark {
       } else if (name == "block_cache_entry_stats") {
         // DB::Properties::kBlockCacheEntryStats
         PrintStats("rocksdb.block-cache-entry-stats");
+      } else if (name == "cache_report_problems") {
+        CacheReportProblems();
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "resetstats") {
@@ -4168,7 +4172,7 @@ class Benchmark {
       }
     }
     if (FLAGS_use_stderr_info_logger) {
-      options.info_log.reset(new StderrLogger());
+      options.info_log = std::make_shared<StderrLogger>();
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
@@ -8300,6 +8304,11 @@ class Benchmark {
       }
       shi->Next();
     }
+  }
+
+  void CacheReportProblems() {
+    auto debug_logger = std::make_shared<StderrLogger>(DEBUG_LEVEL);
+    cache_->ReportProblems(debug_logger);
   }
 
   void PrintStats(const char* key) {

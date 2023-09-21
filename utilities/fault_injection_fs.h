@@ -323,8 +323,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     if (!TryParseFileName(file_name, &file_number, &file_type)) {
       return false;
     }
-    return skip_direct_writable_types_.find(file_type) !=
-           skip_direct_writable_types_.end();
+    return direct_writable_types_.find(file_type) !=
+           direct_writable_types_.end();
   }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
@@ -402,7 +402,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // seed is the seed for the random number generator, and one_in determines
   // the probability of injecting error (i.e an error is injected with
   // 1/one_in probability)
-  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in) {
+  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in,
+                                      bool retryable) {
     struct ErrorContext* ctx =
         static_cast<struct ErrorContext*>(thread_local_error_->Get());
     if (ctx == nullptr) {
@@ -411,6 +412,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
     ctx->one_in = one_in;
     ctx->count = 0;
+    ctx->retryable = retryable;
   }
 
   static void DeleteThreadLocalErrorContext(void* p) {
@@ -437,9 +439,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     write_error_allowed_types_ = types;
   }
 
-  void SetSkipDirectWritableTypes(const std::set<FileType>& types) {
+  void SetDirectWritableTypes(const std::set<FileType>& types) {
     MutexLock l(&mutex_);
-    skip_direct_writable_types_ = types;
+    direct_writable_types_ = types;
   }
 
   void SetRandomMetadataWriteError(int one_in) {
@@ -556,12 +558,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     std::string message;
     int frames;
     ErrorType type;
+    bool retryable;
 
     explicit ErrorContext(uint32_t seed)
         : rand(seed),
           enable_error_injection(false),
           callstack(nullptr),
-          frames(0) {}
+          frames(0),
+          retryable(false) {}
     ~ErrorContext() {
       if (callstack) {
         free(callstack);
@@ -579,7 +583,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
   // File types where direct writable is skipped.
-  std::set<FileType> skip_direct_writable_types_;
+  std::set<FileType> direct_writable_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;
   bool fail_get_file_unique_id_;

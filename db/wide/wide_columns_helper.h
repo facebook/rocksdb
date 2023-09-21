@@ -11,11 +11,25 @@
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 class WideColumnsHelper {
  public:
-  static void DumpWideColumns(const WideColumns& columns, std::ostream& oss,
+  static void DumpWideColumns(const WideColumns& columns, std::ostream& os,
                               bool hex);
-  static Status DumpSliceAsWideColumns(const Slice& value, std::ostream& oss,
+
+  static Status DumpSliceAsWideColumns(const Slice& value, std::ostream& os,
                                        bool hex);
+
+  static bool HasDefaultColumn(const WideColumns& columns) {
+    return !columns.empty() && columns.front().name() == kDefaultWideColumnName;
+  }
+
+  static const Slice& GetDefaultColumn(const WideColumns& columns) {
+    assert(HasDefaultColumn(columns));
+    return columns.front().value();
+  }
+
+  static void SortColumns(WideColumns& columns);
 };
+
 }  // namespace ROCKSDB_NAMESPACE

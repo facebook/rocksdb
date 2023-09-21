@@ -375,7 +375,8 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // compatible with HyperClockCache.
 // * Requires an extra tuning parameter: see estimated_entry_charge below.
 // Similarly, substantially changing the capacity with SetCapacity could
-// harm efficiency.
+// harm efficiency. -> EXPERIMENTAL: the tuning parameter can be set to 0
+// to find the appropriate balance automatically.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
 // * Can be worse for small caches, because if almost all of a cache shard is
@@ -384,10 +385,16 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 //
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
-  // The estimated average `charge` associated with cache entries. This is a
-  // critical configuration parameter for good performance from the hyper
-  // cache, because having a table size that is fixed at creation time greatly
-  // reduces the required synchronization between threads.
+  // The estimated average `charge` associated with cache entries.
+  //
+  // EXPERIMENTAL: the field can be set to 0 to size the table dynamically
+  // and automatically. See also min_avg_entry_charge. This feature requires
+  // platform support for lazy anonymous memory mappings (incl Linux, Windows).
+  // Performance is very similar to choosing the best configuration parameter.
+  //
+  // PRODUCTION-TESTED: This is a critical configuration parameter for good
+  // performance, because having a table size that is fixed at creation time
+  // greatly reduces the required synchronization between threads.
   // * If the estimate is substantially too low (e.g. less than half the true
   // average) then metadata space overhead with be substantially higher (e.g.
   // 200 bytes per entry rather than 100). With kFullChargeCacheMetadata, this
@@ -416,7 +423,21 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // to estimate toward the lower side than the higher side.
   size_t estimated_entry_charge;
 
-  // FOR A FUTURE FEATURE (NOT YET USED)
+  // EXPERIMENTAL: When estimated_entry_charge == 0, this parameter establishes
+  // a promised lower bound on the average charge of all entries in the table,
+  // which is roughly the average uncompressed SST block size of block cache
+  // entries, typically > 4KB. The default should generally suffice with almost
+  // no cost. (This option is ignored for estimated_entry_charge > 0.)
+  //
+  // More detail: The table for indexing cache entries will grow automatically
+  // as needed, but a hard upper bound on that size is needed at creation time.
+  // The reason is that a contiguous memory mapping for the maximum size is
+  // created, but memory pages are only mapped to physical (RSS) memory as
+  // needed. If the average charge of all entries in the table falls below
+  // this value, the table will operate below its full logical capacity (total
+  // memory usage) because it has reached its physical capacity for efficiently
+  // indexing entries. The hash table is never allowed to exceed a certain safe
+  // load factor for efficient Lookup, Insert, etc.
   size_t min_avg_entry_charge = 450;
 
   HyperClockCacheOptions(

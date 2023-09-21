@@ -476,6 +476,7 @@ void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
   mem = new_mem;
   imm = new_imm;
   current = new_current;
+  full_history_ts_low = cfd->GetFullHistoryTsLow();
   cfd->Ref();
   mem->Ref();
   imm->Ref();
@@ -1118,7 +1119,7 @@ Compaction* ColumnFamilyData::PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
       log_buffer);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   return result;
 }
@@ -1202,7 +1203,7 @@ Compaction* ColumnFamilyData::CompactRange(
       compact_range_options, begin, end, compaction_end, conflict,
       max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
@@ -1283,8 +1284,6 @@ void ColumnFamilyData::InstallSuperVersion(
   new_superversion->Init(this, mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
-  ++super_version_number_;
-  super_version_->version_number = super_version_number_;
   if (old_superversion == nullptr || old_superversion->current != current() ||
       old_superversion->mem != mem_ ||
       old_superversion->imm != imm_.current()) {
@@ -1319,6 +1318,8 @@ void ColumnFamilyData::InstallSuperVersion(
       sv_context->superversions_to_free.push_back(old_superversion);
     }
   }
+  ++super_version_number_;
+  super_version_->version_number = super_version_number_;
 }
 
 void ColumnFamilyData::ResetThreadLocalSuperVersions() {

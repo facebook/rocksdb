@@ -159,7 +159,7 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_int32(ribbon_starting_level);
+DECLARE_int32(bloom_before_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);

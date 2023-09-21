@@ -270,10 +270,7 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
 
   WideColumns columns = GenerateWideColumns(value_base, slice);
 
-  std::sort(columns.begin(), columns.end(),
-            [](const WideColumn& lhs, const WideColumn& rhs) {
-              return lhs.name().compare(rhs.name()) < 0;
-            });
+  WideColumnsHelper::SortColumns(columns);
 
   return columns;
 }
@@ -296,15 +293,11 @@ bool VerifyWideColumns(const Slice& value, const WideColumns& columns) {
 }
 
 bool VerifyWideColumns(const WideColumns& columns) {
-  if (columns.empty()) {
+  if (!WideColumnsHelper::HasDefaultColumn(columns)) {
     return false;
   }
 
-  if (columns.front().name() != kDefaultWideColumnName) {
-    return false;
-  }
-
-  const Slice& value_of_default = columns.front().value();
+  const Slice& value_of_default = WideColumnsHelper::GetDefaultColumn(columns);
 
   return VerifyWideColumns(value_of_default, columns);
 }

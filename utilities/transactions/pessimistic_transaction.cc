@@ -183,8 +183,8 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
                                                value, exclusive, do_validate);
     }
   } else {
-    Status s = db_impl_->FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    Status s =
+        db_impl_->FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -1166,6 +1166,18 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
     s = Status::InvalidArgument("Transaction is beyond state for naming.");
   }
   return s;
+}
+
+Status PessimisticTransaction::CollapseKey(const ReadOptions& options,
+                                           const Slice& key,
+                                           ColumnFamilyHandle* column_family) {
+  auto* cfh = column_family ? column_family : db_impl_->DefaultColumnFamily();
+  std::string value;
+  const auto status = GetForUpdate(options, cfh, key, &value, true, true);
+  if (!status.ok()) {
+    return status;
+  }
+  return Put(column_family, key, value);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -3536,12 +3536,12 @@ TEST_P(DBCompactionWaitForCompactTest,
   // (has_unpersisted_data_ true) Check to make sure there's no extra L0 file
   // created from WAL. Re-opening DB won't trigger any flush or compaction
 
-  int compaction_finished = 0;
+  std::atomic_int compaction_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:Finish",
       [&](void*) { compaction_finished++; });
 
-  int flush_finished = 0;
+  std::atomic_int flush_finished = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::End", [&](void*) { flush_finished++; });
 
@@ -10037,6 +10037,189 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
       "processed.";
   ASSERT_TRUE(std::strstr(s.getState(), expect));
 }
+
+TEST_F(DBCompactionTest, ErrorWhenReadFileHead) {
+  // This is to test a bug that is fixed in
+  // https://github.com/facebook/rocksdb/pull/11782.
+  //
+  // Ingest error when reading from a file with offset = 0,
+  // See if compaction handles it correctly.
+  Options opts = CurrentOptions();
+  opts.num_levels = 7;
+  opts.compression = kNoCompression;
+  DestroyAndReopen(opts);
+
+  // Set up LSM
+  // L5: F1 [key0, key99], F2 [key100, key199]
+  // L6:        F3 [key50, key149]
+  Random rnd(301);
+  const int kValLen = 100;
+  for (int error_file = 1; error_file <= 3; ++error_file) {
+    for (int i = 50; i < 150; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(kValLen)));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(6);
+
+    std::vector<std::string> values;
+    for (int i = 0; i < 100; ++i) {
+      values.emplace_back(rnd.RandomString(kValLen));
+      ASSERT_OK(Put(Key(i), values.back()));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(5);
+
+    for (int i = 100; i < 200; ++i) {
+      values.emplace_back(rnd.RandomString(kValLen));
+      ASSERT_OK(Put(Key(i), values.back()));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(5);
+
+    ASSERT_EQ(2, NumTableFilesAtLevel(5));
+    ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+    std::atomic_int count = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "RandomAccessFileReader::Read::BeforeReturn",
+        [&count, &error_file](void* pair_ptr) {
+          auto p =
+              reinterpret_cast<std::pair<std::string*, IOStatus*>*>(pair_ptr);
+          int cur = ++count;
+          if (cur == error_file) {
+            IOStatus* io_s = p->second;
+            *io_s = IOStatus::IOError();
+            io_s->SetRetryable(true);
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    // Failed compaction should not lose data.
+    PinnableSlice slice;
+    for (int i = 0; i < 200; ++i) {
+      ASSERT_OK(Get(Key(i), &slice));
+      ASSERT_EQ(slice, values[i]);
+    }
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsIOError());
+    s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(s);
+    for (int i = 0; i < 200; ++i) {
+      ASSERT_OK(Get(Key(i), &slice));
+      ASSERT_EQ(slice, values[i]);
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
+    DestroyAndReopen(opts);
+  }
+}
+
+TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
+  // Tests the fix for issue #10257.
+  // Compactions are released in LogAndApply() so that picking a compaction
+  // from the new Version won't see these compactions as registered.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  // Make sure we can run multiple compactions at the same time.
+  env_->SetBackgroundThreads(3, Env::Priority::LOW);
+  env_->SetBackgroundThreads(3, Env::Priority::BOTTOM);
+  options.max_background_compactions = 3;
+  options.num_levels = 4;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Construct the following LSM
+  // L2:  [K1-K2]  [K10-K11]      [k100-k101]
+  // L3:  [K1]     [K10]          [k100]
+  // We will have 3 threads to run 3 manual compactions.
+  // The first thread that writes to MANIFEST will not finish
+  // until the next two threads enters LogAndApply() and form
+  // a write group.
+  // We check that compactions are all released after the first
+  // thread from the write group finishes writing to MANIFEST.
+
+  // L3
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  // L2
+  ASSERT_OK(Put(Key(100), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(101), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put(Key(10), rnd.RandomString(20)));
+  ASSERT_OK(Put(Key(11), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 3);
+  ASSERT_EQ(NumTableFilesAtLevel(3), 3);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  std::atomic_int count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        int c = count.fetch_add(1);
+        if (c == 2) {
+          TEST_SYNC_POINT("all threads to enter LogAndApply");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"all threads to enter LogAndApply",
+        "VersionSet::LogAndApply:WriteManifestStart"}});
+  // Verify that compactions are released after writing to MANIFEST
+  std::atomic_int after_compact_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:AfterCompaction", [&](void* ptr) {
+        int c = after_compact_count.fetch_add(1);
+        if (c > 0) {
+          ColumnFamilyData* cfd = (ColumnFamilyData*)(ptr);
+          ASSERT_TRUE(
+              cfd->compaction_picker()->compactions_in_progress()->empty());
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::thread> threads;
+  threads.emplace_back(std::thread([&]() {
+    std::string k1_str = Key(1);
+    std::string k2_str = Key(2);
+    Slice k1 = k1_str;
+    Slice k2 = k2_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k1, &k2));
+  }));
+  threads.emplace_back(std::thread([&]() {
+    std::string k10_str = Key(10);
+    std::string k11_str = Key(11);
+    Slice k10 = k10_str;
+    Slice k11 = k11_str;
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k10, &k11));
+  }));
+  std::string k100_str = Key(100);
+  std::string k101_str = Key(101);
+  Slice k100 = k100_str;
+  Slice k101 = k101_str;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &k100, &k101));
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

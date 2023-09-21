@@ -643,12 +643,12 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.value
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options);
+  virtual Status GetImpl(const ReadOptions& options, const Slice& key,
+                         GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
-                                      ColumnFamilyData* cfd,
+                                      ColumnFamilyData* cfd, SuperVersion* sv,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
@@ -1543,8 +1543,18 @@ class DBImpl : public DB {
   void SetDbSessionId();
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
-  Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family, const Slice& ts,
-                            bool ts_for_read) const;
+  Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
+                            const Slice& ts) const;
+
+  // Check that the read timestamp `ts` is at or above the `full_history_ts_low`
+  // timestamp in a `SuperVersion`. It's necessary to do this check after
+  // grabbing the SuperVersion. If the check passed, the referenced SuperVersion
+  // this read holds on to can ensure the read won't be affected if
+  // `full_history_ts_low` is increased concurrently, and this achieves that
+  // without explicitly locking by piggybacking the SuperVersion.
+  Status FailIfReadCollapsedHistory(const ColumnFamilyData* cfd,
+                                    const SuperVersion* sv,
+                                    const Slice& ts) const;
 
   // recovery_ctx stores the context about version edits and
   // LogAndApplyForRecovery persist all those edits to new Manifest after
@@ -2312,15 +2322,18 @@ class DBImpl : public DB {
   // If callback is non-null, the callback is refreshed with the snapshot
   // sequence number
   //
-  // A return value of true indicates that the SuperVersions were obtained
-  // from the ColumnFamilyData, whereas false indicates they are thread
-  // local
+  // `sv_from_thread_local` being set to false indicates that the SuperVersion
+  // obtained from the ColumnFamilyData, whereas true indicates they are thread
+  // local.
+  // A non-OK status will be returned if for a column family that enables
+  // user-defined timestamp feature, the specified `ReadOptions.timestamp`
+  // attemps to read collapsed history.
   template <class T>
-  bool MultiCFSnapshot(
+  Status MultiCFSnapshot(
       const ReadOptions& read_options, ReadCallback* callback,
       std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
           iter_deref_func,
-      T* cf_list, SequenceNumber* snapshot);
+      T* cf_list, SequenceNumber* snapshot, bool* sv_from_thread_local);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
@@ -2330,6 +2343,11 @@ class DBImpl : public DB {
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
+
+  void MultiGetWithCallbackImpl(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
 
   Status DisableFileDeletionsWithLock();
 
@@ -2620,9 +2638,6 @@ class DBImpl : public DB {
   // initialized with startup time.
   uint64_t delete_obsolete_files_last_run_;
 
-  // last time stats were dumped to LOG
-  std::atomic<uint64_t> last_stats_dump_time_microsec_;
-
   // The thread that wants to switch memtable, can wait on this cv until the
   // pending writes to memtable finishes.
   std::condition_variable switch_cv_;
@@ -2829,8 +2844,7 @@ inline Status DBImpl::FailIfCfHasTs(
 }
 
 inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
-                                         const Slice& ts,
-                                         bool ts_for_read) const {
+                                         const Slice& ts) const {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be null");
   }
@@ -2850,20 +2864,28 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
   }
-  if (ts_for_read) {
-    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-    auto cfd = cfh->cfd();
-    std::string current_ts_low = cfd->GetFullHistoryTsLow();
-    if (!current_ts_low.empty() &&
-        ucmp->CompareTimestamp(ts, current_ts_low) < 0) {
-      std::stringstream oss;
-      oss << "Read timestamp: " << ts.ToString(true)
-          << " is smaller than full_history_ts_low: "
-          << Slice(current_ts_low).ToString(true) << std::endl;
-      return Status::InvalidArgument(oss.str());
-    }
-  }
   return Status::OK();
 }
 
+inline Status DBImpl::FailIfReadCollapsedHistory(const ColumnFamilyData* cfd,
+                                                 const SuperVersion* sv,
+                                                 const Slice& ts) const {
+  // Reaching to this point means the timestamp size matching sanity check in
+  // `DBImpl::FailIfTsMismatchCf` already passed. So we skip that and assume
+  // column family has the same user-defined timestamp format as `ts`.
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  const std::string& full_history_ts_low = sv->full_history_ts_low;
+  assert(full_history_ts_low.empty() ||
+         full_history_ts_low.size() == ts.size());
+  if (!full_history_ts_low.empty() &&
+      ucmp->CompareTimestamp(ts, full_history_ts_low) < 0) {
+    std::stringstream oss;
+    oss << "Read timestamp: " << ts.ToString(true)
+        << " is smaller than full_history_ts_low: "
+        << Slice(full_history_ts_low).ToString(true) << std::endl;
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE

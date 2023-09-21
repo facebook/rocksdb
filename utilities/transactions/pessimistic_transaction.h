@@ -119,6 +119,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
                               const Endpoint& start_key,
                               const Endpoint& end_key) override;
 
+  virtual Status CollapseKey(
+      const ReadOptions& options, const Slice& key,
+      ColumnFamilyHandle* column_family = nullptr) override;
+
  protected:
   // Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery

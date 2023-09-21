@@ -1174,7 +1174,8 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr) {
+      const ColumnFamilyOptions* column_family_options = nullptr,
+      const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -1185,7 +1186,7 @@ class VersionSet {
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
                        mu, dir_contains_current_file, new_descriptor_log,
-                       column_family_options);
+                       column_family_options, {manifest_wcb});
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop

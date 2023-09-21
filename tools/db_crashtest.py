@@ -133,7 +133,7 @@ default_params = {
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     # 999 -> use Bloom API
-    "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
+    "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
     "value_size_mult": 32,
     "verification_only": 0,
     "verify_checksum": 1,
@@ -158,9 +158,8 @@ default_params = {
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
     "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
-    # Disable compaction_readahead_size because the test is not passing.
-    # "compaction_readahead_size" : lambda : random.choice(
-    #    [0, 0, 1024 * 1024]),
+    "compaction_readahead_size" : lambda : random.choice(
+        [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
@@ -180,6 +179,7 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "write_fault_one_in": 0,
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -375,6 +375,10 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
+    # Small write buffer size with more frequent flush has a higher chance
+    # of hitting write error. DB may be stopped if memtable fills up during
+    # auto resume.
+    "write_fault_one_in": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     # Snapshots are used heavily in this test mode, while they are incompatible
     # with compaction filter.
@@ -507,6 +511,9 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    # This test has aggressive flush frequency and small write buffer size.
+    # Disabling write fault to avoid writes being stopped.
+    "write_fault_one_in": 0,
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
     "use_get_entity": 0,
@@ -672,7 +679,9 @@ def finalize_and_sanitize(src_params):
         dest_params["use_full_merge_v1"] = 0
     if dest_params["file_checksum_impl"] == "none":
         dest_params["verify_file_checksums_one_in"] = 0
-
+    if dest_params["write_fault_one_in"] > 0:
+        # background work may be disabled while DB is resuming after some error
+        dest_params["max_write_buffer_number"] = max(dest_params["max_write_buffer_number"], 10)
     return dest_params
 
 

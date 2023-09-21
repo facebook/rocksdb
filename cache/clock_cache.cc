@@ -13,8 +13,8 @@
 #include <atomic>
 #include <bitset>
 #include <cassert>
+#include <cinttypes>
 #include <cstddef>
-#include <cstdint>
 #include <exception>
 #include <functional>
 #include <numeric>
@@ -94,19 +94,38 @@ inline void Unref(const ClockHandle& h, uint64_t count = 1) {
   (void)old_meta;
 }
 
-inline bool ClockUpdate(ClockHandle& h) {
-  uint64_t meta = h.meta.load(std::memory_order_relaxed);
+inline bool ClockUpdate(ClockHandle& h, bool* purgeable = nullptr) {
+  uint64_t meta;
+  if (purgeable) {
+    assert(*purgeable == false);
+    // In AutoHCC, our eviction process follows the chain structure, so we
+    // should ensure that we see the latest state of each entry, at least for
+    // assertion checking.
+    meta = h.meta.load(std::memory_order_acquire);
+  } else {
+    // In FixedHCC, our eviction process is a simple iteration without regard
+    // to probing order, displacements, etc., so it doesn't matter if we see
+    // somewhat stale data.
+    meta = h.meta.load(std::memory_order_relaxed);
+  }
 
+  if (((meta >> ClockHandle::kStateShift) & ClockHandle::kStateShareableBit) ==
+      0) {
+    // Only clock update Shareable entries
+    if (purgeable) {
+      *purgeable = true;
+      // AutoHCC only: make sure we only attempt to update non-empty slots
+      assert((meta >> ClockHandle::kStateShift) &
+             ClockHandle::kStateOccupiedBit);
+    }
+    return false;
+  }
   uint64_t acquire_count =
       (meta >> ClockHandle::kAcquireCounterShift) & ClockHandle::kCounterMask;
   uint64_t release_count =
       (meta >> ClockHandle::kReleaseCounterShift) & ClockHandle::kCounterMask;
   if (acquire_count != release_count) {
     // Only clock update entries with no outstanding refs
-    return false;
-  }
-  if (!((meta >> ClockHandle::kStateShift) & ClockHandle::kStateShareableBit)) {
-    // Only clock update Shareable entries
     return false;
   }
   if ((meta >> ClockHandle::kStateShift == ClockHandle::kStateVisible) &&
@@ -886,6 +905,9 @@ bool FixedHyperClockTable::Release(HandleImpl* h, bool useful,
 
   if (erase_if_last_ref || UNLIKELY(old_meta >> ClockHandle::kStateShift ==
                                     ClockHandle::kStateInvisible)) {
+    // FIXME: There's a chance here that another thread could replace this
+    // entry and we end up erasing the wrong one.
+
     // Update for last fetch_add op
     if (useful) {
       old_meta += ClockHandle::kReleaseIncrement;
@@ -1463,7 +1485,7 @@ class LoadVarianceStats {
            "), Min/Max/Window = " + PercentStr(min_, N) + "/" +
            PercentStr(max_, N) + "/" + std::to_string(N) +
            ", MaxRun{Pos/Neg} = " + std::to_string(max_pos_run_) + "/" +
-           std::to_string(max_neg_run_) + "\n";
+           std::to_string(max_neg_run_);
   }
 
   void Add(bool positive) {
@@ -1498,7 +1520,11 @@ class LoadVarianceStats {
   std::bitset<N> recent_;
 
   static std::string PercentStr(size_t a, size_t b) {
-    return std::to_string(uint64_t{100} * a / b) + "%";
+    if (b == 0) {
+      return "??%";
+    } else {
+      return std::to_string(uint64_t{100} * a / b) + "%";
+    }
   }
 };
 
@@ -1613,6 +1639,1938 @@ void FixedHyperClockCache::ReportProblems(
   }
 }
 
+// =======================================================================
+//                             AutoHyperClockCache
+// =======================================================================
+
+// See AutoHyperClockTable::length_info_ etc. for how the linear hashing
+// metadata is encoded. Here are some example values:
+//
+// Used length  | min shift  | threshold  | max shift
+// 2            | 1          | 0          | 1
+// 3            | 1          | 1          | 2
+// 4            | 2          | 0          | 2
+// 5            | 2          | 1          | 3
+// 6            | 2          | 2          | 3
+// 7            | 2          | 3          | 3
+// 8            | 3          | 0          | 3
+// 9            | 3          | 1          | 4
+// ...
+// Note:
+// * min shift = floor(log2(used length))
+// * max shift = ceil(log2(used length))
+// * used length == (1 << shift) + threshold
+// Also, shift=0 is never used in practice, so is reserved for "unset"
+
+namespace {
+
+inline int LengthInfoToMinShift(uint64_t length_info) {
+  int mask_shift = BitwiseAnd(length_info, int{255});
+  assert(mask_shift <= 63);
+  assert(mask_shift > 0);
+  return mask_shift;
+}
+
+inline size_t LengthInfoToThreshold(uint64_t length_info) {
+  return static_cast<size_t>(length_info >> 8);
+}
+
+inline size_t LengthInfoToUsedLength(uint64_t length_info) {
+  size_t threshold = LengthInfoToThreshold(length_info);
+  int shift = LengthInfoToMinShift(length_info);
+  assert(threshold < (size_t{1} << shift));
+  size_t used_length = (size_t{1} << shift) + threshold;
+  assert(used_length >= 2);
+  return used_length;
+}
+
+inline uint64_t UsedLengthToLengthInfo(size_t used_length) {
+  assert(used_length >= 2);
+  int shift = FloorLog2(used_length);
+  uint64_t threshold = BottomNBits(used_length, shift);
+  uint64_t length_info =
+      (uint64_t{threshold} << 8) + static_cast<uint64_t>(shift);
+  assert(LengthInfoToUsedLength(length_info) == used_length);
+  assert(LengthInfoToMinShift(length_info) == shift);
+  assert(LengthInfoToThreshold(length_info) == threshold);
+  return length_info;
+}
+
+inline size_t GetStartingLength(size_t capacity) {
+  if (capacity > port::kPageSize) {
+    // Start with one memory page
+    return port::kPageSize / sizeof(AutoHyperClockTable::HandleImpl);
+  } else {
+    // Mostly to make unit tests happy
+    return 4;
+  }
+}
+
+inline size_t GetHomeIndex(uint64_t hash, int shift) {
+  return static_cast<size_t>(BottomNBits(hash, shift));
+}
+
+inline void GetHomeIndexAndShift(uint64_t length_info, uint64_t hash,
+                                 size_t* home, int* shift) {
+  int min_shift = LengthInfoToMinShift(length_info);
+  size_t threshold = LengthInfoToThreshold(length_info);
+  bool extra_shift = GetHomeIndex(hash, min_shift) < threshold;
+  *home = GetHomeIndex(hash, min_shift + extra_shift);
+  *shift = min_shift + extra_shift;
+  assert(*home < LengthInfoToUsedLength(length_info));
+}
+
+inline int GetShiftFromNextWithShift(uint64_t next_with_shift) {
+  return BitwiseAnd(next_with_shift,
+                    AutoHyperClockTable::HandleImpl::kShiftMask);
+}
+
+inline size_t GetNextFromNextWithShift(uint64_t next_with_shift) {
+  return static_cast<size_t>(next_with_shift >>
+                             AutoHyperClockTable::HandleImpl::kNextShift);
+}
+
+inline uint64_t MakeNextWithShift(size_t next, int shift) {
+  return (uint64_t{next} << AutoHyperClockTable::HandleImpl::kNextShift) |
+         static_cast<uint64_t>(shift);
+}
+
+inline uint64_t MakeNextWithShiftEnd(size_t head, int shift) {
+  return AutoHyperClockTable::HandleImpl::kNextEndFlags |
+         MakeNextWithShift(head, shift);
+}
+
+// Helper function for Lookup
+inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
+                        int shift = 0, size_t home = 0,
+                        bool* full_match_or_unknown = nullptr) {
+  // Must be at least something to match
+  assert(hashed_key || shift > 0);
+
+  uint64_t old_meta;
+  // (Optimistically) increment acquire counter.
+  old_meta = h.meta.fetch_add(ClockHandle::kAcquireIncrement,
+                              std::memory_order_acquire);
+  // Check if it's a referencable (sharable) entry
+  if ((old_meta & (uint64_t{ClockHandle::kStateShareableBit}
+                   << ClockHandle::kStateShift)) == 0) {
+    // For non-sharable states, incrementing the acquire counter has no effect
+    // so we don't need to undo it. Furthermore, we cannot safely undo
+    // it because we did not acquire a read reference to lock the
+    // entry in a Shareable state.
+    if (full_match_or_unknown) {
+      *full_match_or_unknown = true;
+    }
+    return false;
+  }
+  // Else acquired a read reference
+  assert(GetRefcount(old_meta + ClockHandle::kAcquireIncrement) > 0);
+  if (hashed_key && h.hashed_key == *hashed_key &&
+      LIKELY(old_meta & (uint64_t{ClockHandle::kStateVisibleBit}
+                         << ClockHandle::kStateShift))) {
+    // Match on full key, visible
+    if (full_match_or_unknown) {
+      *full_match_or_unknown = true;
+    }
+    return true;
+  } else if (shift > 0 && home == BottomNBits(h.hashed_key[1], shift)) {
+    // NOTE: upper 32 bits of hashed_key[0] is used for sharding
+    // Match on home address, possibly invisible
+    if (full_match_or_unknown) {
+      *full_match_or_unknown = false;
+    }
+    return true;
+  } else {
+    // Mismatch. Pretend we never took the reference
+    Unref(h);
+    if (full_match_or_unknown) {
+      *full_match_or_unknown = false;
+    }
+    return false;
+  }
+}
+
+void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
+                          size_t& frontier, uint64_t stop_before_or_new_tail,
+                          int old_shift, int new_shift) {
+  assert(frontier != SIZE_MAX);
+  assert(new_shift == old_shift + 1);
+  (void)old_shift;
+  (void)new_shift;
+  using HandleImpl = AutoHyperClockTable::HandleImpl;
+  for (;;) {
+    uint64_t next_with_shift =
+        arr[frontier].chain_next_with_shift.load(std::memory_order_acquire);
+    assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+    if (next_with_shift == stop_before_or_new_tail) {
+      // Stopping at entry with pointer matching "stop before"
+      assert(!HandleImpl::IsEnd(next_with_shift));
+      // We need to keep a reference to it also to keep it stable.
+      return;
+    }
+    if (HandleImpl::IsEnd(next_with_shift)) {
+      // Also update tail to new tail
+      assert(HandleImpl::IsEnd(stop_before_or_new_tail));
+      arr[frontier].chain_next_with_shift.store(stop_before_or_new_tail,
+                                                std::memory_order_release);
+      // Mark nothing left to upgrade
+      frontier = SIZE_MAX;
+      return;
+    }
+    // Next is another entry to process, so upgrade and unref and advance
+    // frontier
+    arr[frontier].chain_next_with_shift.fetch_add(1U,
+                                                  std::memory_order_acq_rel);
+    assert(GetShiftFromNextWithShift(next_with_shift + 1) == new_shift);
+    frontier = GetNextFromNextWithShift(next_with_shift);
+  }
+}
+
+size_t CalcOccupancyLimit(size_t used_length) {
+  return static_cast<size_t>(used_length * AutoHyperClockTable::kMaxLoadFactor +
+                             0.999);
+}
+
+}  // namespace
+
+// An RAII wrapper for locking a chain of entries (flag bit on the head)
+// so that there is only one thread allowed to remove entries from the
+// chain, or to rewrite it by splitting for Grow. Without the lock,
+// all lookups and insertions at the head can proceed wait-free.
+// The class also provides functions for safely manipulating the head pointer
+// while holding the lock--or wanting to should it become non-empty.
+//
+// The flag bits on the head are such that the head cannot be locked if it
+// is an empty chain, so that a "blind" fetch_or will try to lock a non-empty
+// chain but have no effect on an empty chain. When a potential rewrite
+// operation see an empty head pointer, there is no need to lock as the
+// operation is a no-op. However, there are some cases such as CAS-update
+// where locking might be required after initially not being needed, if the
+// operation is forced to revisit the head pointer.
+class AutoHyperClockTable::ChainRewriteLock {
+ public:
+  using HandleImpl = AutoHyperClockTable::HandleImpl;
+  explicit ChainRewriteLock(HandleImpl* h, std::atomic<uint64_t>& yield_count,
+                            bool already_locked_or_end = false)
+      : head_ptr_(&h->head_next_with_shift) {
+    if (already_locked_or_end) {
+      new_head_ = head_ptr_->load(std::memory_order_acquire);
+      // already locked or end
+      assert(new_head_ & HandleImpl::kHeadLocked);
+      return;
+    }
+    Acquire(yield_count);
+  }
+
+  ~ChainRewriteLock() {
+    if (!IsEnd()) {
+      // Release lock
+      uint64_t old = head_ptr_->fetch_and(~HandleImpl::kHeadLocked,
+                                          std::memory_order_release);
+      (void)old;
+      assert((old & HandleImpl::kNextEndFlags) == HandleImpl::kHeadLocked);
+    }
+  }
+
+  void Reset(HandleImpl* h, std::atomic<uint64_t>& yield_count) {
+    this->~ChainRewriteLock();
+    new (this) ChainRewriteLock(h, yield_count);
+  }
+
+  // Expected current state, assuming no parallel updates.
+  uint64_t GetNewHead() const { return new_head_; }
+
+  // Only safe if we know that the value hasn't changed from other threads
+  void SimpleUpdate(uint64_t next_with_shift) {
+    assert(head_ptr_->load(std::memory_order_acquire) == new_head_);
+    new_head_ = next_with_shift | HandleImpl::kHeadLocked;
+    head_ptr_->store(new_head_, std::memory_order_release);
+  }
+
+  bool CasUpdate(uint64_t next_with_shift, std::atomic<uint64_t>& yield_count) {
+    uint64_t new_head = next_with_shift | HandleImpl::kHeadLocked;
+    uint64_t expected = GetNewHead();
+    bool success = head_ptr_->compare_exchange_strong(
+        expected, new_head, std::memory_order_acq_rel);
+    if (success) {
+      // Ensure IsEnd() is kept up-to-date, including for dtor
+      new_head_ = new_head;
+    } else {
+      // Parallel update to head, such as Insert()
+      if (IsEnd()) {
+        // Didn't previously hold a lock
+        if (HandleImpl::IsEnd(expected)) {
+          // Still don't need to
+          new_head_ = expected;
+        } else {
+          // Need to acquire lock before proceeding
+          Acquire(yield_count);
+        }
+      } else {
+        // Parallel update must preserve our lock
+        assert((expected & HandleImpl::kNextEndFlags) ==
+               HandleImpl::kHeadLocked);
+        new_head_ = expected;
+      }
+    }
+    return success;
+  }
+
+  bool IsEnd() const { return HandleImpl::IsEnd(new_head_); }
+
+ private:
+  void Acquire(std::atomic<uint64_t>& yield_count) {
+    for (;;) {
+      // Acquire removal lock on the chain
+      uint64_t old_head = head_ptr_->fetch_or(HandleImpl::kHeadLocked,
+                                              std::memory_order_acq_rel);
+      if ((old_head & HandleImpl::kNextEndFlags) != HandleImpl::kHeadLocked) {
+        // Either acquired the lock or lock not needed (end)
+        assert((old_head & HandleImpl::kNextEndFlags) == 0 ||
+               (old_head & HandleImpl::kNextEndFlags) ==
+                   HandleImpl::kNextEndFlags);
+
+        new_head_ = old_head | HandleImpl::kHeadLocked;
+        break;
+      }
+      // NOTE: one of the few yield-wait loops, which is rare enough in practice
+      // for its performance to be insignificant. (E.g. using C++20 atomic
+      // wait/notify would likely be worse because of wasted notify costs.)
+      yield_count.fetch_add(1, std::memory_order_relaxed);
+      std::this_thread::yield();
+    }
+  }
+
+  std::atomic<uint64_t>* head_ptr_;
+  uint64_t new_head_;
+};
+
+AutoHyperClockTable::AutoHyperClockTable(
+    size_t capacity, bool /*strict_capacity_limit*/,
+    CacheMetadataChargePolicy metadata_charge_policy,
+    MemoryAllocator* allocator,
+    const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
+    const Opts& opts)
+    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+                     hash_seed),
+      array_(MemMapping::AllocateLazyZeroed(
+          sizeof(HandleImpl) * CalcMaxUsableLength(capacity,
+                                                   opts.min_avg_value_size,
+                                                   metadata_charge_policy))),
+      length_info_(UsedLengthToLengthInfo(GetStartingLength(capacity))),
+      occupancy_limit_(
+          CalcOccupancyLimit(LengthInfoToUsedLength(length_info_.load()))),
+      clock_pointer_mask_(
+          BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.load()))) {
+  if (metadata_charge_policy ==
+      CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
+    // NOTE: ignoring page boundaries for simplicity
+    usage_ += size_t{GetTableSize()} * sizeof(HandleImpl);
+  }
+
+  static_assert(sizeof(HandleImpl) == 64U,
+                "Expecting size / alignment with common cache line size");
+
+  // Populate head pointers
+  uint64_t length_info = length_info_.load();
+  int min_shift = LengthInfoToMinShift(length_info);
+  int max_shift = min_shift + 1;
+  size_t major = uint64_t{1} << min_shift;
+  size_t used_length = GetTableSize();
+
+  assert(major <= used_length);
+  assert(used_length <= major * 2);
+
+  // Initialize the initial usable set of slots. This slightly odd iteration
+  // order makes it easier to get the correct shift amount on each head.
+  for (size_t i = 0; i < major; ++i) {
+#ifndef NDEBUG
+    int shift;
+    size_t home;
+#endif
+    if (major + i < used_length) {
+      array_[i].head_next_with_shift = MakeNextWithShiftEnd(i, max_shift);
+      array_[major + i].head_next_with_shift =
+          MakeNextWithShiftEnd(major + i, max_shift);
+#ifndef NDEBUG  // Extra invariant checking
+      GetHomeIndexAndShift(length_info, i, &home, &shift);
+      assert(home == i);
+      assert(shift == max_shift);
+      GetHomeIndexAndShift(length_info, major + i, &home, &shift);
+      assert(home == major + i);
+      assert(shift == max_shift);
+#endif
+    } else {
+      array_[i].head_next_with_shift = MakeNextWithShiftEnd(i, min_shift);
+#ifndef NDEBUG  // Extra invariant checking
+      GetHomeIndexAndShift(length_info, i, &home, &shift);
+      assert(home == i);
+      assert(shift == min_shift);
+      GetHomeIndexAndShift(length_info, major + i, &home, &shift);
+      assert(home == i);
+      assert(shift == min_shift);
+#endif
+    }
+  }
+}
+
+AutoHyperClockTable::~AutoHyperClockTable() {
+  // Assumes there are no references or active operations on any slot/element
+  // in the table.
+  size_t end = GetTableSize();
+#ifndef NDEBUG
+  std::vector<bool> was_populated(end);
+  std::vector<bool> was_pointed_to(end);
+#endif
+  for (size_t i = 0; i < end; i++) {
+    HandleImpl& h = array_[i];
+    switch (h.meta >> ClockHandle::kStateShift) {
+      case ClockHandle::kStateEmpty:
+        // noop
+        break;
+      case ClockHandle::kStateInvisible:  // rare but possible
+      case ClockHandle::kStateVisible:
+        assert(GetRefcount(h.meta) == 0);
+        h.FreeData(allocator_);
+#ifndef NDEBUG  // Extra invariant checking
+        usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
+        occupancy_.fetch_sub(1U, std::memory_order_relaxed);
+        was_populated[i] = true;
+        if (!HandleImpl::IsEnd(h.chain_next_with_shift)) {
+          assert((h.chain_next_with_shift & HandleImpl::kHeadLocked) == 0);
+          size_t next = GetNextFromNextWithShift(h.chain_next_with_shift);
+          assert(!was_pointed_to[next]);
+          was_pointed_to[next] = true;
+        }
+#endif
+        break;
+      // otherwise
+      default:
+        assert(false);
+        break;
+    }
+#ifndef NDEBUG  // Extra invariant checking
+    if (!HandleImpl::IsEnd(h.head_next_with_shift)) {
+      size_t next = GetNextFromNextWithShift(h.head_next_with_shift);
+      assert(!was_pointed_to[next]);
+      was_pointed_to[next] = true;
+    }
+#endif
+  }
+#ifndef NDEBUG  // Extra invariant checking
+  // This check is not perfect, but should detect most reasonable cases
+  // of abandonned or floating entries, etc.  (A floating cycle would not
+  // be reported as bad.)
+  for (size_t i = 0; i < end; i++) {
+    if (was_populated[i]) {
+      assert(was_pointed_to[i]);
+    } else {
+      assert(!was_pointed_to[i]);
+    }
+  }
+#endif
+
+  assert(usage_.load() == 0 ||
+         usage_.load() == size_t{GetTableSize()} * sizeof(HandleImpl));
+  assert(occupancy_ == 0);
+}
+
+size_t AutoHyperClockTable::GetTableSize() const {
+  return LengthInfoToUsedLength(length_info_.load(std::memory_order_acquire));
+}
+
+size_t AutoHyperClockTable::GetOccupancyLimit() const {
+  return occupancy_limit_.load(std::memory_order_acquire);
+}
+
+void AutoHyperClockTable::StartInsert(InsertState& state) {
+  state.saved_length_info = length_info_.load(std::memory_order_acquire);
+}
+
+// Because we have linked lists, bugs or even hardware errors can make it
+// possible to create a cycle, which would lead to infinite loop.
+// Furthermore, when we have retry cases in the code, we want to be sure
+// these are not (and do not become) spin-wait loops. Given the assumption
+// of quality hashing and the infeasibility of consistently recurring
+// concurrent modifications to an entry or chain, we can safely bound the
+// number of loop iterations in feasible operation, whether following chain
+// pointers or retrying with some backtracking. A smaller limit is used for
+// stress testing, to detect potential issues such as cycles or spin-waits,
+// and a larger limit is used to break cycles should they occur in production.
+#define CHECK_TOO_MANY_ITERATIONS(i) \
+  {                                  \
+    assert(i < 0x2000);              \
+    if (UNLIKELY(i >= 0x8000)) {     \
+      std::terminate();              \
+    }                                \
+  }
+
+bool AutoHyperClockTable::GrowIfNeeded(size_t new_occupancy,
+                                       InsertState& state) {
+  // new_occupancy has taken into account other threads that are also trying
+  // to insert, so as soon as we see sufficient *published* usable size, we
+  // can declare success even if we aren't the one that grows the table.
+  // However, there's an awkward state where other threads own growing the
+  // table to sufficient usable size, but the udpated size is not yet
+  // published. If we wait, then that likely slows the ramp-up cache
+  // performance. If we unblock ourselves by ensure we grow by at least one
+  // slot, we could technically overshoot required size by number of parallel
+  // threads accessing block cache. On balance considering typical cases and
+  // the modest consequences of table being slightly too large, the latter
+  // seems preferable.
+  //
+  // So if the published occupancy limit is too small, we unblock ourselves
+  // by committing to growing the table by at least one slot. Also note that
+  // we might need to grow more than once to actually increase the occupancy
+  // limit (due to max load factor < 1.0)
+
+  while (UNLIKELY(new_occupancy >
+                  occupancy_limit_.load(std::memory_order_relaxed))) {
+    // At this point we commit the thread to growing unless we've reached the
+    // limit (returns false).
+    if (!Grow(state)) {
+      return false;
+    }
+  }
+  // Success (didn't need to grow, or did successfully)
+  return true;
+}
+
+bool AutoHyperClockTable::Grow(InsertState& state) {
+  size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
+
+  // Try to take ownership of a grow slot as the first thread to set its
+  // head_next_with_shift to non-zero, specifically a valid empty chain
+  // in case that is to be the final value.
+  // (We don't need to be super efficient here.)
+  size_t grow_home = used_length;
+  int old_shift;
+  for (;; ++grow_home) {
+    if (grow_home >= array_.Count()) {
+      // Can't grow any more.
+      // (Tested by unit test ClockCacheTest/Limits)
+      return false;
+    }
+
+    old_shift = FloorLog2(grow_home);
+    assert(old_shift >= 1);
+
+    uint64_t empty_head = MakeNextWithShiftEnd(grow_home, old_shift + 1);
+    uint64_t expected_zero = HandleImpl::kUnusedMarker;
+    bool own = array_[grow_home].head_next_with_shift.compare_exchange_strong(
+        expected_zero, empty_head, std::memory_order_acq_rel);
+    if (own) {
+      break;
+    } else {
+      // Taken by another thread. Try next slot.
+      assert(expected_zero != 0);
+    }
+  }
+  // Basically, to implement https://en.wikipedia.org/wiki/Linear_hashing
+  // entries that belong in a new chain starting at grow_home will be
+  // split off from the chain starting at old_home, which is computed here.
+  size_t old_home = BottomNBits(grow_home, old_shift);
+  assert(old_home + (size_t{1} << old_shift) == grow_home);
+
+  // Wait here to ensure any Grow operations that would directly feed into
+  // this one are finished, though the full waiting actually completes in
+  // acquiring the rewrite lock for old_home in SplitForGrow.
+  size_t old_old_home = BottomNBits(grow_home, old_shift - 1);
+  for (;;) {
+    uint64_t old_old_head = array_[old_old_home].head_next_with_shift.load(
+        std::memory_order_acquire);
+    if (GetShiftFromNextWithShift(old_old_head) >= old_shift) {
+      if ((old_old_head & HandleImpl::kNextEndFlags) !=
+          HandleImpl::kHeadLocked) {
+        break;
+      }
+    }
+    // NOTE: one of the few yield-wait loops, which is rare enough in practice
+    // for its performance to be insignificant.
+    yield_count_.fetch_add(1, std::memory_order_relaxed);
+    std::this_thread::yield();
+  }
+
+  // Do the dirty work of splitting the chain, including updating heads and
+  // chain nexts for new shift amounts.
+  SplitForGrow(grow_home, old_home, old_shift);
+
+  // length_info_ can be updated any time after the new shift amount is
+  // published to both heads, potentially before the end of SplitForGrow.
+  // But we also can't update length_info_ until the previous Grow operation
+  // (with grow_home := this grow_home - 1) has published the new shift amount
+  // to both of its heads. However, we don't want to artificially wait here
+  // on that Grow that is otherwise irrelevant.
+  //
+  // We could have each Grow operation advance length_info_ here as far as it
+  // can without waiting, by checking for updated shift on the corresponding
+  // old home and also stopping at an empty head value for possible grow_home.
+  // However, this could increase CPU cache line sharing and in 1/64 cases
+  // bring in an extra page from our mmap.
+  //
+  // Instead, part of the strategy is delegated to DoInsert():
+  // * Here we try to bring length_info_ up to date with this grow_home as
+  // much as we can without waiting. It will fall short if a previous Grow
+  // is still between reserving the grow slot and making the first big step
+  // to publish the new shift amount.
+  // * To avoid length_info_ being perpetually out-of-date (for a small number
+  // of heads) after our last Grow, we do the same when Insert has to "fall
+  // forward" due to length_info_ being out-of-date.
+  CatchUpLengthInfoNoWait(grow_home);
+
+  // Success
+  return true;
+}
+
+// See call in Grow()
+void AutoHyperClockTable::CatchUpLengthInfoNoWait(
+    size_t known_usable_grow_home) {
+  uint64_t current_length_info = length_info_.load(std::memory_order_acquire);
+  size_t published_usable_size = LengthInfoToUsedLength(current_length_info);
+  while (published_usable_size <= known_usable_grow_home) {
+    // For when published_usable_size was grow_home
+    size_t next_usable_size = published_usable_size + 1;
+    uint64_t next_length_info = UsedLengthToLengthInfo(next_usable_size);
+
+    // known_usable_grow_home is known to be ready for Lookup/Insert with
+    // the new shift amount, but between that and published usable size, we
+    // need to check.
+    if (published_usable_size < known_usable_grow_home) {
+      int old_shift = FloorLog2(next_usable_size - 1);
+      size_t old_home = BottomNBits(published_usable_size, old_shift);
+      int shift =
+          GetShiftFromNextWithShift(array_[old_home].head_next_with_shift.load(
+              std::memory_order_acquire));
+      if (shift <= old_shift) {
+        // Not ready
+        break;
+      }
+    }
+    // CAS update length_info_. This only moves in one direction, so if CAS
+    // fails, someone else made progress like we are trying, and we can just
+    // pick up the new value and keep going as appropriate.
+    if (length_info_.compare_exchange_strong(
+            current_length_info, next_length_info, std::memory_order_acq_rel)) {
+      current_length_info = next_length_info;
+      // Update usage_ if metadata charge policy calls for it
+      if (metadata_charge_policy_ ==
+          CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
+        // NOTE: ignoring page boundaries for simplicity
+        usage_.fetch_add(sizeof(HandleImpl), std::memory_order_relaxed);
+      }
+    }
+    published_usable_size = LengthInfoToUsedLength(current_length_info);
+  }
+
+  // After updating lengh_info_ we can update occupancy_limit_,
+  // allowing for later operations to update it before us.
+  // Note: there is no std::atomic max operation, so we have to use a CAS loop
+  size_t old_occupancy_limit = occupancy_limit_.load(std::memory_order_acquire);
+  size_t new_occupancy_limit = CalcOccupancyLimit(published_usable_size);
+  while (old_occupancy_limit < new_occupancy_limit) {
+    if (occupancy_limit_.compare_exchange_weak(old_occupancy_limit,
+                                               new_occupancy_limit,
+                                               std::memory_order_acq_rel)) {
+      break;
+    }
+  }
+}
+
+void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
+                                       int old_shift) {
+  int new_shift = old_shift + 1;
+  HandleImpl* const arr = array_.Get();
+
+  // We implement a somewhat complicated splitting algorithm to ensure that
+  // entries are always wait-free visible to Lookup, without Lookup needing
+  // to double-check length_info_ to ensure every potentially relevant
+  // existing entry is seen. This works step-by-step, carefully sharing
+  // unmigrated parts of the chain between the source chain and the new
+  // destination chain. This means that Lookup might see a partially migrated
+  // chain so has to take that into consideration when checking that it hasn't
+  // "jumped off" its intended chain (due to a parallel modification to an
+  // "under (de)construction" entry that was found on the chain but has
+  // been reassigned).
+  //
+  // We use a "rewrite lock" on the source and desination chains to exclude
+  // removals from those, and we have a prior waiting step that ensures any Grow
+  // operations feeding into this one have completed. But this process does have
+  // to gracefully handle concurrent insertions to the head of the source chain,
+  // and once marked ready, the destination chain.
+  //
+  // With those considerations, the migration starts with one "big step,"
+  // potentially with retries to deal with insertions in parallel. Part of the
+  // big step is to mark the two chain heads as updated with the new shift
+  // amount, which redirects Lookups to the appropriate new chain.
+  //
+  // After that big step that updates the heads, the rewrite lock makes it
+  // relatively easy to deal with the rest of the migration. Big
+  // simplifications come from being able to read the hashed_key of each
+  // entry on the chain without needing to hold a read reference, and
+  // from never "jumping our to another chain." Concurrent insertions only
+  // happen at the chain head, which is outside of what is left to migrate.
+  //
+  // A series of smaller steps finishes splitting apart the existing chain into
+  // two distinct chains, followed by some steps to fully commit the result.
+  //
+  // Except for trivial cases in which all entries (or remaining entries)
+  // on the input chain go to one output chain, there is an important invariant
+  // after each step of migration, including after the initial "big step":
+  // For each output chain, the "zero chain" (new hash bit is zero) and the
+  // "one chain" (new hash bit is one) we have a "frontier" entry marking the
+  // boundary between what has been migrated and what has not. One of the
+  // frontiers is along the old chain after the other, and all entries between
+  // them are for the same target chain as the earlier frontier. Thus, the
+  // chains share linked list tails starting at the latter frontier. All
+  // pointers from the new head locations to the frontier entries are marked
+  // with the new shift amount, while all pointers after the frontiers use the
+  // old shift amount.
+  //
+  // And after each step there is a strengthening step to reach a stronger
+  // invariant: the frontier earlier in the original chain is advanced to be
+  // immediately before the other frontier.
+  //
+  // Consider this original input chain,
+  //
+  // OldHome  -Old-> A0 -Old-> B0 -Old-> A1 -Old-> C0 -Old-> OldHome(End)
+  // GrowHome (empty)
+  //
+  // == BIG STEP ==
+  // The initial big step finds the first entry that will be on the each
+  // output chain (in this case A0 and A1). We use brackets ([]) to mark them
+  // as our prospective frontiers.
+  //
+  // OldHome  -Old-> [A0] -Old-> B0 -Old-> [A1] -Old-> C0 -Old-> OldHome(End)
+  // GrowHome (empty)
+  //
+  // Next we speculatively update grow_home head to point to the first entry for
+  // the one chain. This will not be used by Lookup until the head at old_home
+  // uses the new shift amount.
+  //
+  // OldHome  -Old-> [A0] -Old-> B0 -Old-> [A1] -Old-> C0 -Old-> OldHome(End)
+  // GrowHome --------------New------------/
+  //
+  // Observe that if Lookup were to use the new head at GrowHome, it would be
+  // able to find all relevant entries. Finishing the initial big step
+  // requires a CAS (compare_exchange) of the OldHome head because there
+  // might have been parallel insertions there, in which case we roll back
+  // and try again. (We might need to point GrowHome head differently.)
+  //
+  // OldHome  -New-> [A0] -Old-> B0 -Old-> [A1] -Old-> C0 -Old-> OldHome(End)
+  // GrowHome --------------New------------/
+  //
+  // Upgrading the OldHome head pointer with the new shift amount, with a
+  // compare_exchange, completes the initial big step, with [A0] as zero
+  // chain frontier and [A1] as one chain frontier. Links before the frontiers
+  // use the new shift amount and links after use the old shift amount.
+  // == END BIG STEP==
+  // == STRENGTHENING ==
+  // Zero chain frontier is advanced to [B0] (immediately before other
+  // frontier) by updating pointers with new shift amounts.
+  //
+  // OldHome  -New-> A0 -New-> [B0] -Old-> [A1] -Old-> C0 -Old-> OldHome(End)
+  // GrowHome -------------New-----------/
+  //
+  // == END STRENGTHENING ==
+  // == SMALL STEP #1 ==
+  // From the strong invariant state, we need to find the next entry for
+  // the new chain with the earlier frontier. In this case, we need to find
+  // the next entry for the zero chain that comes after [B0], which in this
+  // case is C0. This will be our next zero chain frontier, at least under
+  // the weak invariant. To get there, we simply update the link between
+  // the current two frontiers to skip over the entries irreleveant to the
+  // ealier frontier chain. In this case, the zero chain skips over A1. As a
+  // result, he other chain is now the "earlier."
+  //
+  // OldHome  -New-> A0 -New-> B0 -New-> [C0] -Old-> OldHome(End)
+  // GrowHome -New-> [A1] ------Old-----/
+  //
+  // == END SMALL STEP #1 ==
+  //
+  // Repeating the cycle and end handling is not as interesting.
+
+  // Acquire rewrite lock on zero chain (if it's non-empty)
+  ChainRewriteLock zero_head_lock(&arr[old_home], yield_count_);
+  // Create an RAII wrapper for one chain rewrite lock, for once it becomes
+  // non-empty. This head is unused by Lookup and DoInsert until the zero
+  // head is updated with new shift amount.
+  ChainRewriteLock one_head_lock(&arr[grow_home], yield_count_,
+                                 /*already_locked_or_end=*/true);
+  assert(one_head_lock.IsEnd());
+
+  // old_home will also the head of the new "zero chain" -- all entries in the
+  // "from" chain whose next hash bit is 0. grow_home will be head of the new
+  // "one chain".
+
+  // For these, SIZE_MAX is like nullptr (unknown)
+  size_t zero_chain_frontier = SIZE_MAX;
+  size_t one_chain_frontier = SIZE_MAX;
+  size_t cur = SIZE_MAX;
+
+  // Set to 0 (zero chain frontier earlier), 1 (one chain), or -1 (unknown)
+  int chain_frontier_first = -1;
+
+  // Might need to retry initial update of heads
+  for (int i = 0;; ++i) {
+    CHECK_TOO_MANY_ITERATIONS(i);
+    assert(zero_chain_frontier == SIZE_MAX);
+    assert(one_chain_frontier == SIZE_MAX);
+    assert(cur == SIZE_MAX);
+    assert(chain_frontier_first == -1);
+
+    uint64_t next_with_shift = zero_head_lock.GetNewHead();
+
+    // Find a single representative for each target chain, or scan the whole
+    // chain if some target chain has no representative.
+    for (;; ++i) {
+      CHECK_TOO_MANY_ITERATIONS(i);
+
+      // Loop invariants
+      assert((chain_frontier_first < 0) == (zero_chain_frontier == SIZE_MAX &&
+                                            one_chain_frontier == SIZE_MAX));
+      assert((cur == SIZE_MAX) == (zero_chain_frontier == SIZE_MAX &&
+                                   one_chain_frontier == SIZE_MAX));
+
+      assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+
+      // Check for end of original chain
+      if (HandleImpl::IsEnd(next_with_shift)) {
+        cur = SIZE_MAX;
+        break;
+      }
+
+      // next_with_shift is not End
+      cur = GetNextFromNextWithShift(next_with_shift);
+
+      if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
+        // Entry for zero chain
+        if (zero_chain_frontier == SIZE_MAX) {
+          zero_chain_frontier = cur;
+          if (one_chain_frontier != SIZE_MAX) {
+            // Ready to update heads
+            break;
+          }
+          // Nothing yet for one chain
+          chain_frontier_first = 0;
+        }
+      } else {
+        assert(BottomNBits(arr[cur].hashed_key[1], new_shift) == grow_home);
+        // Entry for one chain
+        if (one_chain_frontier == SIZE_MAX) {
+          one_chain_frontier = cur;
+          if (zero_chain_frontier != SIZE_MAX) {
+            // Ready to update heads
+            break;
+          }
+          // Nothing yet for zero chain
+          chain_frontier_first = 1;
+        }
+      }
+
+      next_with_shift =
+          arr[cur].chain_next_with_shift.load(std::memory_order_acquire);
+    }
+
+    // Try to update heads for initial migration info
+    // We only reached the end of the migrate-from chain already if one of the
+    // target chains will be empty.
+    assert((cur == SIZE_MAX) ==
+           (zero_chain_frontier == SIZE_MAX || one_chain_frontier == SIZE_MAX));
+    assert((chain_frontier_first < 0) ==
+           (zero_chain_frontier == SIZE_MAX && one_chain_frontier == SIZE_MAX));
+
+    // Always update one chain's head first (safe).
+    one_head_lock.SimpleUpdate(
+        one_chain_frontier != SIZE_MAX
+            ? MakeNextWithShift(one_chain_frontier, new_shift)
+            : MakeNextWithShiftEnd(grow_home, new_shift));
+
+    // Make sure length_info_ hasn't been updated too early, as we're about
+    // to make the change that makes it safe to update (e.g. in DoInsert())
+    assert(LengthInfoToUsedLength(
+               length_info_.load(std::memory_order_acquire)) <= grow_home);
+
+    // Try to set zero's head.
+    if (zero_head_lock.CasUpdate(
+            zero_chain_frontier != SIZE_MAX
+                ? MakeNextWithShift(zero_chain_frontier, new_shift)
+                : MakeNextWithShiftEnd(old_home, new_shift),
+            yield_count_)) {
+      // Both heads successfully updated to new shift
+      break;
+    } else {
+      // Concurrent insertion. This should not happen too many times.
+      CHECK_TOO_MANY_ITERATIONS(i);
+      // The easiest solution is to restart.
+      zero_chain_frontier = SIZE_MAX;
+      one_chain_frontier = SIZE_MAX;
+      cur = SIZE_MAX;
+      chain_frontier_first = -1;
+      continue;
+    }
+  }
+
+  // Except for trivial cases, we have something like
+  // AHome -New-> [A0] -Old-> [B0] -Old-> [C0] \                        |
+  // BHome --------------------New------------> [A1] -Old-> ...
+  // And we need to upgrade as much as we can on the "first" chain
+  // (the one eventually pointing to the other's frontier). This will
+  // also finish off any case in which one of the targer chains will be empty.
+  if (chain_frontier_first >= 0) {
+    size_t& first_frontier = chain_frontier_first == 0
+                                 ? /*&*/ zero_chain_frontier
+                                 : /*&*/ one_chain_frontier;
+    size_t& other_frontier = chain_frontier_first != 0
+                                 ? /*&*/ zero_chain_frontier
+                                 : /*&*/ one_chain_frontier;
+    uint64_t stop_before_or_new_tail =
+        other_frontier != SIZE_MAX
+            ? /*stop before*/ MakeNextWithShift(other_frontier, old_shift)
+            : /*new tail*/ MakeNextWithShiftEnd(
+                  chain_frontier_first == 0 ? old_home : grow_home, new_shift);
+    UpgradeShiftsOnRange(arr, first_frontier, stop_before_or_new_tail,
+                         old_shift, new_shift);
+  }
+
+  if (zero_chain_frontier == SIZE_MAX) {
+    // Already finished migrating
+    assert(one_chain_frontier == SIZE_MAX);
+    assert(cur == SIZE_MAX);
+  } else {
+    // Still need to migrate between two target chains
+    for (int i = 0;; ++i) {
+      CHECK_TOO_MANY_ITERATIONS(i);
+      // Overall loop invariants
+      assert(zero_chain_frontier != SIZE_MAX);
+      assert(one_chain_frontier != SIZE_MAX);
+      assert(cur != SIZE_MAX);
+      assert(chain_frontier_first >= 0);
+      size_t& first_frontier = chain_frontier_first == 0
+                                   ? /*&*/ zero_chain_frontier
+                                   : /*&*/ one_chain_frontier;
+      size_t& other_frontier = chain_frontier_first != 0
+                                   ? /*&*/ zero_chain_frontier
+                                   : /*&*/ one_chain_frontier;
+      assert(cur != first_frontier);
+      assert(GetNextFromNextWithShift(
+                 arr[first_frontier].chain_next_with_shift.load(
+                     std::memory_order_acquire)) == other_frontier);
+
+      uint64_t next_with_shift =
+          arr[cur].chain_next_with_shift.load(std::memory_order_acquire);
+
+      // Check for end of original chain
+      if (HandleImpl::IsEnd(next_with_shift)) {
+        // Can set upgraded tail on first chain
+        uint64_t first_new_tail = MakeNextWithShiftEnd(
+            chain_frontier_first == 0 ? old_home : grow_home, new_shift);
+        arr[first_frontier].chain_next_with_shift.store(
+            first_new_tail, std::memory_order_release);
+        // And upgrade remainder of other chain
+        uint64_t other_new_tail = MakeNextWithShiftEnd(
+            chain_frontier_first != 0 ? old_home : grow_home, new_shift);
+        UpgradeShiftsOnRange(arr, other_frontier, other_new_tail, old_shift,
+                             new_shift);
+        assert(other_frontier == SIZE_MAX);  // Finished
+        break;
+      }
+
+      // next_with_shift is not End
+      cur = GetNextFromNextWithShift(next_with_shift);
+
+      int target_chain;
+      if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
+        // Entry for zero chain
+        target_chain = 0;
+      } else {
+        assert(BottomNBits(arr[cur].hashed_key[1], new_shift) == grow_home);
+        // Entry for one chain
+        target_chain = 1;
+      }
+      if (target_chain == chain_frontier_first) {
+        // Found next entry to skip to on the first chain
+        uint64_t skip_to = MakeNextWithShift(cur, new_shift);
+        arr[first_frontier].chain_next_with_shift.store(
+            skip_to, std::memory_order_release);
+        first_frontier = cur;
+        // Upgrade other chain up to entry before that one
+        UpgradeShiftsOnRange(arr, other_frontier, next_with_shift, old_shift,
+                             new_shift);
+        // Swap which is marked as first
+        chain_frontier_first = 1 - chain_frontier_first;
+      } else {
+        // Nothing to do yet, as we need to keep old generation pointers in
+        // place for lookups
+      }
+    }
+  }
+}
+
+// Variant of PurgeImplLocked: Removes all "under (de) construction" entries
+// from a chain where already holding a rewrite lock
+using PurgeLockedOpData = void;
+// Variant of PurgeImplLocked: Clock-updates all entries in a chain, in
+// addition to functionality of PurgeLocked, where already holding a rewrite
+// lock. (Caller finalizes eviction on entries added to the autovector, in part
+// so that we don't hold the rewrite lock while doing potentially expensive
+// callback and allocator free.)
+using ClockUpdateChainLockedOpData =
+    autovector<AutoHyperClockTable::HandleImpl*>;
+
+template <class OpData>
+void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
+                                          ChainRewriteLock& rewrite_lock,
+                                          size_t home) {
+  constexpr bool kIsPurge = std::is_same_v<OpData, PurgeLockedOpData>;
+  constexpr bool kIsClockUpdateChain =
+      std::is_same_v<OpData, ClockUpdateChainLockedOpData>;
+
+  // Exactly one op specified
+  static_assert(kIsPurge + kIsClockUpdateChain == 1);
+
+  HandleImpl* const arr = array_.Get();
+
+  uint64_t next_with_shift = rewrite_lock.GetNewHead();
+  assert(!HandleImpl::IsEnd(next_with_shift));
+  int home_shift = GetShiftFromNextWithShift(next_with_shift);
+  (void)home;
+  (void)home_shift;
+  HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+  HandleImpl* prev_to_keep = nullptr;
+#ifndef NDEBUG
+  uint64_t prev_to_keep_next_with_shift = 0;
+#endif
+  // Whether there are entries between h and prev_to_keep that should be
+  // purged from the chain.
+  bool pending_purge = false;
+
+  // Walk the chain, and stitch together any entries that are still
+  // "shareable," possibly after clock update. prev_to_keep tells us where
+  // the last "stitch back to" location is (nullptr => head).
+  for (size_t i = 0;; ++i) {
+    CHECK_TOO_MANY_ITERATIONS(i);
+
+    bool purgeable = false;
+    // In last iteration, h will be nullptr, to stitch together the tail of
+    // the chain.
+    if (h) {
+      // NOTE: holding a rewrite lock on the chain prevents any "under
+      // (de)construction" entries in the chain from being marked empty, which
+      // allows us to access the hashed_keys without holding a read ref.
+      assert(home == BottomNBits(h->hashed_key[1], home_shift));
+      if constexpr (kIsClockUpdateChain) {
+        // Clock update and/or check for purgeable (under (de)construction)
+        if (ClockUpdate(*h, &purgeable)) {
+          // Remember for finishing eviction
+          op_data->push_back(h);
+          // Entries for eviction become purgeable
+          purgeable = true;
+          assert((h->meta.load(std::memory_order_acquire) >>
+                  ClockHandle::kStateShift) &
+                 ClockHandle::kStateOccupiedBit);
+        }
+      } else {
+        (void)op_data;
+        purgeable = ((h->meta.load(std::memory_order_acquire) >>
+                      ClockHandle::kStateShift) &
+                     ClockHandle::kStateShareableBit) == 0;
+      }
+    }
+
+    if (purgeable) {
+      assert((h->meta.load(std::memory_order_acquire) >>
+              ClockHandle::kStateShift) &
+             ClockHandle::kStateOccupiedBit);
+      pending_purge = true;
+    } else if (pending_purge) {
+      if (prev_to_keep) {
+        // Update chain next to skip purgeable entries
+        assert(prev_to_keep->chain_next_with_shift.load(
+                   std::memory_order_acquire) == prev_to_keep_next_with_shift);
+        prev_to_keep->chain_next_with_shift.store(next_with_shift,
+                                                  std::memory_order_release);
+      } else if (rewrite_lock.CasUpdate(next_with_shift, yield_count_)) {
+        // Managed to update head without any parallel insertions
+      } else {
+        // Parallel insertion must have interfered. Need to do a purge
+        // from updated head to here. Since we have no prev_to_keep, there's
+        // no risk of duplicate clock updates to entries. Any entries already
+        // updated must have been evicted (purgeable) and it's OK to clock
+        // update any new entries just inserted in parallel.
+        // Can simply restart (GetNewHead() already updated from CAS failure).
+        next_with_shift = rewrite_lock.GetNewHead();
+        assert(!HandleImpl::IsEnd(next_with_shift));
+        h = &arr[GetNextFromNextWithShift(next_with_shift)];
+        pending_purge = false;
+        assert(prev_to_keep == nullptr);
+        continue;
+      }
+      pending_purge = false;
+      prev_to_keep = h;
+    } else {
+      prev_to_keep = h;
+    }
+
+    if (h == nullptr) {
+      // Reached end of the chain
+      return;
+    }
+
+    // Read chain pointer
+    next_with_shift = h->chain_next_with_shift.load(std::memory_order_acquire);
+#ifndef NDEBUG
+    if (prev_to_keep == h) {
+      prev_to_keep_next_with_shift = next_with_shift;
+    }
+#endif
+
+    assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
+
+    // Check for end marker
+    if (HandleImpl::IsEnd(next_with_shift)) {
+      h = nullptr;
+    } else {
+      h = &arr[GetNextFromNextWithShift(next_with_shift)];
+      assert(h != prev_to_keep);
+    }
+  }
+}
+
+// Variant of PurgeImpl: Removes all "under (de) construction" entries in a
+// chain, such that any entry with the given key must have been purged.
+using PurgeOpData = const UniqueId64x2;
+// Variant of PurgeImpl: Clock-updates all entries in a chain, in addition to
+// purging as appropriate. (Caller finalizes eviction on entries added to the
+// autovector, in part so that we don't hold the rewrite lock while doing
+// potentially expensive callback and allocator free.)
+using ClockUpdateChainOpData = ClockUpdateChainLockedOpData;
+
+template <class OpData>
+void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
+  // Early efforts to make AutoHCC fully wait-free ran into too many problems
+  // that needed obscure and potentially inefficient work-arounds to have a
+  // chance at working.
+  //
+  // The implementation settled on "essentially wait-free" which can be
+  // achieved by locking at the level of each probing chain and only for
+  // operations that might remove entries from the chain. Because parallel
+  // clock updates and Grow operations are ordered, contention is very rare.
+  // However, parallel insertions at any chain head have to be accommodated
+  // to keep them wait-free.
+  //
+  // This function implements Purge and ClockUpdateChain functions (see above
+  // OpData type definitions) as part of higher-level operations. This function
+  // ensures the correct chain is (eventually) covered and handles rewrite
+  // locking the chain. PurgeImplLocked has lower level details.
+  //
+  // In general, these operations and Grow are kept simpler by allowing eager
+  // purging of under (de-)construction entries. For example, an Erase
+  // operation might find that another thread has purged the entry from the
+  // chain by the time its own purge operation acquires the rewrite lock and
+  // proceeds. This is OK, and potentially reduces the number of lock/unlock
+  // cycles because empty chains are not rewrite-lockable.
+
+  constexpr bool kIsPurge = std::is_same_v<OpData, PurgeOpData>;
+  constexpr bool kIsClockUpdateChain =
+      std::is_same_v<OpData, ClockUpdateChainOpData>;
+
+  // Exactly one op specified
+  static_assert(kIsPurge + kIsClockUpdateChain == 1);
+
+  int home_shift = 0;
+  if constexpr (kIsPurge) {
+    // Purge callers leave home unspecified, to be determined from key
+    assert(home == SIZE_MAX);
+    GetHomeIndexAndShift(length_info_.load(std::memory_order_acquire),
+                         (*op_data)[1], &home, &home_shift);
+    assert(home_shift > 0);
+  } else {
+    // Evict callers must specify home
+    assert(home < SIZE_MAX);
+  }
+
+  HandleImpl* const arr = array_.Get();
+
+  // Acquire the RAII rewrite lock (if not an empty chain)
+  ChainRewriteLock rewrite_lock(&arr[home], yield_count_);
+
+  int shift;
+  for (;;) {
+    shift = GetShiftFromNextWithShift(rewrite_lock.GetNewHead());
+
+    if constexpr (kIsPurge) {
+      if (shift > home_shift) {
+        // At head. Thus, we know the newer shift applies to us.
+        // Newer shift might not yet be reflected in length_info_ (an atomicity
+        // gap in Grow), so operate as if it is. Note that other insertions
+        // could happen using this shift before length_info_ is updated, and
+        // it's possible (though unlikely) that multiple generations of Grow
+        // have occurred. If shift is more than one generation ahead of
+        // home_shift, it's possible that not all descendent homes have
+        // reached the `shift` generation. Thus, we need to advance only one
+        // shift at a time looking for a home+head with a matching shift
+        // amount.
+        home_shift++;
+        home = GetHomeIndex((*op_data)[1], home_shift);
+        rewrite_lock.Reset(&arr[home], yield_count_);
+        continue;
+      } else {
+        assert(shift == home_shift);
+      }
+    } else {
+      assert(home_shift == 0);
+      home_shift = shift;
+    }
+    break;
+  }
+
+  // If the chain is empty, nothing to do
+  if (!rewrite_lock.IsEnd()) {
+    if constexpr (kIsPurge) {
+      PurgeLockedOpData* locked_op_data{};
+      PurgeImplLocked(locked_op_data, rewrite_lock, home);
+    } else {
+      PurgeImplLocked(op_data, rewrite_lock, home);
+    }
+  }
+}
+
+AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
+    const ClockHandleBasicData& proto, uint64_t initial_countdown,
+    bool take_ref, InsertState& state) {
+  size_t home;
+  int orig_home_shift;
+  GetHomeIndexAndShift(state.saved_length_info, proto.hashed_key[1], &home,
+                       &orig_home_shift);
+  HandleImpl* const arr = array_.Get();
+
+  // We could go searching through the chain for any duplicate, but that's
+  // not typically helpful, except for the REDUNDANT block cache stats.
+  // (Inferior duplicates will age out with eviction.) However, we do skip
+  // insertion if the home slot already has a match (already_matches below),
+  // so that we keep better CPU cache locality when we can.
+  //
+  // And we can do that as part of searching for an available slot to
+  // insert the new entry, because our preferred location and first slot
+  // checked will be the home slot.
+  //
+  // As the table initially grows to size few entries will be in the same
+  // cache line as the chain head. However, churn in the cache relatively
+  // quickly improves the proportion of entries sharing that cache line with
+  // the chain head. Data:
+  //
+  // Initial population only: (cache_bench with -ops_per_thread=1)
+  // Entries at home count: 29,202 (out of 129,170 entries in 94,411 chains)
+  // Approximate average cache lines read to find an existing entry:
+  //           129.2 / 94.4 [without the heads]
+  // + (94.4 - 29.2) / 94.4 [the heads not included with entries]
+  // = 2.06 cache lines
+  //
+  // After 10 million ops: (-threads=10 -ops_per_thread=100000)
+  // Entries at home count: 67,556 (out of 129,359 entries in 94,756 chains)
+  // That's a majority of entries and more than 2/3rds of chains.
+  // Approximate average cache lines read to find an existing entry:
+  // = 1.65 cache lines
+
+  size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
+  assert(home < used_length);
+
+  size_t idx = home;
+  bool already_matches = false;
+  if (!TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                 &already_matches)) {
+    if (already_matches) {
+      return nullptr;
+    }
+
+    // We need to search for an available slot outside of the home.
+    // Linear hashing provides nice resizing but does typically mean
+    // that some heads (home locations) have (in expectation) twice as
+    // many entries mapped to them as other heads. For example if the
+    // usable length is 80, then heads 16-63 are (in expectation) twice
+    // as loaded as heads 0-15 and 64-79, which are using another hash bit.
+    //
+    // This means that if we just use linear probing (by a small constant)
+    // to find an available slot, part of the structure could easily fill up
+    // and resot to linear time operations even when the overall load factor
+    // is only modestly high, like 70%. Even though each slot has its own CPU
+    // cache line, there is likely a small locality benefit (e.g. TLB and
+    // paging) to iterating one by one, but obviously not with the linear
+    // hashing imbalance.
+    //
+    // In a traditional non-concurrent structure, we could keep a "free list"
+    // to ensure immediate access to an available slot, but maintaining such
+    // a structure could require more cross-thread coordination to ensure
+    // all entries are eventually available to all threads.
+    //
+    // The way we solve this problem is to use linear probing but try to
+    // correct for the linear hashing imbalance (when probing beyond the
+    // home slot). If the home is high load (minimum shift) we choose an
+    // alternate location, uniformly among all slots, to linear probe from.
+    //
+    // Supporting data: we can use FixedHyperClockCache to get a baseline
+    // of near-ideal distribution of occupied slots, with its uniform
+    // distribution and double hashing.
+    // $ ./cache_bench -cache_type=fixed_hyper_clock_cache -histograms=0
+    //     -cache_size=1300000000
+    // ...
+    // Slot occupancy stats: Overall 59% (156629/262144),
+    //   Min/Max/Window = 47%/70%/500, MaxRun{Pos/Neg} = 22/15
+    //
+    // Now we can try various sizes between powers of two with AutoHCC to see
+    // how bad the MaxRun can be.
+    // $ for I in `seq 8 15`; do
+    //     ./cache_bench -cache_type=auto_hyper_clock_cache -histograms=0
+    //       -cache_size=${I}00000000 2>&1 | grep clock_cache.cc; done
+    // where the worst case MaxRun was with I=11:
+    // Slot occupancy stats: Overall 59% (132528/221094),
+    //   Min/Max/Window = 44%/73%/500, MaxRun{Pos/Neg} = 64/19
+    //
+    // The large table size offers a large sample size to be confident that
+    // this is an acceptable level of clustering (max ~3x probe length)
+    // compared to no clustering. Increasing the max load factor to 0.7
+    // increases the MaxRun above 100, potentially much closer to a tipping
+    // point.
+
+    // TODO? remember a freed entry from eviction, possibly in thread local
+
+    size_t start = home;
+    if (orig_home_shift == LengthInfoToMinShift(state.saved_length_info)) {
+      start = FastRange64(proto.hashed_key[0], used_length);
+    }
+    idx = start;
+    for (int cycles = 0;;) {
+      if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                    &already_matches)) {
+        break;
+      }
+      if (already_matches) {
+        return nullptr;
+      }
+      ++idx;
+      if (idx >= used_length) {
+        // In case the structure has grown, double-check
+        StartInsert(state);
+        used_length = LengthInfoToUsedLength(state.saved_length_info);
+        if (idx >= used_length) {
+          idx = 0;
+        }
+      }
+      if (idx == start) {
+        // Cycling back should not happen unless there is enough random churn
+        // in parallel that we happen to hit each slot at a time that it's
+        // occupied, which is really only feasible for small structures, though
+        // with linear probing to find empty slots, "small" here might be
+        // larger than for double hashing.
+        assert(used_length <= 256);
+        ++cycles;
+        if (cycles > 2) {
+          // Fall back on standalone insert in case something goes awry to
+          // cause this
+          return nullptr;
+        }
+      }
+    }
+  }
+
+  // Now insert into chain using head pointer
+  uint64_t next_with_shift;
+  int home_shift = orig_home_shift;
+
+  // Might need to retry
+  for (int i = 0;; ++i) {
+    CHECK_TOO_MANY_ITERATIONS(i);
+    next_with_shift =
+        arr[home].head_next_with_shift.load(std::memory_order_acquire);
+    int shift = GetShiftFromNextWithShift(next_with_shift);
+
+    if (UNLIKELY(shift != home_shift)) {
+      // NOTE: shift increases with table growth
+      if (shift > home_shift) {
+        // Must be grow in progress or completed since reading length_info.
+        // Pull out one more hash bit. (See Lookup() for why we can't
+        // safely jump to the shift that was read.)
+        home_shift++;
+        uint64_t hash_bit_mask = uint64_t{1} << (home_shift - 1);
+        assert((home & hash_bit_mask) == 0);
+        // BEGIN leftover updates to length_info_ for Grow()
+        size_t grow_home = home + hash_bit_mask;
+        assert(arr[grow_home].head_next_with_shift.load(
+                   std::memory_order_acquire) != HandleImpl::kUnusedMarker);
+        CatchUpLengthInfoNoWait(grow_home);
+        // END leftover updates to length_info_ for Grow()
+        home += proto.hashed_key[1] & hash_bit_mask;
+        continue;
+      } else {
+        // Should not happen because length_info_ is only updated after both
+        // old and new home heads are marked with new shift
+        assert(false);
+      }
+    }
+
+    // Values to update to
+    uint64_t head_next_with_shift = MakeNextWithShift(idx, home_shift);
+    uint64_t chain_next_with_shift = next_with_shift;
+
+    // Preserve the locked state in head, without propagating to chain next
+    // where it is meaningless (and not allowed)
+    if (UNLIKELY((next_with_shift & HandleImpl::kNextEndFlags) ==
+                 HandleImpl::kHeadLocked)) {
+      head_next_with_shift |= HandleImpl::kHeadLocked;
+      chain_next_with_shift &= ~HandleImpl::kHeadLocked;
+    }
+
+    arr[idx].chain_next_with_shift.store(chain_next_with_shift,
+                                         std::memory_order_release);
+    if (arr[home].head_next_with_shift.compare_exchange_weak(
+            next_with_shift, head_next_with_shift, std::memory_order_acq_rel)) {
+      // Success
+      return arr + idx;
+    }
+  }
+}
+
+AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
+    const UniqueId64x2& hashed_key) {
+  // Lookups are wait-free with low occurrence of retries, back-tracking,
+  // and fallback. We do not have the benefit of holding a rewrite lock on
+  // the chain so must be prepared for many kinds of mayhem, most notably
+  // "falling off our chain" where a slot that Lookup has identified but
+  // has not read-referenced is removed from one chain and inserted into
+  // another. The full algorithm uses the following mitigation strategies to
+  // ensure every relevant entry inserted before this Lookup, and not yet
+  // evicted, is seen by Lookup, without excessive backtracking etc.:
+  // * Keep a known good read ref in the chain for "island hopping." When
+  // we observe that a concurrent write takes us off to another chain, we
+  // only need to fall back to our last known good read ref (most recent
+  // entry on the chain that is not "under construction," which is a transient
+  // state). We don't want to compound the CPU toil of a long chain with
+  // operations that might need to retry from scratch, with probability
+  // in proportion to chain length.
+  // * Only detect a chain is potentially incomplete because of a Grow in
+  // progress by looking at shift in the next pointer tags (rather than
+  // re-checking length_info_).
+  // * SplitForGrow, Insert, and PurgeImplLocked ensure that there are no
+  // transient states that might cause this full Lookup algorithm to skip over
+  // live entries.
+
+  // Reading length_info_ is not strictly required for Lookup, if we were
+  // to increment shift sizes until we see a shift size match on the
+  // relevant head pointer. Thus, reading with relaxed memory order gives
+  // us a safe and almost always up-to-date jump into finding the correct
+  // home and head.
+  size_t home;
+  int home_shift;
+  GetHomeIndexAndShift(length_info_.load(std::memory_order_relaxed),
+                       hashed_key[1], &home, &home_shift);
+  assert(home_shift > 0);
+
+  // The full Lookup algorithm however is not great for hot path efficiency,
+  // because of the extra careful tracking described above. Overwhelmingly,
+  // we can find what we're looking for with a naive linked list traversal
+  // of the chain. Even if we "fall off our chain" to another, we don't
+  // violate memory safety. We just won't match the key we're looking for.
+  // And we would eventually reach an end state, possibly even experiencing a
+  // cycle as an entry is freed and reused during our traversal (though at
+  // any point in time the structure doesn't have cycles).
+  //
+  // So for hot path efficiency, we start with a naive Lookup attempt, and
+  // then fall back on full Lookup if we don't find the correct entry. To
+  // cap how much we invest into the naive Lookup, we simply cap the traversal
+  // length before falling back. Also, when we do fall back on full Lookup,
+  // we aren't paying much penalty by starting over. Much or most of the cost
+  // of Lookup is memory latency in following the chain pointers, and the
+  // naive Lookup has warmed the CPU cache for these entries, using as tight
+  // of a loop as possible.
+
+  HandleImpl* const arr = array_.Get();
+  uint64_t next_with_shift = arr[home].head_next_with_shift;
+  for (size_t i = 0; !HandleImpl::IsEnd(next_with_shift) && i < 10; ++i) {
+    HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+    // Attempt cheap key match without acquiring a read ref. This could give a
+    // false positive, which is re-checked after acquiring read ref, or false
+    // negative, which is re-checked in the full Lookup. Also, this is a
+    // technical UB data race according to TSAN, but we don't need to read
+    // a "correct" value here for correct overall behavior.
+#ifdef __SANITIZE_THREAD__
+    bool probably_equal = Random::GetTLSInstance()->OneIn(2);
+#else
+    bool probably_equal = h->hashed_key == hashed_key;
+#endif
+    if (probably_equal) {
+      // Increment acquire counter for definitive check
+      uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
+                                            std::memory_order_acquire);
+      // Check if it's a referencable (sharable) entry
+      if (LIKELY(old_meta & (uint64_t{ClockHandle::kStateShareableBit}
+                             << ClockHandle::kStateShift))) {
+        assert(GetRefcount(old_meta + ClockHandle::kAcquireIncrement) > 0);
+        if (LIKELY(h->hashed_key == hashed_key) &&
+            LIKELY(old_meta & (uint64_t{ClockHandle::kStateVisibleBit}
+                               << ClockHandle::kStateShift))) {
+          return h;
+        } else {
+          Unref(*h);
+        }
+      } else {
+        // For non-sharable states, incrementing the acquire counter has no
+        // effect so we don't need to undo it. Furthermore, we cannot safely
+        // undo it because we did not acquire a read reference to lock the entry
+        // in a Shareable state.
+      }
+    }
+
+    next_with_shift = h->chain_next_with_shift.load(std::memory_order_relaxed);
+  }
+
+  // If we get here, falling back on full Lookup algorithm.
+  HandleImpl* h = nullptr;
+  HandleImpl* read_ref_on_chain = nullptr;
+
+  for (size_t i = 0;; ++i) {
+    CHECK_TOO_MANY_ITERATIONS(i);
+    // Read head or chain pointer
+    next_with_shift =
+        h ? h->chain_next_with_shift : arr[home].head_next_with_shift;
+    int shift = GetShiftFromNextWithShift(next_with_shift);
+
+    // Make sure it's usable
+    size_t effective_home = home;
+    if (UNLIKELY(shift != home_shift)) {
+      // We have potentially gone awry somehow, but it's possible we're just
+      // hitting old data that is not yet completed Grow.
+      // NOTE: shift bits goes up with table growth.
+      if (shift < home_shift) {
+        // To avoid waiting on Grow in progress, an old shift amount needs
+        // to be processed as if we were still using it and (potentially
+        // different or the same) the old home.
+        // We can assert it's not too old, because each generation of Grow
+        // waits on its ancestor in the previous generation.
+        assert(shift + 1 == home_shift);
+        effective_home = GetHomeIndex(home, shift);
+      } else if (h == read_ref_on_chain) {
+        assert(shift > home_shift);
+        // At head or coming from an entry on our chain where we're holding
+        // a read reference. Thus, we know the newer shift applies to us.
+        // Newer shift might not yet be reflected in length_info_ (an atomicity
+        // gap in Grow), so operate as if it is. Note that other insertions
+        // could happen using this shift before length_info_ is updated, and
+        // it's possible (though unlikely) that multiple generations of Grow
+        // have occurred. If shift is more than one generation ahead of
+        // home_shift, it's possible that not all descendent homes have
+        // reached the `shift` generation. Thus, we need to advance only one
+        // shift at a time looking for a home+head with a matching shift
+        // amount.
+        home_shift++;
+        // Update home in case it has changed
+        home = GetHomeIndex(hashed_key[1], home_shift);
+        // This should be rare enough occurrence that it's simplest just
+        // to restart (TODO: improve in some cases?)
+        h = nullptr;
+        if (read_ref_on_chain) {
+          Unref(*read_ref_on_chain);
+          read_ref_on_chain = nullptr;
+        }
+        // Didn't make progress & retry
+        continue;
+      } else {
+        assert(shift > home_shift);
+        assert(h != nullptr);
+        // An "under (de)construction" entry has a new shift amount, which
+        // means we have either gotten off our chain or our home shift is out
+        // of date. If we revert back to saved ref, we will get updated info.
+        h = read_ref_on_chain;
+        // Didn't make progress & retry
+        continue;
+      }
+    }
+
+    // Check for end marker
+    if (HandleImpl::IsEnd(next_with_shift)) {
+      // To ensure we didn't miss anything in the chain, the end marker must
+      // point back to the correct home.
+      if (LIKELY(GetNextFromNextWithShift(next_with_shift) == effective_home)) {
+        // Complete, clean iteration of the chain, not found.
+        // Clean up.
+        if (read_ref_on_chain) {
+          Unref(*read_ref_on_chain);
+        }
+        return nullptr;
+      } else {
+        // Something went awry. Revert back to a safe point (if we have it)
+        h = read_ref_on_chain;
+        // Didn't make progress & retry
+        continue;
+      }
+    }
+
+    // Follow the next and check for full key match, home match, or neither
+    h = &arr[GetNextFromNextWithShift(next_with_shift)];
+    bool full_match_or_unknown = false;
+    if (MatchAndRef(&hashed_key, *h, home_shift, home,
+                    &full_match_or_unknown)) {
+      // Got a read ref on next (h).
+      //
+      // There is a very small chance that between getting the next pointer
+      // (now h) and doing MatchAndRef on it, another thread erased/evicted it
+      // reinserted it into the same chain, causing us to cycle back in the
+      // same chain and potentially see some entries again if we keep walking.
+      // Newly-inserted entries are inserted before older ones, so we are at
+      // least guaranteed not to miss anything.
+      // * For kIsLookup, this is ok, as it's just a transient, slight hiccup
+      // in performance.
+      // * For kIsRemove, we are careful in overwriting the next pointer. The
+      // replacement value comes from the next pointer on an entry that we
+      // exclusively own. If that entry is still connected to the chain, its
+      // next must be valid for the chain. If it's not still connected to the
+      // chain (e.g. to unblock another thread Grow op), we will either not
+      // find the entry to remove on the chain or the CAS attempt to replace
+      // the appropriate next will fail, in which case we'll try again to find
+      // the removal target on the chain.
+      // * For kIsClockUpdateChain, we essentially have a special case of
+      // kIsRemove, as we only need to remove entries where we have taken
+      // ownership of one for eviction. In rare cases, we might
+      // double-clock-update some entries (ok as long as it's rare).
+
+      // With new usable read ref, can release old one if applicable
+      if (read_ref_on_chain) {
+        // Pretend we never took the reference.
+        Unref(*read_ref_on_chain);
+      }
+      if (full_match_or_unknown) {
+        // Full match.
+        // Update the hit bit
+        if (eviction_callback_) {
+          h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
+                           std::memory_order_relaxed);
+        }
+        // All done.
+        return h;
+      } else {
+        // Correct home location, so we are on the right chain
+        read_ref_on_chain = h;
+      }
+    } else {
+      if (full_match_or_unknown) {
+        // Must have been an "under construction" entry. Can safely skip it,
+        // but there's a chance we'll have to backtrack later
+      } else {
+        // Home mismatch! Revert back to a safe point (if we have it)
+        h = read_ref_on_chain;
+        // Didn't make progress & retry
+      }
+    }
+  }
+}
+
+void AutoHyperClockTable::Remove(HandleImpl* h) {
+  assert((h->meta.load() >> ClockHandle::kStateShift) ==
+         ClockHandle::kStateConstruction);
+
+  const HandleImpl& c_h = *h;
+  PurgeImpl(&c_h.hashed_key);
+}
+
+bool AutoHyperClockTable::TryEraseHandle(HandleImpl* h, bool holding_ref,
+                                         bool mark_invisible) {
+  uint64_t meta;
+  if (mark_invisible) {
+    // Set invisible
+    meta = h->meta.fetch_and(
+        ~(uint64_t{ClockHandle::kStateVisibleBit} << ClockHandle::kStateShift),
+        std::memory_order_acq_rel);
+    // To local variable also
+    meta &=
+        ~(uint64_t{ClockHandle::kStateVisibleBit} << ClockHandle::kStateShift);
+  } else {
+    meta = h->meta.load(std::memory_order_acquire);
+  }
+
+  // Take ownership if no other refs
+  do {
+    if (GetRefcount(meta) != uint64_t{holding_ref}) {
+      // Not last ref at some point in time during this call
+      return false;
+    }
+    if ((meta & (uint64_t{ClockHandle::kStateShareableBit}
+                 << ClockHandle::kStateShift)) == 0) {
+      // Someone else took ownership
+      return false;
+    }
+    // Note that if !holding_ref, there's a small chance that we release,
+    // another thread replaces this entry with another, reaches zero refs, and
+    // then we end up erasing that other entry. That's an acceptable risk /
+    // imprecision.
+  } while (!h->meta.compare_exchange_weak(
+      meta,
+      uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
+      std::memory_order_acquire));
+  // Took ownership
+  // TODO? Delay freeing?
+  h->FreeData(allocator_);
+  size_t total_charge = h->total_charge;
+  if (UNLIKELY(h->IsStandalone())) {
+    // Delete detached handle
+    delete h;
+    standalone_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
+  } else {
+    Remove(h);
+    MarkEmpty(*h);
+    occupancy_.fetch_sub(1U, std::memory_order_release);
+  }
+  usage_.fetch_sub(total_charge, std::memory_order_relaxed);
+  assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
+  return true;
+}
+
+bool AutoHyperClockTable::Release(HandleImpl* h, bool useful,
+                                  bool erase_if_last_ref) {
+  // In contrast with LRUCache's Release, this function won't delete the handle
+  // when the cache is above capacity and the reference is the last one. Space
+  // is only freed up by Evict/PurgeImpl (called by Insert when space
+  // is needed) and Erase. We do this to avoid an extra atomic read of the
+  // variable usage_.
+
+  uint64_t old_meta;
+  if (useful) {
+    // Increment release counter to indicate was used
+    old_meta = h->meta.fetch_add(ClockHandle::kReleaseIncrement,
+                                 std::memory_order_release);
+    // Correct for possible (but rare) overflow
+    CorrectNearOverflow(old_meta, h->meta);
+  } else {
+    // Decrement acquire counter to pretend it never happened
+    old_meta = h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
+                                 std::memory_order_release);
+  }
+
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateShareableBit);
+  // No underflow
+  assert(((old_meta >> ClockHandle::kAcquireCounterShift) &
+          ClockHandle::kCounterMask) !=
+         ((old_meta >> ClockHandle::kReleaseCounterShift) &
+          ClockHandle::kCounterMask));
+
+  if ((erase_if_last_ref || UNLIKELY(old_meta >> ClockHandle::kStateShift ==
+                                     ClockHandle::kStateInvisible))) {
+    // FIXME: There's a chance here that another thread could replace this
+    // entry and we end up erasing the wrong one.
+    return TryEraseHandle(h, /*holding_ref=*/false, /*mark_invisible=*/false);
+  } else {
+    return false;
+  }
+}
+
+#ifndef NDEBUG
+void AutoHyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
+  if (n > 0) {
+    // Do n-1 simple releases first
+    TEST_ReleaseNMinus1(h, n);
+
+    // Then the last release might be more involved
+    Release(h, /*useful*/ true, /*erase_if_last_ref*/ false);
+  }
+}
+#endif
+
+void AutoHyperClockTable::Erase(const UniqueId64x2& hashed_key) {
+  // Don't need to be efficient.
+  // Might be one match masking another, so loop.
+  while (HandleImpl* h = Lookup(hashed_key)) {
+    bool gone =
+        TryEraseHandle(h, /*holding_ref=*/true, /*mark_invisible=*/true);
+    if (!gone) {
+      // Only marked invisible, which is ok.
+      // Pretend we never took the reference from Lookup.
+      Unref(*h);
+    }
+  }
+}
+
+void AutoHyperClockTable::EraseUnRefEntries() {
+  size_t usable_size = GetTableSize();
+  for (size_t i = 0; i < usable_size; i++) {
+    HandleImpl& h = array_[i];
+
+    uint64_t old_meta = h.meta.load(std::memory_order_relaxed);
+    if (old_meta & (uint64_t{ClockHandle::kStateShareableBit}
+                    << ClockHandle::kStateShift) &&
+        GetRefcount(old_meta) == 0 &&
+        h.meta.compare_exchange_strong(old_meta,
+                                       uint64_t{ClockHandle::kStateConstruction}
+                                           << ClockHandle::kStateShift,
+                                       std::memory_order_acquire)) {
+      // Took ownership
+      h.FreeData(allocator_);
+      usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
+      // NOTE: could be more efficient with a dedicated variant of
+      // PurgeImpl, but this is not a common operation
+      Remove(&h);
+      MarkEmpty(h);
+      occupancy_.fetch_sub(1U, std::memory_order_release);
+    }
+  }
+}
+
+void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
+                                EvictionData* data) {
+  // precondition
+  assert(requested_charge > 0);
+
+  // We need the clock pointer to seemlessly "wrap around" at the end of the
+  // table, and to be reasonably stable under Grow operations. This is
+  // challenging when the linear hashing progressively opens additional
+  // most-significant-hash-bits in determining home locations.
+
+  // TODO: make a tuning parameter?
+  // Up to 2x this number of homes will be evicted per step. In very rare
+  // cases, possibly more, as homes of an out-of-date generation will be
+  // resolved to multiple in a newer generation.
+  constexpr size_t step_size = 4;
+
+  // A clock_pointer_mask_ field separate from length_info_ enables us to use
+  // the same mask (way of dividing up the space among evicting threads) for
+  // iterating over the whole structure before considering changing the mask
+  // at the beginning of each pass. This ensures we do not have a large portion
+  // of the space that receives redundant or missed clock updates. However,
+  // with two variables, for each update to clock_pointer_mask (< 64 ever in
+  // the life of the cache), there will be a brief period where concurrent
+  // eviction threads could use the old mask value, possibly causing redundant
+  // or missed clock updates for a *small* portion of the table.
+  size_t clock_pointer_mask =
+      clock_pointer_mask_.load(std::memory_order_relaxed);
+
+  uint64_t max_clock_pointer = 0;  // unset
+
+  // TODO: consider updating during a long eviction
+  size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
+
+  autovector<HandleImpl*> to_finish_eviction;
+
+  // Loop until enough freed, or limit reached (see bottom of loop)
+  for (;;) {
+    // First (concurrent) increment clock pointer
+    uint64_t old_clock_pointer =
+        clock_pointer_.fetch_add(step_size, std::memory_order_relaxed);
+
+    if (UNLIKELY((old_clock_pointer & clock_pointer_mask) == 0)) {
+      // Back at the beginning. See if clock_pointer_mask should be updated.
+      uint64_t mask = BottomNBits(
+          UINT64_MAX, LengthInfoToMinShift(state.saved_length_info));
+      if (clock_pointer_mask != mask) {
+        clock_pointer_mask = static_cast<size_t>(mask);
+        clock_pointer_mask_.store(clock_pointer_mask,
+                                  std::memory_order_relaxed);
+      }
+    }
+
+    size_t major_step = clock_pointer_mask + 1;
+    assert((major_step & clock_pointer_mask) == 0);
+
+    for (size_t base_home = old_clock_pointer & clock_pointer_mask;
+         base_home < used_length; base_home += major_step) {
+      for (size_t i = 0; i < step_size; i++) {
+        size_t home = base_home + i;
+        if (home >= used_length) {
+          break;
+        }
+        PurgeImpl(&to_finish_eviction, home);
+      }
+    }
+
+    for (HandleImpl* h : to_finish_eviction) {
+      TrackAndReleaseEvictedEntry(h, data);
+    }
+    to_finish_eviction.clear();
+
+    // Loop exit conditions
+    if (data->freed_charge >= requested_charge) {
+      return;
+    }
+
+    if (max_clock_pointer == 0) {
+      // Cap the eviction effort at this thread (along with those operating in
+      // parallel) circling through the whole structure kMaxCountdown times.
+      // In other words, this eviction run must find something/anything that is
+      // unreferenced at start of and during the eviction run that isn't
+      // reclaimed by a concurrent eviction run.
+      // TODO: Does HyperClockCache need kMaxCountdown + 1?
+      max_clock_pointer =
+          old_clock_pointer +
+          (uint64_t{ClockHandle::kMaxCountdown + 1} * major_step);
+    }
+
+    if (old_clock_pointer + step_size >= max_clock_pointer) {
+      return;
+    }
+  }
+}
+
+size_t AutoHyperClockTable::CalcMaxUsableLength(
+    size_t capacity, size_t min_avg_value_size,
+    CacheMetadataChargePolicy metadata_charge_policy) {
+  double min_avg_slot_charge = min_avg_value_size * kMaxLoadFactor;
+  if (metadata_charge_policy == kFullChargeCacheMetadata) {
+    min_avg_slot_charge += sizeof(HandleImpl);
+  }
+  assert(min_avg_slot_charge > 0.0);
+  size_t num_slots =
+      static_cast<size_t>(capacity / min_avg_slot_charge + 0.999999);
+
+  const size_t slots_per_page = port::kPageSize / sizeof(HandleImpl);
+
+  // Round up to page size
+  return ((num_slots + slots_per_page - 1) / slots_per_page) * slots_per_page;
+}
+
+namespace {
+bool IsHeadNonempty(const AutoHyperClockTable::HandleImpl& h) {
+  return !AutoHyperClockTable::HandleImpl::IsEnd(
+      h.head_next_with_shift.load(std::memory_order_relaxed));
+}
+bool IsEntryAtHome(const AutoHyperClockTable::HandleImpl& h, int shift,
+                   size_t home) {
+  if (MatchAndRef(nullptr, h, shift, home)) {
+    Unref(h);
+    return true;
+  } else {
+    return false;
+  }
+}
+}  // namespace
+
+void AutoHyperClockCache::ReportProblems(
+    const std::shared_ptr<Logger>& info_log) const {
+  BaseHyperClockCache::ReportProblems(info_log);
+
+  if (info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
+    LoadVarianceStats head_stats;
+    size_t entry_at_home_count = 0;
+    uint64_t yield_count = 0;
+    this->ForEachShard([&](const Shard* shard) {
+      size_t count = shard->GetTableAddressCount();
+      uint64_t length_info = UsedLengthToLengthInfo(count);
+      for (size_t i = 0; i < count; ++i) {
+        const auto& h = *shard->GetTable().HandlePtr(i);
+        head_stats.Add(IsHeadNonempty(h));
+        int shift;
+        size_t home;
+        GetHomeIndexAndShift(length_info, i, &home, &shift);
+        assert(home == i);
+        entry_at_home_count += IsEntryAtHome(h, shift, home);
+      }
+      yield_count += shard->GetTable().GetYieldCount();
+    });
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Head occupancy stats: %s", head_stats.Report().c_str());
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Entries at home count: %zu", entry_at_home_count);
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Yield count: %" PRIu64, yield_count);
+  }
+}
+
 }  // namespace clock_cache
 
 // DEPRECATED (see public API)
@@ -1640,11 +3598,6 @@ std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
   }
   std::shared_ptr<Cache> cache;
   if (opts.estimated_entry_charge == 0) {
-    // BEGIN placeholder logic to be removed
-    // This is sufficient to get the placeholder Auto working in unit tests
-    // much like the Fixed version.
-    opts.estimated_entry_charge = opts.min_avg_entry_charge;
-    // END placeholder logic to be removed
     cache = std::make_shared<clock_cache::AutoHyperClockCache>(opts);
   } else {
     cache = std::make_shared<clock_cache::FixedHyperClockCache>(opts);

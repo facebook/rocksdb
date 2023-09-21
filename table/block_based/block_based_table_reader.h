@@ -138,6 +138,9 @@ class BlockBasedTable : public TableReader {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber read_seqno, const Slice* timestamp) override;
+
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
@@ -284,14 +287,12 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
-                                   const BlockHandle& block_handle,
-                                   TBlockIter* input_iter, BlockType block_type,
-                                   GetContext* get_context,
-                                   BlockCacheLookupContext* lookup_context,
-                                   FilePrefetchBuffer* prefetch_buffer,
-                                   bool for_compaction, bool async_read,
-                                   Status& s) const;
+  TBlockIter* NewDataBlockIterator(
+      const ReadOptions& ro, const BlockHandle& block_handle,
+      TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context,
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
+      Status& s, bool use_block_cache_for_lookup) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
@@ -348,7 +349,8 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       bool for_compaction, CachableEntry<TBlocklike>* block_entry,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents, bool async_read) const;
+      BlockContents* contents, bool async_read,
+      bool use_block_cache_for_lookup) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -359,7 +361,7 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
-      bool use_cache, bool async_read) const;
+      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const;
 
   template <typename TBlocklike>
   WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(

@@ -86,6 +86,8 @@ class TableCache {
   //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
+  // @param range_del_read_seqno If non-nullptr, will be used to create
+  // *range_del_iter.
   InternalIterator* NewIterator(
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -97,6 +99,7 @@ class TableCache {
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       uint8_t protection_bytes_per_key,
+      const SequenceNumber* range_del_read_seqno = nullptr,
       TruncatedRangeDelIterator** range_del_iter = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
@@ -259,15 +262,18 @@ class TableCache {
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be
   // appended to form the full key
-  void CreateRowCacheKeyPrefix(const ReadOptions& options,
-                               const FileDescriptor& fd,
-                               const Slice& internal_key,
-                               GetContext* get_context, IterKey& row_cache_key);
+  // Return the sequence number that determines the visibility of row_cache_key
+  uint64_t CreateRowCacheKeyPrefix(const ReadOptions& options,
+                                   const FileDescriptor& fd,
+                                   const Slice& internal_key,
+                                   GetContext* get_context,
+                                   IterKey& row_cache_key);
 
   // Helper function to lookup the row cache for a key. It appends the
   // user key to row_cache_key at offset prefix_size
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
-                       size_t prefix_size, GetContext* get_context);
+                       size_t prefix_size, GetContext* get_context,
+                       SequenceNumber seq_no = kMaxSequenceNumber);
 
   const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;

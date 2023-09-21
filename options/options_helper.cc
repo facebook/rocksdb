@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
@@ -432,6 +433,10 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
     case OptionType::kSizeT:
       PutUnaligned(static_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
+    case OptionType::kAtomicInt:
+      static_cast<std::atomic<int>*>(opt_address)
+          ->store(ParseInt(value), std::memory_order_release);
+      break;
     case OptionType::kString:
       *static_cast<std::string*>(opt_address) = value;
       break;
@@ -520,6 +525,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
+      break;
+    case OptionType::kAtomicInt:
+      *value = std::to_string(static_cast<const std::atomic<int>*>(opt_address)
+                                  ->load(std::memory_order_acquire));
       break;
     case OptionType::kString:
       *value =
@@ -1169,6 +1178,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);
     }
+    case OptionType::kAtomicInt:
+      return IsOptionEqual<std::atomic<int>>(this_offset, that_offset);
     case OptionType::kString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kDouble:

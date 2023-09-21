@@ -1617,6 +1617,105 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  const Snapshot* snap_with_nothing = db_->GetSnapshot();
+  ASSERT_OK(db_->Put(write_opts, "foo", ts_early, "bar"));
+  const Snapshot* snap_with_foo = db_->GetSnapshot();
+
+  // Ensure file has sequence number greater than snapshot_with_foo
+  for (int i = 0; i < 10; i++) {
+    std::string numStr = std::to_string(i);
+    ASSERT_OK(db_->Put(write_opts, numStr, ts_later, numStr));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
+
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(read_ts, ts_early);
+
+  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+  ASSERT_OK(s);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  // Row cache is not storing the ts when record is inserted/updated.
+  // To be fixed after enabling ROW_CACHE with timestamp.
+  // ASSERT_EQ(read_ts, ts_early);
+
+  {
+    std::string ts_nothing = Timestamp(0, 0);
+    Slice ts_nothing_slice = ts_nothing;
+    read_opts.timestamp = &ts_nothing_slice;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+
+    read_opts.timestamp = &ts_later_slice;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  }
+
+  {
+    read_opts.snapshot = snap_with_foo;
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
+  }
+
+  {
+    read_opts.snapshot = snap_with_nothing;
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 4);
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 5);
+  }
+
+  db_->ReleaseSnapshot(snap_with_nothing);
+  db_->ReleaseSnapshot(snap_with_foo);
+  Close();
+}
+
 TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -3413,6 +3512,225 @@ TEST_F(DBBasicTestWithTimestamp, EnableDisableUDT) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "val3"));
   ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
   ASSERT_EQ("val3", value);
+  Close();
+}
+
+// Tests that as long as the
+// `ReadOptions.timestamp >= SuperVersion.full_history_ts_low` sanity check
+// passes. The read will be consistent even if the column family's
+// full_history_ts_low is concurrently increased and collapsed some history
+// above `ReadOptions.timestamp`.
+TEST_F(DBBasicTestWithTimestamp,
+       FullHistoryTsLowSanityCheckPassReadIsConsistent) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Use UDT in memtable only feature for this test, so we can control that
+  // newly set `full_history_ts_low` collapse history when Flush happens.
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+  std::string min_ts;
+  PutFixed64(&min_ts, 0);
+
+  // Write two versions of the key (1, v1), (3, v3), and always read with
+  // timestamp 2.
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val1"));
+
+  std::string read_ts;
+  PutFixed64(&read_ts, 2);
+  Slice read_ts_slice = read_ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+
+  // First read, no full_history_ts_low set, sanity check pass.
+  std::string value;
+  std::string timestamp;
+  ASSERT_OK(db_->Get(read_opts, "foo", &value, &timestamp));
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(write_ts, timestamp);
+
+  std::string full_history_ts_low;
+  std::string marked_ts_low;
+  PutFixed64(&full_history_ts_low, 2);
+  marked_ts_low = full_history_ts_low;
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                          full_history_ts_low));
+  ASSERT_OK(Flush(0));
+
+  // Write the (3, v3) entry after flush, otherwise with UDT in memtable only
+  // the previous Flush(0) with full_history_ts_low = 2 will be postponed
+  // waiting for (3, v3) to expire too.
+  write_ts.clear();
+  PutFixed64(&write_ts, 3);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val3"));
+
+  // Second read:
+  // ReadOptions.timestamp(2) >= SuperVersion.full_history_ts_low(2),
+  // and ReadOptions.timestamp(2) >= ColumnFamilyData.full_history_ts_low(2).
+  // history below 2 is collapsed. Reading at 2 or above 2 is ok.
+  // Sanity check pass. Read return consistent value, but timestamp is already
+  // collapsed.
+  ASSERT_OK(db_->Get(read_opts, "foo", &value, &timestamp));
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(min_ts, timestamp);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetImpl:AfterAcquireSv", [&](void* /*arg*/) {
+        // Concurrently increasing full_history_ts_low and flush to create a
+        // new SuperVersion
+        std::string current_ts_low;
+        ASSERT_OK(db_->GetFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                           &current_ts_low));
+        if (current_ts_low.empty() || current_ts_low != marked_ts_low) {
+          return;
+        }
+        full_history_ts_low.clear();
+        PutFixed64(&full_history_ts_low, 4);
+        ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                                full_history_ts_low));
+        ASSERT_OK(Flush(0));
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Third read:
+  // ReadOptions.timestamp(2) >= SuperVersion.full_history_ts_low(2),
+  // but ReadOptions.timestamp(2) < ColumnFamilyData.full_history_ts_low(4).
+  // History below 4 is collapsed in the newly installed SuperVersion. But the
+  // SuperVersion attached to this read still has the history below 4 available.
+  // Sanity check pass. Read return consistent value, timestamp is collapsed.
+  ASSERT_OK(db_->Get(read_opts, "foo", &value, &timestamp));
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(min_ts, timestamp);
+
+  // Fourth read:
+  // ReadOptions.timestamp(2) < SuperVersion.full_history_ts_low(4).
+  // Sanity check fails. Had it succeeded, the read would return "v3",
+  // which is inconsistent.
+  ASSERT_TRUE(
+      db_->Get(read_opts, "foo", &value, &timestamp).IsInvalidArgument());
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Tests that in cases when
+// `ReadOptions.timestamp >= SuperVersion.full_history_ts_low` sanity check
+// fails. The referenced SuperVersion is dereferenced and cleaned up properly
+// for all read APIs that involves this sanity check.
+TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Use UDT in memtable only feature for this test, so we can control that
+  // newly set `full_history_ts_low` collapse history when Flush happens.
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* handle2 = nullptr;
+  Status s = db_->CreateColumnFamily(options, "data", &handle2);
+  ASSERT_OK(s);
+
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val1"));
+  ASSERT_OK(db_->Put(WriteOptions(), handle2, "foo", write_ts, "val1"));
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                          full_history_ts_low));
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handle2, full_history_ts_low));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(db_->Flush(FlushOptions(), handle2));
+
+  std::string read_ts;
+  PutFixed64(&read_ts, 2);
+  Slice read_ts_slice = read_ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+
+  // Get()
+  std::string value;
+  ASSERT_TRUE(db_->Get(read_opts, "foo", &value).IsInvalidArgument());
+
+  // MultiGet()
+  std::vector<ColumnFamilyHandle*> cfhs = {db_->DefaultColumnFamily(), handle2};
+  {
+    std::vector<std::string> key_vals = {"foo", "foo"};
+    std::vector<Slice> keys;
+    std::vector<std::string> values;
+    for (size_t j = 0; j < 2; ++j) {
+      keys.push_back(key_vals[j]);
+    }
+
+    std::vector<Status> statuses =
+        db_->MultiGet(read_opts, cfhs, keys, &values);
+    for (auto status : statuses) {
+      ASSERT_TRUE(status.IsInvalidArgument());
+    }
+  }
+
+  // MultiGet with only one column family
+  {
+    std::vector<ColumnFamilyHandle*> one_cfh = {db_->DefaultColumnFamily()};
+    std::vector<std::string> key_vals = {"foo"};
+    std::vector<Slice> keys;
+    std::vector<std::string> values;
+    for (size_t j = 0; j < 1; ++j) {
+      keys.push_back(key_vals[j]);
+    }
+
+    std::vector<Status> statuses =
+        db_->MultiGet(read_opts, one_cfh, keys, &values);
+    for (auto status : statuses) {
+      ASSERT_TRUE(status.IsInvalidArgument());
+    }
+  }
+
+  // Overloaded version of MultiGet
+  ColumnFamilyHandle* column_families[] = {db_->DefaultColumnFamily(), handle2};
+  {
+    Slice keys[] = {"foo", "foo"};
+    PinnableSlice values[] = {PinnableSlice(), PinnableSlice()};
+    Status statuses[] = {Status::OK(), Status::OK()};
+    db_->MultiGet(read_opts, /*num_keys=*/2, &column_families[0], &keys[0],
+                  &values[0], &statuses[0], /*sorted_input=*/false);
+    for (auto status : statuses) {
+      ASSERT_TRUE(status.IsInvalidArgument());
+    }
+  }
+
+  // Overloaded versions of MultiGet with one column family
+  {
+    ColumnFamilyHandle* one_column_family[] = {db_->DefaultColumnFamily()};
+    Slice keys[] = {"foo"};
+    PinnableSlice values[] = {PinnableSlice()};
+    Status statuses[] = {Status::OK()};
+    db_->MultiGet(read_opts, /*num_keys=*/1, &one_column_family[0], &keys[0],
+                  &values[0], &statuses[0], /*sorted_input=*/false);
+    for (auto status : statuses) {
+      ASSERT_TRUE(status.IsInvalidArgument());
+    }
+  }
+
+  // NewIterator()
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_opts, db_->DefaultColumnFamily()));
+  ASSERT_TRUE(iter->status().IsInvalidArgument());
+  std::unique_ptr<Iterator> iter2(db_->NewIterator(read_opts, handle2));
+  ASSERT_TRUE(iter2->status().IsInvalidArgument());
+
+  // NewIterators()
+  std::vector<Iterator*> iterators;
+  ASSERT_TRUE(
+      db_->NewIterators(read_opts, cfhs, &iterators).IsInvalidArgument());
+  delete handle2;
   Close();
 }
 

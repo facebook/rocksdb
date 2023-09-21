@@ -6,7 +6,7 @@
 //
 #include "rocksdb/utilities/ldb_cmd.h"
 
-#include <cinttypes>
+#include <cstddef>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -208,9 +208,15 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   if (parsed_params.cmd == GetCommand::Name()) {
     return new GetCommand(parsed_params.cmd_params, parsed_params.option_map,
                           parsed_params.flags);
+  } else if (parsed_params.cmd == GetEntityCommand::Name()) {
+    return new GetEntityCommand(parsed_params.cmd_params,
+                                parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == PutCommand::Name()) {
     return new PutCommand(parsed_params.cmd_params, parsed_params.option_map,
                           parsed_params.flags);
+  } else if (parsed_params.cmd == PutEntityCommand::Name()) {
+    return new PutEntityCommand(parsed_params.cmd_params,
+                                parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == BatchPutCommand::Name()) {
     return new BatchPutCommand(parsed_params.cmd_params,
                                parsed_params.option_map, parsed_params.flags);
@@ -1087,7 +1093,7 @@ std::string LDBCommand::PrintKeyValueOrWideColumns(
     bool is_key_hex, bool is_value_hex) {
   if (wide_columns.empty() ||
       (wide_columns.size() == 1 &&
-       wide_columns.front().name() == kDefaultWideColumnName)) {
+       WideColumnsHelper::HasDefaultColumn(wide_columns))) {
     return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
                          is_value_hex);
   }
@@ -2838,6 +2844,55 @@ void GetCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
+GetEntityCommand::GetEntityCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "<key> must be specified for the get_entity command");
+  } else {
+    key_ = params.at(0);
+  }
+
+  if (is_key_hex_) {
+    key_ = HexToString(key_);
+  }
+}
+
+void GetEntityCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(GetEntityCommand::Name());
+  ret.append(" <key>");
+  ret.append(" [--" + ARG_TTL + "]");
+  ret.append("\n");
+}
+
+void GetEntityCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  PinnableWideColumns pinnable_wide_columns;
+  Status st = db_->GetEntity(ReadOptions(), GetCfHandle(), key_,
+                             &pinnable_wide_columns);
+  if (st.ok()) {
+    std::ostringstream oss;
+    WideColumnsHelper::DumpWideColumns(pinnable_wide_columns.columns(), oss,
+                                       is_value_hex_);
+    fprintf(stdout, "%s\n", oss.str().c_str());
+  } else {
+    std::stringstream oss;
+    oss << "GetEntity failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
 ApproxSizeCommand::ApproxSizeCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
@@ -3268,6 +3323,81 @@ void PutCommand::DoCommand() {
 }
 
 void PutCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
+}
+
+// ----------------------------------------------------------------------------
+
+PutEntityCommand::PutEntityCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                      ARG_VALUE_HEX, ARG_CREATE_IF_MISSING})) {
+  if (params.size() < 2) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "<key> and at least one column <column_name>:<column_value> must be "
+        "specified for the put_entity command");
+  } else {
+    auto iter = params.begin();
+    key_ = *iter;
+    if (is_key_hex_) {
+      key_ = HexToString(key_);
+    }
+    for (++iter; iter != params.end(); ++iter) {
+      auto split = StringSplit(*iter, ':');
+      if (split.size() != 2) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "wide column format needs to be <column_name>:<column_value> (did "
+            "you mean put <key> <value>?)");
+        return;
+      }
+      std::string name(split[0]);
+      std::string value(split[1]);
+      if (is_value_hex_) {
+        name = HexToString(name);
+        value = HexToString(value);
+      }
+      column_names_.push_back(name);
+      column_values_.push_back(value);
+    }
+  }
+  create_if_missing_ = IsFlagPresent(flags_, ARG_CREATE_IF_MISSING);
+}
+
+void PutEntityCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(PutCommand::Name());
+  ret.append(
+      " <key> <column1_name>:<column1_value> <column2_name>:<column2_value> "
+      "<...>");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
+  ret.append(" [--" + ARG_TTL + "]");
+  ret.append("\n");
+}
+
+void PutEntityCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  assert(column_names_.size() == column_values_.size());
+  WideColumns columns;
+  for (size_t i = 0; i < column_names_.size(); i++) {
+    WideColumn column(column_names_[i], column_values_[i]);
+    columns.emplace_back(column);
+  }
+  Status st = db_->PutEntity(WriteOptions(), GetCfHandle(), key_, columns);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+void PutEntityCommand::OverrideBaseOptions() {
   LDBCommand::OverrideBaseOptions();
   options_.create_if_missing = create_if_missing_;
 }

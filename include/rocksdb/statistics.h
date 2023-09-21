@@ -208,8 +208,11 @@ enum Tickers : uint32_t {
 
   // DEPRECATED / unused (see NUMBER_BLOCK_COMPRESSION_*)
   NUMBER_BLOCK_NOT_COMPRESSED,
+
+  // Tickers that record cumulative time.
   MERGE_OPERATION_TOTAL_TIME,
   FILTER_OPERATION_TOTAL_TIME,
+  COMPACTION_CPU_TOTAL_TIME,
 
   // Row cache.
   ROW_CACHE_HIT,

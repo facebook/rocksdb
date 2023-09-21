@@ -98,7 +98,8 @@ void PartitionedIndexIterator::InitPartitionedIndexBlock() {
         BlockType::kIndex,
         /*get_context=*/nullptr, &lookup_context_,
         block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
+        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
+        /*use_block_cache_for_lookup=*/true);
     block_iter_points_to_real_block_ = true;
     // We could check upper bound here but it is complicated to reason about
     // upper bound in index iterator. On the other than, in large scans, index

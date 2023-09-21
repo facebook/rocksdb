@@ -279,6 +279,11 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
+  void ResetUpperBoundOffset(uint64_t upper_bound_offset) {
+    upper_bound_offset_ = upper_bound_offset;
+    readahead_size_ = initial_auto_readahead_size_;
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
@@ -321,7 +326,6 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
-    upper_bound_offset_ = 0;
   }
 
   // Called in case of implicit auto prefetching.
@@ -428,12 +432,20 @@ class FilePrefetchBuffer {
   void UpdateReadAheadSizeForUpperBound(uint64_t offset, size_t n) {
     // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
     // set.
-    if (upper_bound_offset_ > 0 && upper_bound_offset_ > offset) {
+    if (readahead_size_ > 0 && upper_bound_offset_ > 0 &&
+        upper_bound_offset_ > offset) {
       if (upper_bound_offset_ < offset + n + readahead_size_) {
         readahead_size_ = (upper_bound_offset_ - offset) - n;
         RecordTick(stats_, READAHEAD_TRIMMED);
       }
     }
+  }
+
+  inline bool IsOffsetOutOfBound(uint64_t offset) {
+    if (upper_bound_offset_ > 0) {
+      return (offset >= upper_bound_offset_);
+    }
+    return false;
   }
 
   std::vector<BufferInfo> bufs_;
