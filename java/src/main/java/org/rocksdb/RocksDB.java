@@ -3431,7 +3431,8 @@ public class RocksDB extends RocksObject {
    */
   public void clipColumnFamily(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
       final byte[] endKey) throws RocksDBException {
-    clipColumnFamily(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, beginKey, 0,
+    clipColumnFamily(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, beginKey, 0,
         beginKey.length, endKey, 0, endKey.length);
   }
 
@@ -4471,9 +4472,9 @@ public class RocksDB extends RocksObject {
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
-  private native void clipColumnFamily(final long handle, final long cfHandle, final byte[] beginKey,
-      final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength) throws RocksDBException;
+  private native void clipColumnFamily(final long handle, final long cfHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
   private native void merge(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final byte[] value,
       final int valueOffset, final int valueLength) throws RocksDBException;
