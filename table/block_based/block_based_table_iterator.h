@@ -378,5 +378,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       block_handles_.pop_front();
     }
   }
+
+  void ResetPreviousBlockOffset() {
+    prev_block_offset_ = std::numeric_limits<uint64_t>::max();
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE

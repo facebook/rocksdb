@@ -62,7 +62,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     readahead size in BlockCacheLookupForReadAheadSize so we need to reseek.
   */
 
-  if (!IsIndexAtCurr() && block_iter_points_to_real_block_ &&
+  if (IsIndexAtCurr() && block_iter_points_to_real_block_ &&
       block_iter_.Valid()) {
     // Reseek.
     prev_block_offset_ = index_iter_->value().handle.offset();
@@ -211,7 +211,6 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   // to distinguish the two unless we read the second block. In this case, we'll
   // end up with reading two blocks.
   index_iter_->Seek(target);
-  is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
     auto seek_status = index_iter_->status();
@@ -236,6 +235,8 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
     }
   }
 
+  is_index_at_curr_block_ = true;
+
   InitDataBlock();
 
   block_iter_.SeekForPrev(target);
@@ -250,16 +251,19 @@ void BlockBasedTableIterator::SeekToLast() {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
+
   SavePrevIndexValue();
   ResetBlockCacheLookupVar();
 
   index_iter_->SeekToLast();
-  is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
     ResetDataIter();
     return;
   }
+
+  is_index_at_curr_block_ = true;
+
   InitDataBlock();
   block_iter_.SeekToLast();
   FindKeyBackward();
@@ -291,9 +295,13 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // Akanksha: -
-  // How to figure out if after seek, it does prev but
-  // index_iter_ moves forward ??
+  // Return Error.
+  if (readahead_cache_lookup_) {
+    block_iter_.Invalidate(Status::NotSupported(
+        "auto tuning of readahead_size is not supported with Prev operation"));
+    return;
+  }
+
   ResetBlockCacheLookupVar();
   if (is_at_first_key_from_index_) {
     is_at_first_key_from_index_ = false;
@@ -355,6 +363,9 @@ void BlockBasedTableIterator::InitDataBlock() {
           &block_iter_, s);
     } else {
       auto* rep = table_->get_rep();
+      if (getenv("Print")) {
+        printf("InitDataBlock::NewDataIterator\n");
+      }
 
       std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
       if (readahead_cache_lookup_) {
@@ -714,9 +725,9 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     size_t readahead_size, size_t& updated_readahead_size) {
-  // if (getenv("Print")) {
-  printf("BlockCacheLookupForReadAheadSize\n");
-  // }
+  if (getenv("Print")) {
+    printf("BlockCacheLookupForReadAheadSize\n");
+  }
   ClearBlockHandles();
   /*
     Akanksha Note:
@@ -819,6 +830,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   }
 
   updated_readahead_size = current_readahead_size;
+  ResetPreviousBlockOffset();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

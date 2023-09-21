@@ -20,7 +20,13 @@ void BlockPrefetcher::PrefetchIfNeeded(
   const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   const size_t offset = handle.offset();
 
+  if (getenv("Print")) {
+    printf("PrefetchIfNeeded\n");
+  }
   if (is_for_compaction) {
+    if (getenv("Print")) {
+      printf("ForCompaction\n");
+    }
     if (!rep->file->use_direct_io()) {
       // If FS supports prefetching (readahead_limit_ will be non zero in that
       // case) and current block exists in prefetch buffer then return.
@@ -54,6 +60,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
 
   // Explicit user requested readahead.
   if (readahead_size > 0) {
+    if (getenv("Print")) {
+      printf("Explicit Readahead\n");
+    }
     rep->CreateFilePrefetchBufferIfNotExists(
         readahead_size, readahead_size, &prefetch_buffer_,
         /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
@@ -68,6 +77,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
   // prefetched.
   size_t max_auto_readahead_size = rep->table_options.max_auto_readahead_size;
   if (max_auto_readahead_size == 0 || initial_auto_readahead_size_ == 0) {
+    if (getenv("Print")) {
+      printf("Max or initial Readahead is 0\n");
+    }
     return;
   }
 
@@ -95,6 +107,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
   }
 
   if (!IsBlockSequential(offset)) {
+    if (getenv("Print")) {
+      printf("Not Sequential\n");
+    }
     UpdateReadPattern(offset, len);
     ResetValues(rep->table_options.initial_auto_readahead_size);
     return;
@@ -106,10 +121,16 @@ void BlockPrefetcher::PrefetchIfNeeded(
   // scans are sequential.
   num_file_reads_++;
   if (num_file_reads_ <= rep->table_options.num_file_reads_for_auto_readahead) {
+    if (getenv("Print")) {
+      printf("Num Readahead != default\n");
+    }
     return;
   }
 
   if (rep->file->use_direct_io()) {
+    if (getenv("Print")) {
+      printf("directIO Readahead\n");
+    }
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
@@ -134,6 +155,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
       opts, handle.offset(),
       BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
+    if (getenv("Print")) {
+      printf("CreateFilePrefetchBuffer\n");
+    }
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,

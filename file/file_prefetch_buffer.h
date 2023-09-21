@@ -460,8 +460,9 @@ class FilePrefetchBuffer {
       return (offset >= upper_bound_offset_);
     }
     return false;
+  }
 
-  // Performs  tuning to calculate readahead_size.
+  // Performs tuning to calculate readahead_size.
   void ReadAheadSizeTuning(uint64_t offset, size_t n) {
     UpdateReadAheadSizeForUpperBound(offset, n);
 
