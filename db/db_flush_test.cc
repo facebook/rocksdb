@@ -3248,6 +3248,8 @@ TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes) {
 
   TEST_SYNC_POINT("Wait for error recover");
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {

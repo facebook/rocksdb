@@ -215,7 +215,7 @@ void FlushJob::PickMemTable() {
 }
 
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
-                     bool* switched_to_mempurge, bool* skip_since_bg_error,
+                     bool* switched_to_mempurge, bool* skipped_since_bg_error,
                      ErrorHandler* error_handler) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
@@ -308,14 +308,16 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
   } else if (write_manifest_) {
     assert(!db_options_.atomic_flush);
-    if (!db_options_.atomic_flush && skip_since_bg_error &&
+    if (!db_options_.atomic_flush &&
         flush_reason_ != FlushReason::kErrorRecovery &&
         flush_reason_ != FlushReason::kErrorRecoveryRetryFlush &&
-        !error_handler->GetBGError().ok()) {
+        error_handler && !error_handler->GetBGError().ok()) {
       cfd_->imm()->RollbackMemtableFlush(
           mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
       s = error_handler->GetBGError();
-      *skip_since_bg_error = true;
+      if (skipped_since_bg_error) {
+        *skipped_since_bg_error = true;
+      }
     } else {
       TEST_SYNC_POINT("FlushJob::InstallResults");
       // Replace immutable memtable with the generated Table
