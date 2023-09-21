@@ -655,6 +655,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   }
 
   recovery_in_prog_ = true;
+  TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
 

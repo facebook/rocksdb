@@ -284,6 +284,20 @@ Status DBImpl::FlushMemTableToOutputFile(
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+  // Exit a flush due to bg error should not set bg error again.
+  bool skip_set_bg_error = false;
+  if (s.ok() && flush_reason != FlushReason::kErrorRecovery &&
+      flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
+      !error_handler_.GetBGError().ok()) {
+    // Error recovery in progress, should not pick memtable which excludes
+    // them from being picked up by recovery flush.
+    // This ensures that when bg error is set, no new flush can pick
+    // memtables.
+    skip_set_bg_error = true;
+    s = error_handler_.GetBGError();
+    assert(!s.ok());
+  }
+
   if (s.ok()) {
     flush_job.PickMemTable();
     need_cancel = true;
@@ -304,7 +318,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
-                      &switched_to_mempurge);
+                      &switched_to_mempurge, &skip_set_bg_error,
+                      &error_handler_);
     need_cancel = false;
   }
 
@@ -345,7 +360,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
   }
 
-  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
+  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
+      !skip_set_bg_error) {
     if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
@@ -634,8 +650,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; i != num_cfs; ++i) {
       if (exec_status[i].second.ok() && exec_status[i].first) {
         auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
+        cfds[i]->imm()->RollbackMemtableFlush(
+            mems, /*rollback_succeeding_memtables=*/false);
       }
     }
   }

@@ -271,8 +271,20 @@ class MemTableList {
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
+  //
+  // @param rollback_succeeding_memtables If true, will rollback adjacent
+  // younger memtables whose flush is completed. Specifically, suppose the
+  // current immutable memtables are M_0,M_1...M_N ordered from youngest to
+  // oldest. Suppose that the youngest memtable in `mems` is M_K. We will try to
+  // rollback M_K-1, M_K-2... until the first memtable whose flush is
+  // not completed. These are the memtables that would have been installed
+  // by this flush job if it were to succeed. This flag is currently used
+  // by non atomic_flush rollback.
+  // Note that we also do rollback in `write_manifest_cb` by calling
+  // `RemoveMemTablesOrRestoreFlags()`. There we rollback the entire batch so
+  // it is similar to what we do here with rollback_succeeding_memtables=true.
   void RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                             uint64_t file_number);
+                             bool rollback_succeeding_memtables);
 
   // Try commit a successful flush in the manifest file. It might just return
   // Status::OK letting a concurrent flush to do the actual the recording.

@@ -83,9 +83,14 @@ class FlushJob {
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
+  // @param skip_since_bg_error If not nullptr and if atomic_flush=false,
+  // then it is set to true if flush installation is skipped and memtable
+  // is rolled back due to existing background error.
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
-             bool* switched_to_mempurge = nullptr);
+             bool* switched_to_mempurge = nullptr,
+             bool* skipped_since_bg_error = nullptr,
+             ErrorHandler* error_handler = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
