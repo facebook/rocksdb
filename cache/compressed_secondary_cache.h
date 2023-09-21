@@ -136,6 +136,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   CompressedSecondaryCacheOptions cache_options_;
   mutable port::Mutex capacity_mutex_;
   std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
+  bool disable_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
