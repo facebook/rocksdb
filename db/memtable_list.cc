@@ -446,8 +446,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   }
 #endif
 
-  if (rollback_succeeding_memtables) {
-    // Not assuming that `mems` is ordered.
+  if (rollback_succeeding_memtables && !mems.empty()) {
     std::list<MemTable*>& memlist = current_->memlist_;
     auto it = memlist.rbegin();
     for (; *it != mems[0] && it != memlist.rend(); ++it) {

@@ -138,7 +138,8 @@ void DBImpl::TEST_WaitForErrorRecovery() {
   InstrumentedMutexLock l(&mutex_);
   while (error_handler_.IsRecoveryInProgress()) {
     // 0.5 seconds
-    bg_cv_.TimedWait(500000000);
+    bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() +
+                     1000 * 1000 * 0.5);
   }
 }
 

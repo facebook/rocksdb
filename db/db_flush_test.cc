@@ -3193,19 +3193,19 @@ INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
 
 INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
-TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes1) {
+TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes) {
   // Fix a bug in when atomic_flush=false.
   // The bug can happen as follows:
-  // Start Flush0 for memtable M0 to SST1
-  // Start Flush1 for memtable M1 to SST2
-  // Flush 1 returns OK, but don't install to MANIFEST and let whoever flushes
+  // Start Flush0 for memtable M0 to SST0
+  // Start Flush1 for memtable M1 to SST1
+  // Flush1 returns OK, but don't install to MANIFEST and let whoever flushes
   // M0 to take care of it
-  // Flush0 finishes with a Retryable IO error
+  // Flush0 finishes with a retryable IOError
   //   - It rollbacks M0, (incorrectly) not M1
   //   - Deletes SST1 and SST2
   //
-  // Auto-recovery will starts Flush2 for M0, it does not pick up M1 since it
-  // thought M1 is flushed
+  // Auto-recovery will start Flush2 for M0, it does not pick up M1 since it
+  // thinks that M1 is flushed
   // Flush2 writes SST3 and finishes OK, tries to install SST3 and SST2
   // Error opening SST2 since it's already deleted
   //
@@ -3228,12 +3228,12 @@ TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes1) {
           IOStatus io_error = IOStatus::IOError("injected foobar");
           io_error.SetRetryable(true);
           *s = io_error;
-          TEST_SYNC_POINT("Wait for mem1 to start");
+          TEST_SYNC_POINT("Let mem1 flush start");
           TEST_SYNC_POINT("Wait for mem1 flush to finish");
         }
       });
   SyncPoint::GetInstance()->LoadDependency(
-      {{"Wait for mem1 to start", "Mem1 flush starts"},
+      {{"Let mem1 flush start", "Mem1 flush starts"},
        {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
        {"StartRecoverFromRetryableBGIOError::in_progress",
         "Wait for error recover"}});
@@ -3254,18 +3254,20 @@ TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes1) {
 TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
   // Fix a bug in when atomic_flush=false.
   // The bug can happen as follows:
-  // Start Flush0 for memtable M0 to SST1
-  // Start Flush1 for memtable M1 to SST2
-  // Flush 1 returns OK, but don't install to MANIFEST and let whoever flushes
-  // M0 to take care of it
-  // Start Flush2 for memtable M2 to SST3
-  // Flush0 finishes with a Retryable IO error
+  // Start Flush0 for memtable M0 to SST0
+  // Start Flush1 for memtable M1 to SST1
+  // Flush1 returns OK, but doesn't install output MANIFEST and let whoever
+  // flushes M0 to take care of it
+  // Start Flush2 for memtable M2 to SST2
+  // Flush0 finishes with a retryable IOError
   //   - It rollbacks M0 AND M1
   //   - Deletes SST1 and SST2
-  // Flush2 finishes, does not rollback M2, and deletes SST3
-  //   since it release the pending file number that keeps SST3 alive.
+  // Flush2 finishes, does not rollback M2,
+  //  - releases the pending file number that keeps SST2 alive
+  //  - deletes SST2
   //
-  // Then auto-recovery starts, error opening SST3
+  // Then auto-recovery starts, error opening SST2 when try to install
+  // flush result
   //
   // The fix is to let Flush2 rollback M2 if it finds that
   // there is a background error.
@@ -3287,10 +3289,11 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
           IOStatus io_error = IOStatus::IOError("injected foobar");
           io_error.SetRetryable(true);
           *s = io_error;
-          TEST_SYNC_POINT("Wait for mem1 to start");
+          TEST_SYNC_POINT("Let mem1 flush start");
           TEST_SYNC_POINT("Wait for mem1 flush to finish");
-        } else if (c == 2) {
-          TEST_SYNC_POINT("Mem2 flush write table 1");
+
+          TEST_SYNC_POINT("Let mem2 flush start");
+          TEST_SYNC_POINT("Wait for mem2 to start writing table");
         }
       });
 
@@ -3298,21 +3301,22 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
       "FlushJob::WriteLevel0Table", [&](void* mems) {
         autovector<MemTable*>* mems_ptr = (autovector<MemTable*>*)mems;
         if ((*mems_ptr)[0]->GetID() == 3) {
-          TEST_SYNC_POINT("Mem2 flush write table 2");
+          TEST_SYNC_POINT("Mem2 flush starts writing table");
+          TEST_SYNC_POINT("Mem2 flush waits until rollback");
         }
       });
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"Wait for mem1 to start", "Mem1 flush starts"},
-       {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
-       {"StartRecoverFromRetryableBGIOError::in_progress",
-        "Wait for error recover"},
-       // The following events occur while Flush for mem2 is writing output file
-       // without mutex.
-       {"Mem2 flush write table 1", "Wait for mem1 flush to finish"},
-       {"Mem2 flush write table 1", "RollbackMemtableFlush"},
-       {"Mem2 flush write table 1",
-        "RecoverFromRetryableBGIOError:BeforeStart"},
-       {"RollbackMemtableFlush", "Mem2 flush write table 2"}});
+  SyncPoint::GetInstance()->LoadDependency({
+      {"Let mem1 flush start", "Mem1 flush starts"},
+      {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
+      {"StartRecoverFromRetryableBGIOError::in_progress",
+       "Wait for error recover"},
+      {"Let mem2 flush start", "Mem2 flush starts"},
+      {"Mem2 flush starts writing table",
+       "Wait for mem2 to start writing table"},
+      {"RollbackMemtableFlush", "Mem2 flush waits until rollback"}
+      // The following events occur while Flush for mem2 is writing output file
+      // without mutex.
+  });
   // Need first flush to wait for the second flush to finish
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "val1"));
