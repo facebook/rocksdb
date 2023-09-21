@@ -3313,8 +3313,8 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
        {"RollbackMemtableFlush", "Mem2 flush waits until rollback"},
        {"RecoverFromRetryableBGIOError:RecoverSuccess",
         "Wait for error recover"}});
-  // Need first flush to wait for the second flush to finish
   SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_OK(Put(Key(1), "val1"));
   // trigger bg flush mem0
   ASSERT_OK(Put(Key(2), "val2"));
@@ -3328,6 +3328,51 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
   TEST_SYNC_POINT("Wait for error recover");
   // Recovery flush writes 3 memtables together into 1 file.
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBFlushTest, NonAtomicNormalFlushAbortWhenBGError) {
+  Options opts = CurrentOptions();
+  opts.atomic_flush = false;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 1;
+  env_->SetBackgroundThreads(2, Env::HIGH);
+  DestroyAndReopen(opts);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  std::atomic_int flush_write_table_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_write_table_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger bg flush0 for mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+  dbfull()->TEST_WaitForFlushMemTable().PermitUncheckedError();
+
+  // trigger bg flush1 for mem1, should see bg error and abort
+  // before picking a memtable to flush
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  TEST_SYNC_POINT("Wait for error recover");
+  // Recovery flush writes 2 memtables together into 1 file.
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  // 1 for flush 0 and 1 for recovery flush
+  ASSERT_EQ(2, flush_write_table_count);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
 }

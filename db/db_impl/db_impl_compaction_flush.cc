@@ -284,7 +284,20 @@ Status DBImpl::FlushMemTableToOutputFile(
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
-  TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile", nullptr);
+  // Exit a flush due to bg error should not set bg error again.
+  bool skip_since_bg_error = false;
+  if (s.ok() && flush_reason != FlushReason::kErrorRecovery &&
+      flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
+      !error_handler_.GetBGError().ok()) {
+    // Error recovery in progress, should not pick memtable which excludes
+    // them from being picked up by recovery flush.
+    // This ensures that when bg error is set, no new flush can pick
+    // memtables.
+    skip_since_bg_error = true;
+    s = error_handler_.GetBGError();
+    assert(!s.ok());
+  }
+
   if (s.ok()) {
     flush_job.PickMemTable();
     need_cancel = true;
@@ -297,9 +310,6 @@ Status DBImpl::FlushMemTableToOutputFile(
                      flush_reason);
 
   bool switched_to_mempurge = false;
-  // If we exit a flush job since there is already a bg error,
-  // we should not set the bg error again.
-  bool skip_since_bg_error = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
