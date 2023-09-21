@@ -1088,8 +1088,6 @@ class DBImpl : public DB {
 
   Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
 
-  void TEST_WaitForErrorRecovery();
-
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);

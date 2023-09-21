@@ -3235,7 +3235,7 @@ TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"Let mem1 flush start", "Mem1 flush starts"},
        {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
-       {"StartRecoverFromRetryableBGIOError::in_progress",
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
         "Wait for error recover"}});
   // Need first flush to wait for the second flush to finish
   SyncPoint::GetInstance()->EnableProcessing();
@@ -3247,7 +3247,6 @@ TEST_F(DBFlushTest, NonAtomicFlushRollbackPendingFlushes) {
   ASSERT_OK(Put(Key(3), "val3"));
 
   TEST_SYNC_POINT("Wait for error recover");
-  dbfull()->TEST_WaitForErrorRecovery();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
@@ -3305,18 +3304,15 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
           TEST_SYNC_POINT("Mem2 flush waits until rollback");
         }
       });
-  SyncPoint::GetInstance()->LoadDependency({
-      {"Let mem1 flush start", "Mem1 flush starts"},
-      {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
-      {"StartRecoverFromRetryableBGIOError::in_progress",
-       "Wait for error recover"},
-      {"Let mem2 flush start", "Mem2 flush starts"},
-      {"Mem2 flush starts writing table",
-       "Wait for mem2 to start writing table"},
-      {"RollbackMemtableFlush", "Mem2 flush waits until rollback"}
-      // The following events occur while Flush for mem2 is writing output file
-      // without mutex.
-  });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let mem1 flush start", "Mem1 flush starts"},
+       {"DBImpl::BGWorkFlush:done", "Wait for mem1 flush to finish"},
+       {"Let mem2 flush start", "Mem2 flush starts"},
+       {"Mem2 flush starts writing table",
+        "Wait for mem2 to start writing table"},
+       {"RollbackMemtableFlush", "Mem2 flush waits until rollback"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
   // Need first flush to wait for the second flush to finish
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "val1"));
@@ -3330,7 +3326,6 @@ TEST_F(DBFlushTest, AbortNonAtomicFlushWhenBGError) {
   ASSERT_OK(Put(Key(4), "val4"));
 
   TEST_SYNC_POINT("Wait for error recover");
-  dbfull()->TEST_WaitForErrorRecovery();
   // Recovery flush writes 3 memtables together into 1 file.
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   SyncPoint::GetInstance()->ClearAllCallBacks();

@@ -134,15 +134,6 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
   return s;
 }
 
-void DBImpl::TEST_WaitForErrorRecovery() {
-  InstrumentedMutexLock l(&mutex_);
-  while (error_handler_.IsRecoveryInProgress()) {
-    // 0.5 seconds
-    bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() +
-                     1000 * 1000 * 0.5);
-  }
-}
-
 Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
                                   ColumnFamilyHandle* cfh) {
   FlushOptions fo;
