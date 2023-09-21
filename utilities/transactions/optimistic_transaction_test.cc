@@ -1635,6 +1635,47 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   delete transaction;
 }
 
+#ifdef __SANITIZE_THREAD__
+// Skip OptimisticTransactionTest.SequenceNumberAfterRecoverLargeTest under TSAN
+// to avoid false positive because of TSAN lock limit of 64.
+#else
+TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverLargeTest) {
+  WriteOptions write_options;
+  OptimisticTransactionOptions transaction_options;
+
+  Transaction* transaction(
+      txn_db->BeginTransaction(write_options, transaction_options));
+
+  std::string value(1024 * 1024, 'X');
+  const size_t n_zero = 2;
+  std::string s_i;
+  Status s;
+  for (int i = 1; i <= 64; i++) {
+    s_i = std::to_string(i);
+    auto key = std::string(n_zero - std::min(n_zero, s_i.length()), '0') + s_i;
+    s = transaction->Put(key, value);
+    ASSERT_OK(s);
+  }
+
+  s = transaction->Commit();
+  ASSERT_OK(s);
+  delete transaction;
+
+  Reopen();
+  transaction = txn_db->BeginTransaction(write_options, transaction_options);
+  s = transaction->Put("bar", "val");
+  ASSERT_OK(s);
+  s = transaction->Commit();
+  if (!s.ok()) {
+    std::cerr << "Failed to commit records. Error: " << s.ToString()
+              << std::endl;
+  }
+  ASSERT_OK(s);
+
+  delete transaction;
+}
+#endif  // __SANITIZE_THREAD__
+
 TEST_P(OptimisticTransactionTest, TimestampedSnapshotMissingCommitTs) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
   ASSERT_OK(txn->Put("a", "v"));
