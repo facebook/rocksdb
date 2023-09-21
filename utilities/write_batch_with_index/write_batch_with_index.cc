@@ -23,23 +23,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-Slice CreateKeyWithTsSlice(const Slice& key, const Slice& ts) {
-  std::array<Slice, 2> key_with_ts{{key, ts}};
-  size_t totalSize = sizeof(uint32_t) + key.size() + ts.size();
-
-  std::string prefixed_key_with_ts;
-  prefixed_key_with_ts.reserve(totalSize);
-
-  PutLengthPrefixedSliceParts(&prefixed_key_with_ts,
-                              SliceParts(key_with_ts.data(), 2));
-
-  return Slice(prefixed_key_with_ts);
-}
-
-}  // namespace
-
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
                size_t max_bytes = 0, bool _overwrite_key = false,
@@ -140,6 +123,7 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
 
 void WriteBatchWithIndex::Rep::AddOrUpdateIndex(
     ColumnFamilyHandle* column_family, const Slice& key, WriteType type) {
+  // We update index without timestamp in key
   if (!UpdateExistingEntry(column_family, key, type)) {
     uint32_t cf_id = GetColumnFamilyID(column_family);
     const auto* cf_cmp = GetColumnFamilyUserComparator(column_family);
@@ -361,8 +345,7 @@ Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.Put(column_family, key, ts, value);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
-                          kPutRecord);
+    rep->AddOrUpdateIndex(column_family, key, kPutRecord);
   }
   return s;
 }
@@ -394,8 +377,7 @@ Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.Delete(column_family, key, ts);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
-                          kDeleteRecord);
+    rep->AddOrUpdateIndex(column_family, key, kDeleteRecord);
   }
   return s;
 }
@@ -427,8 +409,7 @@ Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.SingleDelete(column_family, key, ts);
   if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, CreateKeyWithTsSlice(key, ts),
-                          kSingleDeleteRecord);
+    rep->AddOrUpdateIndex(column_family, key, kSingleDeleteRecord);
   }
   return s;
 }

@@ -2463,11 +2463,13 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
   for (uint32_t i = 0; i < kMaxKey; ++i) {
     std::string key;
     PutFixed32(&key, i);
+    std::string ts;
+    PutFixed64(&ts, i);
     Status s;
     if (0 == (i % 2)) {
-      s = batch_->Delete(&cf2, key);
+      s = batch_->Delete(&cf2, key, ts);
     } else {
-      s = batch_->SingleDelete(&cf2, key);
+      s = batch_->SingleDelete(&cf2, key, ts);
     }
     ASSERT_OK(s);
   }
@@ -2527,8 +2529,12 @@ TEST_P(WriteBatchWithIndexTest, IndexWithTs) {
   const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
   ColumnFamilyHandleImplDummy cf(1, ucmp);
   WriteBatchWithIndex wbwi;
-  ASSERT_OK(wbwi.Put(&cf, "a", "0", "a0"));
-  ASSERT_OK(wbwi.Put(&cf, "a", "1", "a1"));
+  std::string ts;
+  PutFixed64(&ts, 0);
+  ASSERT_OK(wbwi.Put(&cf, "a", ts, "a0"));
+  ts.clear();
+  PutFixed64(&ts, 1);
+  ASSERT_OK(wbwi.Put(&cf, "a", ts, "a1"));
 
   {
     std::string value;
