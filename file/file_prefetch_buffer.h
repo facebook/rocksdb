@@ -90,7 +90,7 @@ class FilePrefetchBuffer {
       uint64_t num_file_reads_for_auto_readahead = 0,
       uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
-      std::function<void(size_t, size_t&)> cb = nullptr,
+      std::function<void(uint64_t, size_t, size_t&)> cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -471,7 +471,7 @@ class FilePrefetchBuffer {
         printf("readahead_size_ : %lu \n", readahead_size_);
       }
       size_t updated_readahead_size = 0;
-      readaheadsize_cb_(readahead_size_, updated_readahead_size);
+      readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
       readahead_size_ = updated_readahead_size;
     }
   }
@@ -522,6 +522,6 @@ class FilePrefetchBuffer {
   // ReadOptions.auto_readahead_size are set to trim readahead_size upto
   // upper_bound_offset_ during prefetching.
   uint64_t upper_bound_offset_ = 0;
-  std::function<void(size_t, size_t&)> readaheadsize_cb_;
+  std::function<void(uint64_t, size_t, size_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE

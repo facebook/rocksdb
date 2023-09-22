@@ -352,7 +352,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   // This API is called to lookup the data blocks ahead in the cache to estimate
   // the current readahead_size.
-  void BlockCacheLookupForReadAheadSize(size_t readahead_size,
+  void BlockCacheLookupForReadAheadSize(uint64_t offset, size_t readahead_size,
                                         size_t& updated_readahead_size);
 
   void ResetBlockCacheLookupVar() {

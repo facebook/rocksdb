@@ -367,11 +367,13 @@ void BlockBasedTableIterator::InitDataBlock() {
         printf("InitDataBlock::NewDataIterator\n");
       }
 
-      std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
+      std::function<void(uint64_t offset, size_t, size_t&)> readaheadsize_cb =
+          nullptr;
       if (readahead_cache_lookup_) {
         readaheadsize_cb = std::bind(
             &BlockBasedTableIterator::BlockCacheLookupForReadAheadSize, this,
-            std::placeholders::_1, std::placeholders::_2);
+            std::placeholders::_1, std::placeholders::_2,
+            std::placeholders::_3);
       }
 
       // Prefetch additional data for range scans (iterators).
@@ -421,11 +423,13 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       }
       auto* rep = table_->get_rep();
 
-      std::function<void(size_t, size_t&)> readaheadsize_cb = nullptr;
+      std::function<void(uint64_t offset, size_t, size_t&)> readaheadsize_cb =
+          nullptr;
       if (readahead_cache_lookup_) {
         readaheadsize_cb = std::bind(
             &BlockBasedTableIterator::BlockCacheLookupForReadAheadSize, this,
-            std::placeholders::_1, std::placeholders::_2);
+            std::placeholders::_1, std::placeholders::_2,
+            std::placeholders::_3);
       }
 
       // Prefetch additional data for range scans (iterators).
@@ -580,8 +584,8 @@ void BlockBasedTableIterator::FindBlockForward() {
       if (getenv("Print")) {
         printf("Popping\n");
       }
-      auto block_handle_st = block_handles_.front();
-      delete block_handle_st;
+      BlockHandleInfo* block_handle_info = block_handles_.front();
+      delete block_handle_info;
       block_handles_.pop_front();
     }
 
@@ -724,11 +728,13 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 }
 
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
-    size_t readahead_size, size_t& updated_readahead_size) {
+    uint64_t offset, size_t readahead_size, size_t& updated_readahead_size) {
   if (getenv("Print")) {
     printf("BlockCacheLookupForReadAheadSize\n");
   }
-  ClearBlockHandles();
+
+  assert(block_handles_.empty());
+  assert(index_iter_->value().handle.offset() == offset);
   /*
     Akanksha Note:
     1. Call block based table reader to lookup the data block in the cache (from
