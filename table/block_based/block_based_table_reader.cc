@@ -683,7 +683,7 @@ Status BlockBasedTable::Open(
        rep->table_properties->compression_name ==
            CompressionTypeToString(kZSTDNotFinalCompression));
   rep->create_context = BlockCreateContext(
-      &rep->table_options, rep->ioptions.stats,
+      &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
       rep->index_has_first_key);
@@ -1303,8 +1303,8 @@ Cache::Priority BlockBasedTable::GetCachePriority() const {
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block,
-    GetContext* get_context) const {
+    CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
+    const UncompressionDict* dict) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1313,10 +1313,12 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache) {
+    BlockCreateContext create_ctx = rep_->create_context;
+    create_ctx.dict = dict;
     assert(!cache_key.empty());
     auto cache_handle = block_cache.LookupFull(
-        cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
-        statistics, rep_->ioptions.lowest_used_cache_tier);
+        cache_key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
+        rep_->ioptions.lowest_used_cache_tier);
 
     // Avoid updating metrics here if the handle is not complete yet. This
     // happens with MultiGet and secondary cache. So update the metrics only
@@ -1343,8 +1345,9 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block, BlockContents&& block_contents,
-    CompressionType block_comp_type,
+    CachableEntry<TBlocklike>* out_parsed_block,
+    BlockContents&& uncompressed_block_contents,
+    BlockContents&& compressed_block_contents, CompressionType block_comp_type,
     const UncompressionDict& uncompression_dict,
     MemoryAllocator* memory_allocator, GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -1356,23 +1359,22 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
   Statistics* statistics = ioptions.stats;
 
   std::unique_ptr<TBlocklike> block_holder;
-  if (block_comp_type != kNoCompression) {
+  if (block_comp_type != kNoCompression &&
+      uncompressed_block_contents.data.empty()) {
+    assert(compressed_block_contents.data.data());
     // Retrieve the uncompressed contents into a new buffer
-    BlockContents uncompressed_block_contents;
     UncompressionContext context(block_comp_type);
     UncompressionInfo info(context, uncompression_dict, block_comp_type);
-    s = UncompressBlockData(info, block_contents.data.data(),
-                            block_contents.data.size(),
+    s = UncompressBlockData(info, compressed_block_contents.data.data(),
+                            compressed_block_contents.data.size(),
                             &uncompressed_block_contents, format_version,
                             ioptions, memory_allocator);
     if (!s.ok()) {
       return s;
     }
-    rep_->create_context.Create(&block_holder,
-                                std::move(uncompressed_block_contents));
-  } else {
-    rep_->create_context.Create(&block_holder, std::move(block_contents));
   }
+  rep_->create_context.Create(&block_holder,
+                              std::move(uncompressed_block_contents));
 
   // insert into uncompressed block cache
   if (block_cache && block_holder->own_bytes()) {
@@ -1380,7 +1382,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     BlockCacheTypedHandle<TBlocklike>* cache_handle = nullptr;
     s = block_cache.InsertFull(cache_key, block_holder.get(), charge,
                                &cache_handle, GetCachePriority<TBlocklike>(),
-                               rep_->ioptions.lowest_used_cache_tier);
+                               rep_->ioptions.lowest_used_cache_tier,
+                               compressed_block_contents.data, block_comp_type);
 
     if (s.ok()) {
       assert(cache_handle != nullptr);
@@ -1500,7 +1503,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     if (!contents) {
       if (use_block_cache_for_lookup) {
         s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
-                                  get_context);
+                                  get_context, &uncompression_dict);
         // Value could still be null at this point, so check the cache handle
         // and update the read pattern for prefetching
         if (out_parsed_block->GetValue() ||
@@ -1531,14 +1534,26 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           TBlocklike::kBlockType != BlockType::kFilter &&
           TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
           rep_->blocks_maybe_compressed;
+      // This flag, if true, tells BlockFetcher to return the uncompressed
+      // block when ReadBlockContents() is called.
       const bool do_uncompress = maybe_compressed;
       CompressionType contents_comp_type;
       // Maybe serialized or uncompressed
       BlockContents tmp_contents;
+      BlockContents uncomp_contents;
+      BlockContents comp_contents;
       if (!contents) {
         Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
                                               : READ_BLOCK_GET_MICROS;
         StopWatch sw(rep_->ioptions.clock, statistics, histogram);
+        // Setting do_uncompress to false may cause an extra mempcy in the
+        // following cases -
+        // 1. Compression is enabled, but block is not actually compressed
+        // 2. Compressed block is in the prefetch buffer
+        // 3. Direct IO
+        //
+        // It would also cause a memory allocation to be used rather than
+        // stack if the compressed block size is < 5KB
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,
@@ -1559,7 +1574,6 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         }
 
         contents_comp_type = block_fetcher.get_compression_type();
-        contents = &tmp_contents;
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
@@ -1573,17 +1587,43 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
               break;
           }
         }
+        if (s.ok()) {
+          if (do_uncompress && contents_comp_type != kNoCompression) {
+            comp_contents = BlockContents(block_fetcher.GetCompressedBlock());
+            uncomp_contents = std::move(tmp_contents);
+          } else if (contents_comp_type != kNoCompression) {
+            // do_uncompress must be false, so output of BlockFetcher is
+            // compressed
+            comp_contents = std::move(tmp_contents);
+          } else {
+            uncomp_contents = std::move(tmp_contents);
+          }
+
+          // If filling cache is allowed and a cache is configured, try to put
+          // the block to the cache. Do this here while block_fetcher is in
+          // scope, since comp_contents will be a reference to the compressed
+          // block in block_fetcher
+          s = PutDataBlockToCache(
+              key, block_cache, out_parsed_block, std::move(uncomp_contents),
+              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              GetMemoryAllocator(rep_->table_options), get_context);
+        }
       } else {
         contents_comp_type = GetBlockCompressionType(*contents);
-      }
+        if (contents_comp_type != kNoCompression) {
+          comp_contents = std::move(*contents);
+        } else {
+          uncomp_contents = std::move(*contents);
+        }
 
-      if (s.ok()) {
-        // If filling cache is allowed and a cache is configured, try to put the
-        // block to the cache.
-        s = PutDataBlockToCache(
-            key, block_cache, out_parsed_block, std::move(*contents),
-            contents_comp_type, uncompression_dict,
-            GetMemoryAllocator(rep_->table_options), get_context);
+        if (s.ok()) {
+          // If filling cache is allowed and a cache is configured, try to put
+          // the block to the cache.
+          s = PutDataBlockToCache(
+              key, block_cache, out_parsed_block, std::move(uncomp_contents),
+              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              GetMemoryAllocator(rep_->table_options), get_context);
+        }
       }
     }
   }

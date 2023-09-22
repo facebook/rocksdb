@@ -3060,12 +3060,12 @@ class Benchmark {
                                   FLAGS_cache_numshardbits);
       opts.hash_seed = GetCacheHashSeed();
       if (use_tiered_cache) {
-        TieredVolatileCacheOptions tiered_opts;
+        TieredCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
         tiered_opts.cache_opts = &opts;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(tiered_opts);
+        return NewTieredCache(tiered_opts);
       } else {
         return opts.MakeSharedCache();
       }
@@ -3093,12 +3093,12 @@ class Benchmark {
       }
 
       if (use_tiered_cache) {
-        TieredVolatileCacheOptions tiered_opts;
+        TieredCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
         tiered_opts.cache_opts = &opts;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(tiered_opts);
+        return NewTieredCache(tiered_opts);
       } else {
         return opts.MakeSharedCache();
       }

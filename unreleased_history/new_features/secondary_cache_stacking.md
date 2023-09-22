@@ -1,0 +1,1 @@
+RocksDB now allows the block cache to be stacked on top of a compressed secondary cache and a non-volatile secondary cache, thus creating a three-tier cache. To set it up, use the `NewTieredCache()` API in rocksdb/cache.h..

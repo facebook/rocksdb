@@ -20,10 +20,12 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 
   ~CacheWithSecondaryAdapter() override;
 
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
+  Status Insert(
+      const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW,
+      const Slice& compressed_value = Slice(),
+      CompressionType type = CompressionType::kNoCompression) override;
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context,

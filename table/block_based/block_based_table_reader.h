@@ -410,7 +410,8 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CachableEntry<TBlocklike>* block, GetContext* get_context) const;
+      CachableEntry<TBlocklike>* block, GetContext* get_context,
+      const UncompressionDict* dict) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed
@@ -425,7 +426,9 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> PutDataBlockToCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CachableEntry<TBlocklike>* cached_block, BlockContents&& block_contents,
+      CachableEntry<TBlocklike>* cached_block,
+      BlockContents&& uncompressed_block_contents,
+      BlockContents&& compressed_block_contents,
       CompressionType block_comp_type,
       const UncompressionDict& uncompression_dict,
       MemoryAllocator* memory_allocator, GetContext* get_context) const;

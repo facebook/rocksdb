@@ -5,6 +5,7 @@
 
 #include "cache/secondary_cache_adapter.h"
 
+#include "cache/tiered_secondary_cache.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
@@ -111,7 +112,7 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     size_t sec_capacity = 0;
     Status s = secondary_cache_->GetCapacity(sec_capacity);
     assert(s.ok());
-    assert(pri_cache_res_->GetTotalReservedCacheSize() == sec_capacity);
+    assert(pri_cache_res_->GetTotalMemoryUsed() == sec_capacity);
   }
 #endif  // NDEBUG
 }
@@ -119,7 +120,8 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
 bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
                                                 Handle* handle, bool was_hit) {
   auto helper = GetCacheItemHelper(handle);
-  if (helper->IsSecondaryCacheCompatible()) {
+  if (helper->IsSecondaryCacheCompatible() &&
+      adm_policy_ != TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
@@ -225,7 +227,9 @@ Cache::Handle* CacheWithSecondaryAdapter::Promote(
 Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
                                          const CacheItemHelper* helper,
                                          size_t charge, Handle** handle,
-                                         Priority priority) {
+                                         Priority priority,
+                                         const Slice& compressed_value,
+                                         CompressionType type) {
   Status s = target_->Insert(key, value, helper, charge, handle, priority);
   if (s.ok() && value == nullptr && distribute_cache_res_) {
     size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
@@ -233,6 +237,12 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
     assert(s.ok());
+  }
+  // Warm up the secondary cache with the compressed block. The secondary
+  // cache may choose to ignore it based on the admission policy.
+  if (value != nullptr && !compressed_value.empty()) {
+    Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
+    assert(status.ok());
   }
 
   return s;
@@ -411,8 +421,7 @@ const char* CacheWithSecondaryAdapter::Name() const {
   return target_->Name();
 }
 
-std::shared_ptr<Cache> NewTieredVolatileCache(
-    TieredVolatileCacheOptions& opts) {
+std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& opts) {
   if (!opts.cache_opts) {
     return nullptr;
   }
@@ -439,6 +448,17 @@ std::shared_ptr<Cache> NewTieredVolatileCache(
   }
   std::shared_ptr<SecondaryCache> sec_cache;
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
+
+  if (opts.nvm_sec_cache) {
+    if (opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyThreeQueue ||
+        opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyAuto) {
+      sec_cache = std::make_shared<TieredSecondaryCache>(
+          sec_cache, opts.nvm_sec_cache,
+          TieredAdmissionPolicy::kAdmPolicyThreeQueue);
+    } else {
+      return nullptr;
+    }
+  }
 
   return std::make_shared<CacheWithSecondaryAdapter>(
       cache, sec_cache, opts.adm_policy, /*distribute_cache_res=*/true);
