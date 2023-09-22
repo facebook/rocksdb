@@ -102,30 +102,31 @@ void CheckKeyValueTsWithIterator(
     Iterator* iter,
     std::vector<std::tuple<std::string, std::string, std::string>> entries) {
   size_t num_entries = entries.size();
-  // j = 0 => test forward iteration
-  // j = 1 => test backward iteration
-  for (int j = 0; j < 2; j++) {
-    for (size_t i = 0; i < num_entries; i++) {
-      size_t entry_idx = j == 0 ? i : num_entries - 1 - i;
-      auto [key, value, timestamp] = entries[entry_idx];
-      if (i == 0) {
-        if (j == 0) {
-          iter->Seek(key);
-        } else {
-          iter->SeekForPrev(key);
-        }
-      } else {
-        if (j == 0) {
-          iter->Next();
-        } else {
-          iter->Prev();
-        }
-      }
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key(), key);
-      ASSERT_EQ(iter->value(), value);
-      ASSERT_EQ(iter->timestamp(), timestamp);
+  // test forward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[i];
+    if (i == 0) {
+      iter->Seek(key);
+    } else {
+      iter->Next();
     }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
+  }
+  // test backward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[num_entries - 1 - i];
+    if (i == 0) {
+      iter->SeekForPrev(key);
+    } else {
+      iter->Prev();
+    }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
   }
 }
 
