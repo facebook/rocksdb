@@ -992,7 +992,7 @@ class CompressedSecCacheTestWithTiered
         /*_capacity=*/70 << 20,
         /*_estimated_entry_charge=*/256 << 10,
         /*_num_shard_bits=*/0);
-    TieredVolatileCacheOptions opts;
+    TieredCacheOptions opts;
     lru_opts.capacity = 70 << 20;
     lru_opts.num_shard_bits = 0;
     lru_opts.high_pri_pool_ratio = 0;
@@ -1006,7 +1006,7 @@ class CompressedSecCacheTestWithTiered
     ;
     opts.comp_cache_opts.capacity = 30 << 20;
     opts.comp_cache_opts.num_shard_bits = 0;
-    cache_ = NewTieredVolatileCache(opts);
+    cache_ = NewTieredCache(opts);
     cache_res_mgr_ =
         std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
             cache_);

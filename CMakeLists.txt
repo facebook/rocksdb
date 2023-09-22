@@ -632,6 +632,7 @@ set(SOURCES
         cache/secondary_cache.cc
         cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
+        cache/tiered_secondary_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
         db/blob/blob_fetcher.cc
@@ -1263,6 +1264,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
+        cache/tiered_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc

@@ -402,6 +402,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         BCI block_cache{rep_->table_options.block_cache.get()};
         std::array<BCI::TypedAsyncLookupHandle, MultiGetContext::MAX_BATCH_SIZE>
             async_handles;
+        BlockCreateContext create_ctx = rep_->create_context;
         std::array<CacheKey, MultiGetContext::MAX_BATCH_SIZE> cache_keys;
         size_t cache_lookup_count = 0;
 
@@ -448,6 +449,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             sst_file_range.SkipKey(miter);
             continue;
           }
+          create_ctx.dict = uncompression_dict.GetValue()
+                                ? uncompression_dict.GetValue()
+                                : &UncompressionDict::GetEmptyDict();
 
           if (v.handle.offset() == prev_offset) {
             // This key can reuse the previous block (later on).
@@ -475,7 +479,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
                 GetCacheKey(rep_->base_cache_key, v.handle);
             async_handle.key = cache_keys[cache_lookup_count].AsSlice();
             // NB: StartAsyncLookupFull populates async_handle.helper
-            async_handle.create_context = &rep_->create_context;
+            async_handle.create_context = &create_ctx;
             async_handle.priority = GetCachePriority<Block_kData>();
             async_handle.stats = rep_->ioptions.statistics.get();
 

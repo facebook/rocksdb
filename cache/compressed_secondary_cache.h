@@ -80,6 +80,9 @@ class CompressedSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* helper,
                 bool force_insert) override;
 
+  Status InsertSaved(const Slice& key, const Slice& saved, CompressionType type,
+                     CacheTier source) override;
+
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
@@ -129,6 +132,12 @@ class CompressedSecondaryCache : public SecondaryCache {
   // the charge is recalculated.
   CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
                                           size_t& charge);
+
+  bool MaybeInsertDummy(const Slice& key);
+
+  Status InsertInternal(const Slice& key, Cache::ObjectPtr value,
+                        const Cache::CacheItemHelper* helper,
+                        CompressionType type, CacheTier source);
 
   // TODO: clean up to use cleaner interfaces in typed_cache.h
   const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;
