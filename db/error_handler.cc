@@ -670,6 +670,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart2");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
