@@ -169,7 +169,7 @@ class SimCacheImpl : public SimCache {
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge, Handle** handle,
-                Priority priority, const Slice& compressed = Slice(),
+                Priority priority, const Slice& compressed = {},
                 CompressionType type = kNoCompression) override {
     // The handle and value passed in are for real cache, so we pass nullptr
     // to key_only_cache_ for both instead. Also, the deleter function pointer

@@ -53,18 +53,6 @@ class SecondaryCacheResultHandle {
   // object.
   // WART: potentially confusing name
   virtual size_t Size() = 0;
-
-  // If the result is compressed data, this will return the compression
-  // algorithm used. If uncompressed, kNoCompression will be returned.
-  // This should only be called if IsReady() returns
-  // true, or after Wait() has been called.
-  // virtual CompressionType compression_type() = 0;
-
-  // If the result is compressed, this will return the source cache tier.
-  // The source tier is responsible for uncompressing the data.
-  // This should only be called if IsReady() returns
-  // true, or after Wait() has been called.
-  // virtual CacheTier compressed_source() = 0;
 };
 
 // SecondaryCache
@@ -226,5 +214,9 @@ class SecondaryCacheWrapper : public SecondaryCache {
  private:
   std::shared_ptr<SecondaryCache> target_;
 };
+
+// Useful for cache entries that just need to be copied into a
+// secondary cache, such as compressed blocks
+extern const Cache::CacheItemHelper kSliceCacheItemHelper;
 
 }  // namespace ROCKSDB_NAMESPACE

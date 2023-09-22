@@ -1573,7 +1573,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           s = block_fetcher.ReadBlockContents();
         }
 
-        contents_comp_type = block_fetcher.get_raw_compression_type();
+        contents_comp_type = block_fetcher.get_compression_type();
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:

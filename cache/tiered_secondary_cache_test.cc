@@ -367,7 +367,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -381,7 +381,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(12));
   keys.push_back(Key(16));
   keys.push_back(Key(20));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -395,7 +395,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -409,7 +409,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -423,7 +423,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -437,7 +437,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(12));
   keys.push_back(Key(16));
   keys.push_back(Key(20));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -451,7 +451,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(12));
   keys.push_back(Key(16));
   keys.push_back(Key(20));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -465,7 +465,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   keys.push_back(Key(12));
   keys.push_back(Key(16));
   keys.push_back(Key(20));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -509,7 +509,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -523,7 +523,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(12));
   keys.push_back(Key(16));
   keys.push_back(Key(20));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -542,7 +542,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(28));
   keys.push_back(Key(32));
   keys.push_back(Key(36));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());
@@ -563,7 +563,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   keys.push_back(Key(0));
   keys.push_back(Key(4));
   keys.push_back(Key(8));
-  values = MultiGet(keys, /*snapshot=*/nullptr, /*batched=*/true);
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
   ASSERT_EQ(values.size(), keys.size());
   for (auto value : values) {
     ASSERT_EQ(1007, value.size());

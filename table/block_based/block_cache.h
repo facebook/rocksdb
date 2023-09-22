@@ -78,22 +78,22 @@ struct BlockCreateContext : public Cache::CreateContext {
       : table_options(_table_options),
         ioptions(_ioptions),
         statistics(_statistics),
+        raw_ucmp(_raw_ucmp),
         using_zstd(_using_zstd),
         protection_bytes_per_key(_protection_bytes_per_key),
-        raw_ucmp(_raw_ucmp),
         index_value_is_full(_index_value_is_full),
         index_has_first_key(_index_has_first_key) {}
 
   const BlockBasedTableOptions* table_options = nullptr;
   const ImmutableOptions* ioptions = nullptr;
-  uint32_t format_version;
   Statistics* statistics = nullptr;
+  const Comparator* raw_ucmp = nullptr;
+  const UncompressionDict* dict = nullptr;
+  uint32_t format_version;
   bool using_zstd = false;
   uint8_t protection_bytes_per_key = 0;
-  const Comparator* raw_ucmp = nullptr;
   bool index_value_is_full;
   bool index_has_first_key;
-  const UncompressionDict* dict = nullptr;
 
   // For TypedCacheInterface
   template <typename TBlocklike>

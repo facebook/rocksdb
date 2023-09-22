@@ -15,7 +15,6 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
-#include "cache/secondary_cache_adapter.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"

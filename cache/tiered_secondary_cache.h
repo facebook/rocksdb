@@ -76,7 +76,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
 
   class ResultHandle : public SecondaryCacheResultHandle {
    public:
-    ~ResultHandle() {}
+    ~ResultHandle() override {}
 
     bool IsReady() override {
       return !inner_handle_ || inner_handle_->IsReady();
@@ -139,9 +139,9 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
                                      size_t* out_charge);
 
   static const Cache::CacheItemHelper* GetHelper() {
-    static Cache::CacheItemHelper basic_helper(CacheEntryRole::kMisc,
-                                               &NoopDelete);
-    static Cache::CacheItemHelper maybe_insert_and_create_helper{
+    const static Cache::CacheItemHelper basic_helper(CacheEntryRole::kMisc,
+                                                     &NoopDelete);
+    const static Cache::CacheItemHelper maybe_insert_and_create_helper{
         CacheEntryRole::kMisc, &NoopDelete,           &ZeroSize,
         &NoopSaveTo,           &MaybeInsertAndCreate, &basic_helper,
     };

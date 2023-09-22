@@ -76,14 +76,11 @@ class BlockFetcher {
   inline CompressionType get_compression_type() const {
     return compression_type_;
   }
-  inline CompressionType get_raw_compression_type() const {
-    return raw_compression_type_;
-  }
   inline size_t GetBlockSizeWithTrailer() const {
     return block_size_with_trailer_;
   }
   inline Slice& GetCompressedBlock() {
-    assert(raw_compression_type_ != kNoCompression);
+    assert(compression_type_ != kNoCompression);
     return slice_;
   }
 
@@ -129,7 +126,6 @@ class BlockFetcher {
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   CompressionType compression_type_;
-  CompressionType raw_compression_type_;
   bool for_compaction_ = false;
 
   // return true if found
