@@ -451,14 +451,18 @@ class FilePrefetchBuffer {
   }
 
   // Performs tuning to calculate readahead_size.
-  void ReadAheadSizeTuning(uint64_t offset, size_t n) {
+  size_t ReadAheadSizeTuning(uint64_t offset, size_t n) {
     UpdateReadAheadSizeForUpperBound(offset, n);
 
     if (readaheadsize_cb_ != nullptr && readahead_size_ > 0) {
       size_t updated_readahead_size = 0;
       readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
-      readahead_size_ = updated_readahead_size;
+      if (readahead_size_ != updated_readahead_size) {
+        RecordTick(stats_, READAHEAD_TRIMMED);
+      }
+      return updated_readahead_size;
     }
+    return readahead_size_;
   }
 
   std::vector<BufferInfo> bufs_;
