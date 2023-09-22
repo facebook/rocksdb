@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -1551,6 +1552,12 @@ struct ReadOptions {
   // reading through MultiGet. Once the cumulative value size exceeds this
   // soft limit then all the remaining keys are returned with status Aborted.
   uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
+
+  // When the number of merge operands applied exceeds this threshold
+  // during a successful query, the operation will return a special OK
+  // Status with subcode kMergeOperandThresholdExceeded. Currently only applies
+  // to point lookups and is disabled by default.
+  std::optional<size_t> merge_operand_count_threshold;
 
   // If true, all data read from underlying storage will be
   // verified against corresponding checksums.
