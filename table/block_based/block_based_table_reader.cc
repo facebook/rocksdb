@@ -1493,11 +1493,16 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
       rep_->ioptions.lowest_used_cache_tier);
 
   if (!cache_handle) {
+    UpdateCacheMissMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr);
     return false;
   }
 
   // Found in Cache.
   TBlocklike* value = block_cache.Value(cache_handle);
+  if (value) {
+    UpdateCacheHitMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr,
+                          block_cache.get()->GetUsage(cache_handle));
+  }
   out_parsed_block->SetCachedValue(value, block_cache.get(), cache_handle);
 
   assert(!out_parsed_block->IsEmpty());

@@ -317,10 +317,12 @@ void BlockBasedTableIterator::Prev() {
 void BlockBasedTableIterator::InitDataBlock() {
   BlockHandle data_block_handle;
   bool is_in_cache = false;
+  bool use_block_cache_for_lookup = true;
 
   if (DoesContainBlockHandles()) {
     data_block_handle = block_handles_.front().index_val_.handle;
     is_in_cache = block_handles_.front().is_cache_hit_;
+    use_block_cache_for_lookup = false;
   } else {
     data_block_handle = index_iter_->value().handle;
   }
@@ -372,7 +374,7 @@ void BlockBasedTableIterator::InitDataBlock() {
           /*get_context=*/nullptr, &lookup_context_,
           block_prefetcher_.prefetch_buffer(),
           /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
-          /*use_block_cache_for_lookup=*/true);
+          use_block_cache_for_lookup);
     }
     block_iter_points_to_real_block_ = true;
 
