@@ -719,9 +719,15 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     BlockHandleInfo block_handle_info;
     block_handle_info.index_val_ = index_iter_->value();
 
-    bool found_in_cache = table_->LookupAndPinBlocksInCache<Block_kData>(
-        block_handle, &(block_handle_info.cachable_entry_).As<Block_kData>());
-    block_handle_info.is_cache_hit_ = found_in_cache;
+    Status s = table_->LookupAndPinBlocksInCache<Block_kData>(
+        read_options_, block_handle,
+        &(block_handle_info.cachable_entry_).As<Block_kData>());
+    if (!s.ok()) {
+      break;
+    }
+    block_handle_info.is_cache_hit_ =
+        (block_handle_info.cachable_entry_.GetValue() ||
+         block_handle_info.cachable_entry_.GetCacheHandle());
 
     // Add the handle to the queue.
     block_handles_.emplace_back(std::move(block_handle_info));

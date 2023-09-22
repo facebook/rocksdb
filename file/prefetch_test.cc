@@ -1244,10 +1244,7 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
-  std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
   SetBlockBasedTableOptions(table_options);
-  table_options.block_cache = cache;
-  table_options.no_block_cache = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   Status s = TryReopen(options);
@@ -1280,6 +1277,9 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
 
   // Try with different num_file_reads_for_auto_readahead from 0 to 3.
   for (size_t i = 0; i < 3; i++) {
+    std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
+    table_options.block_cache = cache;
+    table_options.no_block_cache = false;
     table_options.num_file_reads_for_auto_readahead = i;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1347,6 +1347,10 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
           cmp_iter->Next();
         }
 
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 1);
+
         ASSERT_OK(cmp_iter->status());
         ASSERT_OK(iter->status());
       }
@@ -1372,6 +1376,10 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
           iter->Next();
           cmp_iter->Next();
         }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 1);
 
         ASSERT_OK(cmp_iter->status());
         ASSERT_OK(iter->status());

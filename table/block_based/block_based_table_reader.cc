@@ -102,8 +102,9 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
       BlockContents* contents, bool async_read,                                \
       bool use_block_cache_for_lookup) const;                                  \
-  template bool BlockBasedTable::LookupAndPinBlocksInCache<T>(                 \
-      const BlockHandle& handle, CachableEntry<T>* out_parsed_block) const;
+  template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -1473,14 +1474,28 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       block_contents_pinned, rep->user_defined_timestamps_persisted);
 }
 
+// Right now only called for Data blocks.
 template <typename TBlocklike>
-bool BlockBasedTable::LookupAndPinBlocksInCache(
-    const BlockHandle& handle,
+Status BlockBasedTable::LookupAndPinBlocksInCache(
+    const ReadOptions& ro, const BlockHandle& handle,
     CachableEntry<TBlocklike>* out_parsed_block) const {
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
 
   assert(block_cache);
+
+  Status s;
+  CachableEntry<UncompressionDict> uncompression_dict;
+  if (rep_->uncompression_dict_reader) {
+    const bool no_io = (ro.read_tier == kBlockCacheTier);
+    s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+        /* prefetch_buffer= */ nullptr, ro, no_io, ro.verify_checksums,
+        /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+        &uncompression_dict);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   // Do the lookup.
   CacheKey key_data = GetCacheKey(rep_->base_cache_key, handle);
@@ -1488,13 +1503,18 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
 
   Statistics* statistics = rep_->ioptions.statistics.get();
 
-  auto cache_handle = block_cache.LookupFull(
-      key, &rep_->create_context, GetCachePriority<TBlocklike>(), statistics,
-      rep_->ioptions.lowest_used_cache_tier);
+  BlockCreateContext create_ctx = rep_->create_context;
+  create_ctx.dict = uncompression_dict.GetValue()
+                        ? uncompression_dict.GetValue()
+                        : &UncompressionDict::GetEmptyDict();
+
+  auto cache_handle =
+      block_cache.LookupFull(key, &create_ctx, GetCachePriority<TBlocklike>(),
+                             statistics, rep_->ioptions.lowest_used_cache_tier);
 
   if (!cache_handle) {
     UpdateCacheMissMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr);
-    return false;
+    return s;
   }
 
   // Found in Cache.
@@ -1507,7 +1527,7 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
 
   assert(!out_parsed_block->IsEmpty());
 
-  return true;
+  return s;
 }
 
 // If contents is nullptr, this function looks up the block caches for the
