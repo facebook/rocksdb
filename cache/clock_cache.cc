@@ -2881,6 +2881,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
 
   size_t idx = home;
   bool already_matches = false;
+  bool already_matches_ignore = false;
   if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
                 &already_matches)) {
     assert(idx == home);
@@ -2888,10 +2889,12 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     return nullptr;
     // Here we try to populate newly-opened slots in the table, but not
     // when we can add something to its home slot. This makes the structure
-    // more performant more quickly on (initial) growth.
+    // more performant more quickly on (initial) growth. We ignore "already
+    // matches" in this case because it is unlikely and difficult to
+    // incorporate logic for here cleanly and efficiently.
   } else if (UNLIKELY(state.likely_empty_slot > 0) &&
              TryInsert(proto, arr[state.likely_empty_slot], initial_countdown,
-                       take_ref, &already_matches)) {
+                       take_ref, &already_matches_ignore)) {
     idx = state.likely_empty_slot;
   } else {
     // We need to search for an available slot outside of the home.
