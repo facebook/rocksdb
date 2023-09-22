@@ -488,6 +488,9 @@ enum TieredAdmissionPolicy {
   kAdmPolicyMax,
 };
 
+// EXPERIMENTAL
+// The following feature is experimental, and the API is subject to change
+//
 // A 2-tier cache with a primary block cache, and a compressed secondary
 // cache. The returned cache instance will internally allocate a primary
 // uncompressed cache of the specified type, and a compressed secondary
@@ -505,5 +508,6 @@ struct TieredCacheOptions {
   std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
+// EXPERIMENTAL
 extern std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& cache_opts);
 }  // namespace ROCKSDB_NAMESPACE
