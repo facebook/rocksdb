@@ -769,8 +769,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         assert(exec_status[i].first);
         assert(exec_status[i].second.ok());
         auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
+        cfds[i]->imm()->RollbackMemtableFlush(
+            mems, /*rollback_succeeding_memtables=*/false);
       }
     }
   }
