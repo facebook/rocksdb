@@ -469,10 +469,15 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
                      "The catch up flush after successful recovery failed [%s]",
                      s.ToString().c_str());
     }
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      SchedulePendingCompaction(cfd);
+    // FlushAllColumnFamilies releases and re-acquires mutex.
+    if (shutdown_initiated_) {
+      s = Status::ShutdownInProgress();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        SchedulePendingCompaction(cfd);
+      }
+      MaybeScheduleFlushOrCompaction();
     }
-    MaybeScheduleFlushOrCompaction();
   }
 
   // Wake up any waiters - in this case, it could be the shutdown thread
