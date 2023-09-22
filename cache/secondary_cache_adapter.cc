@@ -426,8 +426,8 @@ const char* CacheWithSecondaryAdapter::Name() const {
 // as well. At the moment, we don't have a good way of handling the case
 // where the new capacity < total cache reservations.
 void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
-  size_t sec_capacity =
-      capacity * (distribute_cache_res_ ? sec_cache_res_ratio_ : 0.0);
+  size_t sec_capacity = static_cast<size_t>(
+      capacity * (distribute_cache_res_ ? sec_cache_res_ratio_ : 0.0));
   size_t old_sec_capacity = 0;
 
   if (distribute_cache_res_) {
@@ -444,10 +444,12 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
       // 2. Credit an equal amount (by decreasing pri_cache_res_) to the
       //    primary cache
       // 3. Decrease the primary cache capacity to the total budget
-      secondary_cache_->SetCapacity(sec_capacity);
-      pri_cache_res_->UpdateCacheReservation(old_sec_capacity - sec_capacity,
-                                             /*increase=*/false);
-      target_->SetCapacity(capacity);
+      s = secondary_cache_->SetCapacity(sec_capacity);
+      if (s.ok()) {
+        pri_cache_res_->UpdateCacheReservation(old_sec_capacity - sec_capacity,
+                                               /*increase=*/false);
+        target_->SetCapacity(capacity);
+      }
     } else {
       // We're expanding the cache. Do it in the following order to avoid
       // unnecessary evictions -
@@ -458,7 +460,8 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
       target_->SetCapacity(capacity);
       pri_cache_res_->UpdateCacheReservation(sec_capacity - old_sec_capacity,
                                              /*increase=*/true);
-      secondary_cache_->SetCapacity(sec_capacity);
+      s = secondary_cache_->SetCapacity(sec_capacity);
+      assert(s.ok());
     }
   } else {
     // No cache reservation distribution. Just set the primary cache capacity.
@@ -486,7 +489,8 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
 
   MutexLock m(&mutex_);
   size_t pri_capacity = target_->GetCapacity();
-  size_t sec_capacity = pri_capacity * compressed_secondary_ratio;
+  size_t sec_capacity =
+      static_cast<size_t>(pri_capacity * compressed_secondary_ratio);
   size_t old_sec_capacity;
   Status s = secondary_cache_->GetCapacity(old_sec_capacity);
   if (!s.ok()) {
@@ -497,8 +501,9 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
   size_t old_sec_reserved =
       old_sec_capacity - pri_cache_res_->GetTotalMemoryUsed();
   // Calculate the new secondary cache reservation
-  size_t sec_reserved = old_sec_reserved * (double)(compressed_secondary_ratio /
-                                                    sec_cache_res_ratio_);
+  size_t sec_reserved = static_cast<size_t>(
+      old_sec_reserved *
+      (double)(compressed_secondary_ratio / sec_cache_res_ratio_));
   sec_cache_res_ratio_ = compressed_secondary_ratio;
   if (sec_capacity > old_sec_capacity) {
     // We're increasing the ratio, thus ending up with a larger secondary
@@ -576,8 +581,8 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
     return nullptr;
   }
   std::shared_ptr<SecondaryCache> sec_cache;
-  opts.comp_cache_opts.capacity =
-      opts.total_capacity * opts.compressed_secondary_ratio;
+  opts.comp_cache_opts.capacity = static_cast<size_t>(
+      opts.total_capacity * opts.compressed_secondary_ratio);
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
 
   if (opts.nvm_sec_cache) {

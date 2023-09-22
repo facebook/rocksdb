@@ -501,9 +501,12 @@ enum TieredAdmissionPolicy {
 struct TieredCacheOptions {
   ShardedCacheOptions* cache_opts = nullptr;
   PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
-  ;
   TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
   CompressedSecondaryCacheOptions comp_cache_opts;
+  // Any capacity specified in LRUCacheOptions, HyperClockCacheOptions and
+  // CompressedSecondaryCacheOptions is ignored
+  // The total_capacity specified here is taken as the memory budget and
+  // divided between the primary block cache and compressed secondary cache
   size_t total_capacity = 0;
   double compressed_secondary_ratio = 0.0;
   // An optional secondary cache that will serve as the persistent cache
