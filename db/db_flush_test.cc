@@ -3423,12 +3423,14 @@ TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
           IOStatus io_error = IOStatus::IOError("injected foobar");
           io_error.SetRetryable(true);
           *s = io_error;
+          TEST_SYNC_POINT("Let flush for mem1 start");
           // Wait for Flush1 to start waiting to install flush result
           TEST_SYNC_POINT("Wait for flush for mem1");
         }
       });
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::AtomicFlushMemTablesToOutputFiles:WaitCV",
+      {{"Let flush for mem1 start", "Flush for mem1"},
+       {"DBImpl::AtomicFlushMemTablesToOutputFiles:WaitCV",
         "Wait for flush for mem1"},
        {"RecoverFromRetryableBGIOError:BeforeStart",
         "Wait for resume to start"},
@@ -3442,6 +3444,7 @@ TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
   ASSERT_OK(Put(Key(2), "val2"));
 
   // trigger Flush1 for mem1
+  TEST_SYNC_POINT("Flush for mem1");
   ASSERT_OK(Put(Key(3), "val3"));
 
   // Wait until resume started to schedule another flush
