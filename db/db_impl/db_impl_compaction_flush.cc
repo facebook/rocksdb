@@ -297,6 +297,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     skip_set_bg_error = true;
     s = error_handler_.GetBGError();
     assert(!s.ok());
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[JOB %d] Skip flush due to background error %s",
+                     job_context->job_id, s.ToString().c_str());
   }
 
   if (s.ok()) {
@@ -584,6 +587,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_handler_.GetBGError();
     skip_set_bg_error = true;
     assert(!s.ok());
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[JOB %d] Skip flush due to background error %s",
+                     job_context->job_id, s.ToString().c_str());
   }
 
   if (s.ok()) {
@@ -3079,7 +3085,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       status = error_handler_.GetBGError();
       assert(!status.ok());
       ROCKS_LOG_BUFFER(log_buffer,
-                       "[JOB %d] Abort flush due to background error to %s",
+                       "[JOB %d] Abort flush due to background error %s",
                        job_context->job_id, status.ToString().c_str());
       *reason = flush_reason;
       for (auto item : flush_req.cfd_to_max_mem_id_to_persist) {
