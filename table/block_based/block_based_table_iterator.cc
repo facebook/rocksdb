@@ -267,9 +267,6 @@ void BlockBasedTableIterator::SeekToLast() {
 }
 
 void BlockBasedTableIterator::Next() {
-  if (getenv("Print")) {
-    printf("\nNext\n");
-  }
   if (is_at_first_key_from_index_ && !MaterializeCurrentBlock()) {
     return;
   }
@@ -320,9 +317,6 @@ void BlockBasedTableIterator::Prev() {
 void BlockBasedTableIterator::InitDataBlock() {
   BlockHandle data_block_handle;
   bool is_in_cache = false;
-  if (getenv("Print")) {
-    printf("InitDataBlock\n");
-  }
 
   if (DoesContainBlockHandles()) {
     data_block_handle = block_handles_.front()->index_val_.handle;
@@ -344,14 +338,6 @@ void BlockBasedTableIterator::InitDataBlock() {
 
     // Initialize Data Block From CacheableEntry.
     if (is_in_cache) {
-      if (getenv("Print")) {
-        if (block_handles_.front()->cachable_entry_.GetCacheHandle() ==
-            nullptr) {
-          printf("Data cache handle empty\n");
-        } else {
-          printf("Data cache handle not empty\n");
-        }
-      }
       Status s;
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -359,9 +345,6 @@ void BlockBasedTableIterator::InitDataBlock() {
           &block_iter_, s);
     } else {
       auto* rep = table_->get_rep();
-      if (getenv("Print")) {
-        printf("InitDataBlock::NewDataIterator\n");
-      }
 
       std::function<void(uint64_t offset, size_t, size_t&)> readaheadsize_cb =
           nullptr;
@@ -481,9 +464,6 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
 }
 
 bool BlockBasedTableIterator::MaterializeCurrentBlock() {
-  if (getenv("Print")) {
-    printf("MaterializeCurrentBlock\n");
-  }
   assert(is_at_first_key_from_index_);
   assert(!block_iter_points_to_real_block_);
   assert(index_iter_->Valid());
@@ -561,18 +541,12 @@ void BlockBasedTableIterator::FindBlockForward() {
     if (DoesContainBlockHandles()) {
       // Advance and point to that next Block handle to make that block handle
       // current.
-      if (getenv("Print")) {
-        printf("Popping\n");
-      }
       BlockHandleInfo* block_handle_info = block_handles_.front();
       delete block_handle_info;
       block_handles_.pop_front();
     }
 
     if (!DoesContainBlockHandles()) {
-      if (getenv("Print")) {
-        printf("Index Next\n");
-      }
       // For readahead_cache_lookup_ enabled scenario -
       // 1. In case of Seek, block_handle will be empty and it should be follow
       //    as usual doing index_iter_->Next().
@@ -581,16 +555,10 @@ void BlockBasedTableIterator::FindBlockForward() {
       //    it's already pointing to next block;
       if (IsIndexAtCurr()) {
         index_iter_->Next();
-        if (getenv("Print")) {
-          printf("Do Next\n");
-        }
       } else {
         // Skip Next as index_iter_ already points to correct index when it
         // iterates in BlockCacheLookupForReadAheadSize.
         is_index_at_curr_block_ = true;
-        if (getenv("Print")) {
-          printf("Skip Next\n");
-        }
       }
 
       if (next_block_is_out_of_bound) {
@@ -616,13 +584,7 @@ void BlockBasedTableIterator::FindBlockForward() {
         is_at_first_key_from_index_ = true;
         return;
       }
-    } else {
-      if (getenv("Print")) {
-        printf("Block forward - offset: %lu \n",
-               block_handles_.front()->index_val_.handle.offset());
-      }
     }
-
     InitDataBlock();
     block_iter_.SeekToFirst();
   } while (!block_iter_.Valid());
@@ -673,9 +635,6 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
 }
 
 void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
-  if (getenv("Print")) {
-    printf("FindReadAheadSizeUpperBound:Start\n");
-  }
   size_t total_bytes_till_upper_bound = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
   uint64_t start_offset = index_iter_->value().handle.offset();
@@ -707,18 +666,10 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
   block_prefetcher_.SetUpperBoundOffset(start_offset +
                                         total_bytes_till_upper_bound);
-
-  if (getenv("Print")) {
-    printf("FindReadAheadSizeUpperBound:End\n");
-  }
 }
 
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     uint64_t offset, size_t readahead_size, size_t& updated_readahead_size) {
-  if (getenv("Print")) {
-    printf("BlockCacheLookupForReadAheadSize\n");
-  }
-
   assert(!DoesContainBlockHandles());
   assert(index_iter_->value().handle.offset() == offset);
 
@@ -749,13 +700,6 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     // block won't be added.
     if (current_readahead_size + block_handle.size() + footer >
         readahead_size) {
-      if (getenv("Print")) {
-        printf(
-            "current_readahead_size: %lu, readahead_size: %lu footer: %lu, "
-            "block_handle.size():%lu \n",
-            current_readahead_size, readahead_size, footer,
-            block_handle.size());
-      }
       break;
     }
 
@@ -770,15 +714,6 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     bool found_in_cache = table_->LookupAndPinBlocksInCache<Block_kData>(
         block_handle, &(block_handle_info->cachable_entry_).As<Block_kData>());
     block_handle_info->is_cache_hit_ = found_in_cache;
-
-    if (getenv("Print")) {
-      if (found_in_cache) {
-        printf("BlockCacheLookupForReadAheadSize Found in Cache\n");
-      } else {
-        printf("BlockCacheLookupForReadAheadSize Cache Miss\n");
-      }
-      printf("Adding block handle with offset: %lu\n", block_handle.offset());
-    }
 
     // Add the handle to the queue.
     block_handles_.push_back(std::move(block_handle_info));
@@ -798,16 +733,8 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // update the readahead_size.
   for (auto it = block_handles_.rbegin();
        it != block_handles_.rend() && (*it)->is_cache_hit_ == true; ++it) {
-    if (getenv("Print")) {
-      printf("Cache hit from end\n");
-    }
     current_readahead_size -= (*it)->index_val_.handle.size();
     current_readahead_size -= footer;
-  }
-
-  if (getenv("Print")) {
-    printf("Total blocks in queue: %lu \n", block_handles_.size());
-    printf("Updated ReadAheadsize: %lu\n", current_readahead_size);
   }
 
   updated_readahead_size = current_readahead_size;

@@ -1547,12 +1547,6 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // and compressed block cache.
           is_cache_hit = true;
           if (prefetch_buffer) {
-            if (getenv("Print")) {
-              printf(
-                  "GetDataBlockFromCache:: Cache Hit offset: %lu, length: "
-                  "%lu\n",
-                  handle.offset(), BlockSizeWithTrailer(handle));
-            }
             // Update the block details so that PrefetchBuffer can use the read
             // pattern to determine if reads are sequential or not for
             // prefetching. It should also take in account blocks read from

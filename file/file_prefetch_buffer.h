@@ -326,28 +326,16 @@ class FilePrefetchBuffer {
 
   // Called in case of implicit auto prefetching.
   void ResetValues() {
-    if (getenv("Print")) {
-      printf("Reset Values\n");
-    }
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
   }
 
   // Called in case of implicit auto prefetching.
   bool IsEligibleForPrefetch(uint64_t offset, size_t n) {
-    if (getenv("Print")) {
-      printf(
-          "IsEligibleForPrefetch offset: %lu, n: %lu, prev_offset: %lu, "
-          "prev_len: %lu \n",
-          offset, n, prev_offset_, prev_len_);
-    }
     // Prefetch only if this read is sequential otherwise reset readahead_size_
     // to initial value.
     if (!IsBlockSequential(offset)) {
       UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
-      if (getenv("Print")) {
-        printf("IsEligibleForPrefetching\n");
-      }
       ResetValues();
       return false;
     }
@@ -467,9 +455,6 @@ class FilePrefetchBuffer {
     UpdateReadAheadSizeForUpperBound(offset, n);
 
     if (readaheadsize_cb_ != nullptr && readahead_size_ > 0) {
-      if (getenv("Print")) {
-        printf("readahead_size_ : %lu \n", readahead_size_);
-      }
       size_t updated_readahead_size = 0;
       readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
       readahead_size_ = updated_readahead_size;

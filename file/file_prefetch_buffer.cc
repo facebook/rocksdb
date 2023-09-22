@@ -673,9 +673,6 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
         return false;
       }
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
-      if (getenv("Print")) {
-        printf("Readahead size: %lu\n", readahead_size_);
-      }
     } else {
       return false;
     }
