@@ -1,0 +1,1 @@
+* Fix a bug with atomic_flush=true that can cause DB to stuck after a flush fails (#11872). 

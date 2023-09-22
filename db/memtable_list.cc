@@ -438,7 +438,6 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   TEST_SYNC_POINT("RollbackMemtableFlush");
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
-  assert(!mems.empty());
 #ifndef NDEBUG
   for (MemTable* m : mems) {
     assert(m->flush_in_progress_);
@@ -483,7 +482,9 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
       num_flush_not_started_++;
     }
   }
-  imm_flush_needed.store(true, std::memory_order_release);
+  if (!mems.empty()) {
+    imm_flush_needed.store(true, std::memory_order_release);
+  }
 }
 
 // Try record a successful flush in the manifest file. It might just return
