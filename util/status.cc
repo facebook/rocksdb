@@ -45,6 +45,7 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Txn not prepared",       // kTxnNotPrepared
     "IO fenced off",          // kIOFenced
     "Merge operator failed",  // kMergeOperatorFailed
+    "Number of operands merged exceeded threshold",  // kMergeOperandThresholdExceeded
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,
