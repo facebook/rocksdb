@@ -615,9 +615,8 @@ Status UpdateTieredCache(const std::shared_ptr<Cache>& cache,
                          int64_t total_capacity,
                          double compressed_secondary_ratio,
                          TieredAdmissionPolicy adm_policy) {
-#ifdef ROCKSDB_USE_RTTI
   CacheWithSecondaryAdapter* tiered_cache =
-      dynamic_cast<CacheWithSecondaryAdapter*>(cache.get());
+      static_cast<CacheWithSecondaryAdapter*>(cache.get());
   if (tiered_cache == nullptr) {
     return Status::InvalidArgument();
   }
@@ -633,12 +632,5 @@ Status UpdateTieredCache(const std::shared_ptr<Cache>& cache,
     s = tiered_cache->UpdateAdmissionPolicy(adm_policy);
   }
   return s;
-#else
-  (void)cache;
-  (void)total_capacity;
-  (void)compressed_secondary_ratio;
-  (void)adm_policy;
-  return Status::NotSupported();
-#endif  // ROCKSDB_USE_RTTI
 }
 }  // namespace ROCKSDB_NAMESPACE
