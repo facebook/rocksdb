@@ -441,6 +441,13 @@ class FilePrefetchBuffer {
     }
   }
 
+  inline bool IsOffsetOutOfBound(uint64_t offset) {
+    if (upper_bound_offset_ > 0) {
+      return (offset >= upper_bound_offset_);
+    }
+    return false;
+  }
+
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.

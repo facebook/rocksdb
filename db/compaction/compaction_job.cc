@@ -1979,7 +1979,7 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
 
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
-  const auto& input_table_properties = compaction->GetTableProperties();
+  const auto& input_table_properties = compaction->GetInputTableProperties();
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {

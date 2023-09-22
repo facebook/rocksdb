@@ -1298,7 +1298,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
           flushed = true;
 
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                 *next_sequence);
+                                 *next_sequence - 1);
         }
       }
     }
