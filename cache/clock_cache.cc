@@ -2916,7 +2916,8 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     //
     // The way we solve this problem is to use unit-increment linear probing
     // with a small bound, and then fall back on big jumps to have a good
-    // chance of finding an under-populated slot quickly if that doesn't work.
+    // chance of finding a slot in an under-populated region quickly if that
+    // doesn't work.
     size_t i = 0;
     constexpr size_t kMaxLinearProbe = 4;
     for (; i < kMaxLinearProbe; i++) {
@@ -2933,9 +2934,16 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
       }
     }
     if (i == kMaxLinearProbe) {
-      // Keep searching, using golden ratio to help us find a random spot in
-      // the underpopulated region as quickly as possible.
-      size_t incr = FastRange64(0x9E3779B185EBCA87U, used_length);
+      // Keep searching, but change to a search method that should quickly
+      // find any under-populated region. Switching to an increment based
+      // on the golden ratio helps with that, but we also inject some minor
+      // variation (less than 2%, 1 in 2^6) to avoid clustering effects on
+      // this larger increment (if it were a fixed value in steady state
+      // operation). Here we are primarily using upper bits of hashed_key[1]
+      // while home is based on lowest bits.
+      uint64_t incr_ratio = 0x9E3779B185EBCA87U + (proto.hashed_key[1] >> 6);
+      size_t incr = FastRange64(incr_ratio, used_length);
+      assert(incr > 0);
       size_t start = idx;
       for (;; i++) {
         idx += incr;
@@ -2944,7 +2952,10 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
           idx -= used_length;
         }
         if (idx == start) {
-          // Ensure complete iteration over the set of slots before repeating.
+          // We have just completed a cycle that might not have covered all
+          // slots. (incr and used_length could have common factors.)
+          // Increment for the next cycle, which eventually ensures complete
+          // iteration over the set of slots before repeating.
           idx++;
           if (idx >= used_length) {
             idx -= used_length;
