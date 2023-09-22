@@ -446,8 +446,10 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
       // 3. Decrease the primary cache capacity to the total budget
       s = secondary_cache_->SetCapacity(sec_capacity);
       if (s.ok()) {
-        pri_cache_res_->UpdateCacheReservation(old_sec_capacity - sec_capacity,
-                                               /*increase=*/false);
+        s = pri_cache_res_->UpdateCacheReservation(
+            old_sec_capacity - sec_capacity,
+            /*increase=*/false);
+        assert(s.ok());
         target_->SetCapacity(capacity);
       }
     } else {
@@ -458,8 +460,10 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
       //    increasing pri_cache_res_ reservation)
       // 3. Increase secondary cache capacity
       target_->SetCapacity(capacity);
-      pri_cache_res_->UpdateCacheReservation(sec_capacity - old_sec_capacity,
-                                             /*increase=*/true);
+      s = pri_cache_res_->UpdateCacheReservation(
+          sec_capacity - old_sec_capacity,
+          /*increase=*/true);
+      assert(s.ok());
       s = secondary_cache_->SetCapacity(sec_capacity);
       assert(s.ok());
     }
@@ -518,11 +522,14 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     //    reservation)
     // 3. Increase secondary cache capacity
     assert(sec_reserved > old_sec_reserved || sec_reserved == 0);
-    secondary_cache_->Deflate(sec_reserved - old_sec_reserved);
-    pri_cache_res_->UpdateCacheReservation(
+    s = secondary_cache_->Deflate(sec_reserved - old_sec_reserved);
+    assert(s.ok());
+    s = pri_cache_res_->UpdateCacheReservation(
         (sec_capacity - old_sec_capacity) - (sec_reserved - old_sec_reserved),
         /*increase=*/true);
-    secondary_cache_->SetCapacity(sec_capacity);
+    assert(s.ok());
+    s = secondary_cache_->SetCapacity(sec_capacity);
+    assert(s.ok());
   } else {
     // We're shrinking the ratio. Try to avoid unnecessary evictions -
     // 1. Lower the secondary cache capacity
@@ -532,11 +539,15 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     // 3. Inflate the secondary cache to give it back the reduction in its
     //    share of cache reservations
     assert(old_sec_reserved > sec_reserved || sec_reserved == 0);
-    secondary_cache_->SetCapacity(sec_capacity);
-    pri_cache_res_->UpdateCacheReservation(
-        (old_sec_capacity - sec_capacity) - (old_sec_reserved - sec_reserved),
-        /*increase=*/false);
-    secondary_cache_->Inflate(old_sec_reserved - sec_reserved);
+    s = secondary_cache_->SetCapacity(sec_capacity);
+    if (s.ok()) {
+      s = pri_cache_res_->UpdateCacheReservation(
+          (old_sec_capacity - sec_capacity) - (old_sec_reserved - sec_reserved),
+          /*increase=*/false);
+      assert(s.ok());
+      s = secondary_cache_->Inflate(old_sec_reserved - sec_reserved);
+      assert(s.ok());
+    }
   }
 
 #ifndef NDEBUG
