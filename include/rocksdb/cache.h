@@ -512,7 +512,8 @@ struct TieredCacheOptions {
   std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
-extern std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& cache_opts);
+extern std::shared_ptr<Cache> NewTieredCache(
+    const TieredCacheOptions& cache_opts);
 
 // EXPERIMENTAL
 // Dynamically update some of the parameters of a TieredCache. The input

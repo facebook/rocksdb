@@ -549,15 +549,16 @@ Status CacheWithSecondaryAdapter::UpdateAdmissionPolicy(
   return Status::OK();
 }
 
-std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& opts) {
-  if (!opts.cache_opts) {
+std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
+  if (!_opts.cache_opts) {
     return nullptr;
   }
 
-  if (opts.adm_policy >= TieredAdmissionPolicy::kAdmPolicyMax) {
+  if (_opts.adm_policy >= TieredAdmissionPolicy::kAdmPolicyMax) {
     return nullptr;
   }
 
+  TieredCacheOptions opts = _opts;
   std::shared_ptr<Cache> cache;
   if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
     LRUCacheOptions cache_opts =
