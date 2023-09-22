@@ -3177,7 +3177,7 @@ TEST_P(DBAtomicFlushTest, BgRecoveryThreadNoWaitDuringShutdown) {
   options.max_write_buffer_number = 8;
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  assert(2 == handles_.size());
+  ASSERT_EQ(2, handles_.size());
 
   WriteOptions write_opts;
   write_opts.disableWAL = true;
@@ -3243,7 +3243,7 @@ TEST_P(DBAtomicFlushTest, BgRecoveryThreadNoWaitDuringShutdown) {
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table::AfterFileSync", [&](void* arg) {
         if (std::this_thread::get_id() == bg_flush_thr1) {
-          auto* ptr = reinterpret_cast<Status*>(arg);
+          auto* ptr = static_cast<Status*>(arg);
           assert(ptr);
           IOStatus io_status = IOStatus::IOError("Injected retryable failure");
           io_status.SetRetryable(true);
@@ -3255,7 +3255,7 @@ TEST_P(DBAtomicFlushTest, BgRecoveryThreadNoWaitDuringShutdown) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", [&](void* arg) {
         if (std::this_thread::get_id() == bg_flush_thr2) {
-          const auto* ptr = reinterpret_cast<std::pair<Status, bool>*>(arg);
+          const auto* ptr = static_cast<std::pair<Status, bool>*>(arg);
           assert(ptr);
           if (0 == called) {
             ASSERT_OK(ptr->first);
