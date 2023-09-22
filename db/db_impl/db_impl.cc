@@ -462,6 +462,13 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     flush_opts.wait = false;
     Status status = FlushAllColumnFamilies(
         flush_opts, FlushReason::kCatchUpAfterErrorRecovery);
+    if (!status.ok()) {
+      // FlushAllColumnFamilies internally should take care of setting
+      // background error if needed.
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "The catch up flush after successful recovery failed [%s]",
+                     s.ToString().c_str());
+    }
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       SchedulePendingCompaction(cfd);
     }
