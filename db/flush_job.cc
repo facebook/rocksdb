@@ -79,6 +79,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "Error Recovery Retry Flush";
     case FlushReason::kWalFull:
       return "WAL Full";
+    case FlushReason::kCatchUpAfterErrorRecovery:
+      return "Catch Up After Error Recovery";
     default:
       return "Invalid";
   }
@@ -311,7 +313,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     if (!db_options_.atomic_flush &&
         flush_reason_ != FlushReason::kErrorRecovery &&
         flush_reason_ != FlushReason::kErrorRecoveryRetryFlush &&
-        error_handler && !error_handler->GetBGError().ok()) {
+        error_handler && !error_handler->GetBGError().ok() &&
+        error_handler->IsBGWorkStopped()) {
       cfd_->imm()->RollbackMemtableFlush(
           mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
       s = error_handler->GetBGError();

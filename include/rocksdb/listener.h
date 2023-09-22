@@ -163,6 +163,7 @@ enum class CompactionReason : int {
 
 const char* GetCompactionReasonString(CompactionReason compaction_reason);
 
+// When adding flush reason, make sure to also update `GetFlushReasonString()`.
 enum class FlushReason : int {
   kOthers = 0x00,
   kGetLiveFiles = 0x01,
@@ -180,6 +181,8 @@ enum class FlushReason : int {
   // will not be called to avoid many small immutable memtables.
   kErrorRecoveryRetryFlush = 0xc,
   kWalFull = 0xd,
+  // SwitchMemtable will not be called for this flush reason.
+  kCatchUpAfterErrorRecovery = 0xe,
 };
 
 const char* GetFlushReasonString(FlushReason flush_reason);
