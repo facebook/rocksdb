@@ -1493,8 +1493,6 @@ bool BlockBasedTable::LookupAndPinBlocksInCache(
       rep_->ioptions.lowest_used_cache_tier);
 
   if (!cache_handle) {
-    // Add a placeholder for the data block.
-    // TODO Akanksha:
     return false;
   }
 

@@ -1353,7 +1353,6 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
 
       // Reseek with new upper_bound_iterator.
       {
-        printf("\n\n Reseek\n");
         Slice ub = Slice("my_key_y");
         ropts.iterate_upper_bound = &ub;
         cmp_ro.iterate_upper_bound = &ub;

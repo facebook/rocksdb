@@ -61,11 +61,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
             (block_iter_points_to_real_block_ && block_iter_.Valid()));
   }
 
-  /*
-   Akanksha Note:
-   If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
-   called. It means block_handles is empty and index_ point to current block.
-  */
+  // For block cache readahead lookup scenario -
+  // If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
+  // called. It means block_handles is empty and index_ point to current block.
+  // So index_iter_ can be accessed directly.
   Slice key() const override {
     assert(Valid());
     if (is_at_first_key_from_index_) {
@@ -113,11 +112,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return block_iter_.value();
   }
   Status status() const override {
-    /*
-      Akanksha Note:
-      We won't add the block to block_handles if it's index is
-      invalid.
-    */
+    // In case of block cache readahead lookup, it won't add the block to
+    // block_handles if it's index is invalid. So index_iter_->status check can
+    // be skipped.
     // Prefix index set status to NotFound when the prefix does not exist.
     if (IsIndexAtCurr() && !index_iter_->status().ok() &&
         !index_iter_->status().IsNotFound()) {
@@ -348,6 +345,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return true;
   }
 
+  // *** BEGIN APIs relevant to auto tuning of readahead_size ***
   void FindReadAheadSizeUpperBound();
 
   // This API is called to lookup the data blocks ahead in the cache to estimate
@@ -372,15 +370,21 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   void ClearBlockHandles() {
-    while (!block_handles_.empty()) {
+    while (DoesContainBlockHandles()) {
       auto block_handle = block_handles_.front();
       delete block_handle;
       block_handles_.pop_front();
     }
   }
 
+  // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
+  // accurate prev_block_offset_.
   void ResetPreviousBlockOffset() {
     prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   }
+
+  bool DoesContainBlockHandles() { return !block_handles_.empty(); }
+
+  // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE
