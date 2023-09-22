@@ -224,7 +224,7 @@ jobs:
   build-macos-cmake:
     macos:
       xcode: 14.3.1
-    resource_class: macos.m1.medium.gen1
+    resource_class: macos.m1.large.gen1
     parameters:
       run_even_tests:
         description: run even or odd tests, used to split tests to 2 groups
