@@ -71,11 +71,23 @@ class DbStressListener : public EventListener {
     VerifyFilePath(info.file_path);
     // pretending doing some work here
     RandomSleep();
+    if (FLAGS_read_fault_one_in) {
+      (void)fault_fs_guard->GetAndResetErrorCount();
+      fault_fs_guard->DisableErrorInjection();
+    }
   }
 
   void OnFlushBegin(DB* /*db*/,
                     const FlushJobInfo& /*flush_job_info*/) override {
     RandomSleep();
+    if (FLAGS_read_fault_one_in) {
+      // Hardcoded to inject retryable error as a non-retryable error would put
+      // the DB in read-only mode and then it would crash on the next write.
+      fault_fs_guard->SetThreadLocalReadErrorContext(
+          static_cast<uint32_t>(FLAGS_seed), FLAGS_read_fault_one_in,
+          true /* retryable */);
+      fault_fs_guard->EnableErrorInjection();
+    }
   }
 
   void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) override {
