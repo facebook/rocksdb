@@ -90,7 +90,7 @@ class FilePrefetchBuffer {
       uint64_t num_file_reads_for_auto_readahead = 0,
       uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
-      std::function<void(uint64_t, size_t, size_t&)> cb = nullptr,
+      const std::function<void(uint64_t, size_t, size_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),

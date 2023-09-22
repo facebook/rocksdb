@@ -46,7 +46,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()) {}
 
-  ~BlockBasedTableIterator() { ClearBlockHandles(); }
+  ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -247,6 +247,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     kReportOnUseful = 1 << 2,
   };
 
+  // BlockHandleInfo is used to store the info needed when block cache lookup
+  // ahead is enabled to tune readahead_size.
   struct BlockHandleInfo {
     BlockHandleInfo() {}
 
@@ -299,7 +301,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // different blocks when readahead_size is calculated in
   // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
   // block_handles_ is used.
-  std::deque<BlockHandleInfo*> block_handles_;
+  std::deque<BlockHandleInfo> block_handles_;
 
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block. is_index_at_curr_block_ keeps track of
@@ -369,13 +371,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                 : false);
   }
 
-  void ClearBlockHandles() {
-    while (DoesContainBlockHandles()) {
-      auto block_handle = block_handles_.front();
-      delete block_handle;
-      block_handles_.pop_front();
-    }
-  }
+  void ClearBlockHandles() { block_handles_.clear(); }
 
   // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
   // accurate prev_block_offset_.

@@ -319,8 +319,8 @@ void BlockBasedTableIterator::InitDataBlock() {
   bool is_in_cache = false;
 
   if (DoesContainBlockHandles()) {
-    data_block_handle = block_handles_.front()->index_val_.handle;
-    is_in_cache = block_handles_.front()->is_cache_hit_;
+    data_block_handle = block_handles_.front().index_val_.handle;
+    is_in_cache = block_handles_.front().is_cache_hit_;
   } else {
     data_block_handle = index_iter_->value().handle;
   }
@@ -341,7 +341,7 @@ void BlockBasedTableIterator::InitDataBlock() {
       Status s;
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
-          read_options_, (block_handles_.front()->cachable_entry_).As<Block>(),
+          read_options_, (block_handles_.front().cachable_entry_).As<Block>(),
           &block_iter_, s);
     } else {
       auto* rep = table_->get_rep();
@@ -485,7 +485,7 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   // BlockCacheLookupForReadAheadSize is called.
   IndexValue index_val;
   if (DoesContainBlockHandles()) {
-    index_val = block_handles_.front()->index_val_;
+    index_val = block_handles_.front().index_val_;
   } else {
     index_val = index_iter_->value();
   }
@@ -541,8 +541,6 @@ void BlockBasedTableIterator::FindBlockForward() {
     if (DoesContainBlockHandles()) {
       // Advance and point to that next Block handle to make that block handle
       // current.
-      BlockHandleInfo* block_handle_info = block_handles_.front();
-      delete block_handle_info;
       block_handles_.pop_front();
     }
 
@@ -670,9 +668,6 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     uint64_t offset, size_t readahead_size, size_t& updated_readahead_size) {
-  assert(!DoesContainBlockHandles());
-  assert(index_iter_->value().handle.offset() == offset);
-
   updated_readahead_size = readahead_size;
 
   // readahead_cache_lookup_ can be set false after Seek, if after Seek or Next
@@ -681,12 +676,23 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     return;
   }
 
+  assert(!DoesContainBlockHandles());
+  assert(index_iter_->value().handle.offset() == offset);
+
+  // Error. current offset should be equal to what's requested for prefetching.
+  if (index_iter_->value().handle.offset() != offset) {
+    return;
+  }
+
   size_t current_readahead_size = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
 
-  BlockHandleInfo* block_handle_info = new BlockHandleInfo();
-  block_handle_info->index_val_ = index_iter_->value();
-  block_handles_.push_back(std::move(block_handle_info));
+  // Add the current block to block_handles_.
+  {
+    BlockHandleInfo block_handle_info;
+    block_handle_info.index_val_ = index_iter_->value();
+    block_handles_.emplace_back(std::move(block_handle_info));
+  }
 
   // Current block is included in length. Readahead should start from next
   // block.
@@ -708,15 +714,15 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 
     // For current data block, do the lookup in the cache. Lookup should pin the
     // data block and add the placeholder for cache.
-    block_handle_info = new BlockHandleInfo();
-    block_handle_info->index_val_ = index_iter_->value();
+    BlockHandleInfo block_handle_info;
+    block_handle_info.index_val_ = index_iter_->value();
 
     bool found_in_cache = table_->LookupAndPinBlocksInCache<Block_kData>(
-        block_handle, &(block_handle_info->cachable_entry_).As<Block_kData>());
-    block_handle_info->is_cache_hit_ = found_in_cache;
+        block_handle, &(block_handle_info.cachable_entry_).As<Block_kData>());
+    block_handle_info.is_cache_hit_ = found_in_cache;
 
     // Add the handle to the queue.
-    block_handles_.push_back(std::move(block_handle_info));
+    block_handles_.emplace_back(std::move(block_handle_info));
 
     // Can't figure out for current block if current block
     // is out of bound. But for next block we can find that.
@@ -732,8 +738,8 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // Iterate cache hit block handles from the end till a Miss is there, to
   // update the readahead_size.
   for (auto it = block_handles_.rbegin();
-       it != block_handles_.rend() && (*it)->is_cache_hit_ == true; ++it) {
-    current_readahead_size -= (*it)->index_val_.handle.size();
+       it != block_handles_.rend() && (*it).is_cache_hit_ == true; ++it) {
+    current_readahead_size -= (*it).index_val_.handle.size();
     current_readahead_size -= footer;
   }
 
