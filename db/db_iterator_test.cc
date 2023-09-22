@@ -815,8 +815,28 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
         ASSERT_TRUE(!iter->Valid());
       }
     }
+
+    // Check that creating a new iterator snapshot has an increasing and
+    // different sequence number.
+    const Snapshot* snapshot2 = db_->GetSnapshot();
+    ReadOptions options2;
+    options.snapshot = snapshot2;
+    Iterator* iter2 = NewIterator(options2, handles_[1]);
+    ASSERT_GT(db_->GetIteratorSequenceNumber(iter2),
+              db_->GetIteratorSequenceNumber(iter));
+
+    // Now check only the new iterator has the value added after the initial
+    // snapshot.
+    iter->Seek("key0");
+    ASSERT_TRUE(!iter->Valid() || iter->key() != "key0");
+
+    iter2->Seek("key0");
+    ASSERT_EQ(IterStatus(iter2), "key0->val0");
+
     db_->ReleaseSnapshot(snapshot);
+    db_->ReleaseSnapshot(snapshot2);
     delete iter;
+    delete iter2;
   } while (ChangeOptions());
 }
 

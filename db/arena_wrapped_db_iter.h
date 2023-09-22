@@ -99,6 +99,13 @@ class ArenaWrappedDBIter : public Iterator {
     expose_blob_index_ = expose_blob_index;
   }
 
+  SequenceNumber get_sequence() const {
+    if (!db_iter_) {
+      return SequenceNumber(0);
+    }
+    return db_iter_->get_sequence();
+  }
+
  private:
   DBIter* db_iter_ = nullptr;
   Arena arena_;

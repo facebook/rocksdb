@@ -342,6 +342,8 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
+  SequenceNumber GetIteratorSequenceNumber(Iterator* it) override;
+
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   // Create a timestamped snapshot. This snapshot can be shared by multiple

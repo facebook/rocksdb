@@ -3183,6 +3183,13 @@ class ModelDB : public DB {
                       std::vector<Iterator*>* /*iterators*/) override {
     return Status::NotSupported("Not supported yet");
   }
+
+  SequenceNumber GetIteratorSequenceNumber(Iterator*) override {
+    // No support yet.
+    assert(false);
+    return 0;
+  }
+
   const Snapshot* GetSnapshot() override {
     ModelSnapshot* snapshot = new ModelSnapshot;
     snapshot->map_ = map_;

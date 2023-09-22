@@ -237,6 +237,12 @@ class StackableDB : public DB {
     return db_->NewIterators(options, column_families, iterators);
   }
 
+  using DB::GetIteratorSequenceNumber;
+  virtual SequenceNumber GetIteratorSequenceNumber(
+      Iterator* iterator) override {
+    return db_->GetIteratorSequenceNumber(iterator);
+  }
+
   virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override {

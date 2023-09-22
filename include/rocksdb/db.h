@@ -836,6 +836,9 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
+  // Returns the iterator sequence number
+  virtual SequenceNumber GetIteratorSequenceNumber(Iterator* it) = 0;
+
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
   // state.  The caller must call ReleaseSnapshot(result) when the

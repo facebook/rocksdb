@@ -210,6 +210,8 @@ class DBIter final : public Iterator {
       read_callback_->Refresh(s);
     }
   }
+  SequenceNumber get_sequence() const { return sequence_; }
+
   void set_valid(bool v) { valid_ = v; }
 
  private:
