@@ -415,10 +415,22 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   return Status::OK();
 }
 
-void StressTest::VerificationAbort(SharedState* shared, std::string msg,
-                                   Status s) const {
-  fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
-          s.ToString().c_str());
+void StressTest::ProcessStatus(SharedState* shared, std::string opname,
+                               Status s) const {
+  if (s.ok()) {
+    return;
+  }
+  if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+    std::ostringstream oss;
+    oss << opname << " failed: " << s.ToString();
+    VerificationAbort(shared, oss.str());
+    assert(false);
+  }
+  fprintf(stdout, "%s failed: %s\n", opname.c_str(), s.ToString().c_str());
+}
+
+void StressTest::VerificationAbort(SharedState* shared, std::string msg) const {
+  fprintf(stderr, "Verification failed: %s\n", msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -910,35 +922,24 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in) &&
           !FLAGS_write_fault_one_in) {
         Status status = VerifyGetLiveFiles();
-        if (!status.ok()) {
-          VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
-        }
+        ProcessStatus(shared, "VerifyGetLiveFiles", status);
       }
 
       // Verify GetSortedWalFiles with a 1 in N chance.
       if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
         Status status = VerifyGetSortedWalFiles();
-        if (!status.ok()) {
-          VerificationAbort(shared, "VerifyGetSortedWalFiles status not OK",
-                            status);
-        }
+        ProcessStatus(shared, "VerifyGetSortedWalFiles", status);
       }
 
       // Verify GetCurrentWalFile with a 1 in N chance.
       if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
         Status status = VerifyGetCurrentWalFile();
-        if (!status.ok()) {
-          VerificationAbort(shared, "VerifyGetCurrentWalFile status not OK",
-                            status);
-        }
+        ProcessStatus(shared, "VerifyGetCurrentWalFile", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = TestPauseBackground(thread);
-        if (!status.ok()) {
-          VerificationAbort(
-              shared, "Pause/ContinueBackgroundWork status not OK", status);
-        }
+        ProcessStatus(shared, "Pause/ContinueBackgroundWork", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
@@ -947,9 +948,7 @@ void StressTest::OperateDb(ThreadState* thread) {
             ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM);
         Status status = db_->VerifyChecksum();
         ThreadStatusUtil::ResetThreadStatus();
-        if (!status.ok()) {
-          VerificationAbort(shared, "VerifyChecksum status not OK", status);
-        }
+        ProcessStatus(shared, "VerifyChecksum", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_file_checksums_one_in)) {
@@ -958,10 +957,7 @@ void StressTest::OperateDb(ThreadState* thread) {
             ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS);
         Status status = db_->VerifyFileChecksums(read_opts);
         ThreadStatusUtil::ResetThreadStatus();
-        if (!status.ok()) {
-          VerificationAbort(shared, "VerifyFileChecksums status not OK",
-                            status);
-        }
+        ProcessStatus(shared, "VerifyFileChecksums", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
@@ -988,35 +984,19 @@ void StressTest::OperateDb(ThreadState* thread) {
 
         if (total_size <= FLAGS_backup_max_size) {
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-          if (!s.ok()) {
-            if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
-              VerificationAbort(shared,
-                                "Backup/restore gave inconsistent state", s);
-            } else {
-              fprintf(stdout, "Backup/restore failed: %s\n",
-                      s.ToString().c_str());
-            }
-          }
+          ProcessStatus(shared, "Backup/restore", s);
         }
       }
 
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
-        if (!s.ok()) {
-          if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
-            VerificationAbort(shared, "Checkpoint gave inconsistent state", s);
-          } else {
-            fprintf(stdout, "Checkpoint failed: %s\n", s.ToString().c_str());
-          }
-        }
+        ProcessStatus(shared, "Checkpoint", s);
       }
 
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
-        if (!s.ok()) {
-          VerificationAbort(shared, "ApproximateSize Failed", s);
-        }
+        ProcessStatus(shared, "ApproximateSize", s);
       }
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
@@ -1024,9 +1004,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       /*always*/ {
         Status s = MaybeReleaseSnapshots(thread, i);
-        if (!s.ok()) {
-          VerificationAbort(shared, "Snapshot gave inconsistent state", s);
-        }
+        ProcessStatus(shared, "Snapshot", s);
       }
 
       // Assign timestamps if necessary.
