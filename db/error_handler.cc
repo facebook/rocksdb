@@ -679,6 +679,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     return;
   }
   DBRecoverContext context = recover_context_;
+  context.flush_after_recovery = true;
   int resume_count = db_options_.max_bgerror_resume_count;
   uint64_t wait_interval = db_options_.bgerror_resume_retry_interval;
   uint64_t retry_count = 0;
