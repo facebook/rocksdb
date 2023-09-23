@@ -1309,15 +1309,6 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
   ASSERT_EQ(sec_capacity, 0);
 
-#if 0
-  ASSERT_NOK(UpdateTieredCache(tiered_cache, -1, 0.3));
-  // Only check usage for LRU cache. HCC shows a 64KB usage for some reason
-  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
-    ASSERT_EQ(GetCache()->GetUsage(), 0);
-  }
-  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
-  ASSERT_EQ(sec_capacity, 0);
-#endif
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
 }
 

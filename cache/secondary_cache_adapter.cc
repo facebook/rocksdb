@@ -18,6 +18,7 @@ struct Dummy {
 };
 const Dummy kDummy{};
 Cache::ObjectPtr const kDummyObj = const_cast<Dummy*>(&kDummy);
+const char* kTieredCacheName = "TieredCache";
 }  // namespace
 
 // When CacheWithSecondaryAdapter is constructed with the distribute_cache_res
@@ -416,9 +417,13 @@ std::string CacheWithSecondaryAdapter::GetPrintableOptions() const {
 }
 
 const char* CacheWithSecondaryAdapter::Name() const {
-  // To the user, at least for now, configure the underlying cache with
-  // a secondary cache. So we pretend to be that cache
-  return target_->Name();
+  if (distribute_cache_res_) {
+    return kTieredCacheName;
+  } else {
+    // To the user, at least for now, configure the underlying cache with
+    // a secondary cache. So we pretend to be that cache
+    return target_->Name();
+  }
 }
 
 // Update the total cache capacity. If we're distributing cache reservations
@@ -615,11 +620,11 @@ Status UpdateTieredCache(const std::shared_ptr<Cache>& cache,
                          int64_t total_capacity,
                          double compressed_secondary_ratio,
                          TieredAdmissionPolicy adm_policy) {
-  CacheWithSecondaryAdapter* tiered_cache =
-      static_cast<CacheWithSecondaryAdapter*>(cache.get());
-  if (tiered_cache == nullptr) {
+  if (!cache || strcmp(cache->Name(), kTieredCacheName)) {
     return Status::InvalidArgument();
   }
+  CacheWithSecondaryAdapter* tiered_cache =
+      static_cast<CacheWithSecondaryAdapter*>(cache.get());
 
   Status s;
   if (total_capacity > 0) {
