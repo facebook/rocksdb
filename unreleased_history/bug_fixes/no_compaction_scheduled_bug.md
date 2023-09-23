@@ -1,1 +1,0 @@
-* Fix a bug (Issue #10257) where DB can hang after write stall since no compaction is scheduled (#11764).
