@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -498,16 +499,36 @@ enum TieredAdmissionPolicy {
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
 struct TieredCacheOptions {
-  ShardedCacheOptions* cache_opts;
-  PrimaryCacheType cache_type;
-  TieredAdmissionPolicy adm_policy;
+  ShardedCacheOptions* cache_opts = nullptr;
+  PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
+  TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
   CompressedSecondaryCacheOptions comp_cache_opts;
+  // Any capacity specified in LRUCacheOptions, HyperClockCacheOptions and
+  // CompressedSecondaryCacheOptions is ignored
+  // The total_capacity specified here is taken as the memory budget and
+  // divided between the primary block cache and compressed secondary cache
+  size_t total_capacity = 0;
+  double compressed_secondary_ratio = 0.0;
   // An optional secondary cache that will serve as the persistent cache
   // tier. If present, compressed blocks will be written to this
   // secondary cache.
   std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
+extern std::shared_ptr<Cache> NewTieredCache(
+    const TieredCacheOptions& cache_opts);
+
 // EXPERIMENTAL
-extern std::shared_ptr<Cache> NewTieredCache(TieredCacheOptions& cache_opts);
+// Dynamically update some of the parameters of a TieredCache. The input
+// cache shared_ptr should have been allocated using NewTieredVolatileCache.
+// At the moment, there are a couple of limitations -
+// 1. The total_capacity should be > the WriteBufferManager max size, if
+//    using the block cache charging feature
+// 2. Once the compressed secondary cache is disabled by setting the
+//    compressed_secondary_ratio to 0.0, it cannot be dynamically re-enabled
+//    again
+extern Status UpdateTieredCache(
+    const std::shared_ptr<Cache>& cache, int64_t total_capacity = -1,
+    double compressed_secondary_ratio = std::numeric_limits<double>::max(),
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyMax);
 }  // namespace ROCKSDB_NAMESPACE

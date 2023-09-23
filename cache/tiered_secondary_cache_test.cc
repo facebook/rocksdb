@@ -182,14 +182,17 @@ class DBTieredSecondaryCacheTest : public DBTestBase {
                                   size_t nvm_capacity) {
     LRUCacheOptions lru_opts;
     TieredCacheOptions opts;
-    lru_opts.capacity = pri_capacity;
+    lru_opts.capacity = 0;
     lru_opts.num_shard_bits = 0;
     lru_opts.high_pri_pool_ratio = 0;
     opts.cache_opts = &lru_opts;
     opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
     opts.adm_policy = TieredAdmissionPolicy::kAdmPolicyThreeQueue;
-    opts.comp_cache_opts.capacity = compressed_capacity;
+    opts.comp_cache_opts.capacity = 0;
     opts.comp_cache_opts.num_shard_bits = 0;
+    opts.total_capacity = pri_capacity + compressed_capacity;
+    opts.compressed_secondary_ratio =
+        (double)compressed_capacity / opts.total_capacity;
     nvm_sec_cache_.reset(new TestSecondaryCache(nvm_capacity));
     opts.nvm_sec_cache = nvm_sec_cache_;
     cache_ = NewTieredCache(opts);

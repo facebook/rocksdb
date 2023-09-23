@@ -45,6 +45,12 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 
   const char* Name() const override;
 
+  void SetCapacity(size_t capacity) override;
+
+  Status UpdateCacheReservationRatio(double ratio);
+
+  Status UpdateAdmissionPolicy(TieredAdmissionPolicy adm_policy);
+
   Cache* TEST_GetCache() { return target_.get(); }
 
   SecondaryCache* TEST_GetSecondaryCache() { return secondary_cache_.get(); }
@@ -75,6 +81,10 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
   double sec_cache_res_ratio_;
+  port::Mutex mutex_;
+#ifndef NDEBUG
+  bool ratio_changed_ = false;
+#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE
