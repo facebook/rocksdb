@@ -1914,7 +1914,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (static_cast<int64_t>(curr) < lb) {
         iter->Next();
         op_logs += "N";
-      } else if (static_cast<int64_t>(curr) >= ub) {
+      } else if (static_cast<int64_t>(curr) >= ub &&
+                 !FLAGS_auto_readahead_size) {
         iter->Prev();
         op_logs += "P";
       } else {

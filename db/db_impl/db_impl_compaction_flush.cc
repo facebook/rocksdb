@@ -286,9 +286,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
   // Exit a flush due to bg error should not set bg error again.
   bool skip_set_bg_error = false;
-  if (s.ok() && flush_reason != FlushReason::kErrorRecovery &&
-      flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
-      !error_handler_.GetBGError().ok()) {
+  if (s.ok() && !error_handler_.GetBGError().ok() &&
+      error_handler_.IsBGWorkStopped() &&
+      flush_reason != FlushReason::kErrorRecovery &&
+      flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
     // Error recovery in progress, should not pick memtable which excludes
     // them from being picked up by recovery flush.
     // This ensures that when bg error is set, no new flush can pick
@@ -296,6 +297,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     skip_set_bg_error = true;
     s = error_handler_.GetBGError();
     assert(!s.ok());
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[JOB %d] Skip flush due to background error %s",
+                     job_context->job_id, s.ToString().c_str());
   }
 
   if (s.ok()) {
@@ -573,6 +577,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     pick_status.push_back(false);
   }
 
+  bool flush_for_recovery =
+      bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
+      bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecoveryRetryFlush;
+  bool skip_set_bg_error = false;
+
+  if (s.ok() && !error_handler_.GetBGError().ok() &&
+      error_handler_.IsBGWorkStopped() && !flush_for_recovery) {
+    s = error_handler_.GetBGError();
+    skip_set_bg_error = true;
+    assert(!s.ok());
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[JOB %d] Skip flush due to background error %s",
+                     job_context->job_id, s.ToString().c_str());
+  }
+
   if (s.ok()) {
     for (int i = 0; i != num_cfs; ++i) {
       jobs[i]->PickMemTable();
@@ -637,7 +656,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         }
       }
     }
-  } else {
+  } else if (!skip_set_bg_error) {
+    // When `skip_set_bg_error` is true, no memtable is picked so
+    // there is no need to call Cancel() or RollbackMemtableFlush().
+    //
     // Need to undo atomic flush if something went wrong, i.e. s is not OK and
     // it is not because of CF drop.
     // Have to cancel the flush jobs that have NOT executed because we need to
@@ -693,10 +715,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     };
 
     bool resuming_from_bg_err =
-        error_handler_.IsDBStopped() ||
-        (bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
-         bg_flush_args[0].flush_reason_ ==
-             FlushReason::kErrorRecoveryRetryFlush);
+        error_handler_.IsDBStopped() || flush_for_recovery;
     while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
       std::pair<Status, bool> res = wait_to_install_func();
 
@@ -707,15 +726,27 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         s = res.first;
         break;
       } else if (!res.second) {
+        // we are the oldest immutable memtable
+        break;
+      }
+      // We are not the oldest immutable memtable
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitCV", &res);
+      //
+      // If bg work is stopped, recovery thread first calls
+      // WaitForBackgroundWork() before proceeding to flush for recovery. This
+      // flush can block WaitForBackgroundWork() while waiting for recovery
+      // flush to install result. To avoid this deadlock, we should abort here
+      // if there is background error.
+      if (!flush_for_recovery && error_handler_.IsBGWorkStopped() &&
+          !error_handler_.GetBGError().ok()) {
+        s = error_handler_.GetBGError();
+        assert(!s.ok());
         break;
       }
       atomic_flush_install_cv_.Wait();
 
-      resuming_from_bg_err =
-          error_handler_.IsDBStopped() ||
-          (bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
-           bg_flush_args[0].flush_reason_ ==
-               FlushReason::kErrorRecoveryRetryFlush);
+      resuming_from_bg_err = error_handler_.IsDBStopped() || flush_for_recovery;
     }
 
     if (!resuming_from_bg_err) {
@@ -730,6 +761,17 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // non-ok already, then we should not proceed to flush result
       // installation.
       s = error_handler_.GetRecoveryError();
+    }
+    // Since we are not installing these memtables, need to rollback
+    // to allow future flush job to pick up these memtables.
+    if (!s.ok()) {
+      for (int i = 0; i != num_cfs; ++i) {
+        assert(exec_status[i].first);
+        assert(exec_status[i].second.ok());
+        auto& mems = jobs[i]->GetMemTables();
+        cfds[i]->imm()->RollbackMemtableFlush(
+            mems, /*rollback_succeeding_memtables=*/false);
+      }
     }
   }
 
@@ -834,7 +876,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
-  if (!s.ok() && !s.IsColumnFamilyDropped()) {
+  if (!s.ok() && !s.IsColumnFamilyDropped() && !skip_set_bg_error) {
     if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
@@ -2233,9 +2275,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WaitForPendingWrites();
 
     if (flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
+        flush_reason != FlushReason::kCatchUpAfterErrorRecovery &&
         (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())) {
       // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
       // auto retry resume, we want to avoid creating new small memtables.
+      // If flush reason is kCatchUpAfterErrorRecovery, we try to flush any new
+      // memtable that filled up during recovery, and we also want to avoid
+      // switching memtable to create small memtables.
       // Therefore, SwitchMemtable will not be called. Also, since ResumeImpl
       // will iterate through all the CFs and call FlushMemtable during auto
       // retry resume, it is possible that in some CFs,
@@ -2426,7 +2472,8 @@ Status DBImpl::AtomicFlushMemTables(
 
     for (auto cfd : cfds) {
       if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
-          flush_reason == FlushReason::kErrorRecoveryRetryFlush) {
+          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+          flush_reason == FlushReason::kCatchUpAfterErrorRecovery) {
         continue;
       }
       cfd->Ref();
@@ -2694,6 +2741,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // There has been a hard error and this call is not part of the recovery
     // sequence. Bail out here so we don't get into an endless loop of
     // scheduling BG work which will again call this function
+    //
+    // Note that a non-recovery flush can still be scheduled if
+    // error_handler_.IsRecoveryInProgress() returns true. We rely on
+    // BackgroundCallFlush() to check flush reason and drop non-recovery
+    // flushes.
     return;
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
@@ -3023,6 +3075,24 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     // This cfd is already referenced
     FlushRequest flush_req = PopFirstFromFlushQueue();
     FlushReason flush_reason = flush_req.flush_reason;
+    if (!error_handler_.GetBGError().ok() && error_handler_.IsBGWorkStopped() &&
+        flush_reason != FlushReason::kErrorRecovery &&
+        flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
+      // Stop non-recovery flush when bg work is stopped
+      // Note that we drop the flush request here.
+      // Recovery thread should schedule further flushes after bg error
+      // is cleared.
+      status = error_handler_.GetBGError();
+      assert(!status.ok());
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[JOB %d] Abort flush due to background error %s",
+                       job_context->job_id, status.ToString().c_str());
+      *reason = flush_reason;
+      for (auto item : flush_req.cfd_to_max_mem_id_to_persist) {
+        item.first->UnrefAndTryDelete();
+      }
+      return status;
+    }
     if (!immutable_db_options_.atomic_flush &&
         ShouldRescheduleFlushRequestToRetainUDT(flush_req)) {
       assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
@@ -3165,9 +3235,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                      "Waiting after background flush error: %s"
+                      "[JOB %d] Waiting after background flush error: %s"
                       "Accumulated background error counts: %" PRIu64,
-                      s.ToString().c_str(), error_cnt);
+                      job_context.job_id, s.ToString().c_str(), error_cnt);
       log_buffer.FlushBufferToLog();
       LogFlush(immutable_db_options_.info_log);
       immutable_db_options_.clock->SleepForMicroseconds(1000000);

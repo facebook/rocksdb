@@ -9,6 +9,7 @@
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/snapshot.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -202,7 +203,6 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
-
 TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   // This is like a mini-stress test dedicated to `OpFailureScope::kMustMerge`.
   // Some or most of it might be deleted upon adding that option to the actual
@@ -355,6 +355,98 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
         BottommostLevelCompaction::kForceOptimized;
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
     ASSERT_EQ("", FilesPerLevel());
+  }
+}
+
+TEST_F(DBMergeOperatorTest, MergeOperandThresholdExceeded) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.env = env_;
+  Reopen(options);
+
+  std::vector<Slice> keys{"foo", "bar", "baz"};
+
+  // Write base values.
+  for (const auto& key : keys) {
+    ASSERT_OK(Put(key, key.ToString() + "0"));
+  }
+
+  // Write merge operands. Note that the first key has 1 merge operand, the
+  // second one has 2 merge operands, and the third one has 3 merge operands.
+  // Also, we'll take some snapshots to make sure the merge operands are
+  // preserved during flush.
+  std::vector<ManagedSnapshot> snapshots;
+  snapshots.reserve(3);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    snapshots.emplace_back(db_);
+
+    const std::string suffix = std::to_string(i + 1);
+
+    for (size_t j = i; j < keys.size(); ++j) {
+      ASSERT_OK(Merge(keys[j], keys[j].ToString() + suffix));
+    }
+  }
+
+  // Verify the results and status codes of various types of point lookups.
+  auto verify = [&](const std::optional<size_t>& threshold) {
+    ReadOptions read_options;
+    read_options.merge_operand_count_threshold = threshold;
+
+    // Check Get()
+    {
+      for (size_t i = 0; i < keys.size(); ++i) {
+        PinnableSlice value;
+        const Status status =
+            db_->Get(read_options, db_->DefaultColumnFamily(), keys[i], &value);
+        ASSERT_OK(status);
+        ASSERT_EQ(status.IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(value, keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+
+    // Check old-style MultiGet()
+    {
+      std::vector<std::string> values;
+      std::vector<Status> statuses = db_->MultiGet(read_options, keys, &values);
+
+      for (size_t i = 0; i < keys.size(); ++i) {
+        ASSERT_OK(statuses[i]);
+        ASSERT_EQ(statuses[i].IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(values[i], keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+
+    // Check batched MultiGet()
+    {
+      std::vector<PinnableSlice> values(keys.size());
+      std::vector<Status> statuses(keys.size());
+      db_->MultiGet(read_options, db_->DefaultColumnFamily(), keys.size(),
+                    keys.data(), values.data(), statuses.data());
+
+      for (size_t i = 0; i < keys.size(); ++i) {
+        ASSERT_OK(statuses[i]);
+        ASSERT_EQ(statuses[i].IsOkMergeOperandThresholdExceeded(),
+                  threshold.has_value() && i + 1 > threshold.value());
+        ASSERT_EQ(values[i], keys[i].ToString() + std::to_string(i + 1));
+      }
+    }
+  };
+
+  // Test the case when the feature is disabled as well as various thresholds.
+  verify(std::nullopt);
+  for (size_t i = 0; i < 5; ++i) {
+    verify(i);
+  }
+
+  // Flush and try again to test the case when results are served from SSTs.
+  ASSERT_OK(Flush());
+  verify(std::nullopt);
+  for (size_t i = 0; i < 5; ++i) {
+    verify(i);
   }
 }
 

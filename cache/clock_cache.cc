@@ -2218,6 +2218,9 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
   // forward" due to length_info_ being out-of-date.
   CatchUpLengthInfoNoWait(grow_home);
 
+  // See usage in DoInsert()
+  state.likely_empty_slot = grow_home;
+
   // Success
   return true;
 }
@@ -2847,14 +2850,15 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   // We could go searching through the chain for any duplicate, but that's
   // not typically helpful, except for the REDUNDANT block cache stats.
   // (Inferior duplicates will age out with eviction.) However, we do skip
-  // insertion if the home slot already has a match (already_matches below),
-  // so that we keep better CPU cache locality when we can.
+  // insertion if the home slot (or some other we happen to probe) already
+  // has a match (already_matches below). This helps to keep better locality
+  // when we can.
   //
   // And we can do that as part of searching for an available slot to
   // insert the new entry, because our preferred location and first slot
   // checked will be the home slot.
   //
-  // As the table initially grows to size few entries will be in the same
+  // As the table initially grows to size, few entries will be in the same
   // cache line as the chain head. However, churn in the cache relatively
   // quickly improves the proportion of entries sharing that cache line with
   // the chain head. Data:
@@ -2877,12 +2881,22 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
 
   size_t idx = home;
   bool already_matches = false;
-  if (!TryInsert(proto, arr[idx], initial_countdown, take_ref,
-                 &already_matches)) {
-    if (already_matches) {
-      return nullptr;
-    }
-
+  bool already_matches_ignore = false;
+  if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                &already_matches)) {
+    assert(idx == home);
+  } else if (already_matches) {
+    return nullptr;
+    // Here we try to populate newly-opened slots in the table, but not
+    // when we can add something to its home slot. This makes the structure
+    // more performant more quickly on (initial) growth. We ignore "already
+    // matches" in this case because it is unlikely and difficult to
+    // incorporate logic for here cleanly and efficiently.
+  } else if (UNLIKELY(state.likely_empty_slot > 0) &&
+             TryInsert(proto, arr[state.likely_empty_slot], initial_countdown,
+                       take_ref, &already_matches_ignore)) {
+    idx = state.likely_empty_slot;
+  } else {
     // We need to search for an available slot outside of the home.
     // Linear hashing provides nice resizing but does typically mean
     // that some heads (home locations) have (in expectation) twice as
@@ -2892,54 +2906,28 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     //
     // This means that if we just use linear probing (by a small constant)
     // to find an available slot, part of the structure could easily fill up
-    // and resot to linear time operations even when the overall load factor
+    // and resort to linear time operations even when the overall load factor
     // is only modestly high, like 70%. Even though each slot has its own CPU
-    // cache line, there is likely a small locality benefit (e.g. TLB and
-    // paging) to iterating one by one, but obviously not with the linear
-    // hashing imbalance.
+    // cache line, there appears to be a small locality benefit (e.g. TLB and
+    // paging) to iterating one by one, as long as we don't afoul of the
+    // linear hashing imbalance.
     //
     // In a traditional non-concurrent structure, we could keep a "free list"
     // to ensure immediate access to an available slot, but maintaining such
     // a structure could require more cross-thread coordination to ensure
     // all entries are eventually available to all threads.
     //
-    // The way we solve this problem is to use linear probing but try to
-    // correct for the linear hashing imbalance (when probing beyond the
-    // home slot). If the home is high load (minimum shift) we choose an
-    // alternate location, uniformly among all slots, to linear probe from.
-    //
-    // Supporting data: we can use FixedHyperClockCache to get a baseline
-    // of near-ideal distribution of occupied slots, with its uniform
-    // distribution and double hashing.
-    // $ ./cache_bench -cache_type=fixed_hyper_clock_cache -histograms=0
-    //     -cache_size=1300000000
-    // ...
-    // Slot occupancy stats: Overall 59% (156629/262144),
-    //   Min/Max/Window = 47%/70%/500, MaxRun{Pos/Neg} = 22/15
-    //
-    // Now we can try various sizes between powers of two with AutoHCC to see
-    // how bad the MaxRun can be.
-    // $ for I in `seq 8 15`; do
-    //     ./cache_bench -cache_type=auto_hyper_clock_cache -histograms=0
-    //       -cache_size=${I}00000000 2>&1 | grep clock_cache.cc; done
-    // where the worst case MaxRun was with I=11:
-    // Slot occupancy stats: Overall 59% (132528/221094),
-    //   Min/Max/Window = 44%/73%/500, MaxRun{Pos/Neg} = 64/19
-    //
-    // The large table size offers a large sample size to be confident that
-    // this is an acceptable level of clustering (max ~3x probe length)
-    // compared to no clustering. Increasing the max load factor to 0.7
-    // increases the MaxRun above 100, potentially much closer to a tipping
-    // point.
-
-    // TODO? remember a freed entry from eviction, possibly in thread local
-
-    size_t start = home;
-    if (orig_home_shift == LengthInfoToMinShift(state.saved_length_info)) {
-      start = FastRange64(proto.hashed_key[0], used_length);
-    }
-    idx = start;
-    for (int cycles = 0;;) {
+    // The way we solve this problem is to use unit-increment linear probing
+    // with a small bound, and then fall back on big jumps to have a good
+    // chance of finding a slot in an under-populated region quickly if that
+    // doesn't work.
+    size_t i = 0;
+    constexpr size_t kMaxLinearProbe = 4;
+    for (; i < kMaxLinearProbe; i++) {
+      idx++;
+      if (idx >= used_length) {
+        idx -= used_length;
+      }
       if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
                     &already_matches)) {
         break;
@@ -2947,26 +2935,59 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
       if (already_matches) {
         return nullptr;
       }
-      ++idx;
-      if (idx >= used_length) {
-        // In case the structure has grown, double-check
-        StartInsert(state);
-        used_length = LengthInfoToUsedLength(state.saved_length_info);
+    }
+    if (i == kMaxLinearProbe) {
+      // Keep searching, but change to a search method that should quickly
+      // find any under-populated region. Switching to an increment based
+      // on the golden ratio helps with that, but we also inject some minor
+      // variation (less than 2%, 1 in 2^6) to avoid clustering effects on
+      // this larger increment (if it were a fixed value in steady state
+      // operation). Here we are primarily using upper bits of hashed_key[1]
+      // while home is based on lowest bits.
+      uint64_t incr_ratio = 0x9E3779B185EBCA87U + (proto.hashed_key[1] >> 6);
+      size_t incr = FastRange64(incr_ratio, used_length);
+      assert(incr > 0);
+      size_t start = idx;
+      for (;; i++) {
+        idx += incr;
         if (idx >= used_length) {
-          idx = 0;
+          // Wrap around (faster than %)
+          idx -= used_length;
         }
-      }
-      if (idx == start) {
-        // Cycling back should not happen unless there is enough random churn
-        // in parallel that we happen to hit each slot at a time that it's
-        // occupied, which is really only feasible for small structures, though
-        // with linear probing to find empty slots, "small" here might be
-        // larger than for double hashing.
-        assert(used_length <= 256);
-        ++cycles;
-        if (cycles > 2) {
-          // Fall back on standalone insert in case something goes awry to
-          // cause this
+        if (idx == start) {
+          // We have just completed a cycle that might not have covered all
+          // slots. (incr and used_length could have common factors.)
+          // Increment for the next cycle, which eventually ensures complete
+          // iteration over the set of slots before repeating.
+          idx++;
+          if (idx >= used_length) {
+            idx -= used_length;
+          }
+          start++;
+          if (start >= used_length) {
+            start -= used_length;
+          }
+          if (i >= used_length) {
+            used_length = LengthInfoToUsedLength(
+                length_info_.load(std::memory_order_acquire));
+            if (i >= used_length * 2) {
+              // Cycling back should not happen unless there is enough random
+              // churn in parallel that we happen to hit each slot at a time
+              // that it's occupied, which is really only feasible for small
+              // structures, though with linear probing to find empty slots,
+              // "small" here might be larger than for double hashing.
+              assert(used_length <= 256);
+              // Fall back on standalone insert in case something goes awry to
+              // cause this
+              return nullptr;
+            }
+          }
+        }
+        if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                      &already_matches)) {
+          break;
+        }
+        if (already_matches) {
           return nullptr;
         }
       }
@@ -3481,6 +3502,10 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
 
     for (HandleImpl* h : to_finish_eviction) {
       TrackAndReleaseEvictedEntry(h, data);
+      // NOTE: setting likely_empty_slot here can cause us to reduce the
+      // portion of "at home" entries, probably because an evicted entry
+      // is more likely to come back than a random new entry and would be
+      // unable to go into its home slot.
     }
     to_finish_eviction.clear();
 

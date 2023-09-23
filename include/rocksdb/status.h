@@ -114,6 +114,7 @@ class Status {
     kTxnNotPrepared = 13,
     kIOFenced = 14,
     kMergeOperatorFailed = 15,
+    kMergeOperandThresholdExceeded = 16,
     kMaxSubCode
   };
 
@@ -158,6 +159,14 @@ class Status {
   // but it can be useful for communicating statistical information without
   // changing public APIs.
   static Status OkOverwritten() { return Status(kOk, kOverwritten); }
+
+  // Successful, though the number of operands merged during the query exceeded
+  // the threshold. Note: using variants of OK status for program logic is
+  // discouraged, but it can be useful for communicating statistical information
+  // without changing public APIs.
+  static Status OkMergeOperandThresholdExceeded() {
+    return Status(kOk, kMergeOperandThresholdExceeded);
+  }
 
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -299,6 +308,13 @@ class Status {
   bool IsOkOverwritten() const {
     MarkChecked();
     return code() == kOk && subcode() == kOverwritten;
+  }
+
+  // Returns true iff the status indicates success *with* the number of operands
+  // merged exceeding the threshold
+  bool IsOkMergeOperandThresholdExceeded() const {
+    MarkChecked();
+    return code() == kOk && subcode() == kMergeOperandThresholdExceeded;
   }
 
   // Returns true iff the status indicates a NotFound error.

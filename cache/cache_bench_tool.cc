@@ -290,7 +290,8 @@ Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
   return Status::OK();
 }
 
-Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
+Status CreateFn(const Slice& data, CompressionType /*type*/,
+                CacheTier /*source*/, Cache::CreateContext* /*context*/,
                 MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                 size_t* out_charge) {
   *out_obj = new char[data.size()];

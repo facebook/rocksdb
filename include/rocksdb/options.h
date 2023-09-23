@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -1552,6 +1553,12 @@ struct ReadOptions {
   // soft limit then all the remaining keys are returned with status Aborted.
   uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
 
+  // When the number of merge operands applied exceeds this threshold
+  // during a successful query, the operation will return a special OK
+  // Status with subcode kMergeOperandThresholdExceeded. Currently only applies
+  // to point lookups and is disabled by default.
+  std::optional<size_t> merge_operand_count_threshold;
+
   // If true, all data read from underlying storage will be
   // verified against corresponding checksums.
   bool verify_checksums = true;
@@ -1712,6 +1719,8 @@ struct ReadOptions {
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
   //
+  // NOTE: Not supported with Prev operation and it will be return NotSupported
+  // error. Enable it for forward scans only.
   // Default: false
   bool auto_readahead_size = false;
 

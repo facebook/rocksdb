@@ -3358,18 +3358,24 @@ TEST_F(DBFlushTest, NonAtomicNormalFlushAbortWhenBGError) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
-      {{"RecoverFromRetryableBGIOError:RecoverSuccess",
+      {{"Let error recovery start",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
         "Wait for error recover"}});
 
   ASSERT_OK(Put(Key(1), "val1"));
   // trigger bg flush0 for mem0
   ASSERT_OK(Put(Key(2), "val2"));
+  // Not checking status since this wait can finish before flush starts.
   dbfull()->TEST_WaitForFlushMemTable().PermitUncheckedError();
 
   // trigger bg flush1 for mem1, should see bg error and abort
   // before picking a memtable to flush
   ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
+  TEST_SYNC_POINT("Let error recovery start");
   TEST_SYNC_POINT("Wait for error recover");
   // Recovery flush writes 2 memtables together into 1 file.
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
@@ -3379,6 +3385,87 @@ TEST_F(DBFlushTest, NonAtomicNormalFlushAbortWhenBGError) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
+  // Test for a bug with atomic flush where DB can become stuck
+  // after a flush error. A repro timeline:
+  //
+  // Start Flush0 for mem0
+  // Start Flush1 for mem1
+  // Now Flush1 will wait for Flush0 to install mem0
+  // Flush0 finishes with retryable IOError, rollbacks mem0
+  // Resume starts and waits for background job to finish, i.e., Flush1
+  // Fill memtable again, trigger Flush2 for mem0
+  // Flush2 will get error status, and not rollback mem0, see code in
+  // https://github.com/facebook/rocksdb/blob/b927ba5936216861c2c35ab68f50ba4a78e65747/db/db_impl/db_impl_compaction_flush.cc#L725
+  //
+  // DB is stuck since mem0 can never be picked now
+  //
+  // The fix is to rollback mem0 in Flush2, and let Flush1 also abort upon
+  // background error besides waiting for older memtables to be installed.
+  // The recovery flush in this case should pick up all memtables
+  // and write them to a single L0 file.
+  Options opts = CurrentOptions();
+  opts.atomic_flush = true;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 4;
+  env_->SetBackgroundThreads(4, Env::HIGH);
+  DestroyAndReopen(opts);
+
+  std::atomic_int flush_count = 0;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        int c = flush_count.fetch_add(1);
+        if (c == 0) {
+          Status* s = (Status*)(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT("Let flush for mem1 start");
+          // Wait for Flush1 to start waiting to install flush result
+          TEST_SYNC_POINT("Wait for flush for mem1");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Let flush for mem1 start", "Flush for mem1"},
+       {"DBImpl::AtomicFlushMemTablesToOutputFiles:WaitCV",
+        "Wait for flush for mem1"},
+       {"RecoverFromRetryableBGIOError:BeforeStart",
+        "Wait for resume to start"},
+       {"Recovery should continue here",
+        "RecoverFromRetryableBGIOError:BeforeStart2"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "Wait for error recover"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "val1"));
+  // trigger Flush0 for mem0
+  ASSERT_OK(Put(Key(2), "val2"));
+
+  // trigger Flush1 for mem1
+  TEST_SYNC_POINT("Flush for mem1");
+  ASSERT_OK(Put(Key(3), "val3"));
+
+  // Wait until resume started to schedule another flush
+  TEST_SYNC_POINT("Wait for resume to start");
+  // This flush should not be scheduled due to bg error
+  ASSERT_OK(Put(Key(4), "val4"));
+
+  // TEST_WaitForBackgroundWork() returns background error
+  // after all background work is done.
+  ASSERT_NOK(dbfull()->TEST_WaitForBackgroundWork());
+  // Flush should abort and not writing any table
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  // Wait until this flush is done.
+  TEST_SYNC_POINT("Recovery should continue here");
+  TEST_SYNC_POINT("Wait for error recover");
+  // error recovery can schedule new flushes, but should not
+  // encounter error
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

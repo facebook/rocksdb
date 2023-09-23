@@ -454,10 +454,30 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     s = Status::ShutdownInProgress();
   }
   if (s.ok()) {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      SchedulePendingCompaction(cfd);
+    // Since we drop all non-recovery flush requests during recovery,
+    // and new memtable may fill up during recovery,
+    // schedule one more round of flush.
+    FlushOptions flush_opts;
+    flush_opts.allow_write_stall = false;
+    flush_opts.wait = false;
+    Status status = FlushAllColumnFamilies(
+        flush_opts, FlushReason::kCatchUpAfterErrorRecovery);
+    if (!status.ok()) {
+      // FlushAllColumnFamilies internally should take care of setting
+      // background error if needed.
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "The catch up flush after successful recovery failed [%s]",
+                     s.ToString().c_str());
     }
-    MaybeScheduleFlushOrCompaction();
+    // FlushAllColumnFamilies releases and re-acquires mutex.
+    if (shutdown_initiated_) {
+      s = Status::ShutdownInProgress();
+    } else {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        SchedulePendingCompaction(cfd);
+      }
+      MaybeScheduleFlushOrCompaction();
+    }
   }
 
   // Wake up any waiters - in this case, it could be the shutdown thread
@@ -748,7 +768,6 @@ void DBImpl::PrintStatistics() {
 }
 
 Status DBImpl::StartPeriodicTaskScheduler() {
-
 #ifndef NDEBUG
   // It only used by test to disable scheduler
   bool disable_scheduler = false;
@@ -2010,7 +2029,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   assert(get_impl_options.column_family);
 
-
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
                                         *(read_options.timestamp));
@@ -2220,6 +2238,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (s.ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          merge_context.GetNumOperands() > merge_threshold.value()) {
+        s = Status::OkMergeOperandThresholdExceeded();
+      }
+
       if (get_impl_options.get_value) {
         if (get_impl_options.value) {
           size = get_impl_options.value->size();
@@ -2489,8 +2513,15 @@ std::vector<Status> DBImpl::MultiGet(
     }
 
     if (s.ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          merge_context.GetNumOperands() > merge_threshold.value()) {
+        s = Status::OkMergeOperandThresholdExceeded();
+      }
+
       bytes_read += value->size();
       num_found++;
+
       curr_value_size += value->size();
       if (curr_value_size > read_options.value_size_soft_limit) {
         while (++keys_read < num_keys) {
@@ -3175,6 +3206,12 @@ Status DBImpl::MultiGetImpl(
     assert(key->s);
 
     if (key->s->ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          key->merge_context.GetNumOperands() > merge_threshold) {
+        *(key->s) = Status::OkMergeOperandThresholdExceeded();
+      }
+
       if (key->value) {
         bytes_read += key->value->size();
       } else {
@@ -4088,7 +4125,6 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
-
 const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
@@ -4106,7 +4142,6 @@ SystemClock* DBImpl::GetSystemClock() const {
   return immutable_db_options_.clock;
 }
 
-
 Status DBImpl::StartIOTrace(const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
@@ -4118,7 +4153,6 @@ Status DBImpl::EndIOTrace() {
   io_tracer_->EndIOTrace();
   return Status::OK();
 }
-
 
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);

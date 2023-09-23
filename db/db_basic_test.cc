@@ -3654,10 +3654,12 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     Status Insert(const Slice& key, Cache::ObjectPtr value,
                   const CacheItemHelper* helper, size_t charge,
-                  Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
+                  Handle** handle = nullptr, Priority priority = Priority::LOW,
+                  const Slice& compressed = Slice(),
+                  CompressionType type = kNoCompression) override {
       num_inserts_++;
-      return target_->Insert(key, value, helper, charge, handle, priority);
+      return target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
     }
 
     Handle* Lookup(const Slice& key, const CacheItemHelper* helper,

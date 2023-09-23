@@ -660,8 +660,8 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
             return false;
           }
         }
-        UpdateReadAheadSizeForUpperBound(offset, n);
-        s = Prefetch(opts, reader, offset, n + readahead_size_);
+        size_t current_readahead_size = ReadAheadSizeTuning(offset, n);
+        s = Prefetch(opts, reader, offset, n + current_readahead_size);
       }
       if (!s.ok()) {
         if (status) {

@@ -1375,7 +1375,8 @@ Status StressTest::TestIterate(ThreadState* thread,
                    key, op_logs, &diverged);
 
     const bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order) ||
+        FLAGS_auto_readahead_size;
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
