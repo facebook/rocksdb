@@ -2259,7 +2259,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
 
-  const bool needs_to_join_write_thread = !entered_write_thread;
+  // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
+  // auto retry resume, we do not care to wait for all pre-existing writes to go
+  // through. In fact, some may be blocked waiting on auto-recovery to clear
+  // memtables in which case joining the write thread here would be a deadlock.
+  // Therefore, write thread will not be joined
+  const bool needs_to_join_write_thread =
+      !entered_write_thread &&
+      flush_reason != FlushReason::kErrorRecoveryRetryFlush;
   autovector<FlushRequest> flush_reqs;
   autovector<uint64_t> memtable_ids_to_wait;
   {
