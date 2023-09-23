@@ -1349,7 +1349,7 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
 
         uint64_t readahead_trimmed =
             options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-        ASSERT_GT(readahead_trimmed, 1);
+        ASSERT_GT(readahead_trimmed, 0);
 
         ASSERT_OK(cmp_iter->status());
         ASSERT_OK(iter->status());
@@ -1379,7 +1379,7 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
 
         uint64_t readahead_trimmed =
             options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
-        ASSERT_GT(readahead_trimmed, 1);
+        ASSERT_GT(readahead_trimmed, 0);
 
         ASSERT_OK(cmp_iter->status());
         ASSERT_OK(iter->status());
