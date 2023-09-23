@@ -280,6 +280,11 @@ class BlockBasedTable : public TableReader {
   Status GetKVPairsFromDataBlocks(const ReadOptions& read_options,
                                   std::vector<KVPairBlock>* kv_pair_blocks);
 
+  template <typename TBlocklike>
+  Status LookupAndPinBlocksInCache(
+      const ReadOptions& ro, const BlockHandle& handle,
+      CachableEntry<TBlocklike>* out_parsed_block) const;
+
   struct Rep;
 
   Rep* get_rep() { return rep_; }
@@ -687,31 +692,33 @@ struct BlockBasedTable::Rep {
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
-  void CreateFilePrefetchBuffer(size_t readahead_size,
-                                size_t max_readahead_size,
-                                std::unique_ptr<FilePrefetchBuffer>* fpb,
-                                bool implicit_auto_readahead,
-                                uint64_t num_file_reads,
-                                uint64_t num_file_reads_for_auto_readahead,
-                                uint64_t upper_bound_offset) const {
+  void CreateFilePrefetchBuffer(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
+      uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
+      uint64_t upper_bound_offset,
+      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb)
+      const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_size, max_readahead_size,
         !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
         implicit_auto_readahead, num_file_reads,
         num_file_reads_for_auto_readahead, upper_bound_offset,
-        ioptions.fs.get(), ioptions.clock, ioptions.stats));
+        ioptions.fs.get(), ioptions.clock, ioptions.stats, readaheadsize_cb));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       size_t readahead_size, size_t max_readahead_size,
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
       uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
-      uint64_t upper_bound_offset) const {
+      uint64_t upper_bound_offset,
+      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb)
+      const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
                                implicit_auto_readahead, num_file_reads,
                                num_file_reads_for_auto_readahead,
-                               upper_bound_offset);
+                               upper_bound_offset, readaheadsize_cb);
     }
   }
 

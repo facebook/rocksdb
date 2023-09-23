@@ -101,7 +101,10 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       bool for_compaction, CachableEntry<T>* block_entry,                      \
       GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
       BlockContents* contents, bool async_read,                                \
-      bool use_block_cache_for_lookup) const;
+      bool use_block_cache_for_lookup) const;                                  \
+  template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
@@ -885,6 +888,7 @@ Status BlockBasedTable::PrefetchTail(
       true /* track_min_offset */, false /* implicit_auto_readahead */,
       0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
       0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
+      /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   if (s.ok()) {
@@ -1468,6 +1472,62 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned, rep->user_defined_timestamps_persisted);
+}
+
+// Right now only called for Data blocks.
+template <typename TBlocklike>
+Status BlockBasedTable::LookupAndPinBlocksInCache(
+    const ReadOptions& ro, const BlockHandle& handle,
+    CachableEntry<TBlocklike>* out_parsed_block) const {
+  BlockCacheInterface<TBlocklike> block_cache{
+      rep_->table_options.block_cache.get()};
+
+  assert(block_cache);
+
+  Status s;
+  CachableEntry<UncompressionDict> uncompression_dict;
+  if (rep_->uncompression_dict_reader) {
+    const bool no_io = (ro.read_tier == kBlockCacheTier);
+    s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+        /* prefetch_buffer= */ nullptr, ro, no_io, ro.verify_checksums,
+        /* get_context= */ nullptr, /* lookup_context= */ nullptr,
+        &uncompression_dict);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  // Do the lookup.
+  CacheKey key_data = GetCacheKey(rep_->base_cache_key, handle);
+  const Slice key = key_data.AsSlice();
+
+  Statistics* statistics = rep_->ioptions.statistics.get();
+
+  BlockCreateContext create_ctx = rep_->create_context;
+  create_ctx.dict = uncompression_dict.GetValue()
+                        ? uncompression_dict.GetValue()
+                        : &UncompressionDict::GetEmptyDict();
+
+  auto cache_handle =
+      block_cache.LookupFull(key, &create_ctx, GetCachePriority<TBlocklike>(),
+                             statistics, rep_->ioptions.lowest_used_cache_tier);
+
+  if (!cache_handle) {
+    UpdateCacheMissMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr);
+    return s;
+  }
+
+  // Found in Cache.
+  TBlocklike* value = block_cache.Value(cache_handle);
+  if (value) {
+    UpdateCacheHitMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr,
+                          block_cache.get()->GetUsage(cache_handle));
+  }
+  out_parsed_block->SetCachedValue(value, block_cache.get(), cache_handle);
+
+  assert(!out_parsed_block->IsEmpty());
+
+  return s;
 }
 
 // If contents is nullptr, this function looks up the block caches for the

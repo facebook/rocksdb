@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <deque>
+
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
@@ -44,7 +46,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()) {}
 
-  ~BlockBasedTableIterator() {}
+  ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -58,6 +60,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
            (is_at_first_key_from_index_ ||
             (block_iter_points_to_real_block_ && block_iter_.Valid()));
   }
+
+  // For block cache readahead lookup scenario -
+  // If is_at_first_key_from_index_ is true, InitDataBlock hasn't been
+  // called. It means block_handles is empty and index_ point to current block.
+  // So index_iter_ can be accessed directly.
   Slice key() const override {
     assert(Valid());
     if (is_at_first_key_from_index_) {
@@ -74,6 +81,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       return block_iter_.user_key();
     }
   }
+
   bool PrepareValue() override {
     assert(Valid());
 
@@ -104,8 +112,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return block_iter_.value();
   }
   Status status() const override {
-    // Prefix index set status to NotFound when the prefix does not exist
-    if (!index_iter_->status().ok() && !index_iter_->status().IsNotFound()) {
+    // In case of block cache readahead lookup, it won't add the block to
+    // block_handles if it's index is invalid. So index_iter_->status check can
+    // be skipped.
+    // Prefix index set status to NotFound when the prefix does not exist.
+    if (IsIndexAtCurr() && !index_iter_->status().ok() &&
+        !index_iter_->status().IsNotFound()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
@@ -159,7 +171,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   void SavePrevIndexValue() {
-    if (block_iter_points_to_real_block_) {
+    if (block_iter_points_to_real_block_ && IsIndexAtCurr()) {
       // Reseek. If they end up with the same data block, we shouldn't re-fetch
       // the same data block.
       prev_block_offset_ = index_iter_->value().handle.offset();
@@ -235,6 +247,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     kReportOnUseful = 1 << 2,
   };
 
+  // BlockHandleInfo is used to store the info needed when block cache lookup
+  // ahead is enabled to tune readahead_size.
+  struct BlockHandleInfo {
+    BlockHandleInfo() {}
+
+    IndexValue index_val_;
+    bool is_cache_hit_ = false;
+    CachableEntry<Block> cachable_entry_;
+  };
+
+  bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
+
   const BlockBasedTable* table_;
   const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;
@@ -267,6 +291,22 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   mutable SeekStatState seek_stat_state_ = SeekStatState::kNone;
   bool is_last_level_;
+
+  // If set to true, it'll lookup in the cache ahead to estimate the readahead
+  // size based on cache hit and miss.
+  bool readahead_cache_lookup_ = false;
+
+  // It stores all the block handles that are lookuped in cache ahead when
+  // BlockCacheLookupForReadAheadSize is called. Since index_iter_ may point to
+  // different blocks when readahead_size is calculated in
+  // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
+  // block_handles_ is used.
+  std::deque<BlockHandleInfo> block_handles_;
+
+  // During cache lookup to find readahead size, index_iter_ is iterated and it
+  // can point to a different block. is_index_at_curr_block_ keeps track of
+  // that.
+  bool is_index_at_curr_block_ = true;
 
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
@@ -307,6 +347,40 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     return true;
   }
 
+  // *** BEGIN APIs relevant to auto tuning of readahead_size ***
   void FindReadAheadSizeUpperBound();
+
+  // This API is called to lookup the data blocks ahead in the cache to estimate
+  // the current readahead_size.
+  void BlockCacheLookupForReadAheadSize(uint64_t offset, size_t readahead_size,
+                                        size_t& updated_readahead_size);
+
+  void ResetBlockCacheLookupVar() {
+    readahead_cache_lookup_ = false;
+    ClearBlockHandles();
+  }
+
+  bool IsNextBlockOutOfBound() {
+    // If curr block's index key >= iterate_upper_bound, it means all the keys
+    // in next block or above are out of bound.
+    return (user_comparator_.CompareWithoutTimestamp(
+                index_iter_->user_key(),
+                /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
+                /*b_has_ts=*/false) >= 0
+                ? true
+                : false);
+  }
+
+  void ClearBlockHandles() { block_handles_.clear(); }
+
+  // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
+  // accurate prev_block_offset_.
+  void ResetPreviousBlockOffset() {
+    prev_block_offset_ = std::numeric_limits<uint64_t>::max();
+  }
+
+  bool DoesContainBlockHandles() { return !block_handles_.empty(); }
+
+  // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE
