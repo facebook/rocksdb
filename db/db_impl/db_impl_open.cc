@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <regex>
 
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
@@ -289,6 +290,29 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
       0 == db_options.writable_file_max_buffer_size) {
     return Status::InvalidArgument(
         "writes in direct IO require writable_file_max_buffer_size > 0");
+  }
+
+  if (db_options.daily_offpeak_start_time_utc != "" ||
+      db_options.daily_offpeak_end_time_utc != "") {
+    if (db_options.daily_offpeak_start_time_utc == "" ||
+        db_options.daily_offpeak_end_time_utc == "") {
+      return Status::InvalidArgument(
+          "Both daily_offpeak_start_time_utc and daily_offpeak_end_time_utc "
+          "need to be set for daily offpeak");
+    }
+    const std::regex hh_mm_regex("^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$");
+    if (!std::regex_match(db_options.daily_offpeak_start_time_utc,
+                          hh_mm_regex) ||
+        !std::regex_match(db_options.daily_offpeak_end_time_utc, hh_mm_regex)) {
+      return Status::InvalidArgument(
+          "daily_offpeak_start_time_utc and daily_offpeak_end_time_utc should "
+          "be set in the format HH:mm");
+    } else if (db_options.daily_offpeak_start_time_utc ==
+               db_options.daily_offpeak_end_time_utc) {
+      return Status::InvalidArgument(
+          "daily_offpeak_start_time_utc and daily_offpeak_end_time_utc cannot "
+          "be equal");
+    }
   }
 
   return Status::OK();

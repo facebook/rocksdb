@@ -1427,6 +1427,21 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  // EXPERIMENTAL
+  // Implementing offpeak duration awareness in RocksDB. In this context, "peak
+  // time" signifies periods characterized by significantly elevated read and
+  // write activity compared to other times. By leveraging this knowledge, we
+  // can prevent low-priority tasks, such as TTL-based compactions, from
+  // competing with read and write operations during peak hours. Essentially, we
+  // preprocess these tasks during the preceding off-peak period, just before
+  // the next peak cycle begins. For example, if the TTL is configured for 25
+  // days, we may compact the files during the off-peak hours of the 24th day.
+  //
+  // Time of the day in UTC. Format - HH:mm (e.g. 00:00 - 23:59)
+  // Default: Empty String (No notion of peak/offpeak)
+  std::string daily_offpeak_start_time_utc = "";
+  std::string daily_offpeak_end_time_utc = "";
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

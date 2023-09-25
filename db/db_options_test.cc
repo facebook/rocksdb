@@ -1033,6 +1033,50 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(fifo_temp_opt[1].age, 30000);
 }
 
+TEST_F(DBOptionsTest, OffPeakTimes) {
+  Options options;
+
+  auto verify_invalid = [&]() {
+    {
+      Status s = DBImpl::TEST_ValidateOptions(options);
+      ASSERT_NOK(s);
+      ASSERT_TRUE(s.IsInvalidArgument());
+    }
+  };
+
+  auto verify_valid = [&]() {
+    {
+      Status s = DBImpl::TEST_ValidateOptions(options);
+      ASSERT_OK(s);
+      ASSERT_FALSE(s.IsInvalidArgument());
+    }
+  };
+  std::vector<std::pair<std::string, std::string>> invalid_cases = {
+      {"06:30", ""},         {"", "23:30"},           // Both need to be set
+      {"12:30 PM", "23:30"}, {"12:01AM", "11:00PM"},  // Invalid format
+      {"01:99", "25:00"},  // Invalid value for the hours or minutes
+      {"13:30", "13:30"},  // start_time and end_time cannot be the same
+      {"random", "value"},   {"No:No", "Hi:Hi"},
+  };
+
+  std::vector<std::pair<std::string, std::string>> valid_cases = {
+      {"", ""},  // Not enabled. Valid case
+      {"06:30", "11:30"}, {"06:30", "23:30"}, {"13:30", "14:30"},
+      {"23:30", "01:15"},  // From 11:30PM to 1:15AM next day. Valid case
+  };
+
+  for (std::pair<std::string, std::string> invalid_case : invalid_cases) {
+    options.daily_offpeak_start_time_utc = invalid_case.first;
+    options.daily_offpeak_end_time_utc = invalid_case.second;
+    verify_invalid();
+  }
+  for (std::pair<std::string, std::string> valid_case : valid_cases) {
+    options.daily_offpeak_start_time_utc = valid_case.first;
+    options.daily_offpeak_end_time_utc = valid_case.second;
+    verify_valid();
+  }
+}
+
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   for (bool use_direct_reads : {true, false}) {
     SpecialEnv env(env_);
