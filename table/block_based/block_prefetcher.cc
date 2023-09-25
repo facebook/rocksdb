@@ -28,13 +28,12 @@ void BlockPrefetcher::PrefetchIfNeeded(
       }
       IOOptions opts;
       Status s = rep->file->PrepareIOOptions(read_options, opts);
-      if (!s.ok()) {
-        return;
-      }
-      s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
       if (s.ok()) {
-        readahead_limit_ = offset + len + compaction_readahead_size_;
-        return;
+        s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
+        if (s.ok()) {
+          readahead_limit_ = offset + len + compaction_readahead_size_;
+          return;
+        }
       }
     }
     // If FS prefetch is not supported, fall back to use internal prefetch
