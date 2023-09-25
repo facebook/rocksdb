@@ -453,7 +453,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   if (shutdown_initiated_) {
     s = Status::ShutdownInProgress();
   }
-  if (s.ok()) {
+  if (s.ok() && context.flush_after_recovery) {
     // Since we drop all non-recovery flush requests during recovery,
     // and new memtable may fill up during recovery,
     // schedule one more round of flush.
@@ -472,12 +472,14 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // FlushAllColumnFamilies releases and re-acquires mutex.
     if (shutdown_initiated_) {
       s = Status::ShutdownInProgress();
-    } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        SchedulePendingCompaction(cfd);
-      }
-      MaybeScheduleFlushOrCompaction();
     }
+  }
+
+  if (s.ok()) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      SchedulePendingCompaction(cfd);
+    }
+    MaybeScheduleFlushOrCompaction();
   }
 
   // Wake up any waiters - in this case, it could be the shutdown thread
