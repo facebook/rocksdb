@@ -1738,8 +1738,14 @@ struct ReadOptions {
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
   //
-  // NOTE: Not supported with Prev operation and it will be return NotSupported
-  // error. Enable it for forward scans only.
+  // NOTE: - Recommended for forward Scans only.
+  //       - In case of backward scans like Prev or SeekForPrev, the
+  //          cost of these backward operations might increase. So this option
+  //          should be enabled if workload contains backward scans.
+  //       - If there is a backward scans, this option will be
+  //          disabled internally and won't be reset if forward scan is done
+  //          again.
+  //
   // Default: false
   bool auto_readahead_size = false;
 
