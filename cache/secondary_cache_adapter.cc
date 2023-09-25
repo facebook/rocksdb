@@ -241,9 +241,10 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
   }
   // Warm up the secondary cache with the compressed block. The secondary
   // cache may choose to ignore it based on the admission policy.
-  if (value != nullptr && !compressed_value.empty()) {
+  if (value != nullptr && !compressed_value.empty() &&
+      adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
     Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
-    assert(status.ok());
+    assert(status.ok() || status.IsNotSupported());
   }
 
   return s;
@@ -575,11 +576,40 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
     return nullptr;
   }
 
-  if (_opts.adm_policy >= TieredAdmissionPolicy::kAdmPolicyMax) {
-    return nullptr;
+  TieredCacheOptions opts = _opts;
+  {
+    bool valid_adm_policy = true;
+
+    switch (_opts.adm_policy) {
+      case TieredAdmissionPolicy::kAdmPolicyAuto:
+        // Select an appropriate default policy
+        if (opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyAuto) {
+          if (opts.nvm_sec_cache) {
+            opts.adm_policy = TieredAdmissionPolicy::kAdmPolicyThreeQueue;
+          } else {
+            opts.adm_policy = TieredAdmissionPolicy::kAdmPolicyPlaceholder;
+          }
+        }
+        break;
+      case TieredAdmissionPolicy::kAdmPolicyPlaceholder:
+      case TieredAdmissionPolicy::kAdmPolicyAllowCacheHits:
+        if (opts.nvm_sec_cache) {
+          valid_adm_policy = false;
+        }
+        break;
+      case TieredAdmissionPolicy::kAdmPolicyThreeQueue:
+        if (!opts.nvm_sec_cache) {
+          valid_adm_policy = false;
+        }
+        break;
+      default:
+        valid_adm_policy = false;
+    }
+    if (!valid_adm_policy) {
+      return nullptr;
+    }
   }
 
-  TieredCacheOptions opts = _opts;
   std::shared_ptr<Cache> cache;
   if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
     LRUCacheOptions cache_opts =
@@ -602,8 +632,7 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
   sec_cache = NewCompressedSecondaryCache(opts.comp_cache_opts);
 
   if (opts.nvm_sec_cache) {
-    if (opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyThreeQueue ||
-        opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyAuto) {
+    if (opts.adm_policy == TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
       sec_cache = std::make_shared<TieredSecondaryCache>(
           sec_cache, opts.nvm_sec_cache,
           TieredAdmissionPolicy::kAdmPolicyThreeQueue);
