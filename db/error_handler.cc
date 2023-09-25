@@ -676,6 +676,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
                                            Status::ShutdownInProgress(),
                                            db_mutex_);
+
+    recovery_in_prog_ = false;
     return;
   }
   DBRecoverContext context = recover_context_;
@@ -688,6 +690,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
                                              Status::ShutdownInProgress(),
                                              db_mutex_);
+      recovery_in_prog_ = false;
       return;
     }
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
