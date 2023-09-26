@@ -36,11 +36,18 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
  *
  */
 class MultiGetKeys {
+ private:
+  std::vector<ROCKSDB_NAMESPACE::Slice> slices;
+  std::vector<jbyte*> key_bufs_to_free;
 
  public:
-  static std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::Slice>> fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
-                      jintArray jkey_lens);                  
+  ~MultiGetKeys();
 
+  bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
+                      jintArray jkey_lens);
+
+  ROCKSDB_NAMESPACE::Slice* data();
+  std::vector<ROCKSDB_NAMESPACE::Slice>::size_type size();
 };
 
 /**
