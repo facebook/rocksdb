@@ -2528,7 +2528,7 @@ Status DBImpl::AtomicFlushMemTables(
   return s;
 }
 
-Status DBImpl::RetryFlushesForErrorRecovery() {
+Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason) {
   mutex_.AssertHeld();
   Status status;
   for (auto cfd : versions_->GetRefedColumnFamilySet()) {
@@ -2536,7 +2536,7 @@ Status DBImpl::RetryFlushesForErrorRecovery() {
       continue;
     }
     mutex_.Unlock();
-    status = RetryFlushForErrorRecovery(cfd);
+    status = RetryFlushForErrorRecovery(cfd, flush_reason);
     mutex_.Lock();
     if (!status.ok() && !status.IsColumnFamilyDropped()) {
       break;
@@ -2547,7 +2547,11 @@ Status DBImpl::RetryFlushesForErrorRecovery() {
   return status;
 }
 
-Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd) {
+Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
+                                          FlushReason flush_reason) {
+  assert(flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+         flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
   // `memtable_id_to_wait` will be populated such that all immutable memtables
   // eligible for flush are waited on before this function returns.
   uint64_t memtable_id_to_wait;
@@ -2561,7 +2565,7 @@ Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd) {
       // Impose no bound on the highest memtable ID flushed. There is no reason
       // to do so outside of atomic flush.
       FlushRequest flush_req{
-          FlushReason::kErrorRecoveryRetryFlush,
+          flush_reason,
           {{cfd,
             std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
       cfd->imm()->FlushRequested();
