@@ -2528,6 +2528,25 @@ Status DBImpl::AtomicFlushMemTables(
   return s;
 }
 
+Status DBImpl::RetryFlushesForErrorRecovery() {
+  mutex_.AssertHeld();
+  Status status;
+  for (auto cfd : versions_->GetRefedColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    mutex_.Unlock();
+    status = RetryFlushForErrorRecovery(cfd);
+    mutex_.Lock();
+    if (!status.ok() && !status.IsColumnFamilyDropped()) {
+      break;
+    } else if (status.IsColumnFamilyDropped()) {
+      status = Status::OK();
+    }
+  }
+  return status;
+}
+
 Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd) {
   // `memtable_id_to_wait` will be populated such that all immutable memtables
   // eligible for flush are waited on before this function returns.
