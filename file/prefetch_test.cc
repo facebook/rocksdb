@@ -151,6 +151,7 @@ TEST_P(PrefetchTest, Basic) {
   Options options;
   SetGenericOptions(env.get(), use_direct_io, options);
   options.statistics = CreateDBStatistics();
+  options.compaction_readahead_size = 2 * 1024 * 1024;
 
   const int kNumKeys = 1100;
   int buff_prefetch_count = 0;
@@ -238,16 +239,9 @@ TEST_P(PrefetchTest, Basic) {
     fs->ClearPrefetchCount();
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    if (use_direct_io) {
-      // To rule out false positive by the SST file tail prefetch during
-      // compaction output verification
-      ASSERT_GT(buff_prefetch_count, 1);
-    } else {
-      // In buffered IO, compaction readahead size is 0, leading to no prefetch
-      // during compaction input read
-      ASSERT_EQ(buff_prefetch_count, 1);
-    }
-
+    // To rule out false positive by the SST file tail prefetch during
+    // compaction output verification
+    ASSERT_GT(buff_prefetch_count, 1);
     buff_prefetch_count = 0;
 
     ASSERT_GT(cur_table_open_prefetch_tail_read.count,
