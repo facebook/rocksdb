@@ -1081,11 +1081,12 @@ bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
       daily_offpeak_end_time_utc.empty()) {
     return false;
   }
-  int64_t unix_time_now;
-  if (clock->GetCurrentTime(&unix_time_now).ok()) {
+  int64_t now;
+  if (clock->GetCurrentTime(&now).ok()) {
+    time_t now_unix_time = static_cast<time_t>(now);
     // extract hour and minute from unix_time_now in HH:mm format
     char now_utc[6];
-    std::strftime(now_utc, sizeof(now_utc), "%R", std::gmtime(&unix_time_now));
+    std::strftime(now_utc, sizeof(now_utc), "%R", std::gmtime(&now_unix_time));
 
     // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
     if (daily_offpeak_start_time_utc > daily_offpeak_end_time_utc) {
