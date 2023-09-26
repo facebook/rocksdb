@@ -139,7 +139,7 @@ struct MutableDBOptions {
 
   std::string daily_offpeak_start_time_utc;
   std::string daily_offpeak_end_time_utc;
-  bool IsNowOffPeak() const;
+  bool IsNowOffPeak(SystemClock* clock) const;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

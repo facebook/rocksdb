@@ -6,6 +6,8 @@
 #include "options/db_options.h"
 
 #include <cinttypes>
+#include <ctime>
+#include <iomanip>
 
 #include "logging/logging.h"
 #include "options/configurable_helper.h"
@@ -1072,6 +1074,29 @@ void MutableDBOptions::Dump(Logger* log) const {
                    daily_offpeak_start_time_utc.c_str());
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_end_time_utc: %s",
                    daily_offpeak_end_time_utc.c_str());
+}
+
+bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
+  if (daily_offpeak_start_time_utc.empty() ||
+      daily_offpeak_end_time_utc.empty()) {
+    return false;
+  }
+  int64_t unix_time_now;
+  if (clock->GetCurrentTime(&unix_time_now).ok()) {
+    // extract hour and minute from unix_time_now in HH:mm format
+    char now_utc[6];
+    std::strftime(now_utc, sizeof(now_utc), "%R", std::gmtime(&unix_time_now));
+
+    // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
+    if (daily_offpeak_start_time_utc > daily_offpeak_end_time_utc) {
+      return daily_offpeak_start_time_utc <= now_utc ||
+             now_utc <= daily_offpeak_end_time_utc;
+    } else {
+      return daily_offpeak_start_time_utc <= now_utc &&
+             now_utc <= daily_offpeak_end_time_utc;
+    }
+  }
+  return false;
 }
 
 Status GetMutableDBOptionsFromStrings(

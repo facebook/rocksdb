@@ -306,7 +306,7 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         !std::regex_match(db_options.daily_offpeak_end_time_utc, hh_mm_regex)) {
       return Status::InvalidArgument(
           "daily_offpeak_start_time_utc and daily_offpeak_end_time_utc should "
-          "be set in the format HH:mm");
+          "be set in the format HH:mm (e.g. 04:30)");
     } else if (db_options.daily_offpeak_start_time_utc ==
                db_options.daily_offpeak_end_time_utc) {
       return Status::InvalidArgument(

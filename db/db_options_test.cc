@@ -19,6 +19,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -1037,19 +1038,15 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   Options options;
 
   auto verify_invalid = [&]() {
-    {
-      Status s = DBImpl::TEST_ValidateOptions(options);
-      ASSERT_NOK(s);
-      ASSERT_TRUE(s.IsInvalidArgument());
-    }
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
   };
 
   auto verify_valid = [&]() {
-    {
-      Status s = DBImpl::TEST_ValidateOptions(options);
-      ASSERT_OK(s);
-      ASSERT_FALSE(s.IsInvalidArgument());
-    }
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    ASSERT_FALSE(s.IsInvalidArgument());
   };
   std::vector<std::pair<std::string, std::string>> invalid_cases = {
       {"06:30", ""},         {"", "23:30"},           // Both need to be set
@@ -1075,6 +1072,36 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     options.daily_offpeak_end_time_utc = valid_case.second;
     verify_valid();
   }
+
+  auto verify_is_now_offpeak = [&](int now_utc_hour, int now_utc_minute,
+                                   bool expected) {
+    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_clock->SetCurrentTime(now_utc_hour * 3600 + now_utc_minute * 60);
+    Status s = DBImpl::TEST_ValidateOptions(options);
+    ASSERT_OK(s);
+    auto db_options = MutableDBOptions(options);
+    ASSERT_EQ(expected, db_options.IsNowOffPeak(mock_clock.get()));
+  };
+
+  options.daily_offpeak_start_time_utc = "";
+  options.daily_offpeak_end_time_utc = "";
+  verify_is_now_offpeak(12, 30, false);
+
+  options.daily_offpeak_start_time_utc = "06:30";
+  options.daily_offpeak_end_time_utc = "11:30";
+  verify_is_now_offpeak(5, 30, false);
+  verify_is_now_offpeak(6, 30, true);
+  verify_is_now_offpeak(10, 30, true);
+  verify_is_now_offpeak(11, 30, true);
+  verify_is_now_offpeak(13, 30, false);
+
+  options.daily_offpeak_start_time_utc = "23:30";
+  options.daily_offpeak_end_time_utc = "04:30";
+  verify_is_now_offpeak(6, 30, false);
+  verify_is_now_offpeak(23, 30, true);
+  verify_is_now_offpeak(23, 45, true);
+  verify_is_now_offpeak(1, 0, true);
+  verify_is_now_offpeak(4, 35, false);
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
