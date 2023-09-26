@@ -2530,11 +2530,12 @@ Status DBImpl::AtomicFlushMemTables(
 
 Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd) {
   // `memtable_id_to_wait` will be populated such that all immutable memtables
-  // eligible for flush are waited on before this function can return.
-  uint64_t memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
+  // eligible for flush are waited on before this function returns.
+  uint64_t memtable_id_to_wait;
 
   {
     InstrumentedMutexLock guard_lock(&mutex_);
+    memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
     if (cfd->imm()->NumNotFlushed() != 0) {
       // Some immutable memtables are not associated with a flush. Schedule one.
       //
