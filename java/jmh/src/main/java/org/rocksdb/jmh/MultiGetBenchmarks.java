@@ -199,34 +199,6 @@ public class MultiGetBenchmarks {
   }
 
   @Benchmark
-  public List<byte[]> multiGetList10_intermediate() throws RocksDBException {
-    final int fromKeyIdx = next(multiGetSize, keyCount);
-    if (fromKeyIdx >= 0) {
-      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<byte[]> valueResults = db.multiGetAsList_intermediate(keys);
-      for (final byte[] result : valueResults) {
-        if (result.length != valueSize)
-          throw new RuntimeException("Test valueSize assumption wrong");
-      }
-    }
-    return new ArrayList<>();
-  }
-
-  @Benchmark
-  public List<byte[]> multiGetList10_old() throws RocksDBException {
-    final int fromKeyIdx = next(multiGetSize, keyCount);
-    if (fromKeyIdx >= 0) {
-      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<byte[]> valueResults = db.multiGetAsList_old(keys);
-      for (final byte[] result : valueResults) {
-        if (result.length != valueSize)
-          throw new RuntimeException("Test valueSize assumption wrong");
-      }
-    }
-    return new ArrayList<>();
-  }
-
-  @Benchmark
   public List<byte[]> multiGet20() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
