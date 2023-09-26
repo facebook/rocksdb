@@ -390,10 +390,14 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
   if (s.ok()) {
-    FlushOptions flush_opts;
-    // We allow flush to stall write since we are trying to resume from error.
-    flush_opts.allow_write_stall = true;
-    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    if (immutable_db_options_.atomic_flush) {
+      FlushOptions flush_opts;
+      // We allow flush to stall write since we are trying to resume from error.
+      flush_opts.allow_write_stall = true;
+      s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    } else {
+      s = RetryFlushesForErrorRecovery(context.flush_reason);
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
