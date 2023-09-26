@@ -179,6 +179,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
+  options.daily_offpeak_start_time_utc =
+      mutable_db_options.daily_offpeak_start_time_utc;
+  options.daily_offpeak_end_time_utc =
+      mutable_db_options.daily_offpeak_end_time_utc;
   return options;
 }
 
