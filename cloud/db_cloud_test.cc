@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cinttypes>
+#include <filesystem>
 
 #include "cloud/cloud_file_deletion_scheduler.h"
 #include "cloud/cloud_file_system_impl.h"
@@ -429,7 +430,7 @@ class CloudTest : public testing::Test {
     ASSERT_EQ(sst_files.size(), 1);
   }
 
-  // check that fname existsin in src bucket/object path
+  // check that fname exists in in src bucket/object path
   rocksdb::Status ExistsCloudObject(const std::string& filename) const {
     return GetCloudFileSystem()->GetStorageProvider()->ExistsCloudObject(
         GetCloudFileSystem()->GetSrcBucketName(),
@@ -591,6 +592,47 @@ TEST_F(CloudTest, GetChildrenTest) {
   // locally, so the only way to actually get it through GetChildren() if
   // listing S3 buckets works.
   EXPECT_EQ(sst_files, 1);
+}
+
+TEST_F(CloudTest, FindLiveFilesFromLocalManifestTest) {
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "Universe"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // wait until files are persisted into s3
+  GetDBImpl()->TEST_WaitForBackgroundWork();
+
+  CloseDB();
+
+  // determine the manifest name and store a copy in a different location
+  auto cfs = GetCloudFileSystem();
+  auto manifest_file = cfs->RemapFilename("MANIFEST");
+  auto manifest_path = std::filesystem::path(dbname_) / manifest_file;
+
+  auto alt_manifest_path =
+      std::filesystem::temp_directory_path() / ("ALT-" + manifest_file);
+  std::filesystem::copy_file(manifest_path, alt_manifest_path);
+
+  DestroyDir(dbname_);
+
+  std::vector<std::string> tablefiles;
+  // verify the copied manifest can be processed correctly
+  ASSERT_OK(GetCloudFileSystem()->FindLiveFilesFromLocalManifest(
+      alt_manifest_path, &tablefiles));
+
+  // verify the result
+  EXPECT_EQ(tablefiles.size(), 1);
+
+  for (auto name : tablefiles) {
+    EXPECT_EQ(GetFileType(name), RocksDBFileType::kSstFile);
+    // verify that the sst file indeed exists in cloud
+    EXPECT_OK(GetCloudFileSystem()->GetStorageProvider()->ExistsCloudObject(
+        GetCloudFileSystem()->GetSrcBucketName(),
+        GetCloudFileSystem()->GetSrcObjectPath() + pathsep + name));
+  }
+
+  // clean up
+  std::filesystem::remove(alt_manifest_path);
 }
 
 //

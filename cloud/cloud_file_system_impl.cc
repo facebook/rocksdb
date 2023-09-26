@@ -2002,7 +2002,6 @@ IOStatus CloudFileSystemImpl::UploadCloudManifest(
   return st;
 }
 
-
 IOStatus CloudFileSystemImpl::ApplyCloudManifestDelta(
     const CloudManifestDelta& delta, bool* delta_applied) {
   *delta_applied = cloud_manifest_->AddEpoch(delta.file_num, delta.epoch);
@@ -2271,6 +2270,19 @@ Status CloudFileSystemImpl::CheckValidity() const {
   }
 }
 
+void CloudFileSystemImpl::RemapFileNumbers(
+    const std::set<uint64_t>& file_numbers,
+    std::vector<std::string>* sst_file_names) {
+  sst_file_names->resize(file_numbers.size());
+
+  size_t idx = 0;
+  for (auto num : file_numbers) {
+    std::string logical_path = MakeTableFileName("" /* path */, num);
+    (*sst_file_names)[idx] = RemapFilename(logical_path);
+    idx++;
+  }
+}
+
 IOStatus CloudFileSystemImpl::FindAllLiveFiles(
     const std::string& local_dbname, std::vector<std::string>* live_sst_files,
     std::string* manifest_file) {
@@ -2282,18 +2294,29 @@ IOStatus CloudFileSystemImpl::FindAllLiveFiles(
     return st;
   }
 
-  live_sst_files->resize(file_nums.size());
-
   // filename will be remapped correctly based on current_epoch of
   // cloud_manifest
   *manifest_file =
       RemapFilename(ManifestFileWithEpoch("" /* dbname */, "" /* epoch */));
-  size_t idx = 0;
-  for (auto num : file_nums) {
-    std::string logical_path = MakeTableFileName("" /* path */, num);
-    (*live_sst_files)[idx] = RemapFilename(logical_path);
-    idx++;
+
+  RemapFileNumbers(file_nums, live_sst_files);
+
+  return IOStatus::OK();
+}
+
+IOStatus CloudFileSystemImpl::FindLiveFilesFromLocalManifest(
+    const std::string& manifest_file,
+    std::vector<std::string>* live_sst_files) {
+  std::unique_ptr<LocalManifestReader> extractor(
+      new LocalManifestReader(info_log_, this));
+  std::set<uint64_t> file_nums;
+  auto st = extractor->GetManifestLiveFiles(manifest_file, &file_nums);
+  if (!st.ok()) {
+    return st;
   }
+
+  RemapFileNumbers(file_nums, live_sst_files);
+
   return IOStatus::OK();
 }
 
@@ -2307,7 +2330,9 @@ void CloudFileSystemImpl::TEST_InitEmptyCloudManifest() {
 }
 
 size_t CloudFileSystemImpl::TEST_NumScheduledJobs() const {
-  return cloud_file_deletion_scheduler_ ? cloud_file_deletion_scheduler_->TEST_NumScheduledJobs() : 0;
+  return cloud_file_deletion_scheduler_
+             ? cloud_file_deletion_scheduler_->TEST_NumScheduledJobs()
+             : 0;
 }
 
 #endif

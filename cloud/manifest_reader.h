@@ -29,8 +29,18 @@ class LocalManifestReader {
   IOStatus GetLiveFilesLocally(const std::string& local_dbname,
                                std::set<uint64_t>* list) const;
 
+  // Read given local manifest file and return all live files that it
+  // references. This doesn't rely on CLOUDMANIFEST and just accepts (any valid)
+  // manifest file.
+  //
+  // Provided manifest file is not updated or pulled from cloud when calling the
+  // function.
+  IOStatus GetManifestLiveFiles(const std::string& manifest_file,
+                                std::set<uint64_t>* list) const;
+
  protected:
-  // Get all the live sst file number by reading version_edit records from file_reader
+  // Get all the live SST file numbers by reading version_edit records from
+  // file_reader
   IOStatus GetLiveFilesFromFileReader(
       std::unique_ptr<SequentialFileReader> file_reader,
       std::set<uint64_t>* list) const;
@@ -42,7 +52,7 @@ class LocalManifestReader {
 //
 // Operates on MANIFEST files stored in the cloud bucket directly
 //
-class ManifestReader: public LocalManifestReader {
+class ManifestReader : public LocalManifestReader {
  public:
   ManifestReader(std::shared_ptr<Logger> info_log, CloudFileSystem* cfs,
                  const std::string& bucket_prefix);

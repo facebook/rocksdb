@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <set>
 
 #include "cloud/cloud_manifest.h"
 #include "port/port_posix.h"
@@ -151,12 +152,16 @@ class CloudFileSystemImpl : public CloudFileSystem {
 
   // Find all live files based on cloud_manifest_ and local MANIFEST FILE
   // If local MANIFEST file doesn't exist, it will pull from cloud
-  // 
+  //
   // REQUIRES: cloud_manifest_ is loaded
   // REQUIRES: cloud_manifest_ is not updated when calling this function
   IOStatus FindAllLiveFiles(const std::string& local_dbname,
                             std::vector<std::string>* live_sst_files,
                             std::string* manifest_file) override;
+
+  IOStatus FindLiveFilesFromLocalManifest(
+      const std::string& manifest_file,
+      std::vector<std::string>* live_sst_files) override;
 
   IOStatus extractParents(const std::string& bucket_name_prefix,
                           const DbidList& dbid_list, DbidParents* parents);
@@ -256,8 +261,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
                          const CloudManifestDelta& delta) const override;
 
   IOStatus GetMaxFileNumberFromCurrentManifest(
-      const std::string& local_dbname,
-      uint64_t* max_file_number) override;
+      const std::string& local_dbname, uint64_t* max_file_number) override;
 
   // Upload MANIFEST-epoch  to the cloud
   IOStatus UploadManifest(const std::string& local_dbname,
@@ -374,10 +378,15 @@ class CloudFileSystemImpl : public CloudFileSystem {
   // 00010.sst-[epochX], but the real mapping for 00010.sst is [epochY], the
   // file will be treated as invisible
   bool IsFileInvisible(const std::vector<std::string>& active_cookies,
-                     const std::string& fname) const;
+                       const std::string& fname) const;
 
   void log(InfoLogLevel level, const std::string& fname,
            const std::string& msg);
+
+  // Remap SST file numbers to file names
+  void RemapFileNumbers(const std::set<uint64_t>& file_numbers,
+                        std::vector<std::string>* sst_file_names);
+
   // Fetch the cloud manifest based on the cookie
   IOStatus FetchCloudManifest(const std::string& local_dbname,
                               const std::string& cookie);
@@ -386,6 +395,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus FetchManifest(const std::string& local_dbname,
                          const std::string& epoch);
   std::string GenerateNewEpochId();
+
   std::unique_ptr<CloudManifest> cloud_manifest_;
   // This runs only in tests when we want to disable cloud manifest
   // functionality

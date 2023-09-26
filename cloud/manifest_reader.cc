@@ -35,8 +35,9 @@ IOStatus LocalManifestReader::GetLiveFilesLocally(
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
   IOStatus s;
   {
-    // file name here doesn't matter, it will always be mapped to the correct Manifest file.
-    // use empty epoch here so that it will be recognized as manifest file type
+    // file name here doesn't matter, it will always be mapped to the correct
+    // Manifest file. use empty epoch here so that it will be recognized as
+    // manifest file type
     auto local_manifest_file = cfs_impl->RemapFilename(
         ManifestFileWithEpoch(local_dbname, "" /* epoch */));
 
@@ -48,6 +49,27 @@ IOStatus LocalManifestReader::GetLiveFilesLocally(
     }
     manifest_file_reader.reset(
         new SequentialFileReader(std::move(file), local_manifest_file));
+  }
+
+  return GetLiveFilesFromFileReader(std::move(manifest_file_reader), list);
+}
+
+IOStatus LocalManifestReader::GetManifestLiveFiles(
+    const std::string& manifest_file, std::set<uint64_t>* list) const {
+  auto* cfs_impl = dynamic_cast<CloudFileSystemImpl*>(cfs_);
+  assert(cfs_impl);
+
+  std::unique_ptr<SequentialFileReader> manifest_file_reader;
+  IOStatus s;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    s = cfs_impl->NewSequentialFile(manifest_file, FileOptions(), &file,
+                                    nullptr /*dbg*/);
+    if (!s.ok()) {
+      return s;
+    }
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(file), manifest_file));
   }
 
   return GetLiveFilesFromFileReader(std::move(manifest_file_reader), list);
@@ -92,8 +114,7 @@ IOStatus LocalManifestReader::GetLiveFilesFromFileReader(
       uint64_t num = one.second;
       // Deleted files should belong to some CF
       auto it = cf_live_files.find(edit.GetColumnFamily());
-      if ((it == cf_live_files.end()) ||
-          (it->second.count(level) == 0) ||
+      if ((it == cf_live_files.end()) || (it->second.count(level) == 0) ||
           (it->second[level].count(num) == 0)) {
         return IOStatus::Corruption(
             "Corrupted Manifest file with unrecognized deleted file: " +
@@ -158,8 +179,8 @@ IOStatus ManifestReader::GetLiveFiles(const std::string& bucket_path,
   }
   std::unique_ptr<SequentialFileReader> file_reader;
   {
-    auto manifestFile = ManifestFileWithEpoch(
-        bucket_path, cloud_manifest->GetCurrentEpoch());
+    auto manifestFile =
+        ManifestFileWithEpoch(bucket_path, cloud_manifest->GetCurrentEpoch());
     std::unique_ptr<FSSequentialFile> file;
     s = cfs_->NewSequentialFileCloud(bucket_prefix_, manifestFile, file_opts,
                                      &file, dbg);

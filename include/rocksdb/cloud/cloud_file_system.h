@@ -299,11 +299,12 @@ class CloudFileSystemOptions {
   bool resync_on_open;
 
   // Experimental option!
-  // This option only affects how resync_on_open works. If resync_on_open is true,
-  // and resync_manifest_on_open is true, besides fetching CLOUDMANFIEST from s3,
-  // we will fetch latest MANIFEST file as well.
-  // 
-  // This is a temporary option to help quickly rollback the change if something unexpected is wrong.
+  // This option only affects how resync_on_open works. If resync_on_open is
+  // true, and resync_manifest_on_open is true, besides fetching CLOUDMANFIEST
+  // from s3, we will fetch latest MANIFEST file as well.
+  //
+  // This is a temporary option to help quickly rollback the change if something
+  // unexpected is wrong.
   // TODO(wei): remove this option once we are confident about the change.
   // Default: true
   bool resync_manifest_on_open;
@@ -389,9 +390,9 @@ class CloudFileSystemOptions {
   std::string new_cookie_on_open;
 
   // Experimental option!
-  // - If true, both cloud and local invisible files (i.e, CLOUDMANIFEST, MANIFEST
-  // and SST files which don't belong to current epoch) will be deleted when db
-  // is opened.
+  // - If true, both cloud and local invisible files (i.e, CLOUDMANIFEST,
+  // MANIFEST and SST files which don't belong to current epoch) will be deleted
+  // when db is opened.
   // - Otherwise, only local invisible files will be deleted
   //
   // Default: true
@@ -457,7 +458,7 @@ class CloudFileSystemOptions {
         delete_cloud_invisible_files_on_open(
             _delete_cloud_invisible_files_on_open),
         cloud_file_deletion_delay(_cloud_file_deletion_delay) {
-    (void) _cloud_type;
+    (void)_cloud_type;
   }
 
   // print out all options to the log
@@ -471,8 +472,10 @@ class CloudFileSystemOptions {
                        const std::string& object_path,
                        const std::string& region = "");
 
-  Status Configure(const ConfigOptions& config_options, const std::string& opts_str);
-  Status Serialize(const ConfigOptions& config_options, std::string* result) const;
+  Status Configure(const ConfigOptions& config_options,
+                   const std::string& opts_str);
+  Status Serialize(const ConfigOptions& config_options,
+                   std::string* result) const;
 
   // Is the sst file cache configured?
   bool hasSstFileCache() const {
@@ -494,8 +497,8 @@ typedef std::map<std::string, std::string> DbidList;
 // files with file number >= file_num are only visible in the new
 // MANIFEST-epoch file
 struct CloudManifestDelta {
-  uint64_t file_num; // next file number for new epoch
-  std::string epoch; // epoch for the new manifest file
+  uint64_t file_num;  // next file number for new epoch
+  std::string epoch;  // epoch for the new manifest file
 };
 
 //
@@ -561,14 +564,14 @@ class CloudFileSystem : public FileSystem {
                               const std::string& dbid) = 0;
 
   Logger* GetLogger() const { return info_log_.get(); }
-  const std::shared_ptr<CloudStorageProvider>&  GetStorageProvider() const {
+  const std::shared_ptr<CloudStorageProvider>& GetStorageProvider() const {
     return cloud_fs_options.storage_provider;
   }
-  
+
   const std::shared_ptr<CloudLogController>& GetLogController() const {
     return cloud_fs_options.cloud_log_controller;
   }
-  
+
   // The SrcBucketName identifies the cloud storage bucket and
   // GetSrcObjectPath specifies the path inside that bucket
   // where data files reside. The specified bucket is used in
@@ -628,6 +631,16 @@ class CloudFileSystem : public FileSystem {
                                     std::vector<std::string>* live_sst_files,
                                     std::string* manifest_file) = 0;
 
+  // Read the given manifest file (either the one used in the database or a
+  // copy) and populate live_sst_files with the list of all SST files that it
+  //
+  // references. Unlike FindAllLiveFiles, this method doesn't resolve the
+  // manifest name from the cloud manifest and also doesn't pull the manifest
+  // (i.e., it needs to be present locally).
+  virtual IOStatus FindLiveFilesFromLocalManifest(
+      const std::string& manifest_file,
+      std::vector<std::string>* live_sst_files) = 0;
+
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.
   //
@@ -681,12 +694,10 @@ class CloudFileSystem : public FileSystem {
                                  const std::shared_ptr<Logger>& logger,
                                  CloudFileSystem** cfs);
 
-
   // Creates a new Env that delegates all thread/time related
   // calls to env, and all file operations to fs
   static std::unique_ptr<Env> NewCompositeEnv(
-      Env* env,
-      const std::shared_ptr<FileSystem>& fs);
+      Env* env, const std::shared_ptr<FileSystem>& fs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
