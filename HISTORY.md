@@ -24,6 +24,7 @@
 * Compaction read performance will regress when `Options::compaction_readahead_size` is explicitly set to 0
 * Universal size amp compaction will conditionally exclude some of the newest L0 files when selecting input with a small negative impact to size amp. This is to prevent a large number of L0 files from being locked by a size amp compaction, potentially leading to write stop with a few more flushes.
 * Change ldb scan command delimiter from ':' to '==>'.
+* For non direct IO, eliminate the file system prefetching attempt for compaction read when `Options::compaction_readahead_size` is 0
 
 ### Bug Fixes
 * Fix a bug where if there is an error reading from offset 0 of a file from L1+ and that the file is not the first file in the sorted run, data can be lost in compaction and read/scan can return incorrect results.

@@ -20,7 +20,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
   const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   const size_t offset = handle.offset();
   if (is_for_compaction) {
-    if (!rep->file->use_direct_io()) {
+    if (!rep->file->use_direct_io() && compaction_readahead_size_ > 0) {
       // If FS supports prefetching (readahead_limit_ will be non zero in that
       // case) and current block exists in prefetch buffer then return.
       if (offset + len <= readahead_limit_) {
