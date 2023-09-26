@@ -2079,42 +2079,6 @@ void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
 }
 
 /*
- * Class:     org_rocksdb_RocksDB
- * Method:    multiGet
- * Signature: (J[[B[I[I)[[B
- */
-JNIEXPORT jobjectArray JNICALL Java_org_rocksdb_RocksDB_multiGetOld(
-    JNIEnv* env, jobject jdb, jlong jdb_handle, jobjectArray jkeys,
-    jintArray jkey_offs, jintArray jkey_lens) {
-  return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs, jkey_lens, nullptr);
-}
-
-/*
- * TODO (AP) - intermediate version
- *
- * Class:     org_rocksdb_RocksDB
- * Method:    multiGet
- * Signature: (J[[B[I[I)[[B
- */
-jobjectArray Java_org_rocksdb_RocksDB_multiGetIntermediate(
-    JNIEnv* env, jobject, jlong jdb_handle, jobjectArray jkeys,
-    jintArray jkey_offs, jintArray jkey_lens) {
-  ROCKSDB_NAMESPACE::MultiGetKeys keys;
-  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
-    return nullptr;
-  }
-  // TODO (AP) - use this in the efficient version -
-  // std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
-  std::vector<std::string> values;
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto statuses =
-      db->MultiGet(ROCKSDB_NAMESPACE::ReadOptions(), keys.vector(), &values);
-  return ROCKSDB_NAMESPACE::MultiGetValues::byteArrays(env, values, statuses);
-}
-
-/*
  * Use the efficient/optimized variant of MultiGet()
  *
  * Class:     org_rocksdb_RocksDB
@@ -2124,15 +2088,16 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGetIntermediate(
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I(
     JNIEnv* env, jobject, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens) {
-  ROCKSDB_NAMESPACE::MultiGetKeys keys;
-  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
+
+  auto keys = ROCKSDB_NAMESPACE::MultiGetKeys::fromByteArrays(env, jkeys, jkey_offs, jkey_lens);
+  if (!keys) {
     return nullptr;
   }
-  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
-  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys->size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys->size());
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   db->MultiGet(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
-               keys.size(), keys.array(), values.data(), statuses.data(),
+               keys->size(), keys->data(), values.data(), statuses.data(),
                false /* sorted_input*/);
   return ROCKSDB_NAMESPACE::MultiGetValues::byteArrays(env, values, statuses);
 }

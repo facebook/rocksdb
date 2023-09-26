@@ -2488,7 +2488,8 @@ public class RocksDB extends RocksObject {
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (values.size() != keys.size()) {
-      throw new IllegalArgumentException("Mismatch " + keys.size() + " keys, but not the same as " + values.size() + " values.");
+      throw new IllegalArgumentException("For each key there must be a corresponding value. "
+          + keys.size() + " keys were supplied, but " + values.size() + " values were supplied.");
     }
 
     // TODO (AP) support indirect buffers

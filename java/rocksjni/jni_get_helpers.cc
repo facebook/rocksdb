@@ -107,27 +107,29 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
   return pinnable_value_len;
 }
 
-bool MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
-                                  jintArray jkey_offs, jintArray jkey_lens) {
+std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::Slice>> MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
+                      jintArray jkey_lens) {
+
   const jsize num_keys = env->GetArrayLength(jkeys);
 
-  jint key_offs[num_keys];
-  env->GetIntArrayRegion(jkey_offs, 0, num_keys, key_offs);
+  std::unique_ptr<jint[]> key_offs = std::make_unique<jint[]>(num_keys);
+  env->GetIntArrayRegion(jkey_offs, 0, num_keys, key_offs.get());
   if (env->ExceptionCheck()) {
-    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+    return nullptr;  // exception thrown: ArrayIndexOutOfBoundsException
   }
 
-  jint key_lens[num_keys];
-  env->GetIntArrayRegion(jkey_lens, 0, num_keys, key_lens);
+  std::unique_ptr<jint[]> key_lens = std::make_unique<jint[]>(num_keys);
+  env->GetIntArrayRegion(jkey_lens, 0, num_keys, key_lens.get());
   if (env->ExceptionCheck()) {
-    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+    return nullptr;  // exception thrown: ArrayIndexOutOfBoundsException
   }
 
+  auto slices = std::make_unique<std::vector<ROCKSDB_NAMESPACE::Slice>>(0);
   for (jsize i = 0; i < num_keys; i++) {
     jobject jkey = env->GetObjectArrayElement(jkeys, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
-      return false;
+      return nullptr;
     }
 
     jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
@@ -138,21 +140,15 @@ bool MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
       // exception thrown: ArrayIndexOutOfBoundsException
       delete[] key;
       env->DeleteLocalRef(jkey);
-      return false;
+      return nullptr;
     }
 
-    keys.push_back(
+    slices->push_back(
         ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
     env->DeleteLocalRef(jkey);
   }
-  return true;
+  return slices;
 }
-
-std::vector<ROCKSDB_NAMESPACE::Slice>& MultiGetKeys::vector() { return keys; }
-
-ROCKSDB_NAMESPACE::Slice* MultiGetKeys::array() { return keys.data(); }
-
-size_t MultiGetKeys::size() { return keys.size(); }
 
 template <class TValue>
 jobjectArray MultiGetValues::byteArrays(
