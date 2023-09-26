@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.6.7 (09/26/2023)
+### Bug Fixes
+* Fixed a bug where compaction read under non direct IO still falls back to RocksDB internal prefetching after file system's prefetching returns non-OK status other than `Status::NotSupported()`
+
+### Behavior Changes
+* For non direct IO, eliminate the file system prefetching attempt for compaction read when `Options::compaction_readahead_size` is 0
+
 ## 8.6.6 (09/25/2023)
 ### Bug Fixes
 * Fix a bug with atomic_flush=true that can cause DB to stuck after a flush fails (#11872).
