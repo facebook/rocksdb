@@ -340,7 +340,7 @@ Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts) {
 Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf) {
   char buf[sizeof(ts)];
   EncodeFixed64(buf, ts);
-  ts_buf->append(buf, sizeof(buf));
+  ts_buf->assign(buf, sizeof(buf));
   return Slice(*ts_buf);
 }
 

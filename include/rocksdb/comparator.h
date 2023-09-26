@@ -187,7 +187,7 @@ Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts);
 // `ReadOptions.timestamp` for a column family that enables user-defined
 // timestamp feature with `BytewiseComparatorWithU64Ts` or
 // `ReverseBytewiseComparatorWithU64Ts` comparator.
-// Be mindful that the returned `Slice` is backed by `ts_buf`. When `ts_buff`
+// Be mindful that the returned `Slice` is backed by `ts_buf`. When `ts_buf`
 // is deconstructed, the returned `Slice` can no longer be used.
 Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf);
 
