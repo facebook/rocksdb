@@ -2528,6 +2528,31 @@ Status DBImpl::AtomicFlushMemTables(
   return s;
 }
 
+Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd) {
+  // `memtable_id_to_wait` will be populated such that all immutable memtables
+  // eligible for flush are waited on before this function can return.
+  uint64_t memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
+
+  {
+    InstrumentedMutexLock guard_lock(&mutex_);
+    if (cfd->imm()->NumNotFlushed() != 0) {
+      // Some immutable memtables are not associated with a flush. Schedule one.
+      //
+      // Impose no bound on the highest memtable ID flushed. There is no reason
+      // to do so outside of atomic flush.
+      FlushRequest flush_req{
+          FlushReason::kErrorRecoveryRetryFlush,
+          {{cfd,
+            std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
+      cfd->imm()->FlushRequested();
+      SchedulePendingFlush(flush_req);
+      MaybeScheduleFlushOrCompaction();
+    }
+  }
+  return WaitForFlushMemTable(cfd, &memtable_id_to_wait,
+                              true /* resuming_from_bg_err */);
+}
+
 // Calling FlushMemTable(), whether from DB::Flush() or from Backup Engine, can
 // cause write stall, for example if one memtable is being flushed already.
 // This method tries to avoid write stall (similar to CompactRange() behavior)

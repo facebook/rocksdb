@@ -1947,6 +1947,8 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
 
+  Status RetryFlushForErrorRecovery(ColumnFamilyData* cfd);
+
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                            bool* flush_needed);
