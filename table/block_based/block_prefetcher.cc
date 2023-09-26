@@ -35,11 +35,12 @@ void BlockPrefetcher::PrefetchIfNeeded(
       if (s.ok()) {
         readahead_limit_ = offset + len + compaction_readahead_size_;
         return;
+      } else if (!s.IsNotSupported()) {
+        return;
       }
     }
     // If FS prefetch is not supported, fall back to use internal prefetch
-    // buffer. Discarding other return status of Prefetch calls intentionally,
-    // as we can fallback to reading from disk if Prefetch fails.
+    // buffer.
     //
     // num_file_reads is used  by FilePrefetchBuffer only when
     // implicit_auto_readahead is set.
@@ -122,8 +123,6 @@ void BlockPrefetcher::PrefetchIfNeeded(
   }
 
   // If prefetch is not supported, fall back to use internal prefetch buffer.
-  // Discarding other return status of Prefetch calls intentionally, as
-  // we can fallback to reading from disk if Prefetch fails.
   IOOptions opts;
   Status s = rep->file->PrepareIOOptions(read_options, opts);
   if (!s.ok()) {
