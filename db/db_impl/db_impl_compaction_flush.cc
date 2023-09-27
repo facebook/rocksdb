@@ -2360,8 +2360,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(flush_reqs[i].cfd_to_max_mem_id_to_persist.begin()->first);
       flush_memtable_ids.push_back(&(memtable_ids_to_wait[i]));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              false /* resuming_from_bg_err */);
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2499,8 +2500,9 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              false /* resuming_from_bg_err */);
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -2512,8 +2514,7 @@ Status DBImpl::AtomicFlushMemTables(
 Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
                                             bool wait) {
   mutex_.AssertHeld();
-  assert(flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+  assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
   if (immutable_db_options_.atomic_flush) {
     return RetryAtomicFlushForErrorRecovery(flush_reason, wait);
