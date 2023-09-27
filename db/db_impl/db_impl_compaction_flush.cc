@@ -2528,6 +2528,9 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
   }
 
+  // `flush_memtable_ids` will be populated such that all immutable
+  // memtables eligible for flush are waited on before this function
+  // returns.
   autovector<uint64_t> flush_memtable_ids;
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
@@ -2541,9 +2544,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
   } else {
     for (auto cfd : cfds) {
-      // `flush_memtable_ids` will be populated such that all immutable
-      // memtables eligible for flush are waited on before this function
-      // returns.
       flush_memtable_ids.push_back(cfd->imm()->GetLatestMemTableID());
       if (cfd->imm()->NumNotFlushed() != 0) {
         // Some immutable memtables are not associated with a flush. Schedule
