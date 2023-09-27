@@ -390,12 +390,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
   if (s.ok()) {
-    if (immutable_db_options_.atomic_flush) {
-      s = AtomicRetryFlushesForErrorRecovery(context.flush_reason,
-                                             true /* wait */);
-    } else {
-      s = RetryFlushesForErrorRecovery(context.flush_reason, true /* wait */);
-    }
+    s = RetryFlushesForErrorRecovery(context.flush_reason, true /* wait */);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -459,14 +454,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // Since we drop all non-recovery flush requests during recovery,
     // and new memtable may fill up during recovery,
     // schedule one more round of flush.
-    Status status;
-    if (immutable_db_options_.atomic_flush) {
-      status = AtomicRetryFlushesForErrorRecovery(
-          FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
-    } else {
-      status = RetryFlushesForErrorRecovery(
-          FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
-    }
+    Status status = RetryFlushesForErrorRecovery(
+        FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
     if (!status.ok()) {
       // FlushAllColumnFamilies internally should take care of setting
       // background error if needed.

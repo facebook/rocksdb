@@ -2512,13 +2512,26 @@ Status DBImpl::AtomicFlushMemTables(
 Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
                                             bool wait) {
   mutex_.AssertHeld();
+  assert(flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+         flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
+  if (immutable_db_options_.atomic_flush) {
+    return RetryAtomicFlushForErrorRecovery(flush_reason, wait);
+  }
+  return RetryNonAtomicFlushesForErrorRecovery(flush_reason, wait);
+}
+
+Status DBImpl::RetryNonAtomicFlushesForErrorRecovery(FlushReason flush_reason,
+                                                     bool wait) {
+  assert(!immutable_db_options_.atomic_flush);
+  mutex_.AssertHeld();
   Status status;
   for (auto cfd : versions_->GetRefedColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
     mutex_.Unlock();
-    status = RetryFlushForErrorRecovery(cfd, flush_reason, wait);
+    status = RetryNonAtomicFlushForErrorRecovery(cfd, flush_reason, wait);
     mutex_.Lock();
     if (!status.ok() && !status.IsColumnFamilyDropped()) {
       break;
@@ -2529,11 +2542,10 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   return status;
 }
 
-Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
-                                          FlushReason flush_reason, bool wait) {
-  assert(flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
-         flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
+Status DBImpl::RetryNonAtomicFlushForErrorRecovery(ColumnFamilyData* cfd,
+                                                   FlushReason flush_reason,
+                                                   bool wait) {
+  assert(!immutable_db_options_.atomic_flush);
   // `memtable_id_to_wait` will be populated such that all immutable memtables
   // eligible for flush are waited on before this function returns.
   uint64_t memtable_id_to_wait;
@@ -2562,12 +2574,9 @@ Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
   return Status::OK();
 }
 
-Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason,
-                                                  bool wait) {
+Status DBImpl::RetryAtomicFlushForErrorRecovery(FlushReason flush_reason,
+                                                bool wait) {
   mutex_.AssertHeld();
-  assert(flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
-         flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
   assert(immutable_db_options_.atomic_flush);
 
   FlushRequest flush_req;
