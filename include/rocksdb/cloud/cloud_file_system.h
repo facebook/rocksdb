@@ -298,17 +298,6 @@ class CloudFileSystemOptions {
   // Default: false
   bool resync_on_open;
 
-  // Experimental option!
-  // This option only affects how resync_on_open works. If resync_on_open is
-  // true, and resync_manifest_on_open is true, besides fetching CLOUDMANFIEST
-  // from s3, we will fetch latest MANIFEST file as well.
-  //
-  // This is a temporary option to help quickly rollback the change if something
-  // unexpected is wrong.
-  // TODO(wei): remove this option once we are confident about the change.
-  // Default: true
-  bool resync_manifest_on_open;
-
   // If true, we will skip the dbid verification on startup. This is currently
   // only used in tests and is not recommended setting.
   // Default: false
@@ -418,7 +407,6 @@ class CloudFileSystemOptions {
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
       bool _run_purger = false, bool _resync_on_open = false,
-      bool _resync_manifest_on_open = true,
       bool _skip_dbid_verification = false,
       bool _use_aws_transfer_manager = false,
       int _number_objects_listed_in_one_iteration = 5000,
@@ -443,7 +431,6 @@ class CloudFileSystemOptions {
         request_timeout_ms(_request_timeout_ms),
         run_purger(_run_purger),
         resync_on_open(_resync_on_open),
-        resync_manifest_on_open(_resync_manifest_on_open),
         skip_dbid_verification(_skip_dbid_verification),
         use_aws_transfer_manager(_use_aws_transfer_manager),
         number_objects_listed_in_one_iteration(

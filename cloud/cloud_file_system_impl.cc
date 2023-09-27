@@ -1538,8 +1538,7 @@ IOStatus CloudFileSystemImpl::LoadCloudManifest(const std::string& local_dbname,
     st = LoadLocalCloudManifest(local_dbname);
   }
 
-  if (st.ok() && cloud_fs_options.resync_on_open &&
-      cloud_fs_options.resync_manifest_on_open) {
+  if (st.ok() && cloud_fs_options.resync_on_open) {
     auto epoch = cloud_manifest_->GetCurrentEpoch();
     st = FetchManifest(local_dbname, epoch);
     if (st.IsNotFound()) {
