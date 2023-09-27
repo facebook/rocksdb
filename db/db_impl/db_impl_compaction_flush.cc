@@ -2517,9 +2517,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
   if (immutable_db_options_.atomic_flush) {
-    mutex_.AssertHeld();
-    assert(immutable_db_options_.atomic_flush);
-
     FlushRequest flush_req;
     autovector<ColumnFamilyData*> cfds;
     // Collect referenced CFDs with unflushed memtables. We trust that any
@@ -2557,8 +2554,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
     return s;
   }
-  assert(!immutable_db_options_.atomic_flush);
-  mutex_.AssertHeld();
   Status status;
   for (auto cfd : versions_->GetRefedColumnFamilySet()) {
     if (cfd->IsDropped()) {
