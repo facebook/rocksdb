@@ -2536,8 +2536,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     AssignAtomicFlushSeq(cfds);
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     SchedulePendingFlush(flush_req);
-    MaybeScheduleFlushOrCompaction();
-
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       flush_memtable_ids.push_back(iter.second);
     }
@@ -2559,10 +2557,10 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
                        uint64_t>::max() /* max_mem_id_to_persist */}}};
         cfd->imm()->FlushRequested();
         SchedulePendingFlush(flush_req);
-        MaybeScheduleFlushOrCompaction();
       }
     }
   }
+  MaybeScheduleFlushOrCompaction();
 
   Status s;
   if (wait) {
