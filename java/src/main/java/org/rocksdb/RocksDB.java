@@ -761,18 +761,6 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  /**
-   * Creates a new column family with the name columnFamilyName and
-   * import external SST files specified in `metadata` allocates a
-   * ColumnFamilyHandle within an internal structure.
-   * The ColumnFamilyHandle is automatically disposed with DB disposal.
-   *
-   * @param columnFamilyDescriptor column family to be created.
-   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   */
   public ColumnFamilyHandle createColumnFamilyWithImport(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final ImportColumnFamilyOptions importColumnFamilyOptions,
