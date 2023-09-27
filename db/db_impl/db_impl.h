@@ -1950,6 +1950,7 @@ class DBImpl : public DB {
   Status RetryFlushesForErrorRecovery(FlushReason flush_reason);
   Status RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
                                     FlushReason flush_reason);
+  Status AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
