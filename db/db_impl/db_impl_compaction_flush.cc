@@ -2578,6 +2578,7 @@ Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason) {
+  mutex_.AssertHeld();
   assert(flush_reason == FlushReason::kErrorRecovery ||
          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
@@ -2585,39 +2586,35 @@ Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason) {
 
   FlushRequest flush_req;
   autovector<ColumnFamilyData*> cfds;
-  {
-    InstrumentedMutexLock guard_lock(&mutex_);
-
-    // Collect referenced CFDs with unflushed memtables. We trust that any
-    // existing unflushed immutable memtables were cut at a consistent point in
-    // time.
-    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && cfd->initialized() &&
-          cfd->imm()->NumNotFlushed() != 0) {
-        cfd->Ref();
-        cfd->imm()->FlushRequested();
-        cfds.push_back(cfd);
-      }
+  // Collect referenced CFDs with unflushed memtables. We trust that any
+  // existing unflushed immutable memtables were cut at a consistent point in
+  // time.
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped() && cfd->initialized() &&
+        cfd->imm()->NumNotFlushed() != 0) {
+      cfd->Ref();
+      cfd->imm()->FlushRequested();
+      cfds.push_back(cfd);
     }
-
-    // Submit a flush request for all unflushed immutable memtables
-    AssignAtomicFlushSeq(cfds);
-    GenerateFlushRequest(cfds, flush_reason, &flush_req);
-    SchedulePendingFlush(flush_req);
-    MaybeScheduleFlushOrCompaction();
   }
+
+  // Submit a flush request for all unflushed immutable memtables
+  AssignAtomicFlushSeq(cfds);
+  GenerateFlushRequest(cfds, flush_reason, &flush_req);
+  SchedulePendingFlush(flush_req);
+  MaybeScheduleFlushOrCompaction();
 
   autovector<const uint64_t*> flush_memtable_ids;
   for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
     flush_memtable_ids.push_back(&(iter.second));
   }
+
+  mutex_.Unlock();
   Status s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                                    true /* resuming_from_bg_err */);
-  {
-    InstrumentedMutexLock lock_guard(&mutex_);
-    for (auto* cfd : cfds) {
-      cfd->UnrefAndTryDelete();
-    }
+  mutex_.Lock();
+  for (auto* cfd : cfds) {
+    cfd->UnrefAndTryDelete();
   }
   return s;
 }
