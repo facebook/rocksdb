@@ -2517,13 +2517,11 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
 
-  // Collect referenced CFDs with unflushed memtables. In case of atomic flush,
-  // we trust that any existing unflushed immutable memtables were cut at a
-  // consistent point in time.
+  // Collect referenced CFDs. In case of atomic flush, we trust that any
+  // unflushed immutable memtables were cut at a consistent point in time.
   autovector<ColumnFamilyData*> cfds;
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped() && cfd->initialized() &&
-        cfd->imm()->NumNotFlushed() != 0) {
+    if (!cfd->IsDropped() && cfd->initialized()) {
       cfd->Ref();
       cfd->imm()->FlushRequested();
       cfds.push_back(cfd);
