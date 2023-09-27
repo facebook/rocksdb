@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.5.4 (09/26/2023)
+### Bug Fixes
+* Fixed a bug where compaction read under non direct IO still falls back to RocksDB internal prefetching after file system's prefetching returns non-OK status other than `Status::NotSupported()`
+
+### Behavior Changes
+* For non direct IO, eliminate the file system prefetching attempt for compaction read when `Options::compaction_readahead_size` is 0
+
 ## 8.5.3 (09/01/2023)
 ### Bug Fixes
 * Fixed a race condition in `GenericRateLimiter` that could cause it to stop granting requests
