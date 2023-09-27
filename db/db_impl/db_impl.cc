@@ -391,9 +391,10 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   // all the column families
   if (s.ok()) {
     if (immutable_db_options_.atomic_flush) {
-      s = AtomicRetryFlushesForErrorRecovery(context.flush_reason);
+      s = AtomicRetryFlushesForErrorRecovery(context.flush_reason,
+                                             true /* wait */);
     } else {
-      s = RetryFlushesForErrorRecovery(context.flush_reason);
+      s = RetryFlushesForErrorRecovery(context.flush_reason, true /* wait */);
     }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,

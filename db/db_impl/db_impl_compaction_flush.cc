@@ -2528,7 +2528,8 @@ Status DBImpl::AtomicFlushMemTables(
   return s;
 }
 
-Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason) {
+Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
+                                            bool wait) {
   mutex_.AssertHeld();
   Status status;
   for (auto cfd : versions_->GetRefedColumnFamilySet()) {
@@ -2536,7 +2537,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason) {
       continue;
     }
     mutex_.Unlock();
-    status = RetryFlushForErrorRecovery(cfd, flush_reason);
+    status = RetryFlushForErrorRecovery(cfd, flush_reason, wait);
     mutex_.Lock();
     if (!status.ok() && !status.IsColumnFamilyDropped()) {
       break;
@@ -2548,7 +2549,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason) {
 }
 
 Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
-                                          FlushReason flush_reason) {
+                                          FlushReason flush_reason, bool wait) {
   assert(flush_reason == FlushReason::kErrorRecovery ||
          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
@@ -2573,11 +2574,15 @@ Status DBImpl::RetryFlushForErrorRecovery(ColumnFamilyData* cfd,
       MaybeScheduleFlushOrCompaction();
     }
   }
-  return WaitForFlushMemTable(cfd, &memtable_id_to_wait,
-                              true /* resuming_from_bg_err */);
+  if (wait) {
+    return WaitForFlushMemTable(cfd, &memtable_id_to_wait,
+                                true /* resuming_from_bg_err */);
+  }
+  return Status::OK();
 }
 
-Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason) {
+Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason,
+                                                  bool wait) {
   mutex_.AssertHeld();
   assert(flush_reason == FlushReason::kErrorRecovery ||
          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
@@ -2609,10 +2614,13 @@ Status DBImpl::AtomicRetryFlushesForErrorRecovery(FlushReason flush_reason) {
     flush_memtable_ids.push_back(&(iter.second));
   }
 
-  mutex_.Unlock();
-  Status s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                                   true /* resuming_from_bg_err */);
-  mutex_.Lock();
+  Status s;
+  if (wait) {
+    mutex_.Unlock();
+    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                              true /* resuming_from_bg_err */);
+    mutex_.Lock();
+  }
   for (auto* cfd : cfds) {
     cfd->UnrefAndTryDelete();
   }
