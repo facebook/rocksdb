@@ -2516,20 +2516,22 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   mutex_.AssertHeld();
   assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
+
+  // Collect referenced CFDs with unflushed memtables. In case of atomic flush,
+  // we trust that any existing unflushed immutable memtables were cut at a
+  // consistent point in time.
+  autovector<ColumnFamilyData*> cfds;
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped() && cfd->initialized() &&
+        cfd->imm()->NumNotFlushed() != 0) {
+      cfd->Ref();
+      cfd->imm()->FlushRequested();
+      cfds.push_back(cfd);
+    }
+  }
+
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
-    autovector<ColumnFamilyData*> cfds;
-    // Collect referenced CFDs with unflushed memtables. We trust that any
-    // existing unflushed immutable memtables were cut at a consistent point in
-    // time.
-    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && cfd->initialized() &&
-          cfd->imm()->NumNotFlushed() != 0) {
-        cfd->Ref();
-        cfd->imm()->FlushRequested();
-        cfds.push_back(cfd);
-      }
-    }
 
     // Submit a flush request for all unflushed immutable memtables
     AssignAtomicFlushSeq(cfds);
@@ -2555,7 +2557,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     return s;
   }
   Status status;
-  for (auto cfd : versions_->GetRefedColumnFamilySet()) {
+  for (auto cfd : cfds) {
     if (cfd->IsDropped()) {
       continue;
     }
@@ -2593,6 +2595,9 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     } else if (status.IsColumnFamilyDropped()) {
       status = Status::OK();
     }
+  }
+  for (auto* cfd : cfds) {
+    cfd->UnrefAndTryDelete();
   }
   return status;
 }
