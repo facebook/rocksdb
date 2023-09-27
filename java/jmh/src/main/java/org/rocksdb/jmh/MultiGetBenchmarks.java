@@ -203,9 +203,9 @@ public class MultiGetBenchmarks {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<ByteBuffer> values = valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<ByteBufferGetStatus> statusResults =
-          db.multiGetByteBuffers(keys, values);
+      final List<ByteBuffer> values =
+          valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ByteBufferGetStatus> statusResults = db.multiGetByteBuffers(keys, values);
       for (final ByteBufferGetStatus result : statusResults) {
         if (result.status.getCode() != Status.Code.Ok)
           throw new RuntimeException("Test status not OK: " + result.status);

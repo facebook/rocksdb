@@ -35,13 +35,13 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
  * @brief keys and key conversions for MultiGet
  *
  */
-class MultiGetKeys {
+class MultiGetJNIKeys {
  private:
   std::vector<ROCKSDB_NAMESPACE::Slice> slices;
   std::vector<jbyte*> key_bufs_to_free;
 
  public:
-  ~MultiGetKeys();
+  ~MultiGetJNIKeys();
 
   bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
                       jintArray jkey_lens);
@@ -54,11 +54,25 @@ class MultiGetKeys {
  * @brief values and value conversions for MultiGet
  *
  */
-class MultiGetValues {
+class MultiGetJNIValues {
  public:
   template <class TValue>
   static jobjectArray byteArrays(JNIEnv*, std::vector<TValue>&,
                                  std::vector<ROCKSDB_NAMESPACE::Status>&);
+};
+
+class ColumnFamilyJNIHelpers {
+ public:
+  /**
+   * @brief create a native array of cf handles from java handles
+   *
+   * @param env
+   * @param jcolumn_family_handles
+   * @return unique ptr to vector of handles on success, reset() unique ptr on
+   * failure (and a JNI exception will be generated)
+   */
+  static std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>>
+  handlesFromJLongArray(JNIEnv* env, jlongArray jcolumn_family_handles);
 };
 
 };  // namespace ROCKSDB_NAMESPACE

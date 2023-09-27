@@ -4959,12 +4959,12 @@ public class RocksDB extends RocksObject {
   private native byte[] get(final long handle,
       final long readOptHandle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
-  private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-                                   final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGetIntermediate(final long dbHandle, final byte[][] keys,
-                                       final int[] keyOffsets, final int[] keyLengths);
-  private native byte[][] multiGetOld(final long dbHandle, final byte[][] keys,
-                                       final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGet(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGetIntermediate(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
+  private native byte[][] multiGetOld(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
   private native byte[][] multiGet(final long dbHandle, final byte[][] keys,
       final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);

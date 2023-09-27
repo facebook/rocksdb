@@ -107,15 +107,15 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
   return pinnable_value_len;
 }
 
-MultiGetKeys::~MultiGetKeys() {
+MultiGetJNIKeys::~MultiGetJNIKeys() {
   for (auto key : key_bufs_to_free) {
     delete[] key;
   }
   key_bufs_to_free.clear();
 }
 
-bool MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
-                                  jintArray jkey_offs, jintArray jkey_lens) {
+bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
+                                     jintArray jkey_offs, jintArray jkey_lens) {
   const jsize num_keys = env->GetArrayLength(jkeys);
 
   std::unique_ptr<jint[]> key_offs = std::make_unique<jint[]>(num_keys);
@@ -155,22 +155,21 @@ bool MultiGetKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
   return true;
 }
 
-ROCKSDB_NAMESPACE::Slice* MultiGetKeys::data() { return slices.data(); }
+ROCKSDB_NAMESPACE::Slice* MultiGetJNIKeys::data() { return slices.data(); }
 
-std::vector<ROCKSDB_NAMESPACE::Slice>::size_type MultiGetKeys::size() {
+std::vector<ROCKSDB_NAMESPACE::Slice>::size_type MultiGetJNIKeys::size() {
   return slices.size();
 }
 
 template <class TValue>
-jobjectArray MultiGetValues::byteArrays(
+jobjectArray MultiGetJNIValues::byteArrays(
     JNIEnv* env, std::vector<TValue>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s) {
   jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
       env, static_cast<jsize>(s.size()));
   if (jresults == nullptr) {
     // exception occurred
-    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
-    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
+    OutOfMemoryErrorJni::ThrowNew(env, "Insufficient Memory for results.");
     return nullptr;
   }
 
@@ -210,12 +209,37 @@ jobjectArray MultiGetValues::byteArrays(
   return jresults;
 }
 
-template jobjectArray MultiGetValues::byteArrays<std::string>(
+template jobjectArray MultiGetJNIValues::byteArrays<std::string>(
     JNIEnv* env, std::vector<std::string>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s);
 
-template jobjectArray MultiGetValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(
+template jobjectArray
+MultiGetJNIValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(
     JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::PinnableSlice>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s);
+
+std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>>
+ColumnFamilyJNIHelpers::handlesFromJLongArray(
+    JNIEnv* env, jlongArray jcolumn_family_handles) {
+  if (jcolumn_family_handles == nullptr) return nullptr;
+
+  const jsize num_cols = env->GetArrayLength(jcolumn_family_handles);
+  std::unique_ptr<jlong[]> jcf_handles = std::make_unique<jlong[]>(num_cols);
+  env->GetLongArrayRegion(jcolumn_family_handles, 0, num_cols,
+                          jcf_handles.get());
+  if (env->ExceptionCheck())
+    // ArrayIndexOutOfBoundsException
+    return nullptr;
+  auto cf_handles =
+      std::make_unique<std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>>();
+
+  for (jsize i = 0; i < num_cols; i++) {
+    auto* cf_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+        jcf_handles.get()[i]);
+    cf_handles->push_back(cf_handle);
+  }
+
+  return cf_handles;
+}
 
 };  // namespace ROCKSDB_NAMESPACE
