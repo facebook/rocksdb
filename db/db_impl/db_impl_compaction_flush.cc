@@ -2530,6 +2530,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
   }
 
+  autovector<uint64_t> flush_memtable_ids;
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
 
@@ -2539,37 +2540,15 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     SchedulePendingFlush(flush_req);
     MaybeScheduleFlushOrCompaction();
 
-    autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
-      flush_memtable_ids.push_back(&(iter.second));
+      flush_memtable_ids.push_back(iter.second);
     }
-
-    Status s;
-    if (wait) {
-      mutex_.Unlock();
-      s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                                true /* resuming_from_bg_err */);
-      mutex_.Lock();
-    }
-    for (auto* cfd : cfds) {
-      cfd->UnrefAndTryDelete();
-    }
-    return s;
-  }
-  Status status;
-  for (auto cfd : cfds) {
-    if (cfd->IsDropped()) {
-      continue;
-    }
-    mutex_.Unlock();
-    assert(!immutable_db_options_.atomic_flush);
-    // `memtable_id_to_wait` will be populated such that all immutable memtables
-    // eligible for flush are waited on before this function returns.
-    uint64_t memtable_id_to_wait;
-
-    {
-      InstrumentedMutexLock guard_lock(&mutex_);
-      memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
+  } else {
+    for (auto cfd : cfds) {
+      // `flush_memtable_ids` will be populated such that all immutable
+      // memtables eligible for flush are waited on before this function
+      // returns.
+      flush_memtable_ids.push_back(cfd->imm()->GetLatestMemTableID());
       if (cfd->imm()->NumNotFlushed() != 0) {
         // Some immutable memtables are not associated with a flush. Schedule
         // one.
@@ -2585,21 +2564,23 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
         MaybeScheduleFlushOrCompaction();
       }
     }
-    if (wait) {
-      status = WaitForFlushMemTable(cfd, &memtable_id_to_wait,
-                                    true /* resuming_from_bg_err */);
+  }
+
+  Status s;
+  if (wait) {
+    mutex_.Unlock();
+    autovector<const uint64_t*> flush_memtable_id_ptrs;
+    for (auto& flush_memtable_id : flush_memtable_ids) {
+      flush_memtable_id_ptrs.push_back(&flush_memtable_id);
     }
+    s = WaitForFlushMemTables(cfds, flush_memtable_id_ptrs,
+                              true /* resuming_from_bg_err */);
     mutex_.Lock();
-    if (!status.ok() && !status.IsColumnFamilyDropped()) {
-      break;
-    } else if (status.IsColumnFamilyDropped()) {
-      status = Status::OK();
-    }
   }
   for (auto* cfd : cfds) {
     cfd->UnrefAndTryDelete();
   }
-  return status;
+  return s;
 }
 
 // Calling FlushMemTable(), whether from DB::Flush() or from Backup Engine, can
