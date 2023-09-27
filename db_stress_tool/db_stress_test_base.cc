@@ -1882,7 +1882,7 @@ Status StressTest::TestBackupRestore(
       from = "Destroy restore dir";
     }
   }
-  if (!s.ok()) {
+  if (!s.ok() && (!s.IsIOError() || !std::strstr(s.getState(), "injected"))) {
     fprintf(stderr, "Failure in %s with: %s\n", from.c_str(),
             s.ToString().c_str());
   }
