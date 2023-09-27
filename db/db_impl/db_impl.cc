@@ -391,10 +391,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   // all the column families
   if (s.ok()) {
     if (immutable_db_options_.atomic_flush) {
-      FlushOptions flush_opts;
-      // We allow flush to stall write since we are trying to resume from error.
-      flush_opts.allow_write_stall = true;
-      s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+      s = AtomicRetryFlushesForErrorRecovery(context.flush_reason);
     } else {
       s = RetryFlushesForErrorRecovery(context.flush_reason);
     }
