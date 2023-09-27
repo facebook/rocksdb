@@ -2528,14 +2528,13 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
   }
 
+  // Submit flush requests for all immutable memtables needing flush.
   // `flush_memtable_ids` will be populated such that all immutable
   // memtables eligible for flush are waited on before this function
   // returns.
   autovector<uint64_t> flush_memtable_ids;
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
-
-    // Submit a flush request for all unflushed immutable memtables
     AssignAtomicFlushSeq(cfds);
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     SchedulePendingFlush(flush_req);
@@ -2546,9 +2545,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     for (auto cfd : cfds) {
       flush_memtable_ids.push_back(cfd->imm()->GetLatestMemTableID());
       if (cfd->imm()->NumNotFlushed() != 0) {
-        // Some immutable memtables are not associated with a flush. Schedule
-        // one.
-        //
         // Impose no bound on the highest memtable ID flushed. There is no
         // reason to do so outside of atomic flush.
         FlushRequest flush_req{
