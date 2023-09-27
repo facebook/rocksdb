@@ -1948,12 +1948,6 @@ class DBImpl : public DB {
       bool entered_write_thread = false);
 
   Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
-  Status RetryNonAtomicFlushesForErrorRecovery(FlushReason flush_reason,
-                                               bool wait);
-  Status RetryNonAtomicFlushForErrorRecovery(ColumnFamilyData* cfd,
-                                             FlushReason flush_reason,
-                                             bool wait);
-  Status RetryAtomicFlushForErrorRecovery(FlushReason flush_reason, bool wait);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,

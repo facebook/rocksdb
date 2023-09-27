@@ -2517,13 +2517,46 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
   if (immutable_db_options_.atomic_flush) {
-    return RetryAtomicFlushForErrorRecovery(flush_reason, wait);
-  }
-  return RetryNonAtomicFlushesForErrorRecovery(flush_reason, wait);
-}
+    mutex_.AssertHeld();
+    assert(immutable_db_options_.atomic_flush);
 
-Status DBImpl::RetryNonAtomicFlushesForErrorRecovery(FlushReason flush_reason,
-                                                     bool wait) {
+    FlushRequest flush_req;
+    autovector<ColumnFamilyData*> cfds;
+    // Collect referenced CFDs with unflushed memtables. We trust that any
+    // existing unflushed immutable memtables were cut at a consistent point in
+    // time.
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized() &&
+          cfd->imm()->NumNotFlushed() != 0) {
+        cfd->Ref();
+        cfd->imm()->FlushRequested();
+        cfds.push_back(cfd);
+      }
+    }
+
+    // Submit a flush request for all unflushed immutable memtables
+    AssignAtomicFlushSeq(cfds);
+    GenerateFlushRequest(cfds, flush_reason, &flush_req);
+    SchedulePendingFlush(flush_req);
+    MaybeScheduleFlushOrCompaction();
+
+    autovector<const uint64_t*> flush_memtable_ids;
+    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
+      flush_memtable_ids.push_back(&(iter.second));
+    }
+
+    Status s;
+    if (wait) {
+      mutex_.Unlock();
+      s = WaitForFlushMemTables(cfds, flush_memtable_ids,
+                                true /* resuming_from_bg_err */);
+      mutex_.Lock();
+    }
+    for (auto* cfd : cfds) {
+      cfd->UnrefAndTryDelete();
+    }
+    return s;
+  }
   assert(!immutable_db_options_.atomic_flush);
   mutex_.AssertHeld();
   Status status;
@@ -2532,7 +2565,33 @@ Status DBImpl::RetryNonAtomicFlushesForErrorRecovery(FlushReason flush_reason,
       continue;
     }
     mutex_.Unlock();
-    status = RetryNonAtomicFlushForErrorRecovery(cfd, flush_reason, wait);
+    assert(!immutable_db_options_.atomic_flush);
+    // `memtable_id_to_wait` will be populated such that all immutable memtables
+    // eligible for flush are waited on before this function returns.
+    uint64_t memtable_id_to_wait;
+
+    {
+      InstrumentedMutexLock guard_lock(&mutex_);
+      memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
+      if (cfd->imm()->NumNotFlushed() != 0) {
+        // Some immutable memtables are not associated with a flush. Schedule
+        // one.
+        //
+        // Impose no bound on the highest memtable ID flushed. There is no
+        // reason to do so outside of atomic flush.
+        FlushRequest flush_req{
+            flush_reason,
+            {{cfd, std::numeric_limits<
+                       uint64_t>::max() /* max_mem_id_to_persist */}}};
+        cfd->imm()->FlushRequested();
+        SchedulePendingFlush(flush_req);
+        MaybeScheduleFlushOrCompaction();
+      }
+    }
+    if (wait) {
+      status = WaitForFlushMemTable(cfd, &memtable_id_to_wait,
+                                    true /* resuming_from_bg_err */);
+    }
     mutex_.Lock();
     if (!status.ok() && !status.IsColumnFamilyDropped()) {
       break;
@@ -2541,81 +2600,6 @@ Status DBImpl::RetryNonAtomicFlushesForErrorRecovery(FlushReason flush_reason,
     }
   }
   return status;
-}
-
-Status DBImpl::RetryNonAtomicFlushForErrorRecovery(ColumnFamilyData* cfd,
-                                                   FlushReason flush_reason,
-                                                   bool wait) {
-  assert(!immutable_db_options_.atomic_flush);
-  // `memtable_id_to_wait` will be populated such that all immutable memtables
-  // eligible for flush are waited on before this function returns.
-  uint64_t memtable_id_to_wait;
-
-  {
-    InstrumentedMutexLock guard_lock(&mutex_);
-    memtable_id_to_wait = cfd->imm()->GetLatestMemTableID();
-    if (cfd->imm()->NumNotFlushed() != 0) {
-      // Some immutable memtables are not associated with a flush. Schedule one.
-      //
-      // Impose no bound on the highest memtable ID flushed. There is no reason
-      // to do so outside of atomic flush.
-      FlushRequest flush_req{
-          flush_reason,
-          {{cfd,
-            std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
-      cfd->imm()->FlushRequested();
-      SchedulePendingFlush(flush_req);
-      MaybeScheduleFlushOrCompaction();
-    }
-  }
-  if (wait) {
-    return WaitForFlushMemTable(cfd, &memtable_id_to_wait,
-                                true /* resuming_from_bg_err */);
-  }
-  return Status::OK();
-}
-
-Status DBImpl::RetryAtomicFlushForErrorRecovery(FlushReason flush_reason,
-                                                bool wait) {
-  mutex_.AssertHeld();
-  assert(immutable_db_options_.atomic_flush);
-
-  FlushRequest flush_req;
-  autovector<ColumnFamilyData*> cfds;
-  // Collect referenced CFDs with unflushed memtables. We trust that any
-  // existing unflushed immutable memtables were cut at a consistent point in
-  // time.
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped() && cfd->initialized() &&
-        cfd->imm()->NumNotFlushed() != 0) {
-      cfd->Ref();
-      cfd->imm()->FlushRequested();
-      cfds.push_back(cfd);
-    }
-  }
-
-  // Submit a flush request for all unflushed immutable memtables
-  AssignAtomicFlushSeq(cfds);
-  GenerateFlushRequest(cfds, flush_reason, &flush_req);
-  SchedulePendingFlush(flush_req);
-  MaybeScheduleFlushOrCompaction();
-
-  autovector<const uint64_t*> flush_memtable_ids;
-  for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
-    flush_memtable_ids.push_back(&(iter.second));
-  }
-
-  Status s;
-  if (wait) {
-    mutex_.Unlock();
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              true /* resuming_from_bg_err */);
-    mutex_.Lock();
-  }
-  for (auto* cfd : cfds) {
-    cfd->UnrefAndTryDelete();
-  }
-  return s;
 }
 
 // Calling FlushMemTable(), whether from DB::Flush() or from Backup Engine, can
