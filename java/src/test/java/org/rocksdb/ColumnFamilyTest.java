@@ -297,8 +297,14 @@ public class ColumnFamilyTest {
     }
   }
 
-  @Test
-  public void multiGet() throws RocksDBException {
+  @FunctionalInterface
+  public interface RocksDBTriFunction<T1, T2, T3, R> {
+    R apply(T1 t1, T2 t2, T3 t3) throws IllegalArgumentException, RocksDBException;
+  }
+
+  private void multiGetHelper(
+      RocksDBTriFunction<RocksDB, List<ColumnFamilyHandle>, List<byte[]>, List<byte[]>> multiGetter)
+      throws RocksDBException {
     final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
         new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
         new ColumnFamilyDescriptor("new_cf".getBytes()));
@@ -314,15 +320,22 @@ public class ColumnFamilyTest {
 
       final List<byte[]> keys = Arrays.asList("key".getBytes(), "newcfkey".getBytes());
 
-      List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList, keys);
-      assertThat(retValues.size()).isEqualTo(2);
-      assertThat(new String(retValues.get(0))).isEqualTo("value");
-      assertThat(new String(retValues.get(1))).isEqualTo("value");
-      retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList, keys);
+      List<byte[]> retValues = multiGetter.apply(db, columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
       assertThat(new String(retValues.get(0))).isEqualTo("value");
       assertThat(new String(retValues.get(1))).isEqualTo("value");
     }
+  }
+
+  @Test
+  public void multiGet() throws RocksDBException {
+    multiGetHelper(RocksDB::multiGetAsList);
+  }
+
+  @Test
+  public void multiGetReadOptions() throws RocksDBException {
+    multiGetHelper(
+        (db, columnFamilies, keys) -> db.multiGetAsList(new ReadOptions(), columnFamilies, keys));
   }
 
   @Test
