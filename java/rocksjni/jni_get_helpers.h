@@ -46,6 +46,9 @@ class MultiGetJNIKeys {
   bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
                       jintArray jkey_lens);
 
+  bool fromByteBuffers(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
+                       jintArray jkey_lens);
+
   ROCKSDB_NAMESPACE::Slice* data();
   std::vector<ROCKSDB_NAMESPACE::Slice>::size_type size();
 };
@@ -59,6 +62,13 @@ class MultiGetJNIValues {
   template <class TValue>
   static jobjectArray byteArrays(JNIEnv*, std::vector<TValue>&,
                                  std::vector<ROCKSDB_NAMESPACE::Status>&);
+
+  template <class TValue>
+  static void fillValuesStatusObjects(JNIEnv*, std::vector<TValue>&,
+                                      std::vector<ROCKSDB_NAMESPACE::Status>&,
+                                      jobjectArray jvalues,
+                                      jintArray jvalue_sizes,
+                                      jobjectArray jstatuses);
 };
 
 class ColumnFamilyJNIHelpers {

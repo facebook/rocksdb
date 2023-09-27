@@ -155,6 +155,39 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
   return true;
 }
 
+bool MultiGetJNIKeys::fromByteBuffers(JNIEnv* env, jobjectArray jkeys,
+                                      jintArray jkey_offs,
+                                      jintArray jkey_lens) {
+  const jsize num_keys = env->GetArrayLength(jkeys);
+
+  std::unique_ptr<jint[]> key_offs = std::make_unique<jint[]>(num_keys);
+  env->GetIntArrayRegion(jkey_offs, 0, num_keys, key_offs.get());
+  if (env->ExceptionCheck()) {
+    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+  }
+
+  std::unique_ptr<jint[]> key_lens = std::make_unique<jint[]>(num_keys);
+  env->GetIntArrayRegion(jkey_lens, 0, num_keys, key_lens.get());
+  if (env->ExceptionCheck()) {
+    return false;  // exception thrown: ArrayIndexOutOfBoundsException
+  }
+
+  for (jsize i = 0; i < num_keys; i++) {
+    jobject jkey = env->GetObjectArrayElement(jkeys, i);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      return false;
+    }
+
+    char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+    ROCKSDB_NAMESPACE::Slice key_slice(key + key_offs[i], key_lens[i]);
+    slices.push_back(key_slice);
+
+    env->DeleteLocalRef(jkey);
+  }
+  return true;
+}
+
 ROCKSDB_NAMESPACE::Slice* MultiGetJNIKeys::data() { return slices.data(); }
 
 std::vector<ROCKSDB_NAMESPACE::Slice>::size_type MultiGetJNIKeys::size() {
@@ -217,6 +250,65 @@ template jobjectArray
 MultiGetJNIValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(
     JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::PinnableSlice>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s);
+
+template <class TValue>
+void MultiGetJNIValues::fillValuesStatusObjects(
+    JNIEnv* env, std::vector<TValue>& values,
+    std::vector<ROCKSDB_NAMESPACE::Status>& s, jobjectArray jvalues,
+    jintArray jvalue_sizes, jobjectArray jstatuses) {
+  std::vector<jint> value_size;
+  for (int i = 0; i < static_cast<jint>(values.size()); i++) {
+    auto jstatus = ROCKSDB_NAMESPACE::StatusJni::construct(env, s[i]);
+    if (jstatus == nullptr) {
+      // exception in context
+      return;
+    }
+    env->SetObjectArrayElement(jstatuses, i, jstatus);
+
+    if (s[i].ok()) {
+      jobject jvalue_bytebuf = env->GetObjectArrayElement(jvalues, i);
+      if (env->ExceptionCheck()) {
+        // ArrayIndexOutOfBoundsException is thrown
+        return;
+      }
+      jlong jvalue_capacity = env->GetDirectBufferCapacity(jvalue_bytebuf);
+      if (jvalue_capacity == -1) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env,
+            "Invalid value(s) argument (argument is not a valid direct "
+            "ByteBuffer)");
+        return;
+      }
+      void* jvalue_address = env->GetDirectBufferAddress(jvalue_bytebuf);
+      if (jvalue_address == nullptr) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env,
+            "Invalid value(s) argument (argument is not a valid direct "
+            "ByteBuffer)");
+        return;
+      }
+
+      // record num returned, push back that number, which may be bigger then
+      // the ByteBuffer supplied. then copy as much as fits in the ByteBuffer.
+      value_size.push_back(static_cast<jint>(values[i].size()));
+      auto copy_bytes =
+          std::min(static_cast<jlong>(values[i].size()), jvalue_capacity);
+      memcpy(jvalue_address, values[i].data(), copy_bytes);
+    } else {
+      // bad status for this
+      value_size.push_back(0);
+    }
+  }
+
+  env->SetIntArrayRegion(jvalue_sizes, 0, static_cast<jint>(values.size()),
+                         value_size.data());
+}
+
+template void
+MultiGetJNIValues::fillValuesStatusObjects<ROCKSDB_NAMESPACE::PinnableSlice>(
+    JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::PinnableSlice>& values,
+    std::vector<ROCKSDB_NAMESPACE::Status>& s, jobjectArray jvalues,
+    jintArray jvalue_sizes, jobjectArray jstatuses);
 
 std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>>
 ColumnFamilyJNIHelpers::handlesFromJLongArray(
