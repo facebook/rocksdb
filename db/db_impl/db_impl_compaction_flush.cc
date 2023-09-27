@@ -2274,19 +2274,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
-        flush_reason != FlushReason::kCatchUpAfterErrorRecovery &&
-        (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())) {
-      // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
-      // auto retry resume, we want to avoid creating new small memtables.
-      // If flush reason is kCatchUpAfterErrorRecovery, we try to flush any new
-      // memtable that filled up during recovery, and we also want to avoid
-      // switching memtable to create small memtables.
-      // Therefore, SwitchMemtable will not be called. Also, since ResumeImpl
-      // will iterate through all the CFs and call FlushMemtable during auto
-      // retry resume, it is possible that in some CFs,
-      // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
-      // be created and scheduled, status::OK() will be returned.
+    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
@@ -2297,8 +2285,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
       }
-      if (immutable_db_options_.persist_stats_to_disk &&
-          flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
+      if (immutable_db_options_.persist_stats_to_disk) {
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
@@ -2374,9 +2361,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       flush_memtable_ids.push_back(&(memtable_ids_to_wait[i]));
     }
     s = WaitForFlushMemTables(
-        cfds, flush_memtable_ids,
-        (flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
+        cfds, flush_memtable_ids, false /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2471,9 +2456,7 @@ Status DBImpl::AtomicFlushMemTables(
     }
 
     for (auto cfd : cfds) {
-      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
-          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
-          flush_reason == FlushReason::kCatchUpAfterErrorRecovery) {
+      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
         continue;
       }
       cfd->Ref();
@@ -2517,9 +2500,7 @@ Status DBImpl::AtomicFlushMemTables(
       flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(
-        cfds, flush_memtable_ids,
-        (flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
+        cfds, flush_memtable_ids, false /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
