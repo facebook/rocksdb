@@ -42,6 +42,7 @@
 * Fix an issue in sst dump tool to handle bounds specified for data with user-defined timestamps.
 * When auto_readahead_size is enabled, update readahead upper bound during readahead trimming when reseek changes iterate_upper_bound dynamically.
 * Fixed a bug where `rocksdb.file.read.verify.file.checksums.micros` is not populated
+* Fixed a bug where compaction read under non direct IO still falls back to RocksDB internal prefetching after file system's prefetching returns non-OK status other than `Status::NotSupported()`
 
 ### Performance Improvements
 * Added additional improvements in tuning readahead_size during Scans when auto_readahead_size is enabled. However it's not supported with Iterator::Prev operation and will return NotSupported error.
