@@ -2551,7 +2551,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
             flush_reason,
             {{cfd, std::numeric_limits<
                        uint64_t>::max() /* max_mem_id_to_persist */}}};
-        cfd->imm()->FlushRequested();
         SchedulePendingFlush(flush_req);
       }
     }
@@ -2569,6 +2568,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
                               true /* resuming_from_bg_err */);
     mutex_.Lock();
   }
+
   for (auto* cfd : cfds) {
     cfd->UnrefAndTryDelete();
   }
