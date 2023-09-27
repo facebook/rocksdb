@@ -459,11 +459,14 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // Since we drop all non-recovery flush requests during recovery,
     // and new memtable may fill up during recovery,
     // schedule one more round of flush.
-    FlushOptions flush_opts;
-    flush_opts.allow_write_stall = false;
-    flush_opts.wait = false;
-    Status status = FlushAllColumnFamilies(
-        flush_opts, FlushReason::kCatchUpAfterErrorRecovery);
+    Status status;
+    if (immutable_db_options_.atomic_flush) {
+      status = AtomicRetryFlushesForErrorRecovery(
+          FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
+    } else {
+      status = RetryFlushesForErrorRecovery(
+          FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
+    }
     if (!status.ok()) {
       // FlushAllColumnFamilies internally should take care of setting
       // background error if needed.
