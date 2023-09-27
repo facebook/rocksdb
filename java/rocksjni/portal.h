@@ -7589,61 +7589,15 @@ class ExportImportFilesMetaDataJni : public JavaClass {
       JNIEnv* env, ROCKSDB_NAMESPACE::ExportImportFilesMetaData*
                        export_import_files_meta_data) {
     jclass jclazz = getJClass(env);
-    if (jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(
+        jclazz, ctor, reinterpret_cast<jlong>(export_import_files_meta_data));
+  }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>",
-                                     "([B[Lorg/rocksdb/LiveFileMetaData;)V");
-    if (mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return nullptr;
-    }
-
-    jbyteArray jdb_comparator_name = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, export_import_files_meta_data->db_comparator_name);
-    if (jdb_comparator_name == nullptr) {
-      // exception occurred creating java byte array
-      return nullptr;
-    }
-
-    const jsize jlen =
-        static_cast<jsize>(export_import_files_meta_data->files.size());
-    jobjectArray jfiles =
-        env->NewObjectArray(jlen, LiveFileMetaDataJni::getJClass(env), nullptr);
-    if (jfiles == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-
-    jsize i = 0;
-    for (auto it = export_import_files_meta_data->files.begin();
-         it != export_import_files_meta_data->files.end(); ++it) {
-      jobject jfile = LiveFileMetaDataJni::fromCppLiveFileMetaData(env, &(*it));
-      if (jfile == nullptr) {
-        // exception occurred
-        env->DeleteLocalRef(jdb_comparator_name);
-        env->DeleteLocalRef(jfiles);
-        return nullptr;
-      }
-      env->SetObjectArrayElement(jfiles, i++, jfile);
-    }
-
-    jobject jexport_import_files_meta_data =
-        env->NewObject(jclazz, mid, jdb_comparator_name, jfiles);
-
-    if (env->ExceptionCheck()) {
-      env->DeleteLocalRef(jdb_comparator_name);
-      env->DeleteLocalRef(jfiles);
-      return nullptr;
-    }
-
-    // cleanup
-    env->DeleteLocalRef(jdb_comparator_name);
-    env->DeleteLocalRef(jfiles);
-
-    return jexport_import_files_meta_data;
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(J)V");
   }
 
   static jclass getJClass(JNIEnv* env) {

@@ -66,16 +66,10 @@ public class CheckPointTest {
           ExportImportFilesMetaData metadata1 =
               checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/export_column_family1");
-          assertThat(metadata1.files().size()).isEqualTo(1);
-          assertThat(metadata1.dbComparatorName())
-              .isEqualTo("leveldb.BytewiseComparator".getBytes());
           db.put("key2".getBytes(), "value2".getBytes());
           ExportImportFilesMetaData metadata2 =
               checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/export_column_family2");
-          assertThat(metadata2.files().size()).isEqualTo(2);
-          assertThat(metadata2.dbComparatorName())
-              .isEqualTo("leveldb.BytewiseComparator".getBytes());
         }
       }
     }

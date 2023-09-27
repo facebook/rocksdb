@@ -12,45 +12,12 @@ import java.util.List;
 /**
  * The metadata that describes a column family.
  */
-public class ExportImportFilesMetaData {
-  private final byte[] dbComparatorName;
-  private final LiveFileMetaData[] files;
-
-  /**
-   * Called from JNI C++
-   */
-  public ExportImportFilesMetaData(final byte[] dbComparatorName, final LiveFileMetaData[] files) {
-    this.dbComparatorName = dbComparatorName;
-    this.files = files;
+public class ExportImportFilesMetaData extends RocksObject {
+  private ExportImportFilesMetaData(final long nativeHandle) {
+    super(nativeHandle);
+    // We do not own the native object!
+    disOwnNativeHandle();
   }
 
-  /**
-   * The name of the db comparator.
-   *
-   * @return the dbComparatorName
-   */
-  public byte[] dbComparatorName() {
-    return dbComparatorName;
-  }
-
-  /**
-   * The metadata of all files in this column family.
-   *
-   * @return the levels files
-   */
-  public List<LiveFileMetaData> files() {
-    return Arrays.asList(files);
-  }
-
-  public long newExportImportFilesMetaDataHandle() {
-    final long[] liveFileMetaDataHandles = new long[files.length];
-    for (int i = 0; i < files.length; i++) {
-      liveFileMetaDataHandles[i] = files[i].newLiveFileMetaDataHandle();
-    }
-    return newExportImportFilesMetaDataHandle(
-        dbComparatorName, dbComparatorName.length, liveFileMetaDataHandles);
-  }
-
-  private native long newExportImportFilesMetaDataHandle(final byte[] dbComparatorName,
-      final int dbComparatorNameLen, final long[] liveFileMetaDataHandles);
+  @Override protected native void disposeInternal(final long handle);
 }
