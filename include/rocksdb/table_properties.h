@@ -219,14 +219,14 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id = ROCKSDB_NAMESPACE::
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
-  // Timestamp of the latest key. 0 means unknown.
+  // Unix time of the newest key written. 0 means unknown.
   // TODO(sagar0): Should be changed to latest_key_time ... but don't know the
   // full implications of backward compatibility. Hence retaining for now.
   uint64_t creation_time = 0;
 
-  // Timestamp of the earliest key. 0 means unknown.
+  // Unix time of the earliest key written. 0 means unknown.
   uint64_t oldest_key_time = 0;
-  // Actual SST file creation time. 0 means unknown.
+  // Unix time of actual SST file creation. 0 means unknown.
   uint64_t file_creation_time = 0;
   // Estimated size of data blocks if compressed using a relatively slower
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).

@@ -14,6 +14,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/utilities/timed_data_importer.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "util/thread_guard.h"
