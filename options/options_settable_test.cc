@@ -252,10 +252,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(FileTypeSet)},
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
-      {offsetof(struct DBOptions, daily_offpeak_start_time_utc),
-       sizeof(std::string)},
-      {offsetof(struct DBOptions, daily_offpeak_end_time_utc),
-       sizeof(std::string)},
+      {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -370,8 +367,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false;"
                              "enforce_single_del_contracts=false;"
-                             "daily_offpeak_start_time_utc=08:30;"
-                             "daily_offpeak_end_time_utc=19:00;",
+                             "daily_offpeak_time_utc=08:30-19:00;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

@@ -137,8 +137,7 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
   int max_background_flushes;
 
-  std::string daily_offpeak_start_time_utc;
-  std::string daily_offpeak_end_time_utc;
+  std::string daily_offpeak_time_utc;
   bool IsNowOffPeak(SystemClock* clock) const;
 };
 

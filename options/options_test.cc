@@ -178,8 +178,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
       {"preserve_deletes", "false"},
-      {"daily_offpeak_start_time_utc", ""},
-      {"daily_offpeak_end_time_utc", ""},
+      {"daily_offpeak_time_utc", ""},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -360,8 +359,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
-  ASSERT_EQ(new_db_opt.daily_offpeak_start_time_utc, "");
-  ASSERT_EQ(new_db_opt.daily_offpeak_end_time_utc, "");
+  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "");
 
   db_options_map["max_open_files"] = "hello";
   Status s =
@@ -883,8 +881,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
-      {"daily_offpeak_start_time_utc", "06:30"},
-      {"daily_offpeak_end_time_utc", "23:30"},
+      {"daily_offpeak_time_utc", "06:30-23:30"},
   };
 
   ConfigOptions db_config_options(base_db_opt);
@@ -916,13 +913,12 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_OK(GetDBOptionsFromString(
       db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;daily_"
-      "offpeak_start_time_utc=08:30;daily_offpeak_end_time_utc=19:00;",
+      "daily_offpeak_time_utc=08:30-19:00;",
       &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.max_open_files, 42);
-  ASSERT_EQ(new_db_opt.daily_offpeak_start_time_utc, "08:30");
-  ASSERT_EQ(new_db_opt.daily_offpeak_end_time_utc, "19:00");
+  ASSERT_EQ(new_db_opt.daily_offpeak_time_utc, "08:30-19:00");
   s = GetDBOptionsFromString(
       db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;"

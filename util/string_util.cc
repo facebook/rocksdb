@@ -437,6 +437,23 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
   return true;
 }
 
+int ParseTimeStringToSeconds(const std::string& value) {
+  int hours, minutes;
+  char colon;
+
+  std::istringstream stream(value);
+  stream >> hours >> colon >> minutes;
+
+  if (stream.fail() || !stream.eof() || colon != ':') {
+    return -1;
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return -1;
+  }
+  return hours * 3600 + minutes * 60;
+}
+
 // Copied from folly/string.cpp:
 // https://github.com/facebook/folly/blob/0deef031cb8aab76dc7e736f8b7c22d701d5f36b/folly/String.cpp#L457
 // There are two variants of `strerror_r` function, one returns

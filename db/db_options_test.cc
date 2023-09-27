@@ -1036,6 +1036,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 
 TEST_F(DBOptionsTest, OffPeakTimes) {
   Options options;
+  options.create_if_missing = true;
 
   auto verify_invalid = [&]() {
     Status s = DBImpl::TEST_ValidateOptions(options);
@@ -1048,34 +1049,35 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     ASSERT_OK(s);
     ASSERT_FALSE(s.IsInvalidArgument());
   };
-  std::vector<std::pair<std::string, std::string>> invalid_cases = {
-      {"06:30", ""},         {"", "23:30"},           // Both need to be set
-      {"12:30 PM", "23:30"}, {"12:01AM", "11:00PM"},  // Invalid format
-      {"01:99", "25:00"},  // Invalid value for the hours or minutes
-      {"13:30", "13:30"},  // start_time and end_time cannot be the same
-      {"random", "value"},   {"No:No", "Hi:Hi"},
+  std::vector<std::string> invalid_cases = {
+      "06:30-",         "-23:30",           // Both need to be set
+      "12:30 PM-23:30", "12:01AM-11:00PM",  // Invalid format
+      "01:99-25:00",  // Invalid value for the hours or minutes
+      "random-value",   "No:No-Hi:Hi",
   };
 
-  std::vector<std::pair<std::string, std::string>> valid_cases = {
-      {"", ""},  // Not enabled. Valid case
-      {"06:30", "11:30"}, {"06:30", "23:30"}, {"13:30", "14:30"},
-      {"23:30", "01:15"},  // From 11:30PM to 1:15AM next day. Valid case
+  std::vector<std::string> valid_cases = {
+      "",  // Not enabled. Valid case
+      "06:30-11:30",
+      "06:30-23:30",
+      "13:30-14:30",
+      "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case
   };
 
-  for (std::pair<std::string, std::string> invalid_case : invalid_cases) {
-    options.daily_offpeak_start_time_utc = invalid_case.first;
-    options.daily_offpeak_end_time_utc = invalid_case.second;
+  for (std::string invalid_case : invalid_cases) {
+    options.daily_offpeak_time_utc = invalid_case;
     verify_invalid();
   }
-  for (std::pair<std::string, std::string> valid_case : valid_cases) {
-    options.daily_offpeak_start_time_utc = valid_case.first;
-    options.daily_offpeak_end_time_utc = valid_case.second;
+  for (std::string valid_case : valid_cases) {
+    options.daily_offpeak_time_utc = valid_case;
     verify_valid();
   }
 
   auto verify_is_now_offpeak = [&](int now_utc_hour, int now_utc_minute,
                                    bool expected) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+
     mock_clock->SetCurrentTime(now_utc_hour * 3600 + now_utc_minute * 60);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
@@ -1083,25 +1085,83 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     ASSERT_EQ(expected, db_options.IsNowOffPeak(mock_clock.get()));
   };
 
-  options.daily_offpeak_start_time_utc = "";
-  options.daily_offpeak_end_time_utc = "";
+  options.daily_offpeak_time_utc = "";
   verify_is_now_offpeak(12, 30, false);
 
-  options.daily_offpeak_start_time_utc = "06:30";
-  options.daily_offpeak_end_time_utc = "11:30";
+  options.daily_offpeak_time_utc = "06:30-11:30";
   verify_is_now_offpeak(5, 30, false);
   verify_is_now_offpeak(6, 30, true);
   verify_is_now_offpeak(10, 30, true);
   verify_is_now_offpeak(11, 30, true);
   verify_is_now_offpeak(13, 30, false);
 
-  options.daily_offpeak_start_time_utc = "23:30";
-  options.daily_offpeak_end_time_utc = "04:30";
+  options.daily_offpeak_time_utc = "23:30-04:30";
   verify_is_now_offpeak(6, 30, false);
   verify_is_now_offpeak(23, 30, true);
-  verify_is_now_offpeak(23, 45, true);
+  verify_is_now_offpeak(0, 0, true);
   verify_is_now_offpeak(1, 0, true);
-  verify_is_now_offpeak(4, 35, false);
+  verify_is_now_offpeak(4, 30, true);
+  verify_is_now_offpeak(4, 31, false);
+
+  // entire day is offpeak (weird use case, but valid)
+  options.daily_offpeak_time_utc = "00:00-23:59";
+  verify_is_now_offpeak(0, 0, true);
+  verify_is_now_offpeak(12, 00, true);
+  verify_is_now_offpeak(23, 59, true);
+
+  // Open the db and test by Get/SetDBOptions
+  options.daily_offpeak_time_utc = "";
+  DestroyAndReopen(options);
+  ASSERT_EQ("", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+  for (std::string invalid_case : invalid_cases) {
+    ASSERT_NOK(
+        dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
+  }
+  for (std::string valid_case : valid_cases) {
+    ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
+    ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
+  }
+  Close();
+
+  int now_hour = 13;
+  int now_minute = 30;
+  options.daily_offpeak_time_utc = "23:30-04:30";
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+  mock_clock->SetCurrentTime(now_hour * 3600 + now_minute * 60);
+  options.env = mock_env.get();
+
+  // Starting at 1:30PM. It's not off-peak
+  Reopen(options);
+  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
+                   .IsNowOffPeak(mock_clock.get()));
+
+  // Now it's at 4:30PM. Still not off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
+                   .IsNowOffPeak(mock_clock.get()));
+
+  // Now it's at 11:30PM. It's off-peak
+  mock_clock->MockSleepForSeconds(7 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Now it's at 2:30AM next day. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Now it's at 4:30AM. It's still off-peak
+  mock_clock->MockSleepForSeconds(2 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Sleep for one more second. It's no longer off-peak
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
+                   .IsNowOffPeak(mock_clock.get()));
+
+  Close();
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {

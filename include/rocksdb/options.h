@@ -1438,10 +1438,11 @@ struct DBOptions {
   // the next peak cycle begins. For example, if the TTL is configured for 25
   // days, we may compact the files during the off-peak hours of the 24th day.
   //
-  // Time of the day in UTC. Format - HH:mm (e.g. 00:00 - 23:59)
-  // Default: Empty String (No notion of peak/offpeak)
-  std::string daily_offpeak_start_time_utc = "";
-  std::string daily_offpeak_end_time_utc = "";
+  // Time of the day in UTC. Format - HH:mm-HH:mm (00:00-23:59)
+  // If the start time > end time, it will be considered that the time period
+  // spans to the next day (e.g., 23:30-04:00) Default: Empty String (No notion
+  // of peak/offpeak)
+  std::string daily_offpeak_time_utc = "";
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

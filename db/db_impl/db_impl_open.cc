@@ -26,6 +26,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
+#include "util/string_util.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -292,29 +293,15 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "writes in direct IO require writable_file_max_buffer_size > 0");
   }
 
-  if (db_options.daily_offpeak_start_time_utc != "" ||
-      db_options.daily_offpeak_end_time_utc != "") {
-    if (db_options.daily_offpeak_start_time_utc == "" ||
-        db_options.daily_offpeak_end_time_utc == "") {
+  if (db_options.daily_offpeak_time_utc != "") {
+    auto split = StringSplit(db_options.daily_offpeak_time_utc, '-');
+    if (split.size() != 2 || ParseTimeStringToSeconds(split[0]) < 0 ||
+        ParseTimeStringToSeconds(split[1]) < 0) {
       return Status::InvalidArgument(
-          "Both daily_offpeak_start_time_utc and daily_offpeak_end_time_utc "
-          "need to be set for daily offpeak");
-    }
-    const std::regex hh_mm_regex("^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$");
-    if (!std::regex_match(db_options.daily_offpeak_start_time_utc,
-                          hh_mm_regex) ||
-        !std::regex_match(db_options.daily_offpeak_end_time_utc, hh_mm_regex)) {
-      return Status::InvalidArgument(
-          "daily_offpeak_start_time_utc and daily_offpeak_end_time_utc should "
-          "be set in the format HH:mm (e.g. 04:30)");
-    } else if (db_options.daily_offpeak_start_time_utc ==
-               db_options.daily_offpeak_end_time_utc) {
-      return Status::InvalidArgument(
-          "daily_offpeak_start_time_utc and daily_offpeak_end_time_utc cannot "
-          "be equal");
+          "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
+          "(e.g. 04:30-07:30)");
     }
   }
-
   return Status::OK();
 }
 
