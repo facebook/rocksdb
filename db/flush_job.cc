@@ -100,7 +100,7 @@ FlushJob::FlushJob(
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const SeqnoToTimeMapping& seqno_time_mapping, const std::string& db_id,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
@@ -136,7 +136,7 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
-      db_impl_seqno_time_mapping_(seqno_time_mapping) {
+      db_impl_seqno_to_time_mapping_(seqno_to_time_mapping) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -851,10 +851,11 @@ Status FlushJob::WriteLevel0Table() {
   Status s;
 
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
-  if (!db_impl_seqno_time_mapping_.Empty()) {
-    // make a local copy, as the seqno_time_mapping from db_impl is not thread
-    // safe, which will be used while not holding the db_mutex.
-    seqno_to_time_mapping_ = db_impl_seqno_time_mapping_.Copy(smallest_seqno);
+  if (!db_impl_seqno_to_time_mapping_.Empty()) {
+    // make a local copy, as the seqno_to_time_mapping from db_impl is not
+    // thread safe, which will be used while not holding the db_mutex.
+    seqno_to_time_mapping_ =
+        db_impl_seqno_to_time_mapping_.Copy(smallest_seqno);
   }
 
   std::vector<BlobFileAddition> blob_file_additions;

@@ -210,9 +210,9 @@ class FlushJob {
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
-  // reference to the seqno_time_mapping_ in db_impl.h, not safe to read without
-  // db mutex
-  const SeqnoToTimeMapping& db_impl_seqno_time_mapping_;
+  // reference to the seqno_to_time_mapping_ in db_impl.h, not safe to read
+  // without db mutex
+  const SeqnoToTimeMapping& db_impl_seqno_to_time_mapping_;
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Keeps track of the newest user-defined timestamp for this flush job if
