@@ -170,6 +170,12 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
 // Returns -1 if invalid input. Otherwise returns seconds since midnight
 int ParseTimeStringToSeconds(const std::string& value);
 
+// Expects HH:mm-HH:mm format for the input value
+// Returns false, if invalid format.
+// Otherwise, returns true and start_time and end_time are set
+bool TryParseTimeRangeString(const std::string& value, int& start_time,
+                             int& end_time);
+
 extern const std::string kNullptrString;
 
 // errnoStr() function returns a string that describes the error code passed in

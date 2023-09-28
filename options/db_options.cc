@@ -6,9 +6,6 @@
 #include "options/db_options.h"
 
 #include <cinttypes>
-#include <cstdint>
-#include <ctime>
-#include <iomanip>
 
 #include "logging/logging.h"
 #include "options/configurable_helper.h"
@@ -1075,12 +1072,11 @@ bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
   }
   int64_t now;
   if (clock->GetCurrentTime(&now).ok()) {
-    int since_midnight_seconds = static_cast<int>(now % 86400);
-    auto split = StringSplit(daily_offpeak_time_utc, '-');
-    assert(split.size() == 2);
-    int start_time = ParseTimeStringToSeconds(split[0]);
-    int end_time = ParseTimeStringToSeconds(split[1]);
-    assert(start_time >= 0 && end_time >= 0);
+    constexpr int seconds_per_day = 86400;
+    int since_midnight_seconds = static_cast<int>(now % seconds_per_day);
+    int start_time = 0, end_time = 0;
+    assert(
+        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time));
 
     // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
     if (start_time > end_time) {

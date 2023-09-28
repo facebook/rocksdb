@@ -1050,9 +1050,11 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     ASSERT_FALSE(s.IsInvalidArgument());
   };
   std::vector<std::string> invalid_cases = {
-      "06:30-",         "-23:30",           // Both need to be set
+      "06:30-",         "-23:30",  // Both need to be set
+      "06:30-06:30",  // Valid, but start time and end time cannot be the same
       "12:30 PM-23:30", "12:01AM-11:00PM",  // Invalid format
-      "01:99-25:00",  // Invalid value for the hours or minutes
+      "01:99-22:00",                        // Invalid value for minutes
+      "00:00-24:00",                        // 24:00 is an invalid value
       "random-value",   "No:No-Hi:Hi",
   };
 
@@ -1061,6 +1063,7 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
       "06:30-11:30",
       "06:30-23:30",
       "13:30-14:30",
+      "00:00-23:59",
       "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case
   };
 

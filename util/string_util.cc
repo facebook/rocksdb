@@ -454,6 +454,28 @@ int ParseTimeStringToSeconds(const std::string& value) {
   return hours * 3600 + minutes * 60;
 }
 
+bool TryParseTimeRangeString(const std::string& value, int& start_time,
+                             int& end_time) {
+  if (value.empty()) {
+    start_time = 0;
+    end_time = 0;
+    return true;
+  }
+  auto split = StringSplit(value, '-');
+  if (split.size() != 2) {
+    return false;
+  }
+  start_time = ParseTimeStringToSeconds(split[0]);
+  if (start_time < 0) {
+    return false;
+  }
+  end_time = ParseTimeStringToSeconds(split[1]);
+  if (end_time < 0) {
+    return false;
+  }
+  return true;
+}
+
 // Copied from folly/string.cpp:
 // https://github.com/facebook/folly/blob/0deef031cb8aab76dc7e736f8b7c22d701d5f36b/folly/String.cpp#L457
 // There are two variants of `strerror_r` function, one returns

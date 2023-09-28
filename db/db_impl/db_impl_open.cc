@@ -293,12 +293,16 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   }
 
   if (db_options.daily_offpeak_time_utc != "") {
-    auto split = StringSplit(db_options.daily_offpeak_time_utc, '-');
-    if (split.size() != 2 || ParseTimeStringToSeconds(split[0]) < 0 ||
-        ParseTimeStringToSeconds(split[1]) < 0) {
+    int start_time, end_time;
+    if (!TryParseTimeRangeString(db_options.daily_offpeak_time_utc, start_time,
+                                 end_time)) {
       return Status::InvalidArgument(
           "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
           "(e.g. 04:30-07:30)");
+    }
+    if (start_time == end_time) {
+      return Status::InvalidArgument(
+          "start_time and end_time cannot be the same");
     }
   }
   return Status::OK();
