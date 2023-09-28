@@ -912,7 +912,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   db_config_options.ignore_unknown_options = false;
   ASSERT_OK(GetDBOptionsFromString(
       db_config_options, base_db_opt,
-      "create_if_missing=false;error_if_exists=false;max_open_files=42;daily_"
+      "create_if_missing=false;error_if_exists=false;max_open_files=42;"
       "daily_offpeak_time_utc=08:30-19:00;",
       &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);

@@ -1076,8 +1076,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   auto verify_is_now_offpeak = [&](int now_utc_hour, int now_utc_minute,
                                    bool expected) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-
     mock_clock->SetCurrentTime(now_utc_hour * 3600 + now_utc_minute * 60);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
@@ -1123,6 +1121,9 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   }
   Close();
 
+  // Sets off-peak time from 11:30PM to 4:30AM next day.
+  // Starting at 1:30PM, use mock sleep to make time pass
+  // and see if IsNowOffPeak() returns correctly per time changes
   int now_hour = 13;
   int now_minute = 30;
   options.daily_offpeak_time_utc = "23:30-04:30";
@@ -1132,7 +1133,7 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   options.env = mock_env.get();
 
   // Starting at 1:30PM. It's not off-peak
-  Reopen(options);
+  DestroyAndReopen(options);
   ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
                    .IsNowOffPeak(mock_clock.get()));
 
