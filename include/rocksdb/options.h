@@ -1200,11 +1200,11 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
-  // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+  // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
   // SetOptions will fail if options file is not properly persisted.
   //
-  // DEFAULT: false
-  bool fail_if_options_file_error = false;
+  // DEFAULT: true
+  bool fail_if_options_file_error = true;
 
   // If true, then print malloc stats together with rocksdb.stats
   // when printing to LOG.
