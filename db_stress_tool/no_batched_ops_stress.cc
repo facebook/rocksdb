@@ -2034,9 +2034,7 @@ class NonBatchedOpsStressTest : public StressTest {
       const Slice slice(value_from_db);
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
-                                                  expected_value) ||
-          !ExpectedValueHelper::InExpectedValueBaseRange(
-              value_base_from_db, expected_value, expected_value)) {
+                                                  expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
                           key, value_from_db, "");
         return false;
@@ -2045,6 +2043,14 @@ class NonBatchedOpsStressTest : public StressTest {
       size_t expected_value_data_size =
           GenerateValue(expected_value.GetValueBase(), expected_value_data,
                         sizeof(expected_value_data));
+      if (!ExpectedValueHelper::InExpectedValueBaseRange(
+              value_base_from_db, expected_value, expected_value)) {
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+      // TODO: are the length/memcmp() checks repetitive?
       if (value_from_db.length() != expected_value_data_size) {
         VerificationAbort(shared,
                           msg_prefix + ": Length of value read is not equal",
