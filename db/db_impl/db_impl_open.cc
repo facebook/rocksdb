@@ -25,6 +25,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
+#include "util/string_util.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -291,6 +292,15 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "writes in direct IO require writable_file_max_buffer_size > 0");
   }
 
+  if (db_options.daily_offpeak_time_utc != "") {
+    int start_time, end_time;
+    if (!TryParseTimeRangeString(db_options.daily_offpeak_time_utc, start_time,
+                                 end_time)) {
+      return Status::InvalidArgument(
+          "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
+          "(e.g. 04:30-07:30)");
+    }
+  }
   return Status::OK();
 }
 

@@ -1197,6 +1197,10 @@ class DBImpl : public DB {
 
   const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 
+  static Status TEST_ValidateOptions(const DBOptions& db_options) {
+    return ValidateOptions(db_options);
+  }
+
 #endif  // NDEBUG
 
   // persist stats to column family "_persistent_stats"
