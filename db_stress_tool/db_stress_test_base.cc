@@ -17,6 +17,7 @@
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
+#include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
@@ -511,7 +512,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         ts = GetNowNanos();
       }
 
-      if (FLAGS_use_merge) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        s = db_->PutEntity(write_opts, cfh, key,
+                           GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
             s = db_->Merge(write_opts, cfh, key, ts, v);
@@ -523,9 +528,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
               write_opts, /*thread=*/nullptr,
               [&](Transaction& txn) { return txn.Merge(cfh, key, v); });
         }
-      } else if (FLAGS_use_put_entity_one_in > 0) {
-        s = db_->PutEntity(write_opts, cfh, key,
-                           GenerateWideColumns(value_base, v));
       } else {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
@@ -2755,8 +2757,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           if (s.ok()) {
             db_ = blob_db;
           }
-        } else
-        {
+        } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
             s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
                                     cf_descriptors, &column_families_, &db_);
@@ -3337,7 +3338,11 @@ void InitializeOptionsFromFlags(
   if (FLAGS_use_full_merge_v1) {
     options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
   } else {
-    options.merge_operator = MergeOperators::CreatePutOperator();
+    if (FLAGS_use_put_entity_one_in > 0) {
+      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
+    } else {
+      options.merge_operator = MergeOperators::CreatePutOperator();
+    }
   }
 
   if (FLAGS_enable_compaction_filter) {
