@@ -1216,12 +1216,17 @@ class PrecludeLastLevelTest : public DBTestBase {
   PrecludeLastLevelTest()
       : DBTestBase("preclude_last_level_test", /*env_do_fsync=*/false) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_clock_->SetCurrentTime(kMockStartTime);
     mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
   }
 
  protected:
   std::unique_ptr<Env> mock_env_;
   std::shared_ptr<MockSystemClock> mock_clock_;
+
+  // Sufficient starting time that preserve time doesn't under-flow into
+  // pre-history
+  static constexpr uint32_t kMockStartTime = 10000000;
 
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
@@ -1231,7 +1236,7 @@ class PrecludeLastLevelTest : public DBTestBase {
               reinterpret_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
-    mock_clock_->SetCurrentTime(0);
+    mock_clock_->SetCurrentTime(kMockStartTime);
   }
 };
 
