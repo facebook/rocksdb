@@ -1050,8 +1050,7 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     ASSERT_FALSE(s.IsInvalidArgument());
   };
   std::vector<std::string> invalid_cases = {
-      "06:30-",         "-23:30",  // Both need to be set
-      "06:30-06:30",  // Valid, but start time and end time cannot be the same
+      "06:30-",         "-23:30",           // Both need to be set
       "12:30 PM-23:30", "12:01AM-11:00PM",  // Invalid format
       "01:99-22:00",                        // Invalid value for minutes
       "00:00-24:00",                        // 24:00 is an invalid value
@@ -1059,12 +1058,13 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   };
 
   std::vector<std::string> valid_cases = {
-      "",  // Not enabled. Valid case
-      "06:30-11:30",
-      "06:30-23:30",
-      "13:30-14:30",
-      "00:00-23:59",
-      "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case
+      "",             // Not enabled. Valid case
+      "00:00-00:00",  // Valid. Entire 24 hours are offpeak.
+      "06:30-11:30", "06:30-23:30", "13:30-14:30",
+      "00:00-23:59",  // This doesn't cover entire 24 hours. There's 1 minute
+                      // gap from 11:59:00PM to midnight
+      "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case.
+      "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
   };
 
   for (std::string invalid_case : invalid_cases) {
@@ -1076,10 +1076,14 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     verify_valid();
   }
 
-  auto verify_is_now_offpeak = [&](int now_utc_hour, int now_utc_minute,
-                                   bool expected) {
+  auto verify_is_now_offpeak = [&](bool expected, int now_utc_hour,
+                                   int now_utc_minute, int now_utc_second = 0) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    mock_clock->SetCurrentTime(now_utc_hour * 3600 + now_utc_minute * 60);
+    // Add some extra random days to current time
+    Random rnd(301);
+    int days = rnd.Uniform(100);
+    mock_clock->SetCurrentTime(days * 86400 + now_utc_hour * 3600 +
+                               now_utc_minute * 60 + now_utc_second);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
     auto db_options = MutableDBOptions(options);
@@ -1087,28 +1091,29 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   };
 
   options.daily_offpeak_time_utc = "";
-  verify_is_now_offpeak(12, 30, false);
+  verify_is_now_offpeak(false, 12, 30);
 
   options.daily_offpeak_time_utc = "06:30-11:30";
-  verify_is_now_offpeak(5, 30, false);
-  verify_is_now_offpeak(6, 30, true);
-  verify_is_now_offpeak(10, 30, true);
-  verify_is_now_offpeak(11, 30, true);
-  verify_is_now_offpeak(13, 30, false);
+  verify_is_now_offpeak(false, 5, 30);
+  verify_is_now_offpeak(true, 6, 30);
+  verify_is_now_offpeak(true, 10, 30);
+  verify_is_now_offpeak(true, 11, 30);
+  verify_is_now_offpeak(false, 13, 30);
 
   options.daily_offpeak_time_utc = "23:30-04:30";
-  verify_is_now_offpeak(6, 30, false);
-  verify_is_now_offpeak(23, 30, true);
-  verify_is_now_offpeak(0, 0, true);
-  verify_is_now_offpeak(1, 0, true);
-  verify_is_now_offpeak(4, 30, true);
-  verify_is_now_offpeak(4, 31, false);
+  verify_is_now_offpeak(false, 6, 30);
+  verify_is_now_offpeak(true, 23, 30);
+  verify_is_now_offpeak(true, 0, 0);
+  verify_is_now_offpeak(true, 1, 0);
+  verify_is_now_offpeak(true, 4, 30);
+  verify_is_now_offpeak(false, 4, 31);
 
-  // entire day is offpeak (weird use case, but valid)
+  // There's one minute gap from 11:59PM to midnight
   options.daily_offpeak_time_utc = "00:00-23:59";
-  verify_is_now_offpeak(0, 0, true);
-  verify_is_now_offpeak(12, 00, true);
-  verify_is_now_offpeak(23, 59, true);
+  verify_is_now_offpeak(true, 0, 0);
+  verify_is_now_offpeak(true, 12, 00);
+  verify_is_now_offpeak(true, 23, 59);
+  verify_is_now_offpeak(false, 23, 59, 1);
 
   // Open the db and test by Get/SetDBOptions
   options.daily_offpeak_time_utc = "";
@@ -1132,7 +1137,10 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   options.daily_offpeak_time_utc = "23:30-04:30";
   auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
   auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-  mock_clock->SetCurrentTime(now_hour * 3600 + now_minute * 60);
+  // Add some extra random days to current time
+  Random rnd(301);
+  int days = rnd.Uniform(100);
+  mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
   options.env = mock_env.get();
 
   // Starting at 1:30PM. It's not off-peak

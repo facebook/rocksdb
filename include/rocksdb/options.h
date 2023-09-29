@@ -1440,8 +1440,11 @@ struct DBOptions {
   //
   // Time of the day in UTC. Format - HH:mm-HH:mm (00:00-23:59)
   // If the start time > end time, it will be considered that the time period
-  // spans to the next day (e.g., 23:30-04:00) Default: Empty String (No notion
-  // of peak/offpeak)
+  // spans to the next day (e.g., 23:30-04:00)
+  // If the start time == end time, entire 24 hours will be considered offpeak
+  // (e.g. 00:00-00:00). Note that 00:00-23:59 will have one minute gap from
+  // 11:59:00PM to midnight.
+  // Default: Empty String (No notion of peak/offpeak)
   std::string daily_offpeak_time_utc = "";
 };
 
