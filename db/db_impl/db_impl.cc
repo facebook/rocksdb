@@ -830,9 +830,9 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
       }
     }
     if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
-      seqno_time_mapping_.Resize(0, 0);
+      seqno_to_time_mapping_.Resize(0, 0);
     } else {
-      seqno_time_mapping_.Resize(min_time_duration, max_time_duration);
+      seqno_to_time_mapping_.Resize(min_time_duration, max_time_duration);
     }
   }
 
@@ -6371,16 +6371,18 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
 }
 
 void DBImpl::RecordSeqnoToTimeMapping() {
+  // TECHNICALITY: Sample last sequence number *before* time, as prescribed
+  // for SeqnoToTimeMapping
+  SequenceNumber seqno = GetLatestSequenceNumber();
   // Get time first then sequence number, so the actual time of seqno is <=
   // unix_time recorded
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
-  SequenceNumber seqno = GetLatestSequenceNumber();
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);
-    appended = seqno_time_mapping_.Append(seqno, unix_time);
+    appended = seqno_to_time_mapping_.Append(seqno, unix_time);
   }
   if (!appended) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,

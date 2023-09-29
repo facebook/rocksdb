@@ -12,7 +12,6 @@
 #include "rocksdb/utilities/debug.h"
 #include "test_util/mock_time_env.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 class SeqnoTimeTest : public DBTestBase {
@@ -77,8 +76,11 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
@@ -189,8 +191,11 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
 
@@ -320,7 +325,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   DestroyAndReopen(options);
 
   std::set<uint64_t> checked_file_nums;
-  SequenceNumber start_seq = dbfull()->GetLatestSequenceNumber();
+  SequenceNumber start_seq = dbfull()->GetLatestSequenceNumber() + 1;
   // Write a key every 10 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i), "value"));
@@ -341,15 +346,15 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   // passes 2k time.
   ASSERT_GE(seqs.size(), 19);
   ASSERT_LE(seqs.size(), 21);
-  SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber();
+  SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber() + 1;
   for (auto i = start_seq; i < start_seq + 10; i++) {
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i), (i + 1) * 10);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i + 1) * 10);
   }
   start_seq += 10;
   for (auto i = start_seq; i < seq_end; i++) {
     // The result is within the range
-    ASSERT_GE(tp_mapping.GetOldestApproximateTime(i), (i - 10) * 10);
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i), (i + 10) * 10);
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - 10) * 10);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i + 10) * 10);
   }
   checked_file_nums.insert(it->second->orig_file_number);
   start_seq = seq_end;
@@ -360,7 +365,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1)); });
   }
-  seq_end = dbfull()->GetLatestSequenceNumber();
+  seq_end = dbfull()->GetLatestSequenceNumber() + 1;
   ASSERT_OK(Flush());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
@@ -384,8 +389,8 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   for (auto i = start_seq; i < seq_end; i++) {
     // The result is not very accurate, as there is more data write within small
     // range of time
-    ASSERT_GE(tp_mapping.GetOldestApproximateTime(i), (i - start_seq) + 1000);
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i), (i - start_seq) + 3000);
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 1000);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 3000);
   }
   checked_file_nums.insert(it->second->orig_file_number);
   start_seq = seq_end;
@@ -396,7 +401,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(200)); });
   }
-  seq_end = dbfull()->GetLatestSequenceNumber();
+  seq_end = dbfull()->GetLatestSequenceNumber() + 1;
   ASSERT_OK(Flush());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
@@ -419,14 +424,14 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_LE(seqs.size(), 101);
   for (auto i = start_seq; i < seq_end - 99; i++) {
     // likely the first 100 entries reports 0
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i), (i - start_seq) + 3000);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 3000);
   }
   start_seq += 101;
 
   for (auto i = start_seq; i < seq_end; i++) {
-    ASSERT_GE(tp_mapping.GetOldestApproximateTime(i),
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
               (i - start_seq) * 200 + 22200);
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i),
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
               (i - start_seq) * 200 + 22600);
   }
   checked_file_nums.insert(it->second->orig_file_number);
@@ -438,7 +443,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
     dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
-  seq_end = dbfull()->GetLatestSequenceNumber();
+  seq_end = dbfull()->GetLatestSequenceNumber() + 1;
   ASSERT_OK(Flush());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
@@ -486,15 +491,15 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_LE(seqs.size(), 101);
   for (auto i = start_seq; i < seq_end - 99; i++) {
     // likely the first 100 entries reports 0
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i),
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
               (i - start_seq) * 100 + 50000);
   }
   start_seq += 101;
 
   for (auto i = start_seq; i < seq_end; i++) {
-    ASSERT_GE(tp_mapping.GetOldestApproximateTime(i),
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
               (i - start_seq) * 100 + 52200);
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i),
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
               (i - start_seq) * 100 + 52400);
   }
   ASSERT_OK(db_->Close());
@@ -707,6 +712,14 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
 
   DestroyAndReopen(options);
 
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(SingleDelete("foo"));
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
   std::atomic_uint64_t num_seqno_zeroing{0};
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -843,8 +856,9 @@ TEST_F(SeqnoTimeTest, MappingAppend) {
   ASSERT_FALSE(test.Append(8, 12));
   ASSERT_EQ(size, test.Size());
 
-  // Append with the same seqno, newer time will be accepted
-  ASSERT_TRUE(test.Append(10, 12));
+  // Append with the same seqno, newer time is rejected because that makes
+  // GetProximalSeqnoBeforeTime queries worse (see later test)
+  ASSERT_FALSE(test.Append(10, 12));
   ASSERT_EQ(size, test.Size());
   // older time will be ignored
   ASSERT_FALSE(test.Append(10, 9));
@@ -853,25 +867,176 @@ TEST_F(SeqnoTimeTest, MappingAppend) {
   // new seqno with old time will be ignored
   ASSERT_FALSE(test.Append(12, 8));
   ASSERT_EQ(size, test.Size());
+
+  // new seqno with same time is accepted by replacing last entry
+  // (improves GetProximalSeqnoBeforeTime queries without blowing up size)
+  ASSERT_TRUE(test.Append(12, 11));
+  ASSERT_EQ(size, test.Size());
 }
 
-TEST_F(SeqnoTimeTest, GetOldestApproximateTime) {
+TEST_F(SeqnoTimeTest, ProximalFunctions) {
   SeqnoToTimeMapping test(/*max_time_duration=*/100, /*max_capacity=*/10);
 
-  ASSERT_EQ(test.GetOldestApproximateTime(10), kUnknownSeqnoTime);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(1), kUnknownTimeBeforeAll);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(1000000000000U),
+            kUnknownTimeBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(1), kUnknownSeqnoBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(1000000000000U),
+            kUnknownSeqnoBeforeAll);
 
-  test.Append(3, 10);
+  // (Taken from example in SeqnoToTimeMapping class comment)
+  // Time 500 is after seqno 10 and before seqno 11
+  EXPECT_TRUE(test.Append(10, 500));
 
-  ASSERT_EQ(test.GetOldestApproximateTime(2), kUnknownSeqnoTime);
-  ASSERT_EQ(test.GetOldestApproximateTime(3), 10);
-  ASSERT_EQ(test.GetOldestApproximateTime(10), 10);
+  // Seqno too early
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(9), kUnknownTimeBeforeAll);
+  // We only know that 500 is after 10
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(10), kUnknownTimeBeforeAll);
+  // Found
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(11), 500U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(1000000000000U), 500U);
 
-  test.Append(10, 100);
+  // Time too early
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(499), kUnknownSeqnoBeforeAll);
+  // Found
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(500), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(501), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(1000000000000U), 10U);
 
-  test.Append(100, 1000);
-  ASSERT_EQ(test.GetOldestApproximateTime(10), 100);
-  ASSERT_EQ(test.GetOldestApproximateTime(40), 100);
-  ASSERT_EQ(test.GetOldestApproximateTime(111), 1000);
+  // More samples
+  EXPECT_TRUE(test.Append(20, 600));
+  EXPECT_TRUE(test.Append(30, 700));
+
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(10), kUnknownTimeBeforeAll);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(11), 500U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(20), 500U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(21), 600U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(30), 600U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(31), 700U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(1000000000000U), 700U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(499), kUnknownSeqnoBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(500), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(501), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(599), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(600), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(601), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(699), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(700), 30U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(701), 30U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(1000000000000U), 30U);
+
+  // Redundant sample ignored
+  EXPECT_EQ(test.Size(), 3U);
+  EXPECT_FALSE(test.Append(30, 700));
+  EXPECT_EQ(test.Size(), 3U);
+
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(30), 600U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(31), 700U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(699), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(700), 30U);
+
+  // Later sample with same seqno is ignored, to provide best results
+  // for GetProximalSeqnoBeforeTime function while saving entries
+  // in SeqnoToTimeMapping.
+  EXPECT_FALSE(test.Append(30, 800));
+
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(30), 600U);
+  // Could return 800, but saving space in SeqnoToTimeMapping instead.
+  // Can reconsider if/when GetProximalTimeBeforeSeqno is used in
+  // production.
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(31), 700U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(699), 20U);
+  // If the existing {30, 700} entry were replaced with {30, 800}, this
+  // would return seqno 20 instead of 30, which would preclude more than
+  // necessary for "preclude_last_level_data_seconds" feature.
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(700), 30U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(800), 30U);
+
+  // Still OK
+  EXPECT_TRUE(test.Append(40, 900));
+
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(30), 600U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(41), 900U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(899), 30U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(900), 40U);
+
+  // Burst of writes during a short time creates an opportunity
+  // for better results from GetProximalSeqnoBeforeTime(), at the
+  // expense of GetProximalTimeBeforeSeqno().
+  EXPECT_TRUE(test.Append(50, 900));
+
+  // These are subject to later revision depending on priorities
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(49), 700U);
+  EXPECT_EQ(test.GetProximalTimeBeforeSeqno(51), 900U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(899), 30U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(900), 50U);
+}
+
+TEST_F(SeqnoTimeTest, TruncateOldEntries) {
+  constexpr uint64_t kMaxTimeDuration = 42;
+  SeqnoToTimeMapping test(kMaxTimeDuration, /*max_capacity=*/10);
+
+  EXPECT_EQ(test.Size(), 0U);
+
+  // Safe on empty mapping
+  test.TruncateOldEntries(500);
+
+  EXPECT_EQ(test.Size(), 0U);
+
+  // (Taken from example in SeqnoToTimeMapping class comment)
+  // Time 500 is after seqno 10 and before seqno 11
+  EXPECT_TRUE(test.Append(10, 500));
+  EXPECT_TRUE(test.Append(20, 600));
+  EXPECT_TRUE(test.Append(30, 700));
+  EXPECT_TRUE(test.Append(40, 800));
+  EXPECT_TRUE(test.Append(50, 900));
+
+  EXPECT_EQ(test.Size(), 5U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(500), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(599), 10U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(600), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(699), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(700), 30U);
+  // etc.
+
+  // Must keep first entry
+  test.TruncateOldEntries(500 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 5U);
+  test.TruncateOldEntries(599 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 5U);
+
+  // Purges first entry
+  test.TruncateOldEntries(600 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 4U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(500), kUnknownSeqnoBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(599), kUnknownSeqnoBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(600), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(699), 20U);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(700), 30U);
+
+  // No effect
+  test.TruncateOldEntries(600 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 4U);
+  test.TruncateOldEntries(699 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 4U);
+
+  // Purges next two
+  test.TruncateOldEntries(899 + kMaxTimeDuration);
+  EXPECT_EQ(test.Size(), 2U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(799), kUnknownSeqnoBeforeAll);
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(899), 40U);
+
+  // Always keep last entry, to have a non-trivial seqno bound
+  test.TruncateOldEntries(10000000);
+  EXPECT_EQ(test.Size(), 1U);
+
+  EXPECT_EQ(test.GetProximalSeqnoBeforeTime(10000000), 50U);
 }
 
 TEST_F(SeqnoTimeTest, Sort) {
@@ -930,10 +1095,10 @@ TEST_F(SeqnoTimeTest, EncodeDecodeBasic) {
   for (SequenceNumber seq = 0; seq <= 1000; seq++) {
     // test has the more accurate time mapping, encode only pick
     // kMaxSeqnoTimePairsPerSST number of entries, which is less accurate
-    uint64_t target_time = test.GetOldestApproximateTime(seq);
-    ASSERT_GE(decoded.GetOldestApproximateTime(seq),
+    uint64_t target_time = test.GetProximalTimeBeforeSeqno(seq);
+    ASSERT_GE(decoded.GetProximalTimeBeforeSeqno(seq),
               target_time < 200 ? 0 : target_time - 200);
-    ASSERT_LE(decoded.GetOldestApproximateTime(seq), target_time);
+    ASSERT_LE(decoded.GetProximalTimeBeforeSeqno(seq), target_time);
   }
 }
 
