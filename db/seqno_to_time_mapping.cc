@@ -75,7 +75,7 @@ void SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
   // GetProximalSeqnoBeforeTime(cut_off_time)
   --it;
   // Remove everything strictly before that entry
-  pairs_.erase(pairs_.cbegin(), it);
+  pairs_.erase(pairs_.cbegin(), std::move(it));
 }
 
 SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(uint64_t time) {
