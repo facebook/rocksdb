@@ -1212,8 +1212,11 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping
-  void RecordSeqnoToTimeMapping();
+  // record current sequence number to time mapping. If
+  // populate_historical_seconds > 0 then pre-populate all the
+  // sequence numbers from [1, last] to map to [now minus
+  // populate_historical_seconds, now].
+  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -2163,7 +2166,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker();
+  Status RegisterRecordSeqnoTimeWorker(bool from_db_open);
 
   void PrintStatistics();
 

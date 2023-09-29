@@ -1254,14 +1254,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1318,14 +1310,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1397,14 +1381,6 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
@@ -1528,14 +1504,6 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
-
   int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
   for (; sst_num < kNumTrigger; sst_num++) {
@@ -1608,14 +1576,6 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
-
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   Random rnd(301);
   int sst_num = 0;
@@ -1926,14 +1886,6 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
-
   Random rnd(301);
 
   for (int i = 0; i < 300; i++) {
@@ -2045,15 +1997,6 @@ TEST_F(PrecludeLastLevelTest, DISABLED_RangeDelsCauseFileEndpointsToOverlap) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kFileBytes;
   DestroyAndReopen(options);
-
-  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(SingleDelete("foo"));
-  // pass some time first, otherwise the first a few keys write time are going
-  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
-  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(kSecondsPerKey));
-  });
 
   // Flush an L0 file with the following contents (new to old):
   //

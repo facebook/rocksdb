@@ -7231,6 +7231,20 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
   return status;
 }
 
+void VersionSet::EnsureNonZeroSequence() {
+  uint64_t expected = 0;
+  // Update each from 0->1, in order, or abort if any becomes non-zero in
+  // parallel
+  if (last_allocated_sequence_.compare_exchange_strong(expected, 1)) {
+    if (last_published_sequence_.compare_exchange_strong(expected, 1)) {
+      (void)last_sequence_.compare_exchange_strong(expected, 1);
+    }
+  }
+  assert(last_allocated_sequence_.load() > 0);
+  assert(last_published_sequence_.load() > 0);
+  assert(last_sequence_.load() > 0);
+}
+
 ReactiveVersionSet::ReactiveVersionSet(
     const std::string& dbname, const ImmutableDBOptions* _db_options,
     const FileOptions& _file_options, Cache* table_cache,
