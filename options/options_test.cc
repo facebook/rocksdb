@@ -882,7 +882,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"daily_offpeak_time_utc", "06:30-23:30"},
-  };
+      {"always_offpeak_override", "true"}};
 
   ConfigOptions db_config_options(base_db_opt);
   db_config_options.input_strings_escaped = false;
@@ -896,6 +896,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
+  ASSERT_EQ(new_db_opt.always_offpeak_override, true);
   db_options_map["unknown_option"] = "1";
   Status s = GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
                                  &new_db_opt);

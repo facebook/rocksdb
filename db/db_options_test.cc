@@ -1037,6 +1037,8 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 TEST_F(DBOptionsTest, OffPeakTimes) {
   Options options;
   options.create_if_missing = true;
+  options.always_offpeak_override = false;
+  Random rnd(test::RandomSeed());
 
   auto verify_invalid = [&]() {
     Status s = DBImpl::TEST_ValidateOptions(options);
@@ -1052,6 +1054,8 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   std::vector<std::string> invalid_cases = {
       "06:30-",
       "-23:30",  // Both need to be set
+      "00:00-00:00",
+      "06:30-06:30"  //  Start time cannot be the same as end time
       "12:30 PM-23:30",
       "12:01AM-11:00PM",  // Invalid format
       "01:99-22:00",      // Invalid value for minutes
@@ -1070,7 +1074,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
 
   std::vector<std::string> valid_cases = {
       "",             // Not enabled. Valid case
-      "00:00-00:00",  // Valid. Entire 24 hours are offpeak.
       "06:30-11:30", "06:30-23:30", "13:30-14:30",
       "00:00-23:59",  // This doesn't cover entire 24 hours. There's 1 minute
                       // gap from 11:59:00PM to midnight
@@ -1091,7 +1094,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
                                    int now_utc_minute, int now_utc_second = 0) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     // Add some extra random days to current time
-    Random rnd(301);
     int days = rnd.Uniform(100);
     mock_clock->SetCurrentTime(days * 86400 + now_utc_hour * 3600 +
                                now_utc_minute * 60 + now_utc_second);
@@ -1149,7 +1151,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
   auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
   // Add some extra random days to current time
-  Random rnd(301);
   int days = rnd.Uniform(100);
   mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
   options.env = mock_env.get();
@@ -1185,8 +1186,9 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
                    .IsNowOffPeak(mock_clock.get()));
   Close();
 
-  // Entire day offpeak (start_time == end_time)
-  options.daily_offpeak_time_utc = "00:00-00:00";
+  // Entire day offpeak
+  options.daily_offpeak_time_utc = "06:00-10:00";
+  options.always_offpeak_override = true;
   DestroyAndReopen(options);
   // It doesn't matter what time it is. It should be just offpeak.
   ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())

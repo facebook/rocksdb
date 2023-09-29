@@ -180,6 +180,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.always_offpeak_override = mutable_db_options.always_offpeak_override;
   return options;
 }
 
