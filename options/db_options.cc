@@ -1079,7 +1079,7 @@ bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
         TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time));
 
     // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
-    if (start_time > end_time) {
+    if (start_time >= end_time) {
       return start_time <= since_midnight_seconds ||
              since_midnight_seconds <= end_time;
     } else {

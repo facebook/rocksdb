@@ -1183,6 +1183,43 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   mock_clock->MockSleepForSeconds(1);
   ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
                    .IsNowOffPeak(mock_clock.get()));
+  Close();
+
+  // Entire day offpeak (start_time == end_time)
+  options.daily_offpeak_time_utc = "00:00-00:00";
+  DestroyAndReopen(options);
+  // It doesn't matter what time it is. It should be just offpeak.
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 3 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 20 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(20 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 59 minutes. It's still off-peak
+  mock_clock->MockSleepForSeconds(59 * 60);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 59 seconds. It's still off-peak
+  mock_clock->MockSleepForSeconds(59);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+  // Another second for sanity check
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
 
   Close();
 }
