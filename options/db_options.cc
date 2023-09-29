@@ -1072,8 +1072,8 @@ bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
   }
   int64_t now;
   if (clock->GetCurrentTime(&now).ok()) {
-    constexpr int seconds_per_day = 86400;
-    int since_midnight_seconds = static_cast<int>(now % seconds_per_day);
+    constexpr int kSecondsPerDay = 86400;
+    int since_midnight_seconds = static_cast<int>(now % kSecondsPerDay);
     int start_time = 0, end_time = 0;
     assert(
         TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time));

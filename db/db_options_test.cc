@@ -1050,11 +1050,22 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     ASSERT_FALSE(s.IsInvalidArgument());
   };
   std::vector<std::string> invalid_cases = {
-      "06:30-",         "-23:30",           // Both need to be set
-      "12:30 PM-23:30", "12:01AM-11:00PM",  // Invalid format
-      "01:99-22:00",                        // Invalid value for minutes
-      "00:00-24:00",                        // 24:00 is an invalid value
-      "random-value",   "No:No-Hi:Hi",
+      "06:30-",
+      "-23:30",  // Both need to be set
+      "12:30 PM-23:30",
+      "12:01AM-11:00PM",  // Invalid format
+      "01:99-22:00",      // Invalid value for minutes
+      "00:00-24:00",      // 24:00 is an invalid value
+      "6-7",
+      "6:-7",
+      "06:31.42-7:00",
+      "6.31:42-7:00",
+      "6:0-7:",
+      "15:0.2-3:.7",
+      ":00-00:02",
+      "02:00-:00",
+      "random-value",
+      "No:No-Hi:Hi",
   };
 
   std::vector<std::string> valid_cases = {
