@@ -76,7 +76,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -191,7 +191,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -712,7 +712,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
 
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going

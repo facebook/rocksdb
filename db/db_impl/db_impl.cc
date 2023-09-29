@@ -6371,12 +6371,14 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
 }
 
 void DBImpl::RecordSeqnoToTimeMapping() {
+  // TECHNICALITY: Sample last sequence number *before* time, as prescribed
+  // for SeqnoToTimeMapping
+  SequenceNumber seqno = GetLatestSequenceNumber();
   // Get time first then sequence number, so the actual time of seqno is <=
   // unix_time recorded
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
-  SequenceNumber seqno = GetLatestSequenceNumber();
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);

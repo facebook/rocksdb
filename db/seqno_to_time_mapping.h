@@ -123,6 +123,11 @@ class SeqnoToTimeMapping {
   // Given a sequence number, return the best (largest / newest) known time
   // that is no later than the write time of that given sequence number.
   // If no such specific time is known, returns kUnknownTimeBeforeAll.
+  // Using the example in the class comment above,
+  //  GetProximalTimeBeforeSeqno(10) -> kUnknownTimeBeforeAll
+  //  GetProximalTimeBeforeSeqno(11) -> 500
+  //  GetProximalTimeBeforeSeqno(20) -> 500
+  //  GetProximalTimeBeforeSeqno(21) -> 600
   uint64_t GetProximalTimeBeforeSeqno(SequenceNumber seqno) const;
 
   // Remove any entries not needed for GetProximalSeqnoBeforeTime queries of
@@ -131,7 +136,12 @@ class SeqnoToTimeMapping {
 
   // Given a time, return the best (largest) sequence number whose write time
   // is no later than that given time. If no such specific sequence number is
-  // known, returns kUnknownSeqnoBeforeAll.
+  // known, returns kUnknownSeqnoBeforeAll. Using the example in the class
+  // comment above,
+  //  GetProximalSeqnoBeforeTime(499) -> kUnknownSeqnoBeforeAll
+  //  GetProximalSeqnoBeforeTime(500) -> 10
+  //  GetProximalSeqnoBeforeTime(599) -> 10
+  //  GetProximalSeqnoBeforeTime(600) -> 20
   SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time);
 
   // Encode to a binary string. start and end seqno are both inclusive.

@@ -1249,7 +1249,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -1314,7 +1314,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -1393,7 +1393,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -1523,7 +1523,7 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -1604,7 +1604,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -1921,7 +1921,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
@@ -2041,7 +2041,7 @@ TEST_F(PrecludeLastLevelTest, DISABLED_RangeDelsCauseFileEndpointsToOverlap) {
   options.target_file_size_base = kFileBytes;
   DestroyAndReopen(options);
 
-  // bootstap DB sequence numbers (FIXME: make these steps unnecessary)
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(SingleDelete("foo"));
   // pass some time first, otherwise the first a few keys write time are going
