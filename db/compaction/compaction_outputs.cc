@@ -18,16 +18,18 @@ void CompactionOutputs::NewBuilder(const TableBuilderOptions& tboptions) {
   builder_.reset(NewTableBuilder(tboptions, file_writer_.get()));
 }
 
-Status CompactionOutputs::Finish(const Status& intput_status,
-                                 const SeqnoToTimeMapping& seqno_time_mapping) {
+Status CompactionOutputs::Finish(
+    const Status& intput_status,
+    const SeqnoToTimeMapping& seqno_to_time_mapping) {
   FileMetaData* meta = GetMetaData();
   assert(meta != nullptr);
   Status s = intput_status;
   if (s.ok()) {
-    std::string seqno_time_mapping_str;
-    seqno_time_mapping.Encode(seqno_time_mapping_str, meta->fd.smallest_seqno,
-                              meta->fd.largest_seqno, meta->file_creation_time);
-    builder_->SetSeqnoTimeTableProperties(seqno_time_mapping_str,
+    std::string seqno_to_time_mapping_str;
+    seqno_to_time_mapping.Encode(
+        seqno_to_time_mapping_str, meta->fd.smallest_seqno,
+        meta->fd.largest_seqno, meta->file_creation_time);
+    builder_->SetSeqnoTimeTableProperties(seqno_to_time_mapping_str,
                                           meta->oldest_ancester_time);
     s = builder_->Finish();
 

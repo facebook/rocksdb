@@ -1200,11 +1200,11 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
-  // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+  // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
   // SetOptions will fail if options file is not properly persisted.
   //
-  // DEFAULT: false
-  bool fail_if_options_file_error = false;
+  // DEFAULT: true
+  bool fail_if_options_file_error = true;
 
   // If true, then print malloc stats together with rocksdb.stats
   // when printing to LOG.
@@ -1427,6 +1427,25 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  // EXPERIMENTAL
+  // Implementing offpeak duration awareness in RocksDB. In this context, "peak
+  // time" signifies periods characterized by significantly elevated read and
+  // write activity compared to other times. By leveraging this knowledge, we
+  // can prevent low-priority tasks, such as TTL-based compactions, from
+  // competing with read and write operations during peak hours. Essentially, we
+  // preprocess these tasks during the preceding off-peak period, just before
+  // the next peak cycle begins. For example, if the TTL is configured for 25
+  // days, we may compact the files during the off-peak hours of the 24th day.
+  //
+  // Time of the day in UTC. Format - HH:mm-HH:mm (00:00-23:59)
+  // If the start time > end time, it will be considered that the time period
+  // spans to the next day (e.g., 23:30-04:00)
+  // If the start time == end time, entire 24 hours will be considered offpeak
+  // (e.g. 00:00-00:00). Note that 00:00-23:59 will have one minute gap from
+  // 11:59:00PM to midnight.
+  // Default: Empty String (No notion of peak/offpeak)
+  std::string daily_offpeak_time_utc = "";
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

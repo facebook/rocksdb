@@ -23,6 +23,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -326,6 +327,31 @@ const Comparator* ReverseBytewiseComparatorWithU64Ts() {
   STATIC_AVOID_DESTRUCTION(
       ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>, comp_with_u64_ts);
   return &comp_with_u64_ts;
+}
+
+Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts) {
+  if (ts.size() != sizeof(uint64_t)) {
+    return Status::InvalidArgument("U64Ts timestamp size mismatch.");
+  }
+  *int_ts = DecodeFixed64(ts.data());
+  return Status::OK();
+}
+
+Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf) {
+  char buf[sizeof(ts)];
+  EncodeFixed64(buf, ts);
+  ts_buf->assign(buf, sizeof(buf));
+  return Slice(*ts_buf);
+}
+
+Slice MaxU64Ts() {
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff";
+  return Slice(kTsMax, sizeof(uint64_t));
+}
+
+Slice MinU64Ts() {
+  static constexpr char kTsMin[] = "\x00\x00\x00\x00\x00\x00\x00\x00";
+  return Slice(kTsMin, sizeof(uint64_t));
 }
 
 static int RegisterBuiltinComparators(ObjectLibrary& library,

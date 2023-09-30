@@ -350,7 +350,7 @@ class CompactionJob {
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
-  SeqnoToTimeMapping seqno_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Minimal sequence number for preserving the time information. The time info
   // older than this sequence number won't be preserved after the compaction and
