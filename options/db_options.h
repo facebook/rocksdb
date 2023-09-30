@@ -138,7 +138,6 @@ struct MutableDBOptions {
   int max_background_flushes;
 
   std::string daily_offpeak_time_utc;
-  bool always_offpeak_override;
   bool IsNowOffPeak(SystemClock* clock) const;
 };
 

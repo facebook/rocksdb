@@ -133,10 +133,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"always_offpeak_override",
-         {offsetof(struct MutableDBOptions, always_offpeak_override),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1000,8 +996,7 @@ MutableDBOptions::MutableDBOptions()
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
       max_background_flushes(-1),
-      daily_offpeak_time_utc(""),
-      always_offpeak_override(false) {}
+      daily_offpeak_time_utc("") {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -1022,8 +1017,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
       max_background_flushes(options.max_background_flushes),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
-      always_offpeak_override(options.always_offpeak_override) {}
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1070,21 +1064,19 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
-  ROCKS_LOG_HEADER(log, "            Options.always_offpeak_override: %d",
-                   always_offpeak_override);
 }
 
 bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
-  if (always_offpeak_override) {
-    return true;
-  }
   if (daily_offpeak_time_utc.empty()) {
     return false;
   }
   int64_t now;
   if (clock->GetCurrentTime(&now).ok()) {
     constexpr int kSecondsPerDay = 86400;
-    int since_midnight_seconds = static_cast<int>(now % kSecondsPerDay);
+    constexpr int kSecondsPerMinute = 60;
+    int seconds_since_midnight_to_nearest_minute =
+        (static_cast<int>(now % kSecondsPerDay) / kSecondsPerMinute) *
+        kSecondsPerMinute;
     int start_time = 0, end_time = 0;
     assert(
         TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time));
@@ -1092,11 +1084,11 @@ bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
 
     // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
     if (start_time > end_time) {
-      return start_time <= since_midnight_seconds ||
-             since_midnight_seconds <= end_time;
+      return start_time <= seconds_since_midnight_to_nearest_minute ||
+             seconds_since_midnight_to_nearest_minute <= end_time;
     } else {
-      return start_time <= since_midnight_seconds &&
-             since_midnight_seconds <= end_time;
+      return start_time <= seconds_since_midnight_to_nearest_minute &&
+             seconds_since_midnight_to_nearest_minute <= end_time;
     }
   }
   return false;

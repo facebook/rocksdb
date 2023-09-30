@@ -1037,7 +1037,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 TEST_F(DBOptionsTest, OffPeakTimes) {
   Options options;
   options.create_if_missing = true;
-  options.always_offpeak_override = false;
   Random rnd(test::RandomSeed());
 
   auto verify_invalid = [&]() {
@@ -1073,10 +1072,11 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   };
 
   std::vector<std::string> valid_cases = {
-      "",             // Not enabled. Valid case
-      "06:30-11:30", "06:30-23:30", "13:30-14:30",
-      "00:00-23:59",  // This doesn't cover entire 24 hours. There's 1 minute
-                      // gap from 11:59:00PM to midnight
+      "",  // Not enabled. Valid case
+      "06:30-11:30",
+      "06:30-23:30",
+      "13:30-14:30",
+      "00:00-23:59",  // Entire Day
       "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case.
       "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
   };
@@ -1121,12 +1121,13 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   verify_is_now_offpeak(true, 4, 30);
   verify_is_now_offpeak(false, 4, 31);
 
-  // There's one minute gap from 11:59PM to midnight
+  // Entire day offpeak
   options.daily_offpeak_time_utc = "00:00-23:59";
   verify_is_now_offpeak(true, 0, 0);
   verify_is_now_offpeak(true, 12, 00);
   verify_is_now_offpeak(true, 23, 59);
-  verify_is_now_offpeak(false, 23, 59, 1);
+  verify_is_now_offpeak(true, 23, 59, 1);
+  verify_is_now_offpeak(true, 23, 59, 59);
 
   // Open the db and test by Get/SetDBOptions
   options.daily_offpeak_time_utc = "";
@@ -1180,15 +1181,14 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
                   .IsNowOffPeak(mock_clock.get()));
 
-  // Sleep for one more second. It's no longer off-peak
-  mock_clock->MockSleepForSeconds(1);
+  // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
+  mock_clock->MockSleepForSeconds(60);
   ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
                    .IsNowOffPeak(mock_clock.get()));
   Close();
 
   // Entire day offpeak
-  options.daily_offpeak_time_utc = "06:00-10:00";
-  options.always_offpeak_override = true;
+  options.daily_offpeak_time_utc = "00:00-23:59";
   DestroyAndReopen(options);
   // It doesn't matter what time it is. It should be just offpeak.
   ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
