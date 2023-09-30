@@ -1414,7 +1414,7 @@ std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
   read_options.io_activity = Env::IOActivity::kCompaction;
   read_options.fill_cache = false;
 
-  return std::make_unique<BlobFetcherCopyReadOptions>(version, read_options);
+  return std::make_unique<BlobFetcherWithReadOptionsCopy>(version, read_options);
 }
 
 std::unique_ptr<PrefetchBufferCollection>
