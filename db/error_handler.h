@@ -19,10 +19,13 @@ class DBImpl;
 // FlushReason, which tells the flush job why this flush is called.
 struct DBRecoverContext {
   FlushReason flush_reason;
+  bool flush_after_recovery;
 
-  DBRecoverContext() : flush_reason(FlushReason::kErrorRecovery) {}
-
-  DBRecoverContext(FlushReason reason) : flush_reason(reason) {}
+  DBRecoverContext()
+      : flush_reason(FlushReason::kErrorRecovery),
+        flush_after_recovery(false) {}
+  DBRecoverContext(FlushReason reason)
+      : flush_reason(reason), flush_after_recovery(false) {}
 };
 
 class ErrorHandler {

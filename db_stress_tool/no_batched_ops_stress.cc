@@ -1279,7 +1279,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     Status s;
 
-    if (FLAGS_use_merge) {
+    if (FLAGS_use_put_entity_one_in > 0 &&
+        (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
+    } else if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Merge(write_opts, cfh, k, v);
@@ -1291,10 +1295,6 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.Merge(cfh, k, v);
         });
       }
-    } else if (FLAGS_use_put_entity_one_in > 0 &&
-               (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
@@ -1542,11 +1542,8 @@ class NonBatchedOpsStressTest : public StressTest {
       const Slice k(key_str);
       const Slice v(value, value_len);
 
-      const bool use_put_entity =
-          !FLAGS_use_merge && FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0;
-
-      if (use_put_entity) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         WideColumns columns = GenerateWideColumns(value_base, v);
         s = sst_file_writer.PutEntity(k, columns);
       } else {

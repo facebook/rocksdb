@@ -1001,7 +1001,7 @@ class WritableFile {
   /*
    * Get the size of valid data in the file.
    */
-  virtual uint64_t GetFileSize() { return 0; }
+  virtual uint64_t GetFileSize() = 0;
 
   /*
    * Get and set the default pre-allocation block size for writes to

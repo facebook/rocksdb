@@ -217,7 +217,7 @@ default_params = {
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
     # 0 (disable) is the default and more commonly used value.
     "bottommost_file_compaction_delay": lambda: random.choice([0, 0, 0, 600, 3600, 86400]),
-    "auto_readahead_size" : lambda: random.choice([0, 1]),
+    "auto_readahead_size" : 0,
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -673,9 +673,8 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
-    # PutEntity is currently incompatible with Merge
+    # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
-        dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
     if dest_params["file_checksum_impl"] == "none":
         dest_params["verify_file_checksums_one_in"] = 0

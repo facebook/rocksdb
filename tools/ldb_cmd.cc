@@ -932,7 +932,15 @@ void LDBCommand::PrepareOptions() {
                                  &column_families_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
-      std::string msg = s.ToString();
+      std::string current_version = std::to_string(ROCKSDB_MAJOR) + "." +
+                                    std::to_string(ROCKSDB_MINOR) + "." +
+                                    std::to_string(ROCKSDB_PATCH);
+      std::string msg =
+          s.ToString() + "\nThis tool was built with version " +
+          current_version +
+          ". If your db is in a different version, please try again "
+          "with option --" +
+          LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS + ".";
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
       db_ = nullptr;
       return;

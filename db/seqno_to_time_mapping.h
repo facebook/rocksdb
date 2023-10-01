@@ -18,20 +18,32 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr uint64_t kUnknownSeqnoTime = 0;
+constexpr uint64_t kUnknownTimeBeforeAll = 0;
+constexpr SequenceNumber kUnknownSeqnoBeforeAll = 0;
 
-// SeqnoToTimeMapping stores the sequence number to time mapping, so given a
-// sequence number it can estimate the oldest possible time for that sequence
-// number. For example:
-//   10 -> 100
-//   50 -> 300
-// then if a key has seqno 19, the OldestApproximateTime would be 100, for 51 it
-// would be 300.
-// As it's a sorted list, the new entry is inserted from the back. The old data
-// will be popped from the front if they're no longer used.
+// SeqnoToTimeMapping stores a sampled mapping from sequence numbers to
+// unix times (seconds since epoch). This information provides rough bounds
+// between sequence numbers and their write times, but is primarily designed
+// for getting a best lower bound on the sequence number of data written no
+// later than a specified time.
 //
-// Note: the data struct is not thread safe, both read and write need to be
-//  synchronized by caller.
+// For ease of sampling, it is assumed that the recorded time in each pair
+// comes at or after the sequence number and before the next sequence number,
+// so this example:
+//
+// Seqno: 10,       11, ... 20,       21, ... 30,       31, ...
+// Time:  ...  500      ...      600      ...      700      ...
+//
+// would be represented as
+//   10 -> 500
+//   20 -> 600
+//   30 -> 700
+//
+// In typical operation, the list is sorted, both among seqnos and among times,
+// with a bounded number of entries, but some public working states violate
+// these constraints.
+//
+// NOT thread safe - requires external synchronization.
 class SeqnoToTimeMapping {
  public:
   // Maximum number of entries can be encoded into SST. The data is delta encode
@@ -63,27 +75,32 @@ class SeqnoToTimeMapping {
     // Decode the value from input Slice and remove it from the input
     Status Decode(Slice& input);
 
-    // subtraction of 2 SeqnoTimePair
-    SeqnoTimePair operator-(const SeqnoTimePair& other) const;
-
-    // Add 2 values together
-    void Add(const SeqnoTimePair& obj) {
-      seqno += obj.seqno;
-      time += obj.time;
+    // For delta encoding
+    SeqnoTimePair ComputeDelta(const SeqnoTimePair& base) const {
+      return {seqno - base.seqno, time - base.time};
     }
 
-    // Compare SeqnoTimePair with a sequence number, used for binary search a
-    // sequence number in a list of SeqnoTimePair
-    bool operator<(const SequenceNumber& other) const { return seqno < other; }
+    // For delta decoding
+    void ApplyDelta(const SeqnoTimePair& delta_or_base) {
+      seqno += delta_or_base.seqno;
+      time += delta_or_base.time;
+    }
 
-    // Compare 2 SeqnoTimePair
+    // Ordering used for Sort()
     bool operator<(const SeqnoTimePair& other) const {
       return std::tie(seqno, time) < std::tie(other.seqno, other.time);
     }
 
-    // Check if 2 SeqnoTimePair is the same
     bool operator==(const SeqnoTimePair& other) const {
       return std::tie(seqno, time) == std::tie(other.seqno, other.time);
+    }
+
+    static bool SeqnoLess(const SeqnoTimePair& a, const SeqnoTimePair& b) {
+      return a.seqno < b.seqno;
+    }
+
+    static bool TimeLess(const SeqnoTimePair& a, const SeqnoTimePair& b) {
+      return a.time < b.time;
     }
   };
 
@@ -103,16 +120,31 @@ class SeqnoToTimeMapping {
   // existing ones. It maintains the internal sorted status.
   bool Append(SequenceNumber seqno, uint64_t time);
 
-  // Given a sequence number, estimate it's oldest time
-  uint64_t GetOldestApproximateTime(SequenceNumber seqno) const;
+  // Given a sequence number, return the best (largest / newest) known time
+  // that is no later than the write time of that given sequence number.
+  // If no such specific time is known, returns kUnknownTimeBeforeAll.
+  // Using the example in the class comment above,
+  //  GetProximalTimeBeforeSeqno(10) -> kUnknownTimeBeforeAll
+  //  GetProximalTimeBeforeSeqno(11) -> 500
+  //  GetProximalTimeBeforeSeqno(20) -> 500
+  //  GetProximalTimeBeforeSeqno(21) -> 600
+  uint64_t GetProximalTimeBeforeSeqno(SequenceNumber seqno) const;
 
-  // Truncate the old entries based on the current time and max_time_duration_
+  // Remove any entries not needed for GetProximalSeqnoBeforeTime queries of
+  // times older than `now - max_time_duration_`
   void TruncateOldEntries(uint64_t now);
 
-  // Given a time, return it's oldest possible sequence number
-  SequenceNumber GetOldestSequenceNum(uint64_t time);
+  // Given a time, return the best (largest) sequence number whose write time
+  // is no later than that given time. If no such specific sequence number is
+  // known, returns kUnknownSeqnoBeforeAll. Using the example in the class
+  // comment above,
+  //  GetProximalSeqnoBeforeTime(499) -> kUnknownSeqnoBeforeAll
+  //  GetProximalSeqnoBeforeTime(500) -> 10
+  //  GetProximalSeqnoBeforeTime(599) -> 10
+  //  GetProximalSeqnoBeforeTime(600) -> 20
+  SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time);
 
-  // Encode to a binary string
+  // Encode to a binary string. start and end seqno are both inclusive.
   void Encode(std::string& des, SequenceNumber start, SequenceNumber end,
               uint64_t now,
               uint64_t output_size = kMaxSeqnoTimePairsPerSST) const;
@@ -122,10 +154,10 @@ class SeqnoToTimeMapping {
   void Add(SequenceNumber seqno, uint64_t time);
 
   // Decode and add the entries to the current obj. The list will be unsorted
-  Status Add(const std::string& seqno_time_mapping_str);
+  Status Add(const std::string& pairs_str);
 
   // Return the number of entries
-  size_t Size() const { return seqno_time_mapping_.size(); }
+  size_t Size() const { return pairs_.size(); }
 
   // Reduce the size of internal list
   bool Resize(uint64_t min_time_duration, uint64_t max_time_duration);
@@ -145,10 +177,10 @@ class SeqnoToTimeMapping {
   SeqnoToTimeMapping Copy(SequenceNumber smallest_seqno) const;
 
   // If the internal list is empty
-  bool Empty() const { return seqno_time_mapping_.empty(); }
+  bool Empty() const { return pairs_.empty(); }
 
   // clear all entries
-  void Clear() { seqno_time_mapping_.clear(); }
+  void Clear() { pairs_.clear(); }
 
   // return the string for user message
   // Note: Not efficient, okay for print
@@ -156,7 +188,7 @@ class SeqnoToTimeMapping {
 
 #ifndef NDEBUG
   const std::deque<SeqnoTimePair>& TEST_GetInternalMapping() const {
-    return seqno_time_mapping_;
+    return pairs_;
   }
 #endif
 
@@ -167,7 +199,7 @@ class SeqnoToTimeMapping {
   uint64_t max_time_duration_;
   uint64_t max_capacity_;
 
-  std::deque<SeqnoTimePair> seqno_time_mapping_;
+  std::deque<SeqnoTimePair> pairs_;
 
   bool is_sorted_ = true;
 
@@ -176,14 +208,14 @@ class SeqnoToTimeMapping {
 
   SeqnoTimePair& Last() {
     assert(!Empty());
-    return seqno_time_mapping_.back();
+    return pairs_.back();
   }
-};
 
-// for searching the sequence number from SeqnoToTimeMapping
-inline bool operator<(const SequenceNumber& seqno,
-                      const SeqnoToTimeMapping::SeqnoTimePair& other) {
-  return seqno < other.seqno;
-}
+  using pair_const_iterator =
+      std::deque<SeqnoToTimeMapping::SeqnoTimePair>::const_iterator;
+  pair_const_iterator FindGreaterTime(uint64_t time) const;
+  pair_const_iterator FindGreaterSeqno(SequenceNumber seqno) const;
+  pair_const_iterator FindGreaterEqSeqno(SequenceNumber seqno) const;
+};
 
 }  // namespace ROCKSDB_NAMESPACE
