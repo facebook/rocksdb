@@ -858,6 +858,66 @@ class DB {
     }
   }
 
+  // Option 1. Get permutation of all keys and CFs from the input
+  // Pros
+  // - Simple to understand
+  // - Easy to find mapped value in results or statuses array.
+  // (e.g result for 3rd key in 4th CF = results[2 * num_cfs + 3])
+  // Cons
+  // - May need to retrieve more values than needed
+  virtual void MultiGetEntity(const ReadOptions& /* options */,
+                              size_t num_column_families, size_t num_keys,
+                              const ColumnFamilyHandle** /* column_families */,
+                              const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses) {
+    for (size_t i = 0; i < num_keys * num_column_families; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+  // GetEntity will look like this for Option 1
+  virtual void GetEntity(const ReadOptions& /* options */,
+                         size_t num_column_families,
+                         ColumnFamilyHandle** /* column_families */,
+                         const Slice& /* key */,
+                         PinnableWideColumns* /* results */, Status* statuses) {
+    for (size_t i = 0; i < num_column_families; ++i) {
+      statuses[i] = Status::NotSupported("GetEntity not supported");
+    }
+  }
+
+  // Option 2. Grouped Column Families per key
+  // Pros
+  // - No unnecessary get will be performed for a <key,CF> combo
+  // Cons
+  // - mapping between key_grouped_column_families and results and statuses will
+  // be tricky since the number of CFs per key differ key by key
+  using KeyGroupedColumnFamilies =
+      std::pair<const Slice, std::vector<ColumnFamilyHandle*>>;
+
+  virtual void MultiGetEntity(
+      const ReadOptions& /* options */, size_t num_keys,
+      const KeyGroupedColumnFamilies* key_grouped_column_families,
+      PinnableWideColumns* /* results */, Status* statuses) {
+    size_t c = 0;
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < key_grouped_column_families[i].second.size();
+           ++j) {
+        statuses[c++] = Status::NotSupported("MultiGetEntity not supported");
+      }
+    }
+  }
+
+  // GetEntity will look like this for Option 2
+  virtual void GetEntity(
+      const ReadOptions& /* options */,
+      const KeyGroupedColumnFamilies& key_grouped_column_families,
+      PinnableWideColumns* /* results */, Status* statuses) {
+    for (size_t i = 0; i < key_grouped_column_families.second.size(); ++i) {
+      statuses[i] = Status::NotSupported("GetEntity not supported");
+    }
+  }
+
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
   // is found in memory, a bool for 'value_found' must be passed. 'value_found'
