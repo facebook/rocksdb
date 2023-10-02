@@ -13,9 +13,6 @@ import java.nio.ByteBuffer;
  * sequence number = 0.
  */
 public class SstFileWriter extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
 
   /**
    * SstFileWriter Constructor.

@@ -18,9 +18,6 @@ import java.util.*;
 public class ColumnFamilyOptions extends RocksObject
     implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
     MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
 
   /**
    * Construct ColumnFamilyOptions.
@@ -29,7 +26,7 @@ public class ColumnFamilyOptions extends RocksObject
    * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
-    super(newColumnFamilyOptions());
+    super(newColumnFamilyOptionsInstance());
   }
 
   /**
@@ -1333,6 +1330,10 @@ public class ColumnFamilyOptions extends RocksObject
       final long cfgHandle, String optString);
   private static native long getColumnFamilyOptionsFromProps(final String optString);
 
+  private static long newColumnFamilyOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newColumnFamilyOptions();
+  }
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);
   private static native long newColumnFamilyOptionsFromOptions(
