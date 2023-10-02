@@ -2521,8 +2521,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
          flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
 
-  // Collect referenced CFDs. In case of atomic flush, we trust that any
-  // unflushed immutable memtables were cut at a consistent point in time.
+  // Collect referenced CFDs.
   autovector<ColumnFamilyData*> cfds;
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
     if (!cfd->IsDropped() && cfd->initialized() &&
@@ -2540,7 +2539,6 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   autovector<uint64_t> flush_memtable_ids;
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
-    AssignAtomicFlushSeq(cfds);
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     SchedulePendingFlush(flush_req);
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
