@@ -248,11 +248,7 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   void Seek(const Slice& key) override {
     if (beforeLowerBound(&key)) {  // cap to prevent out of bound
-      WriteBatchIndexEntry search_entry(iterate_lower_bound_, column_family_id_,
-                                        true /* is_forward_direction */,
-                                        false /* is_seek_to_first */);
-      skip_list_iter_.Seek(&search_entry);
-      out_of_bound_ = false;
+      this->SeekToFirst();
     } else if (afterUpperBound(&key)) {
       out_of_bound_ = true;
     } else {
@@ -266,14 +262,7 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   void SeekForPrev(const Slice& key) override {
     if (afterUpperBound(&key)) {  // cap to prevent out of bound
-      WriteBatchIndexEntry search_entry(
-          iterate_upper_bound_, column_family_id_,
-          // is_forward_direction, set to true so that
-          // iterate_upper_bound_ is excluded, this is not a readable trick,
-          // TODO fix it by renaming WriteBatchIndexEntry::is_forward_direction
-          true, false /* is_seek_to_first */);
-      skip_list_iter_.SeekForPrev(&search_entry);
-      out_of_bound_ = false;
+      this->SeekToLast();
     } else if (beforeLowerBound(&key)) {
       out_of_bound_ = true;
     } else {
