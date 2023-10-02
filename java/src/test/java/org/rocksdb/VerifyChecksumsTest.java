@@ -127,9 +127,9 @@ public class VerifyChecksumsTest {
   /**
    * Run some operations and count the TickerType.BLOCK_CHECKSUM_COMPUTE_COUNT before and after
    * It should GO UP when the read options have checksum verification turned on.
-   * It shoulld REMAIN UNCHANGED when the read options have checksum verification turned off.
+   * It should REMAIN UNCHANGED when the read options have checksum verification turned off.
    * As the read options refer only to the read operations, there are still a few checksums
-   * performed outside this (blocks are getting loaded for lots of reasons, not aways directly due
+   * performed outside this (blocks are getting loaded for lots of reasons, not always directly due
    * to reads) but this test provides a good enough proxy for whether the flag is being noticed.
    *
    * @param operations the DB reading operations to perform which affect the checksum stats
