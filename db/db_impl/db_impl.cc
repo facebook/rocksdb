@@ -392,7 +392,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       s = RetryFlushesForErrorRecovery(FlushReason::kErrorRecoveryRetryFlush,
                                        true /* wait */);
     } else {
-      assert(context.flush_reason == FlushReason::kErrorRecovery);
       // We cannot guarantee consistency of the WAL. So force flush Memtables of
       // all the column families
       FlushOptions flush_opts;
