@@ -222,9 +222,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   // `snapshot_seqs` has already been computed before this function starts.
   // Recording the max memtable ID ensures that the flush job does not flush
   // a memtable without knowing such snapshot(s).
-  uint64_t max_memtable_id = needs_to_sync_closed_wals
-                                 ? cfd->imm()->GetLatestMemTableID()
-                                 : std::numeric_limits<uint64_t>::max();
+  uint64_t max_memtable_id =
+      needs_to_sync_closed_wals
+          ? cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */)
+          : std::numeric_limits<uint64_t>::max();
 
   // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
   // existing memtables of the column family when PickMemTable() is called
@@ -2230,7 +2231,8 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
       // cfd may be null, see DBImpl::ScheduleFlushes
       continue;
     }
-    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
+    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID(
+        immutable_db_options_.atomic_flush /* for_atomic_flush */);
     req->cfd_to_max_mem_id_to_persist.emplace(cfd, max_memtable_id);
   }
 }
@@ -2283,7 +2285,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           !cached_recoverable_state_empty_.load()) {
         FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
-        memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
+        memtable_ids_to_wait.emplace_back(
+            cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
       }
       if (immutable_db_options_.persist_stats_to_disk) {
         ColumnFamilyData* cfd_stats =
@@ -2311,7 +2314,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             FlushRequest req{flush_reason, {{cfd_stats, flush_memtable_id}}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
-                cfd_stats->imm()->GetLatestMemTableID());
+                cfd_stats->imm()->GetLatestMemTableID(
+                    false /* for_atomic_flush */));
           }
         }
       }
@@ -2544,7 +2548,8 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     }
   } else {
     for (auto cfd : cfds) {
-      flush_memtable_ids.push_back(cfd->imm()->GetLatestMemTableID());
+      flush_memtable_ids.push_back(
+          cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
       // Impose no bound on the highest memtable ID flushed. There is no
       // reason to do so outside of atomic flush.
       FlushRequest flush_req{

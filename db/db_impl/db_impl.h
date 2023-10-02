@@ -2097,6 +2097,12 @@ class DBImpl : public DB {
 #endif /* !NDEBUG */
   };
 
+  // In case of atomic flush, generates a `FlushRequest` for the latest atomic
+  // cuts for these `cfds`. Atomic cuts are recorded in
+  // `AssignAtomicFlushSeq()`. For each entry in `cfds`, all CFDs sharing the
+  // same latest atomic cut must also be present.
+  //
+  // REQUIRES: mutex held
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
