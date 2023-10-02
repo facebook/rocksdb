@@ -50,9 +50,7 @@ class MultiGetJNIKeys {
                        jintArray jkey_lens);
 
   ROCKSDB_NAMESPACE::Slice* data();
-  inline std::vector<ROCKSDB_NAMESPACE::Slice>& slices() {
-    return slices_;
-  }
+  inline std::vector<ROCKSDB_NAMESPACE::Slice>& slices() { return slices_; }
   std::vector<ROCKSDB_NAMESPACE::Slice>::size_type size();
 };
 

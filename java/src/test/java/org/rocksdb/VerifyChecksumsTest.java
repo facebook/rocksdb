@@ -201,9 +201,11 @@ public class VerifyChecksumsTest {
     });
   }
 
-  @Ignore("The block checksum count looks as if it is not updated when a more optimized C++ multiGet is used.")
+  @Ignore(
+      "The block checksum count looks as if it is not updated when a more optimized C++ multiGet is used.")
   @Test
-  public void verifyChecksumsMultiGet() throws RocksDBException {
+  public void
+  verifyChecksumsMultiGet() throws RocksDBException {
     // noinspection AnonymousInnerClassMayBeStatic
     verifyChecksums(new Operations(KV_COUNT) {
       @Override
