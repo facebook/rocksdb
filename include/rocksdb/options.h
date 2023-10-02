@@ -1429,22 +1429,21 @@ struct DBOptions {
   bool enforce_single_del_contracts = true;
 
   // EXPERIMENTAL
-  // Implementing offpeak duration awareness in RocksDB. In this context, "peak
-  // time" signifies periods characterized by significantly elevated read and
-  // write activity compared to other times. By leveraging this knowledge, we
-  // can prevent low-priority tasks, such as TTL-based compactions, from
+  // Implementing off-peak duration awareness in RocksDB. In this context,
+  // "off-peak time" signifies periods characterized by significantly less read
+  // and write activity compared to other times. By leveraging this knowledge,
+  // we can prevent low-priority tasks, such as TTL-based compactions, from
   // competing with read and write operations during peak hours. Essentially, we
   // preprocess these tasks during the preceding off-peak period, just before
   // the next peak cycle begins. For example, if the TTL is configured for 25
   // days, we may compact the files during the off-peak hours of the 24th day.
   //
-  // Time of the day in UTC. Format - HH:mm-HH:mm (00:00-23:59)
+  // Time of the day in UTC, start_time-end_time inclusive.
+  // Format - HH:mm-HH:mm (00:00-23:59)
   // If the start time > end time, it will be considered that the time period
-  // spans to the next day (e.g., 23:30-04:00)
-  // If the start time == end time, entire 24 hours will be considered offpeak
-  // (e.g. 00:00-00:00). Note that 00:00-23:59 will have one minute gap from
-  // 11:59:00PM to midnight.
-  // Default: Empty String (No notion of peak/offpeak)
+  // spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
+  // use "0:00-23:59". To make an entire day have no offpeak period, leave
+  // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 };
 

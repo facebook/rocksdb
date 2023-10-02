@@ -299,6 +299,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
       return Status::InvalidArgument(
           "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
           "(e.g. 04:30-07:30)");
+    } else if (start_time == end_time) {
+      return Status::InvalidArgument(
+          "start_time and end_time cannot be the same");
     }
   }
   return Status::OK();
