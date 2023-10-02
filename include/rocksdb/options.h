@@ -1740,8 +1740,9 @@ struct ReadOptions {
   //
   // NOTE: - Recommended for forward Scans only.
   //       - In case of backward scans like Prev or SeekForPrev, the
-  //          cost of these backward operations might increase. So this option
-  //          should be enabled if workload contains backward scans.
+  //          cost of these backward operations might increase and affect the
+  //          performace. So this option should not be enabled if workload
+  //          contains backward scans.
   //       - If there is a backward scans, this option will be
   //          disabled internally and won't be reset if forward scan is done
   //          again.
