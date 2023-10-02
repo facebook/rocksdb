@@ -148,7 +148,7 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
       return false;
     }
 
-    slices.push_back(
+    slices_.push_back(
         ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
     env->DeleteLocalRef(jkey);
   }
@@ -181,17 +181,17 @@ bool MultiGetJNIKeys::fromByteBuffers(JNIEnv* env, jobjectArray jkeys,
 
     char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
     ROCKSDB_NAMESPACE::Slice key_slice(key + key_offs[i], key_lens[i]);
-    slices.push_back(key_slice);
+    slices_.push_back(key_slice);
 
     env->DeleteLocalRef(jkey);
   }
   return true;
 }
 
-ROCKSDB_NAMESPACE::Slice* MultiGetJNIKeys::data() { return slices.data(); }
+ROCKSDB_NAMESPACE::Slice* MultiGetJNIKeys::data() { return slices_.data(); }
 
 std::vector<ROCKSDB_NAMESPACE::Slice>::size_type MultiGetJNIKeys::size() {
-  return slices.size();
+  return slices_.size();
 }
 
 template <class TValue>
