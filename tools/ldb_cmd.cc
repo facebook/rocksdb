@@ -1100,8 +1100,7 @@ std::string LDBCommand::PrintKeyValueOrWideColumns(
     const Slice& key, const Slice& value, const WideColumns& wide_columns,
     bool is_key_hex, bool is_value_hex) {
   if (wide_columns.empty() ||
-      (wide_columns.size() == 1 &&
-       WideColumnsHelper::HasDefaultColumn(wide_columns))) {
+      WideColumnsHelper::HasDefaultColumnOnly(wide_columns)) {
     return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
                          is_value_hex);
   }

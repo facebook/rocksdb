@@ -24,6 +24,11 @@ class WideColumnsHelper {
     return !columns.empty() && columns.front().name() == kDefaultWideColumnName;
   }
 
+  static bool HasDefaultColumnOnly(const WideColumns& columns) {
+    return columns.size() == 1 &&
+           columns.front().name() == kDefaultWideColumnName;
+  }
+
   static const Slice& GetDefaultColumn(const WideColumns& columns) {
     assert(HasDefaultColumn(columns));
     return columns.front().value();
