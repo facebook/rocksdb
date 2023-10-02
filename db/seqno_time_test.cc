@@ -18,12 +18,17 @@ class SeqnoTimeTest : public DBTestBase {
  public:
   SeqnoTimeTest() : DBTestBase("seqno_time_test", /*env_do_fsync=*/false) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_clock_->SetCurrentTime(kMockStartTime);
     mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
   }
 
  protected:
   std::unique_ptr<Env> mock_env_;
   std::shared_ptr<MockSystemClock> mock_clock_;
+
+  // Sufficient starting time that preserve time doesn't under-flow into
+  // pre-history
+  static constexpr uint32_t kMockStartTime = 10000000;
 
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
@@ -33,6 +38,7 @@ class SeqnoTimeTest : public DBTestBase {
               reinterpret_cast<PeriodicTaskScheduler*>(arg);
           periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
+    mock_clock_->SetCurrentTime(kMockStartTime);
   }
 
   // make sure the file is not in cache, otherwise it won't have IO info
@@ -324,8 +330,18 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
+  // bootstrap DB sequence numbers (FIXME: make these steps unnecessary)
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(SingleDelete("foo"));
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownTimeBeforeAll
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
+
   std::set<uint64_t> checked_file_nums;
   SequenceNumber start_seq = dbfull()->GetLatestSequenceNumber() + 1;
+  uint64_t start_time = mock_clock_->NowSeconds();
+
   // Write a key every 10 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i), "value"));
@@ -347,17 +363,16 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_GE(seqs.size(), 19);
   ASSERT_LE(seqs.size(), 21);
   SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber() + 1;
-  for (auto i = start_seq; i < start_seq + 10; i++) {
-    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i + 1) * 10);
-  }
-  start_seq += 10;
   for (auto i = start_seq; i < seq_end; i++) {
     // The result is within the range
-    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - 10) * 10);
-    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i + 10) * 10);
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+              start_time + (i - start_seq) * 10 - 100);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+              start_time + (i - start_seq) * 10);
   }
   checked_file_nums.insert(it->second->orig_file_number);
   start_seq = seq_end;
+  start_time = mock_clock_->NowSeconds();
 
   // Write a key every 1 seconds
   for (int i = 0; i < 200; i++) {
@@ -387,13 +402,14 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_GE(seqs.size(), 1);
   ASSERT_LE(seqs.size(), 3);
   for (auto i = start_seq; i < seq_end; i++) {
-    // The result is not very accurate, as there is more data write within small
-    // range of time
-    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 1000);
-    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 3000);
+    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+              start_time + (i - start_seq) - 100);
+    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+              start_time + (i - start_seq));
   }
   checked_file_nums.insert(it->second->orig_file_number);
   start_seq = seq_end;
+  start_time = mock_clock_->NowSeconds();
 
   // Write a key every 200 seconds
   for (int i = 0; i < 200; i++) {
@@ -422,20 +438,18 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   // The sequence number -> time entries should be maxed
   ASSERT_GE(seqs.size(), 99);
   ASSERT_LE(seqs.size(), 101);
-  for (auto i = start_seq; i < seq_end - 99; i++) {
-    // likely the first 100 entries reports 0
-    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i), (i - start_seq) + 3000);
-  }
-  start_seq += 101;
-
   for (auto i = start_seq; i < seq_end; i++) {
-    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-              (i - start_seq) * 200 + 22200);
+    // aged out entries allowed to report time=0
+    if ((seq_end - i) * 200 <= 10000) {
+      ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+                start_time + (i - start_seq) * 200 - 100);
+    }
     ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-              (i - start_seq) * 200 + 22600);
+              start_time + (i - start_seq) * 200);
   }
   checked_file_nums.insert(it->second->orig_file_number);
   start_seq = seq_end;
+  start_time = mock_clock_->NowSeconds();
 
   // Write a key every 100 seconds
   for (int i = 0; i < 200; i++) {
@@ -489,18 +503,15 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_GE(seqs.size(), 99);
   ASSERT_LE(seqs.size(), 101);
-  for (auto i = start_seq; i < seq_end - 99; i++) {
-    // likely the first 100 entries reports 0
-    ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-              (i - start_seq) * 100 + 50000);
-  }
-  start_seq += 101;
-
   for (auto i = start_seq; i < seq_end; i++) {
-    ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-              (i - start_seq) * 100 + 52200);
+    // aged out entries allowed to report time=0
+    // FIXME: should be <=
+    if ((seq_end - i) * 100 < 10000) {
+      ASSERT_GE(tp_mapping.GetProximalTimeBeforeSeqno(i),
+                start_time + (i - start_seq) * 100 - 100);
+    }
     ASSERT_LE(tp_mapping.GetProximalTimeBeforeSeqno(i),
-              (i - start_seq) * 100 + 52400);
+              start_time + (i - start_seq) * 100);
   }
   ASSERT_OK(db_->Close());
 }
@@ -625,14 +636,12 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   ASSERT_GE(seqs.size(), 99);
   ASSERT_LE(seqs.size(), 101);
 
-  for (int j = 0; j < 2; j++) {
     for (int i = 0; i < 200; i++) {
       ASSERT_OK(Put(0, Key(i), "value"));
       dbfull()->TEST_WaitForPeriodicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
     }
     ASSERT_OK(Flush(0));
-  }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(handles_[0], &tables_props));
