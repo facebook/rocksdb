@@ -2521,7 +2521,8 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   // unflushed immutable memtables were cut at a consistent point in time.
   autovector<ColumnFamilyData*> cfds;
   for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped() && cfd->initialized()) {
+    if (!cfd->IsDropped() && cfd->initialized() &&
+        cfd->imm()->NumNotFlushed() != 0) {
       cfd->Ref();
       cfd->imm()->FlushRequested();
       cfds.push_back(cfd);
@@ -2544,15 +2545,13 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   } else {
     for (auto cfd : cfds) {
       flush_memtable_ids.push_back(cfd->imm()->GetLatestMemTableID());
-      if (cfd->imm()->NumNotFlushed() != 0) {
-        // Impose no bound on the highest memtable ID flushed. There is no
-        // reason to do so outside of atomic flush.
-        FlushRequest flush_req{
-            flush_reason,
-            {{cfd, std::numeric_limits<
-                       uint64_t>::max() /* max_mem_id_to_persist */}}};
-        SchedulePendingFlush(flush_req);
-      }
+      // Impose no bound on the highest memtable ID flushed. There is no
+      // reason to do so outside of atomic flush.
+      FlushRequest flush_req{
+          flush_reason,
+          {{cfd,
+            std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
+      SchedulePendingFlush(flush_req);
     }
   }
   MaybeScheduleFlushOrCompaction();
