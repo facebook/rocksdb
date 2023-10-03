@@ -223,7 +223,9 @@ class WBWIIteratorImpl : public WBWIIterator {
       skip_list_iter_.Seek(&search_entry);
     }
 
-    out_of_bound_ = false;
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
+    }
   }
 
   void SeekToLast() override {
@@ -243,12 +245,14 @@ class WBWIIteratorImpl : public WBWIIterator {
       skip_list_iter_.Prev();
     }
 
-    out_of_bound_ = false;
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
+    }
   }
 
   void Seek(const Slice& key) override {
     if (beforeLowerBound(&key)) {  // cap to prevent out of bound
-      this->SeekToFirst();
+      SeekToFirst();
     } else if (afterUpperBound(&key)) {
       out_of_bound_ = true;
     } else {
@@ -262,7 +266,7 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   void SeekForPrev(const Slice& key) override {
     if (afterUpperBound(&key)) {  // cap to prevent out of bound
-      this->SeekToLast();
+      SeekToLast();
     } else if (beforeLowerBound(&key)) {
       out_of_bound_ = true;
     } else {

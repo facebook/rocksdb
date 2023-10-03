@@ -1691,6 +1691,40 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   delete ro.iterate_upper_bound;
 }
 
+TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInSeekToFirstAndLastOfDeltaIterator) {
+  Status s = OpenDB();
+  ASSERT_OK(s);
+  KVMap empty_map;
+  // writes that should be observed by BaseDeltaIterator::delta_iterator_
+  ASSERT_OK(batch_->Put("c", "cc"));
+
+  ReadOptions ro;
+  {
+    ro.iterate_lower_bound = new Slice("b");
+    ro.iterate_upper_bound = new Slice("c");
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    iter->SeekToLast();
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  {
+    ro.iterate_lower_bound = new Slice("d");
+    ro.iterate_upper_bound = new Slice("e");
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    iter->SeekToLast();
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  delete ro.iterate_lower_bound;
+  delete ro.iterate_upper_bound;
+}
+
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
   KVMap empty_map;
