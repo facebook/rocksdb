@@ -38,7 +38,7 @@ public class WriteBufferManager extends RocksObject {
   }
 
   private static long newWriteBufferManagerInstance(
-          final long bufferSizeBytes, final long cacheHandle, final boolean allowStall) {
+      final long bufferSizeBytes, final long cacheHandle, final boolean allowStall) {
     RocksDB.loadLibrary();
     return newWriteBufferManager(bufferSizeBytes, cacheHandle, allowStall);
   }
