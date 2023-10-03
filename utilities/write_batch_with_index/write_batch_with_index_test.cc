@@ -1651,44 +1651,60 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   ASSERT_OK(batch_->Put("b", "bb"));
   ASSERT_OK(batch_->Put("c", "cc"));
 
-  // given range [b, c)
-  // assert only {b} is return
-
   ReadOptions ro;
+
+  auto checkOnlyBIsVisible = [&]() {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
+
+    // move to the lower bound
+    iter->SeekToFirst();
+    ASSERT_EQ("b", iter->key());
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+
+    // move to the upper bound
+    iter->SeekToLast();
+    ASSERT_EQ("b", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+
+    // test bounds checking in Seek and SeekForPrev
+    iter->Seek(Slice("a"));
+    ASSERT_EQ("b", iter->key());
+    iter->Seek(Slice("b"));
+    ASSERT_EQ("b", iter->key());
+    iter->Seek(Slice("c"));
+    ASSERT_FALSE(iter->Valid());
+
+    iter->SeekForPrev(Slice("c"));
+    ASSERT_EQ("b", iter->key());
+    iter->SeekForPrev(Slice("b"));
+    ASSERT_EQ("b", iter->key());
+    iter->SeekForPrev(Slice("a"));
+    ASSERT_FALSE(iter->Valid());
+
+    iter->SeekForPrev(Slice("a.1")); // a non-existent key that is smaller than "b"
+    ASSERT_FALSE(iter->Valid());
+
+    iter->Seek(Slice("b.1")); // a non-existent key that is greater than "b"
+    ASSERT_FALSE(iter->Valid());
+
+    delete ro.iterate_lower_bound;
+    delete ro.iterate_upper_bound;
+  };
+
   ro.iterate_lower_bound = new Slice("b");
   ro.iterate_upper_bound = new Slice("c");
-  std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
-      db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
+  checkOnlyBIsVisible();
 
-  // move to the lower bound
-  iter->SeekToFirst();
-  ASSERT_EQ("b", iter->key());
-  iter->Prev();
-  ASSERT_FALSE(iter->Valid());
+  ro.iterate_lower_bound = new Slice("a.1");
+  ro.iterate_upper_bound = new Slice("c");
+  checkOnlyBIsVisible();
 
-  // move to the upper bound
-  iter->SeekToLast();
-  ASSERT_EQ("b", iter->key());
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-
-  // test bounds checking in Seek and SeekForPrev
-  iter->Seek(Slice("a"));
-  ASSERT_EQ("b", iter->key());
-  iter->Seek(Slice("b"));
-  ASSERT_EQ("b", iter->key());
-  iter->Seek(Slice("c"));
-  ASSERT_FALSE(iter->Valid());
-
-  iter->SeekForPrev(Slice("c"));
-  ASSERT_EQ("b", iter->key());
-  iter->SeekForPrev(Slice("b"));
-  ASSERT_EQ("b", iter->key());
-  iter->SeekForPrev(Slice("a"));
-  ASSERT_FALSE(iter->Valid());
-
-  delete ro.iterate_lower_bound;
-  delete ro.iterate_upper_bound;
+  ro.iterate_lower_bound = new Slice("b");
+  ro.iterate_upper_bound = new Slice("b.2");
+  checkOnlyBIsVisible();
 }
 
 TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInSeekToFirstAndLastOfDeltaIterator) {
@@ -1699,30 +1715,25 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInSeekToFirstAndLastOfDeltaIte
   ASSERT_OK(batch_->Put("c", "cc"));
 
   ReadOptions ro;
-  {
-    ro.iterate_lower_bound = new Slice("b");
-    ro.iterate_upper_bound = new Slice("c");
+  auto checkNothingVisible = [&]() {
     std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
         db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
     iter->SeekToFirst();
     ASSERT_FALSE(iter->Valid());
     iter->SeekToLast();
     ASSERT_FALSE(iter->Valid());
-  }
 
-  {
-    ro.iterate_lower_bound = new Slice("d");
-    ro.iterate_upper_bound = new Slice("e");
-    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
-        db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
-    iter->SeekToFirst();
-    ASSERT_FALSE(iter->Valid());
-    iter->SeekToLast();
-    ASSERT_FALSE(iter->Valid());
-  }
+    delete ro.iterate_lower_bound;
+    delete ro.iterate_upper_bound;
+  };
 
-  delete ro.iterate_lower_bound;
-  delete ro.iterate_upper_bound;
+  ro.iterate_lower_bound = new Slice("b");
+  ro.iterate_upper_bound = new Slice("c");
+  checkNothingVisible();
+
+  ro.iterate_lower_bound = new Slice("d");
+  ro.iterate_upper_bound = new Slice("e");
+  checkNothingVisible();
 }
 
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {

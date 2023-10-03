@@ -253,28 +253,32 @@ class WBWIIteratorImpl : public WBWIIterator {
   void Seek(const Slice& key) override {
     if (beforeLowerBound(&key)) {  // cap to prevent out of bound
       SeekToFirst();
-    } else if (afterUpperBound(&key)) {
-      out_of_bound_ = true;
-    } else {
-      WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                        true /* is_forward_direction */,
-                                        false /* is_seek_to_first */);
-      skip_list_iter_.Seek(&search_entry);
-      out_of_bound_ = false;
+      return;
+    }
+
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      true /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
     }
   }
 
   void SeekForPrev(const Slice& key) override {
     if (afterUpperBound(&key)) {  // cap to prevent out of bound
       SeekToLast();
-    } else if (beforeLowerBound(&key)) {
-      out_of_bound_ = true;
-    } else {
-      WriteBatchIndexEntry search_entry(&key, column_family_id_,
-                                        false /* is_forward_direction */,
-                                        false /* is_seek_to_first */);
-      skip_list_iter_.SeekForPrev(&search_entry);
-      out_of_bound_ = false;
+      return;
+    }
+
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      false /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.SeekForPrev(&search_entry);
+
+    if (validRegardlessOfBoundLimit()) {
+      out_of_bound_ = testOutOfBound();
     }
   }
 
