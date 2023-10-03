@@ -26,7 +26,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   if (autotune_readaheadsize &&
       table_->get_rep()->table_options.block_cache.get() &&
-      !read_options_.async_io) {
+      !read_options_.async_io && direction_ == IterDirection::kForward) {
     readahead_cache_lookup_ = true;
   }
 
@@ -87,14 +87,12 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     } else {
       index_iter_->SeekToFirst();
     }
-
+    is_index_at_curr_block_ = true;
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;
     }
   }
-
-  is_index_at_curr_block_ = true;
 
   if (autotune_readaheadsize) {
     FindReadAheadSizeUpperBound();
@@ -170,6 +168,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
+  direction_ = IterDirection::kBackward;
+  ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
@@ -191,7 +191,6 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   }
 
   SavePrevIndexValue();
-  ResetBlockCacheLookupVar();
 
   // Call Seek() rather than SeekForPrev() in the index block, because the
   // target data block will likely to contain the position for `target`, the
@@ -207,6 +206,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   // to distinguish the two unless we read the second block. In this case, we'll
   // end up with reading two blocks.
   index_iter_->Seek(target);
+  is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
     auto seek_status = index_iter_->status();
@@ -231,8 +231,6 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
     }
   }
 
-  is_index_at_curr_block_ = true;
-
   InitDataBlock();
 
   block_iter_.SeekForPrev(target);
@@ -244,21 +242,21 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekToLast() {
+  direction_ = IterDirection::kBackward;
+  ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
   seek_stat_state_ = kNone;
 
   SavePrevIndexValue();
-  ResetBlockCacheLookupVar();
 
   index_iter_->SeekToLast();
+  is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
     ResetDataIter();
     return;
   }
-
-  is_index_at_curr_block_ = true;
 
   InitDataBlock();
   block_iter_.SeekToLast();
@@ -528,7 +526,7 @@ void BlockBasedTableIterator::FindBlockForward() {
     //  index_iter_ can point to different block in case of
     //  readahead_cache_lookup_. readahead_cache_lookup_ will be handle the
     //  upper_bound check.
-    const bool next_block_is_out_of_bound =
+    bool next_block_is_out_of_bound =
         IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_ &&
         block_upper_bound_check_ == BlockUpperBound::kUpperBoundInCurBlock;
@@ -553,8 +551,14 @@ void BlockBasedTableIterator::FindBlockForward() {
       // 2. If block_handles is empty and index is not at current because of
       //    lookup (during Next), it should skip doing index_iter_->Next(), as
       //    it's already pointing to next block;
-      if (IsIndexAtCurr()) {
+      // 3. Last block could be out of bound and it won't iterate over that
+      // during BlockCacheLookup. We need to set for that block here.
+      if (IsIndexAtCurr() || is_index_out_of_bound_) {
         index_iter_->Next();
+        if (is_index_out_of_bound_) {
+          next_block_is_out_of_bound = is_index_out_of_bound_;
+          is_index_out_of_bound_ = false;
+        }
       } else {
         // Skip Next as index_iter_ already points to correct index when it
         // iterates in BlockCacheLookupForReadAheadSize.
@@ -612,7 +616,7 @@ void BlockBasedTableIterator::FindKeyBackward() {
 }
 
 void BlockBasedTableIterator::CheckOutOfBound() {
-  if (IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
+  if (read_options_.iterate_upper_bound != nullptr &&
       block_upper_bound_check_ != BlockUpperBound::kUpperBoundBeyondCurBlock &&
       Valid()) {
     is_out_of_bound_ =
@@ -686,6 +690,11 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     return;
   }
 
+  if (IsNextBlockOutOfBound()) {
+    updated_readahead_size = 0;
+    return;
+  }
+
   size_t current_readahead_size = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
 
@@ -725,6 +734,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     if (!s.ok()) {
       break;
     }
+
     block_handle_info.is_cache_hit_ =
         (block_handle_info.cachable_entry_.GetValue() ||
          block_handle_info.cachable_entry_.GetCacheHandle());
@@ -738,6 +748,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     // means all the keys in next block or above are out of
     // bound.
     if (IsNextBlockOutOfBound()) {
+      is_index_out_of_bound_ = true;
       break;
     }
     index_iter_->Next();
@@ -750,7 +761,6 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     current_readahead_size -= (*it).index_val_.handle.size();
     current_readahead_size -= footer;
   }
-
   updated_readahead_size = current_readahead_size;
   ResetPreviousBlockOffset();
 }

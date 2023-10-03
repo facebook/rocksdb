@@ -1237,7 +1237,6 @@ Status StressTest::TestIterate(ThreadState* thread,
   } else if (options_.prefix_extractor.get() == nullptr) {
     expect_total_order = true;
   }
-
   std::string upper_bound_str;
   Slice upper_bound;
   if (thread->rand.OneIn(16)) {
@@ -1248,6 +1247,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     upper_bound = Slice(upper_bound_str);
     ro.iterate_upper_bound = &upper_bound;
   }
+
   std::string lower_bound_str;
   Slice lower_bound;
   if (thread->rand.OneIn(16)) {
@@ -1377,8 +1377,7 @@ Status StressTest::TestIterate(ThreadState* thread,
                    key, op_logs, &diverged);
 
     const bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order) ||
-        FLAGS_auto_readahead_size;
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
@@ -1566,7 +1565,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
           fprintf(stderr, "iterator has value %s\n",
                   iter->key().ToString(true).c_str());
         } else {
-          fprintf(stderr, "iterator is not valid\n");
+          fprintf(stderr, "iterator is not valid with status: %s\n",
+                  iter->status().ToString().c_str());
         }
         *diverged = true;
       }

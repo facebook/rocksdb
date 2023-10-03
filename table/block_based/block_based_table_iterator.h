@@ -307,6 +307,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // can point to a different block. is_index_at_curr_block_ keeps track of
   // that.
   bool is_index_at_curr_block_ = true;
+  bool is_index_out_of_bound_ = false;
+
+  // Used in case of auto_readahead_size to disable the block_cache lookup if
+  // direction is reversed from forward to backward. In case of backward
+  // direction, SeekForPrev or Prev might call Seek from db_iter. So direction
+  // is used to disable the lookup.
+  IterDirection direction_ = IterDirection::kForward;
 
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
@@ -356,6 +363,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                         size_t& updated_readahead_size);
 
   void ResetBlockCacheLookupVar() {
+    is_index_out_of_bound_ = false;
     readahead_cache_lookup_ = false;
     ClearBlockHandles();
   }
