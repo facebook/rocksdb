@@ -45,7 +45,7 @@
 * Fixed a bug where compaction read under non direct IO still falls back to RocksDB internal prefetching after file system's prefetching returns non-OK status other than `Status::NotSupported()`
 
 ### Performance Improvements
-* Added additional improvements in tuning readahead_size during Scans when auto_readahead_size is enabled. However it's not supported with Iterator::Prev operation and will return NotSupported error.
+* Added additional improvements in tuning readahead_size during Scans when auto_readahead_size is enabled. However it's not recommended for backward scans and might impact the performance. More details in options.h.
 * During async_io, the Seek happens in 2 phases. Phase 1 starts an asynchronous read on a block cache miss, and phase 2 waits for it to complete and finishes the seek. In both phases, it tries to lookup the block cache for the data block first before looking in the prefetch buffer. It's optimized by doing the block cache lookup only in the first phase that would save some CPU.
 
 ## 8.6.0 (08/18/2023)

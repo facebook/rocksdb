@@ -1448,21 +1448,49 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
     ropts.iterate_upper_bound = ub_ptr;
     ropts.auto_readahead_size = true;
 
+    ReadOptions cmp_readopts = ropts;
+    cmp_readopts.auto_readahead_size = false;
+
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_readopts));
 
     Slice seek_key = Slice("my_key_bbb");
-    iter->Seek(seek_key);
-    ASSERT_TRUE(iter->Valid());
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
 
-    // Prev op should fail with auto tuning of readahead_size.
-    iter->Prev();
-    ASSERT_TRUE(iter->status().IsNotSupported());
-    ASSERT_FALSE(iter->Valid());
+      iter->Seek(seek_key);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
+
+    // Prev op should pass with auto tuning of readahead_size.
+    {
+      cmp_iter->Prev();
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Prev();
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
 
     // Reseek would follow as usual.
-    iter->Seek(seek_key);
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(iter->Valid());
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Seek(seek_key);
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
   }
   Close();
 }
