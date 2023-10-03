@@ -1684,10 +1684,11 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
     iter->SeekForPrev(Slice("a"));
     ASSERT_FALSE(iter->Valid());
 
-    iter->SeekForPrev(Slice("a.1")); // a non-existent key that is smaller than "b"
+    iter->SeekForPrev(
+        Slice("a.1"));  // a non-existent key that is smaller than "b"
     ASSERT_FALSE(iter->Valid());
 
-    iter->Seek(Slice("b.1")); // a non-existent key that is greater than "b"
+    iter->Seek(Slice("b.1"));  // a non-existent key that is greater than "b"
     ASSERT_FALSE(iter->Valid());
 
     delete ro.iterate_lower_bound;
@@ -1707,7 +1708,8 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   checkOnlyBIsVisible();
 }
 
-TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInSeekToFirstAndLastOfDeltaIterator) {
+TEST_P(WriteBatchWithIndexTest,
+       TestBoundsCheckingInSeekToFirstAndLastOfDeltaIterator) {
   Status s = OpenDB();
   ASSERT_OK(s);
   KVMap empty_map;
