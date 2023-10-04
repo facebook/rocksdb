@@ -243,6 +243,35 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
   }
 }
 
+// ***************************************************************** //
+// Unit test for Status
+TEST(StatusTest, Update) {
+  const Status ok = Status::OK();
+  const Status inc = Status::Incomplete("blah");
+  const Status notf = Status::NotFound("meow");
+
+  Status s = ok;
+  ASSERT_TRUE(s.Update(Status::Corruption("bad")).IsCorruption());
+  ASSERT_TRUE(s.IsCorruption());
+
+  s = ok;
+  ASSERT_TRUE(s.Update(Status::OK()).ok());
+  ASSERT_TRUE(s.Update(ok).ok());
+  ASSERT_TRUE(s.ok());
+
+  ASSERT_TRUE(s.Update(inc).IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete());
+
+  ASSERT_TRUE(s.Update(notf).IsIncomplete());
+  ASSERT_TRUE(s.Update(ok).IsIncomplete());
+  ASSERT_TRUE(s.IsIncomplete());
+
+  // Keeps left-most non-OK status
+  s = ok;
+  ASSERT_TRUE(s.Update(Status()).Update(notf).Update(inc).IsNotFound());
+  ASSERT_TRUE(s.IsNotFound());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

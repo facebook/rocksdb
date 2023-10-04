@@ -1823,9 +1823,14 @@ class DBImpl : public DB {
 
   const Status CreateArchivalDirectory();
 
+  // Create a column family, without some of the follow-up work yet
   Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
+
+  // Follow-up work to user creating a column family or (families)
+  Status WrapUpCreateColumnFamilies(
+      const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
 

@@ -151,6 +151,21 @@ class Status {
     return state_.get();
   }
 
+  // Override this status with another, unless this status is already non-ok.
+  // Returns *this. In other words, the result of `a.Update(b).Update(c)` is
+  // non-ok (and `a` modified as such) iff any input was non-ok, with
+  // left-most taking precedence as far as the details.
+  Status& Update(Status&& s) {
+    if (code() == kOk) {
+      *this = std::move(s);
+    }
+    return *this;
+  }
+
+  Status& Update(const Status& s) {
+    return Update(std::forward<Status>(Status(s)));
+  }
+
   // Return a success status.
   static Status OK() { return Status(); }
 

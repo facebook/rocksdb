@@ -2069,7 +2069,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           // missing column family, create it
           ColumnFamilyHandle* handle = nullptr;
           impl->mutex_.Unlock();
-          s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
+          // NOTE: the work normally done in WrapUpCreateColumnFamilies will
+          // be done separately below.
+          s = impl->CreateColumnFamilyImpl(cf.options, cf.name, &handle);
           impl->mutex_.Lock();
           if (s.ok()) {
             handles->push_back(handle);

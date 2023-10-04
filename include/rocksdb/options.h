@@ -485,7 +485,8 @@ struct DBOptions {
   // Default: false
   bool create_if_missing = false;
 
-  // If true, missing column families will be automatically created.
+  // If true, missing column families will be automatically created on
+  // DB::Open().
   // Default: false
   bool create_missing_column_families = false;
 
