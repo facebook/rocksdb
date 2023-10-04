@@ -1653,7 +1653,7 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
 
   ReadOptions ro;
 
-  auto checkOnlyBIsVisible = [&]() {
+  auto check_only_b_is_visible = [&]() {
     std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
         db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
 
@@ -1697,15 +1697,15 @@ TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
 
   ro.iterate_lower_bound = new Slice("b");
   ro.iterate_upper_bound = new Slice("c");
-  checkOnlyBIsVisible();
+  check_only_b_is_visible();
 
   ro.iterate_lower_bound = new Slice("a.1");
   ro.iterate_upper_bound = new Slice("c");
-  checkOnlyBIsVisible();
+  check_only_b_is_visible();
 
   ro.iterate_lower_bound = new Slice("b");
   ro.iterate_upper_bound = new Slice("b.2");
-  checkOnlyBIsVisible();
+  check_only_b_is_visible();
 }
 
 TEST_P(WriteBatchWithIndexTest,
@@ -1717,7 +1717,7 @@ TEST_P(WriteBatchWithIndexTest,
   ASSERT_OK(batch_->Put("c", "cc"));
 
   ReadOptions ro;
-  auto checkNothingVisible = [&]() {
+  auto check_nothing_visible = [&]() {
     std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
         db_->DefaultColumnFamily(), new KVIter(&empty_map), &ro));
     iter->SeekToFirst();
@@ -1731,11 +1731,11 @@ TEST_P(WriteBatchWithIndexTest,
 
   ro.iterate_lower_bound = new Slice("b");
   ro.iterate_upper_bound = new Slice("c");
-  checkNothingVisible();
+  check_nothing_visible();
 
   ro.iterate_lower_bound = new Slice("d");
   ro.iterate_upper_bound = new Slice("e");
-  checkNothingVisible();
+  check_nothing_visible();
 }
 
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {

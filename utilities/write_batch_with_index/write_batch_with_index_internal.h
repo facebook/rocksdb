@@ -207,7 +207,7 @@ class WBWIIteratorImpl : public WBWIIterator {
   ~WBWIIteratorImpl() override {}
 
   bool Valid() const override {
-    return !out_of_bound_ && validRegardlessOfBoundLimit();
+    return !out_of_bound_ && ValidRegardlessOfBoundLimit();
   }
 
   void SeekToFirst() override {
@@ -223,8 +223,8 @@ class WBWIIteratorImpl : public WBWIIterator {
       skip_list_iter_.Seek(&search_entry);
     }
 
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
@@ -245,13 +245,13 @@ class WBWIIteratorImpl : public WBWIIterator {
       skip_list_iter_.Prev();
     }
 
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
   void Seek(const Slice& key) override {
-    if (beforeLowerBound(&key)) {  // cap to prevent out of bound
+    if (BeforeLowerBound(&key)) {  // cap to prevent out of bound
       SeekToFirst();
       return;
     }
@@ -261,13 +261,13 @@ class WBWIIteratorImpl : public WBWIIterator {
                                       false /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
 
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
   void SeekForPrev(const Slice& key) override {
-    if (afterUpperBound(&key)) {  // cap to prevent out of bound
+    if (AfterUpperBound(&key)) {  // cap to prevent out of bound
       SeekToLast();
       return;
     }
@@ -277,22 +277,22 @@ class WBWIIteratorImpl : public WBWIIterator {
                                       false /* is_seek_to_first */);
     skip_list_iter_.SeekForPrev(&search_entry);
 
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
   void Next() override {
     skip_list_iter_.Next();
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
   void Prev() override {
     skip_list_iter_.Prev();
-    if (validRegardlessOfBoundLimit()) {
-      out_of_bound_ = testOutOfBound();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
     }
   }
 
@@ -339,12 +339,12 @@ class WBWIIteratorImpl : public WBWIIterator {
   const Slice* iterate_upper_bound_;
   bool out_of_bound_ = false;
 
-  bool testOutOfBound() const {
+  bool TestOutOfBound() const {
     const Slice& curKey = Entry().key;
-    return afterUpperBound(&curKey) || beforeLowerBound(&curKey);
+    return AfterUpperBound(&curKey) || BeforeLowerBound(&curKey);
   }
 
-  bool validRegardlessOfBoundLimit() const {
+  bool ValidRegardlessOfBoundLimit() const {
     if (!skip_list_iter_.Valid()) {
       return false;
     }
@@ -353,7 +353,7 @@ class WBWIIteratorImpl : public WBWIIterator {
            iter_entry->column_family == column_family_id_;
   }
 
-  bool afterUpperBound(const Slice* k) const {
+  bool AfterUpperBound(const Slice* k) const {
     if (iterate_upper_bound_ == nullptr) {
       return false;
     }
@@ -364,7 +364,7 @@ class WBWIIteratorImpl : public WBWIIterator {
                                          /*b_has_ts=*/false) >= 0;
   }
 
-  bool beforeLowerBound(const Slice* k) const {
+  bool BeforeLowerBound(const Slice* k) const {
     if (iterate_lower_bound_ == nullptr) {
       return false;
     }
