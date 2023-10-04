@@ -371,7 +371,8 @@ public class OptionsUtilTest {
       assertThat(expected.filterPolicy().equals(actual.filterPolicy()));
     }
 
-    // breakers
-    assertThat(actual.useDeltaEncoding()).isEqualTo(expected.useDeltaEncoding());
+    // not currently persisted - always true when read from options
+    // this test will fail, and need repaired, if and when "useDeltaEncoding" is persisted.
+    assertThat(actual.useDeltaEncoding()).isEqualTo(true);
   }
 }
