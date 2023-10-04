@@ -217,7 +217,7 @@ default_params = {
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
     # 0 (disable) is the default and more commonly used value.
     "bottommost_file_compaction_delay": lambda: random.choice([0, 0, 0, 600, 3600, 86400]),
-    "auto_readahead_size" : 0,
+    "auto_readahead_size" : lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"

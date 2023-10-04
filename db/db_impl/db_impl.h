@@ -1951,6 +1951,8 @@ class DBImpl : public DB {
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
 
+  Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
+
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                            bool* flush_needed);
@@ -2099,6 +2101,12 @@ class DBImpl : public DB {
 #endif /* !NDEBUG */
   };
 
+  // In case of atomic flush, generates a `FlushRequest` for the latest atomic
+  // cuts for these `cfds`. Atomic cuts are recorded in
+  // `AssignAtomicFlushSeq()`. For each entry in `cfds`, all CFDs sharing the
+  // same latest atomic cut must also be present.
+  //
+  // REQUIRES: mutex held
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 

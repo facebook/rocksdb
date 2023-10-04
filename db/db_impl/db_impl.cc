@@ -387,13 +387,18 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
-  // We cannot guarantee consistency of the WAL. So force flush Memtables of
-  // all the column families
   if (s.ok()) {
-    FlushOptions flush_opts;
-    // We allow flush to stall write since we are trying to resume from error.
-    flush_opts.allow_write_stall = true;
-    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    if (context.flush_reason == FlushReason::kErrorRecoveryRetryFlush) {
+      s = RetryFlushesForErrorRecovery(FlushReason::kErrorRecoveryRetryFlush,
+                                       true /* wait */);
+    } else {
+      // We cannot guarantee consistency of the WAL. So force flush Memtables of
+      // all the column families
+      FlushOptions flush_opts;
+      // We allow flush to stall write since we are trying to resume from error.
+      flush_opts.allow_write_stall = true;
+      s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -457,11 +462,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // Since we drop all non-recovery flush requests during recovery,
     // and new memtable may fill up during recovery,
     // schedule one more round of flush.
-    FlushOptions flush_opts;
-    flush_opts.allow_write_stall = false;
-    flush_opts.wait = false;
-    Status status = FlushAllColumnFamilies(
-        flush_opts, FlushReason::kCatchUpAfterErrorRecovery);
+    Status status = RetryFlushesForErrorRecovery(
+        FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
     if (!status.ok()) {
       // FlushAllColumnFamilies internally should take care of setting
       // background error if needed.

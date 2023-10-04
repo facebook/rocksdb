@@ -85,6 +85,13 @@ class MergeHelper {
       std::string* result, Slice* result_operand, ValueType* result_type,
       MergeOperator::OpFailureScope* op_failure_scope);
 
+  static Status TimedFullMerge(
+      const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
+      const WideColumns& columns, const std::vector<Slice>& operands,
+      Logger* logger, Statistics* statistics, SystemClock* clock,
+      bool update_num_ops_stats, std::string* result, Slice* result_operand,
+      ValueType* result_type, MergeOperator::OpFailureScope* op_failure_scope);
+
   // Variants that expose the merge result translated to the form requested by
   // the client. (For example, if the result is a wide-column structure but the
   // client requested the results in plain-value form, the value of the default
@@ -111,6 +118,16 @@ class MergeHelper {
       Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
       std::string* result_value, PinnableWideColumns* result_entity,
       MergeOperator::OpFailureScope* op_failure_scope);
+
+  static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, WideBaseValueTag,
+                               const WideColumns& columns,
+                               const std::vector<Slice>& operands,
+                               Logger* logger, Statistics* statistics,
+                               SystemClock* clock, bool update_num_ops_stats,
+                               std::string* result_value,
+                               PinnableWideColumns* result_entity,
+                               MergeOperator::OpFailureScope* op_failure_scope);
 
   // During compaction, merge entries until we hit
   //     - a corrupted key
