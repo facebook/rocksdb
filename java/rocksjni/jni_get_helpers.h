@@ -46,6 +46,8 @@ class MultiGetJNIKeys {
   bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
                       jintArray jkey_lens);
 
+  bool fromByteArrays(JNIEnv* env, jobjectArray jkeys);
+
   bool fromByteBuffers(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
                        jintArray jkey_lens);
 

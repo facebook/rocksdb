@@ -114,6 +114,35 @@ MultiGetJNIKeys::~MultiGetJNIKeys() {
   key_bufs_to_free.clear();
 }
 
+bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys) {
+  const jsize num_keys = env->GetArrayLength(jkeys);
+
+  for (jsize i = 0; i < num_keys; i++) {
+    jobject jkey = env->GetObjectArrayElement(jkeys, i);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      return false;
+    }
+
+    jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
+    const jsize len_key = env->GetArrayLength(jkey_ba);
+    jbyte* key = new jbyte[len_key];
+    key_bufs_to_free.push_back(key);
+    env->GetByteArrayRegion(jkey_ba, 0, len_key, key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jkey);
+      return false;
+    }
+
+    slices_.push_back(
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
+    env->DeleteLocalRef(jkey);
+  }
+
+  return true;
+}
+
 bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
                                      jintArray jkey_offs, jintArray jkey_lens) {
   const jsize num_keys = env->GetArrayLength(jkeys);
