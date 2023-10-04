@@ -219,10 +219,16 @@ struct FileMetaData {
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
 
-  // The file could be the compaction output from other SST files, which could
-  // in turn be outputs for compact older SST files. We track the memtable
-  // flush timestamp for the oldest SST file that eventually contribute data
-  // to this file. 0 means the information is not available.
+  // For flush output file, oldest ancestor time is the oldest key time in the
+  // file.  If the oldest key time is not available, flush time is used.
+  //
+  // For compaction output file, oldest ancestor time is the oldest
+  // among all the oldest key time of its input files, since the file could be
+  // the compaction output from other SST files, which could in turn be outputs
+  // for compact older SST files. If that's not available, creation time of this
+  // compaction output file is used.
+  //
+  // 0 means the information is not available.
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
 
   // Unix time when the SST file is created.
