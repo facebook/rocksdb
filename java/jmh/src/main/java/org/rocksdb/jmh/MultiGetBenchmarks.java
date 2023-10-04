@@ -56,6 +56,7 @@ public class MultiGetBenchmarks {
   private final AtomicInteger keyIndex = new AtomicInteger();
 
   private List<ColumnFamilyHandle> defaultCFHandles = new ArrayList<>();
+  private List<ColumnFamilyHandle> randomCFHandles = new ArrayList<>();
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -107,6 +108,11 @@ public class MultiGetBenchmarks {
     final ColumnFamilyHandle defaultCFH = db.getDefaultColumnFamily();
     for (int i = 0; i < keyCount; i++) {
       defaultCFHandles.add(defaultCFH);
+    }
+
+    // list of random cfs
+    for (int i = 0; i < keyCount; i++) {
+      randomCFHandles.add(cfHandlesList.get((int) (Math.random() * cfs)));
     }
 
     try (final FlushOptions flushOptions = new FlushOptions()
@@ -206,11 +212,27 @@ public class MultiGetBenchmarks {
   }
 
   @Benchmark
-  public void multiGetListCF20() throws RocksDBException {
+  public void multiGetListExplicitCF20() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<ColumnFamilyHandle> columnFamilyHandles = defaultCFHandles.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ColumnFamilyHandle> columnFamilyHandles =
+          defaultCFHandles.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<byte[]> valueResults = db.multiGetAsList(columnFamilyHandles, keys);
+      for (final byte[] result : valueResults) {
+        if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+    }
+  }
+
+  @Benchmark
+  public void multiGetListRandomCF30() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<ColumnFamilyHandle> columnFamilyHandles =
+          randomCFHandles.subList(fromKeyIdx, fromKeyIdx + multiGetSize);
       final List<byte[]> valueResults = db.multiGetAsList(columnFamilyHandles, keys);
       for (final byte[] result : valueResults) {
         if (result.length != valueSize)
