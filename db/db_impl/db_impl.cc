@@ -3312,7 +3312,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
   Status s = WriteOptionsFile(true /*need_mutex_lock*/,
                               true /*need_enter_write_thread*/);
   if (register_worker) {
-    s.Update(RegisterRecordSeqnoTimeWorker());
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
   }
   return s;
 }
@@ -3323,7 +3323,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
   assert(handle != nullptr);
   Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
   if (s.ok()) {
-    s.Update(WrapUpCreateColumnFamilies({&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3347,7 +3347,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    s.Update(WrapUpCreateColumnFamilies({&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3374,7 +3374,7 @@ Status DBImpl::CreateColumnFamilies(
     cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    s.Update(WrapUpCreateColumnFamilies(cf_opts));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(cf_opts));
   }
   return s;
 }

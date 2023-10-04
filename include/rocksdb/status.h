@@ -152,10 +152,10 @@ class Status {
   }
 
   // Override this status with another, unless this status is already non-ok.
-  // Returns *this. In other words, the result of `a.Update(b).Update(c)` is
+  // Returns *this. Thus, the result of `a.UpdateIfOk(b).UpdateIfOk(c)` is
   // non-ok (and `a` modified as such) iff any input was non-ok, with
   // left-most taking precedence as far as the details.
-  Status& Update(Status&& s) {
+  Status& UpdateIfOk(Status&& s) {
     if (code() == kOk) {
       *this = std::move(s);
     } else {
@@ -166,8 +166,8 @@ class Status {
     return *this;
   }
 
-  Status& Update(const Status& s) {
-    return Update(std::forward<Status>(Status(s)));
+  Status& UpdateIfOk(const Status& s) {
+    return UpdateIfOk(std::forward<Status>(Status(s)));
   }
 
   // Return a success status.
