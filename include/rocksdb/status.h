@@ -158,7 +158,11 @@ class Status {
   Status& Update(Status&& s) {
     if (code() == kOk) {
       *this = std::move(s);
+    } else {
+      // Alright to ignore that status as long as this one is checked
+      s.PermitUncheckedError();
     }
+    MustCheck();
     return *this;
   }
 
