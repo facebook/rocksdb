@@ -816,35 +816,35 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 }
 
 Status DBImpl::RegisterRecordSeqnoTimeWorker() {
-  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
-  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+  uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
+  uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
   {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       // preserve time is the max of 2 options.
-      uint64_t preserve_time_duration =
+      uint64_t preserve_seconds =
           std::max(cfd->ioptions()->preserve_internal_time_seconds,
                    cfd->ioptions()->preclude_last_level_data_seconds);
-      if (!cfd->IsDropped() && preserve_time_duration > 0) {
-        min_time_duration = std::min(preserve_time_duration, min_time_duration);
-        max_time_duration = std::max(preserve_time_duration, max_time_duration);
+      if (!cfd->IsDropped() && preserve_seconds > 0) {
+        min_preserve_seconds = std::min(preserve_seconds, min_preserve_seconds);
+        max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
       }
     }
-    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
+    if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
       seqno_to_time_mapping_.Resize(0, 0);
     } else {
-      seqno_to_time_mapping_.Resize(min_time_duration, max_time_duration);
+      seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
     }
   }
 
   uint64_t seqno_time_cadence = 0;
-  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+  if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
     // round up to 1 when the time_duration is smaller than
     // kMaxSeqnoTimePairsPerCF
-    seqno_time_cadence =
-        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
-        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+    seqno_time_cadence = (min_preserve_seconds +
+                          SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+                         SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
   Status s;
@@ -3296,14 +3296,34 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                  statuses, sorted_input);
 }
 
+Status DBImpl::WrapUpCreateColumnFamilies(
+    const std::vector<const ColumnFamilyOptions*>& cf_options) {
+  // NOTE: this function is skipped for create_missing_column_families and
+  // DB::Open, so new functionality here might need to go into Open also.
+  bool register_worker = false;
+  for (auto* opts_ptr : cf_options) {
+    if (opts_ptr->preserve_internal_time_seconds > 0 ||
+        opts_ptr->preclude_last_level_data_seconds > 0) {
+      register_worker = true;
+      break;
+    }
+  }
+  // Attempt both follow-up actions even if one fails
+  Status s = WriteOptionsFile(true /*need_mutex_lock*/,
+                              true /*need_enter_write_thread*/);
+  if (register_worker) {
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
+  }
+  return s;
+}
+
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
   if (s.ok()) {
-    s = WriteOptionsFile(true /*need_mutex_lock*/,
-                         true /*need_enter_write_thread*/);
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3327,11 +3347,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3344,6 +3360,8 @@ Status DBImpl::CreateColumnFamilies(
   size_t num_cf = column_families.size();
   Status s;
   bool success_once = false;
+  std::vector<const ColumnFamilyOptions*> cf_opts;
+  cf_opts.reserve(num_cf);
   for (size_t i = 0; i < num_cf; i++) {
     ColumnFamilyHandle* handle;
     s = CreateColumnFamilyImpl(column_families[i].options,
@@ -3353,13 +3371,10 @@ Status DBImpl::CreateColumnFamilies(
     }
     handles->push_back(handle);
     success_once = true;
+    cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(cf_opts));
   }
   return s;
 }
@@ -3447,10 +3462,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
-  if (cf_options.preserve_internal_time_seconds > 0 ||
-      cf_options.preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
-  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {

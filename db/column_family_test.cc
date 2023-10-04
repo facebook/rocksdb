@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
@@ -27,6 +28,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
@@ -2169,13 +2171,57 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Close();
 }
 
+namespace {
+struct CountOptionsFilesFs : public FileSystemWrapper {
+  explicit CountOptionsFilesFs(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  const char* Name() const override { return "CountOptionsFilesFs"; }
+
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
+    if (f.find("OPTIONS-") != std::string::npos) {
+      options_files_created.fetch_add(1, std::memory_order_relaxed);
+    }
+    return FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
+  }
+
+  std::atomic<int> options_files_created{};
+};
+}  // namespace
+
 TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
-  Status s = TryOpen({"one", "two"});
-  ASSERT_TRUE(!s.ok());
-  db_options_.create_missing_column_families = true;
-  s = TryOpen({"default", "one", "two"});
-  ASSERT_TRUE(s.ok());
+  // Can't accidentally add CFs to an existing DB
+  Open();
   Close();
+  ASSERT_FALSE(db_options_.create_missing_column_families);
+  ASSERT_NOK(TryOpen({"one", "two"}));
+
+  // Nor accidentally create in a new DB
+  Destroy();
+  db_options_.create_if_missing = true;
+  ASSERT_NOK(TryOpen({"one", "two"}));
+
+  // Only with the option (new DB case)
+  db_options_.create_missing_column_families = true;
+  // Also setup to count number of options files created (see check below)
+  auto my_fs =
+      std::make_shared<CountOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto my_env = std::make_unique<CompositeEnvWrapper>(db_options_.env, my_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, my_env.get());
+
+  ASSERT_OK(TryOpen({"default", "one", "two"}));
+  Close();
+
+  // An older version would write an updated options file for each column
+  // family created under create_missing_column_families, which would be
+  // quadratic I/O in the number of column families.
+  ASSERT_EQ(my_fs->options_files_created.load(), 1);
+
+  // Add to existing DB case
+  ASSERT_OK(TryOpen({"default", "one", "two", "three", "four"}));
+  Close();
+  ASSERT_EQ(my_fs->options_files_created.load(), 2);
 }
 
 TEST_P(ColumnFamilyTest, SanitizeOptions) {

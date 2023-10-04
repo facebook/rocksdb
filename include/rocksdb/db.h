@@ -362,6 +362,10 @@ class DB {
 
   // Create a column_family and return the handle of column family
   // through the argument handle.
+  // NOTE: creating many column families one-by-one is not recommended because
+  // of quadratic overheads, such as writing a full OPTIONS file for all CFs
+  // after each new CF creation. Use CreateColumnFamilies(), or DB::Open() with
+  // create_missing_column_families=true.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
