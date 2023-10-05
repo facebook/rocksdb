@@ -107,6 +107,40 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
   return pinnable_value_len;
 }
 
+bool GetJNIKey::fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                              jint jkey_len) {
+  key_buf_to_free = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key_buf_to_free);
+  if (env->ExceptionCheck()) {
+    return false;
+  }
+  slice_ = Slice(reinterpret_cast<char*>(key_buf_to_free), jkey_len);
+
+  return true;
+}
+
+jbyteArray GetJNIValue::byteArray(
+    JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+    ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value) {
+  if (s.IsNotFound()) {
+    return nullptr;
+  }
+
+  if (s.ok()) {
+    jbyteArray jret_value =
+        ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
+    pinnable_value.Reset();
+    if (jret_value == nullptr) {
+      // exception occurred
+      return nullptr;
+    }
+    return jret_value;
+  }
+
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  return nullptr;
+}
+
 MultiGetJNIKeys::~MultiGetJNIKeys() {
   for (auto key : key_bufs_to_free) {
     delete[] key;
@@ -362,5 +396,18 @@ ColumnFamilyJNIHelpers::handlesFromJLongArray(
 
   return cf_handles;
 }
+
+ROCKSDB_NAMESPACE::ColumnFamilyHandle* ColumnFamilyJNIHelpers::handleFromJLong(
+    JNIEnv* env, jlong jcolumn_family_handle) {
+  auto cf_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+      jcolumn_family_handle);
+  if (cf_handle == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                 "Invalid ColumnFamilyHandle."));
+    return nullptr;
+  }
+  return cf_handle;
+};
 
 };  // namespace ROCKSDB_NAMESPACE

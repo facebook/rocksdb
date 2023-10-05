@@ -31,6 +31,24 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
                          jbyteArray jval, jint jval_off, jint jval_len,
                          bool* has_exception);
 
+class GetJNIKey {
+ private:
+  ROCKSDB_NAMESPACE::Slice slice_;
+  jbyte* key_buf_to_free = nullptr;
+
+ public:
+  bool fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                     jint jkey_len);
+
+  inline ROCKSDB_NAMESPACE::Slice slice() { return slice_; }
+  inline ~GetJNIKey() {
+    if (key_buf_to_free != nullptr) {
+      delete[] key_buf_to_free;
+      key_buf_to_free = nullptr;
+    }
+  }
+};
+
 /**
  * @brief keys and key conversions for MultiGet
  *
@@ -54,6 +72,12 @@ class MultiGetJNIKeys {
   ROCKSDB_NAMESPACE::Slice* data();
   inline std::vector<ROCKSDB_NAMESPACE::Slice>& slices() { return slices_; }
   std::vector<ROCKSDB_NAMESPACE::Slice>::size_type size();
+};
+
+class GetJNIValue {
+ public:
+  static jbyteArray byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                              ROCKSDB_NAMESPACE::PinnableSlice& value);
 };
 
 /**
@@ -86,6 +110,9 @@ class ColumnFamilyJNIHelpers {
    */
   static std::unique_ptr<std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>>
   handlesFromJLongArray(JNIEnv* env, jlongArray jcolumn_family_handles);
+
+  static ROCKSDB_NAMESPACE::ColumnFamilyHandle* handleFromJLong(
+      JNIEnv* env, jlong jcolumn_family_handle);
 };
 
 };  // namespace ROCKSDB_NAMESPACE
