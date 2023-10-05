@@ -1944,6 +1944,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
+  // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
