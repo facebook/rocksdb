@@ -893,14 +893,14 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
       ASSERT_OK(Flush());
     }
 
-    ReadOnlyReopen(base_options);
+    ASSERT_OK(ReadOnlyReopen(base_options));
     if (with_write) {
       ASSERT_EQ(Get("foo"), "bar");
     }
     sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
     ASSERT_EQ(sttm.Size(), 0);
 
-    ReadOnlyReopen(track_options);
+    ASSERT_OK(ReadOnlyReopen(track_options));
     if (with_write) {
       ASSERT_EQ(Get("foo"), "bar");
     }
@@ -962,7 +962,7 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
 
   // Make sure we don't hit issues with read-only DBs, which don't need
   // the mapping in the DB state (though it wouldn't hurt anything)
-  ReadOnlyReopen(track_options);
+  ASSERT_OK(ReadOnlyReopen(track_options));
   ASSERT_EQ(Get(Key(0)), "value");
   sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
   ASSERT_EQ(sttm.Size(), 0);
