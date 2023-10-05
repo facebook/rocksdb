@@ -220,12 +220,15 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
     jint jval_off, jint jval_part_len, jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-
-  auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-      return txn->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle), key_slice, value_slice);
-    };
-
-  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, 0, jkey_part_len);
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, 0, jkey_part_len)) {
+    return nullptr;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s = txn->Get(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      key.slice(), &value);
+  return ROCKSDB_NAMESPACE::GetJNIValue::byteArray(env, s, value);
 }
 
 typedef std::function<std::vector<ROCKSDB_NAMESPACE::Status>(
@@ -341,14 +344,15 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     jboolean jexclusive, jboolean jdo_validate) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
 
-    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice, ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-      return txn->GetForUpdate(
-        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
-        key_slice, value_slice,
-        jexclusive, jdo_validate);
-    };
-
-  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, 0, jkey_part_len);
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, 0, jkey_part_len)) {
+    return nullptr;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s = txn->GetForUpdate(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      key.slice(), &value, jexclusive, jdo_validate);
+  return ROCKSDB_NAMESPACE::GetJNIValue::byteArray(env, s, value);
 }
 
 /*
