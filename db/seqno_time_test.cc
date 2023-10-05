@@ -822,54 +822,94 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
   base_options.env = mock_env_.get();
   base_options.disable_auto_compactions = true;
   base_options.create_missing_column_families = true;
-  DestroyAndReopen(base_options);
-
-  // #### DB#1: No pre-population nor entries without preserve/preclude ####
-  SeqnoToTimeMapping sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
-  ASSERT_TRUE(sttm.Empty());
-  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
-
-  // Unfortunately, if we add a CF with preserve/preclude option after
-  // open, that does not reserve seqnos with pre-populated time mappings.
-  Options options = base_options;
+  Options track_options = base_options;
   constexpr uint32_t kPreserveSecs = 1234567;
-  SetTrackTimeDurationOptions(kPreserveSecs, options);
-  CreateColumnFamilies({"one"}, options);
+  SetTrackTimeDurationOptions(kPreserveSecs, track_options);
+  SeqnoToTimeMapping sttm;
+  SequenceNumber latest_seqno;
+  uint64_t start_time, end_time;
 
-  // No pre-population (unfortunately), just a single starting entry
-  sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
-  SequenceNumber latest_seqno = db_->GetLatestSequenceNumber();
-  uint64_t start_time = mock_clock_->NowSeconds();
-  ASSERT_EQ(sttm.Size(), 1);
-  ASSERT_EQ(latest_seqno, 1U);
-  // Current time maps to starting entry / seqno
-  ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time), 1U);
-  // Any older times are unknown.
-  ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - 1),
-            kUnknownSeqnoBeforeAll);
+  // #### DB#1, #2: No pre-population without preserve/preclude ####
+  // #### But a single entry is added when preserve/preclude enabled ####
+  for (bool with_write : {false, true}) {
+    SCOPED_TRACE("with_write=" + std::to_string(with_write));
+    DestroyAndReopen(base_options);
+    sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+    ASSERT_TRUE(sttm.Empty());
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
 
-  // Now check that writes can proceed normally (passing about 20% of preserve
-  // time)
-  for (int i = 0; i < 20; i++) {
-    ASSERT_OK(Put(Key(i), "value"));
-    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
-      mock_clock_->MockSleepForSeconds(static_cast<int>(kPreserveSecs / 99));
-    });
+    if (with_write) {
+      // Ensure that writes before new CF with preserve/preclude option don't
+      // interfere with the seqno-to-time mapping getting a starting entry.
+      ASSERT_OK(Put("foo", "bar"));
+      ASSERT_OK(Flush());
+    }
+
+    // Unfortunately, if we add a CF with preserve/preclude option after
+    // open, that does not reserve seqnos with pre-populated time mappings.
+    CreateColumnFamilies({"one"}, track_options);
+
+    // No pre-population (unfortunately), just a single starting entry
+    sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+    latest_seqno = db_->GetLatestSequenceNumber();
+    start_time = mock_clock_->NowSeconds();
+    ASSERT_EQ(sttm.Size(), 1);
+    ASSERT_EQ(latest_seqno, 1U);
+    // Current time maps to starting entry / seqno
+    ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time), 1U);
+    // Any older times are unknown.
+    ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - 1),
+              kUnknownSeqnoBeforeAll);
+
+    // Now check that writes can proceed normally (passing about 20% of preserve
+    // time)
+    for (int i = 0; i < 20; i++) {
+      ASSERT_OK(Put(Key(i), "value"));
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kPreserveSecs / 99));
+      });
+    }
+    ASSERT_OK(Flush());
+
+    // Check that mappings are getting populated
+    sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+    latest_seqno = db_->GetLatestSequenceNumber();
+    end_time = mock_clock_->NowSeconds();
+    ASSERT_EQ(sttm.Size(), 21);
+    ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(end_time), latest_seqno);
+    ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time), 1U);
+    ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - 1),
+              kUnknownSeqnoBeforeAll);
   }
-  ASSERT_OK(Flush());
 
-  // Check that mappings are getting populated
-  sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
-  latest_seqno = db_->GetLatestSequenceNumber();
-  uint64_t end_time = mock_clock_->NowSeconds();
-  ASSERT_EQ(sttm.Size(), 21);
-  ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(end_time), latest_seqno);
-  ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time), 1U);
-  ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - 1),
-            kUnknownSeqnoBeforeAll);
+  // ### DB#3, #4: Read-only DB with preserve/preclude after not ####
+  // Make sure we don't hit issues with read-only DBs, which don't need
+  // the mapping in the DB state (though it wouldn't hurt anything)
+  for (bool with_write : {false, true}) {
+    SCOPED_TRACE("with_write=" + std::to_string(with_write));
+    DestroyAndReopen(base_options);
+    if (with_write) {
+      ASSERT_OK(Put("foo", "bar"));
+      ASSERT_OK(Flush());
+    }
 
-  // #### DB#2: Destroy and open with preserve/preclude option ####
-  DestroyAndReopen(options);
+    ReadOnlyReopen(base_options);
+    if (with_write) {
+      ASSERT_EQ(Get("foo"), "bar");
+    }
+    sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+    ASSERT_EQ(sttm.Size(), 0);
+
+    ReadOnlyReopen(track_options);
+    if (with_write) {
+      ASSERT_EQ(Get("foo"), "bar");
+    }
+    sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+    ASSERT_EQ(sttm.Size(), 0);
+  }
+
+  // #### DB#5: Destroy and open with preserve/preclude option ####
+  DestroyAndReopen(track_options);
 
   // Ensure pre-population
   constexpr auto kPrePopPairs = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
@@ -920,10 +960,18 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
   ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - kPreserveSecs),
             kUnknownSeqnoBeforeAll);
 
-  // #### DB#3: Destroy and open+create an extra CF with preserve/preclude ####
+  // Make sure we don't hit issues with read-only DBs, which don't need
+  // the mapping in the DB state (though it wouldn't hurt anything)
+  ReadOnlyReopen(track_options);
+  ASSERT_EQ(Get(Key(0)), "value");
+  sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+  ASSERT_EQ(sttm.Size(), 0);
+
+  // #### DB#6: Destroy and open+create an extra CF with preserve/preclude ####
   // (default CF does not have the option)
-  Destroy(options);
-  ReopenWithColumnFamilies({"default", "one"}, List({base_options, options}));
+  Destroy(track_options);
+  ReopenWithColumnFamilies({"default", "one"},
+                           List({base_options, track_options}));
 
   // Ensure pre-population (not as exhaustive checking here)
   sttm = dbfull()->TEST_GetSeqnoToTimeMapping();

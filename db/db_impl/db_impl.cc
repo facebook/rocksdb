@@ -819,6 +819,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
+  bool mapping_was_empty = false;
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -837,6 +838,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
     } else {
       seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
     }
+    mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
   // FIXME: because we released the db mutex, there's a race here where
   // if e.g. I create or drop two column families in parallel, I might end up
@@ -857,35 +859,37 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
   if (seqno_time_cadence == 0) {
     s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
   } else {
-    if (GetLatestSequenceNumber() == 0) {
-      // New DB. First, we don't want to leave latest seqno as 0 so that we
-      // can properly check in RecordSeqnoToTimeMapping that we aren't
-      // recording bad records (e.g. in a read-only DB). Second, to support
-      // data import with an older write time, we pre-allocate some sequence
-      // numbers pre-mapped over the time period we care about. But we can
-      // only do the second one predictably if called from DB::Open(),
-      // otherwise there could be a race between CreateColumnFamily and the
-      // first Write to the DB that determines whether the sequence numbers
-      // are pre-allocated.
-      assert(seqno_to_time_mapping_.Empty());
+    // Before registering the periodic task, we need to be sure to fulfill two
+    // promises:
+    // 1) Any DB created with preserve/preclude options set from the beginning
+    // will get pre-allocated seqnos with pre-populated time mappings back to
+    // the times we are interested in. (This will enable future import of data
+    // while preserving rough write time. We can only do this reliably from
+    // DB::Open, as otherwise there could be a race between CreateColumnFamily
+    // and the first Write to the DB, and seqno-to-time mappings need to be
+    // monotonic.
+    // 2) In any DB, any data written after setting preserve/preclude options
+    // must have a reasonable time estimate (so that we can accurately place
+    // the data), which means at least one entry in seqno_to_time_mapping_.
+    if (from_db_open && GetLatestSequenceNumber() == 0) {
+      // Pre-allocate seqnos and pre-populate historical mapping
+      assert(mapping_was_empty);
 
-      if (from_db_open) {
-        // We can simply modify these, before writes are allowed
-        constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
-        versions_->SetLastAllocatedSequence(kMax);
-        versions_->SetLastPublishedSequence(kMax);
-        versions_->SetLastSequence(kMax);
-        // Pre-populate mappings for reserved sequence numbers.
-        RecordSeqnoToTimeMapping(max_preserve_seconds);
-      } else {
-        // To ensure there is at least one mapping, we need a non-zero sequence
-        // number. Outside of DB::Open, we have to be careful.
-        versions_->EnsureNonZeroSequence();
-        assert(GetLatestSequenceNumber() > 0);
+      // We can simply modify these, before writes are allowed
+      constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
+      versions_->SetLastAllocatedSequence(kMax);
+      versions_->SetLastPublishedSequence(kMax);
+      versions_->SetLastSequence(kMax);
+      // Pre-populate mappings for reserved sequence numbers.
+      RecordSeqnoToTimeMapping(max_preserve_seconds);
+    } else if (mapping_was_empty) {
+      // To ensure there is at least one mapping, we need a non-zero sequence
+      // number. Outside of DB::Open, we have to be careful.
+      versions_->EnsureNonZeroSequence();
+      assert(GetLatestSequenceNumber() > 0);
 
-        // Ensure at least one mapping (or log a warning)
-        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
-      }
+      // Ensure at least one mapping (or log a warning)
+      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
     }
 
     s = periodic_task_scheduler_.Register(
