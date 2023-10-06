@@ -2379,7 +2379,17 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  // Guards changes to DB and CF options to ensure consistency between
+  // * In-memory options objects
+  // * Settings in effect
+  // * Options file contents
+  // while allowing the DB mutex to be released during slow operations like
+  // persisting options file or modifying global periodic task timer.
+  // Always acquired *before* DB mutex.
+  InstrumentedMutex options_mutex_;
+
+  // In addition to mutex_, stats_history_mutex_ protected writes to
+  // stats_history_
   InstrumentedMutex stats_history_mutex_;
   // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
