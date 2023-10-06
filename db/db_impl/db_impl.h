@@ -15,6 +15,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -2769,8 +2770,10 @@ class DBImpl : public DB {
   std::unique_ptr<StallInterface> wbm_stall_;
 
   // seqno_to_time_mapping_ stores the sequence number to time mapping, it's not
-  // thread safe, both read and write need db mutex hold.
+  // thread safe, access to it needs to be synchronized by seqno_to_time_mutex_.
   SeqnoToTimeMapping seqno_to_time_mapping_;
+
+  mutable std::shared_mutex seqno_to_time_mutex_;
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.

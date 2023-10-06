@@ -13,6 +13,7 @@
 #include <limits>
 #include <list>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -74,6 +75,7 @@ class FlushJob {
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
            const SeqnoToTimeMapping& seq_time_mapping,
+           std::shared_mutex* seqno_to_time_mutex,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
@@ -211,8 +213,9 @@ class FlushJob {
   BlobFileCompletionCallback* blob_callback_;
 
   // reference to the seqno_to_time_mapping_ in db_impl.h, not safe to read
-  // without db mutex
+  // without db_seqno_to_time_mutex_
   const SeqnoToTimeMapping& db_impl_seqno_to_time_mapping_;
+  std::shared_mutex* db_impl_seqno_to_time_mutex_;
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Keeps track of the newest user-defined timestamp for this flush job if

@@ -305,7 +305,7 @@ const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
 }
 
 SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
-  InstrumentedMutexLock l(&mutex_);
+  std::shared_lock seqno_time_lock(seqno_to_time_mutex_);
   return seqno_to_time_mapping_;
 }
 

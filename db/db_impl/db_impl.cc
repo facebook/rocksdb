@@ -833,6 +833,9 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
         max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
       }
     }
+  }
+  {
+    std::unique_lock seqno_time_lock(seqno_to_time_mutex_);
     if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
       seqno_to_time_mapping_.Resize(0, 0);
     } else {
@@ -6436,7 +6439,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
   bool appended = false;
   {
-    InstrumentedMutexLock l(&mutex_);
+    std::unique_lock seqno_time_lock(seqno_to_time_mutex_);
     if (populate_historical_seconds > 0) {
       if (seqno > 1 && unix_time > populate_historical_seconds) {
         // seqno=0 is reserved
