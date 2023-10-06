@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <ostream>
 #include <tuple>
 #include <utility>
@@ -118,6 +119,9 @@ class PinnableWideColumns {
 
   void Reset();
 
+  PinnableWideColumns() = default;
+  PinnableWideColumns(const PinnableWideColumns& p);
+
  private:
   void CopyValue(const Slice& value);
   void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
@@ -216,6 +220,56 @@ inline bool operator==(const PinnableWideColumns& lhs,
 inline bool operator!=(const PinnableWideColumns& lhs,
                        const PinnableWideColumns& rhs) {
   return !(lhs == rhs);
+}
+
+inline PinnableWideColumns::PinnableWideColumns(const PinnableWideColumns& p)
+    : columns_(p.columns_) {
+  CopyValue(p.value_);
+}
+
+// List of PinnableWideColumns grouped by column families. statuses[i] should
+// match the status of getting columns_array[i] when GetEntity() or
+// MultiGetEntity() was called (where 0 <= i < num_column_families_)
+class GroupedPinnableWideColumns {
+ public:
+  const size_t& num_column_families() const { return num_column_families_; }
+  const std::vector<Status>& statuses() const { return statuses_; }
+  const std::vector<PinnableWideColumns>& columns_array() const {
+    return columns_array_;
+  }
+  PinnableWideColumns* columns_ref(const size_t& column_family_index) {
+    assert(column_family_index < num_column_families_);
+    return &columns_array_[column_family_index];
+  }
+
+  explicit GroupedPinnableWideColumns(const size_t& num_column_families)
+      : num_column_families_(num_column_families),
+        statuses_(num_column_families),
+        columns_array_(num_column_families) {}
+
+  void SetStatus(const size_t& column_family_index, Status&& status);
+  void SetStatusForAllColumnFamilies(const Status& status);
+
+  void Reset();
+
+ private:
+  const size_t num_column_families_;
+  std::vector<Status> statuses_;
+  std::vector<PinnableWideColumns> columns_array_;
+};
+
+inline void GroupedPinnableWideColumns::SetStatus(
+    const size_t& column_family_index, Status&& status) {
+  statuses_[column_family_index] = status;
+}
+inline void GroupedPinnableWideColumns::SetStatusForAllColumnFamilies(
+    const Status& status) {
+  statuses_.assign(num_column_families_, status);
+}
+
+inline void GroupedPinnableWideColumns::Reset() {
+  std::for_each(columns_array_.begin(), columns_array_.end(),
+                [](PinnableWideColumns& columns) { columns.Reset(); });
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -149,6 +149,11 @@ struct GetMergeOperandsOptions {
 using TablePropertiesCollection =
     std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
+// A pair of key and lists of column families. Input for MultiGetEntity() that
+// returns list of GroupedPinnableWideColumns.
+using KeyGroupedColumnFamilies =
+    std::pair<const Slice, std::vector<ColumnFamilyHandle*>>;
+
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
@@ -602,6 +607,20 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  // Returns wide-column entities grouped by column families for a single key.
+  // The input is a key and column families by which wide-column entities will
+  // be grouped. GroupedPinnableWideColumns will contain list of Statuses and
+  // PinnableWideColumns such that statuses[i] and columns_array[i] will be the
+  // corresponding output for ith column family in column_families (where 0 <= i
+  // < result->num_column_families())
+  virtual void GetEntity(const ReadOptions& /* options */,
+                         const Slice& /* key */,
+                         ColumnFamilyHandle** /* column_families */,
+                         GroupedPinnableWideColumns* result) {
+    result->SetStatusForAllColumnFamilies(
+        Status::NotSupported("GetEntity not supported"));
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be
@@ -859,6 +878,31 @@ class DB {
                               bool /* sorted_input */ = false) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // Batched MultiGet-like API that returns wide-column entities grouped
+  // by column families for each key. The input is a list of pairs in which keys
+  // are paired with lists of column families (KeyGroupedColumnFamilies). For
+  // any given key_grouped_column_families[i] (where 0 <= i < num_keys),
+  // results[i] will contain GroupedPinnableWideColumns for the ith key which is
+  // in key_grouped_column_families[i].first. Each GroupedPinnableWideColumns
+  // will contain lists of Statuses and PinnableWideColumns, such that
+  // statuses[j] and columns_array[j] will be the corresponding output for the
+  // jth column family for the ith key (0 <= j < num_column_families). The
+  // num_column_families for ith key is equivalent to
+  // key_grouped_column_families[i].second.size().
+  //
+  // Note that it is the caller's responsibility to ensure that
+  // "KeyGroupedColumnFamilies" and "GroupedPinnableWideColumns" have the same
+  // "num_keys" number of objects
+  virtual void MultiGetEntity(
+      const ReadOptions& /* options */, size_t num_keys,
+      const KeyGroupedColumnFamilies* /* key_grouped_column_families */,
+      GroupedPinnableWideColumns* results) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      results[i].SetStatusForAllColumnFamilies(
+          Status::NotSupported("MultiGetEntity not supported"));
     }
   }
 

@@ -2813,7 +2813,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                             const size_t num_keys,
                             ColumnFamilyHandle** column_families,
                             const Slice* keys, PinnableSlice* values,
-                            PinnableWideColumns* columns,
+                            PinnableWideColumns** columns,
                             std::string* timestamps, Status* statuses,
                             const bool sorted_input) {
   if (num_keys == 0) {
@@ -2868,7 +2868,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     } else {
       assert(columns);
 
-      col = &columns[i];
+      col = columns[i];
       col->Reset();
     }
 
@@ -3039,7 +3039,8 @@ void DBImpl::MultiGet(const ReadOptions& _read_options,
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family,
                             const size_t num_keys, const Slice* keys,
-                            PinnableSlice* values, PinnableWideColumns* columns,
+                            PinnableSlice* values,
+                            PinnableWideColumns** columns,
                             std::string* timestamps, Status* statuses,
                             bool sorted_input) {
   if (tracer_) {
@@ -3064,7 +3065,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     } else {
       assert(columns);
 
-      col = &columns[i];
+      col = columns[i];
       col->Reset();
     }
 
@@ -3312,9 +3313,13 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
+  std::vector<PinnableWideColumns*> result_ptrs;
+  for (size_t i = 0; i < num_keys; i++) {
+    result_ptrs.emplace_back(&results[i]);
+  }
   MultiGetCommon(read_options, num_keys, column_families, keys,
-                 /* values */ nullptr, results, /* timestamps */ nullptr,
-                 statuses, sorted_input);
+                 /* values */ nullptr, result_ptrs.data(),
+                 /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
@@ -3337,9 +3342,70 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
+  std::vector<PinnableWideColumns*> result_ptrs;
+  for (size_t i = 0; i < num_keys; i++) {
+    result_ptrs.emplace_back(&results[i]);
+  }
   MultiGetCommon(read_options, column_family, num_keys, keys,
-                 /* values */ nullptr, results, /* timestamps */ nullptr,
-                 statuses, sorted_input);
+                 /* values */ nullptr, result_ptrs.data(),
+                 /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetEntity(
+    const ReadOptions& _read_options, size_t num_keys,
+    const KeyGroupedColumnFamilies* key_grouped_column_families,
+    GroupedPinnableWideColumns* results) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      results[i].SetStatusForAllColumnFamilies(s);
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  results->Reset();
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> keys;
+  size_t total_count = 0;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    assert(results[i].num_column_families() ==
+           key_grouped_column_families[i].second.size());
+    for (size_t j = 0; j < results[i].num_column_families(); ++j) {
+      // Adding the same key slice for different CFs
+      keys.push_back(key_grouped_column_families[i].first);
+      column_families.push_back(key_grouped_column_families[i].second[j]);
+      ++total_count;
+    }
+  }
+  std::vector<Status> statuses(total_count);
+  std::vector<PinnableWideColumns*> columns_ptrs;
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].num_column_families(); ++j) {
+      columns_ptrs.emplace_back(results[i].columns_ref(j));
+    }
+  }
+  // TODO - sort the keys by column_families and set sorted_input = true
+  MultiGetCommon(read_options, total_count, column_families.data(), keys.data(),
+                 /* values */ nullptr, columns_ptrs.data(),
+                 /* timestamps */ nullptr, statuses.data(),
+                 /* sorted_input */ false);
+
+  // Set statuses
+  size_t index = 0;
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].num_column_families(); ++j) {
+      results[i].SetStatus(j, std::move(statuses[index++]));
+    }
+  }
 }
 
 Status DBImpl::WrapUpCreateColumnFamilies(
