@@ -15,12 +15,12 @@ namespace ROCKSDB_NAMESPACE {
 
 bool GetJNIKey::fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
                               jint jkey_len) {
-  key_buf_to_free = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key_buf_to_free);
+  key_buf = std::make_unique<jbyte[]>(jkey_len);
+  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key_buf.get());
   if (env->ExceptionCheck()) {
     return false;
   }
-  slice_ = Slice(reinterpret_cast<char*>(key_buf_to_free), jkey_len);
+  slice_ = Slice(reinterpret_cast<char*>(key_buf.get()), jkey_len);
 
   return true;
 }
@@ -80,13 +80,6 @@ jbyteArray GetJNIValue::byteArray(
   return nullptr;
 }
 
-MultiGetJNIKeys::~MultiGetJNIKeys() {
-  for (auto key : key_bufs_to_free) {
-    delete[] key;
-  }
-  key_bufs_to_free.clear();
-}
-
 bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys) {
   const jsize num_keys = env->GetArrayLength(jkeys);
 
@@ -99,9 +92,10 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys) {
 
     jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
     const jsize len_key = env->GetArrayLength(jkey_ba);
-    jbyte* key = new jbyte[len_key];
-    key_bufs_to_free.push_back(key);
-    env->GetByteArrayRegion(jkey_ba, 0, len_key, key);
+    std::unique_ptr<jbyte[]> key = std::make_unique<jbyte[]>(len_key);
+    jbyte* raw_key = reinterpret_cast<jbyte*>(key.get());
+    key_bufs.push_back(std::move(key));
+    env->GetByteArrayRegion(jkey_ba, 0, len_key, raw_key);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       env->DeleteLocalRef(jkey);
@@ -109,7 +103,7 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys) {
     }
 
     slices_.push_back(
-        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(raw_key), len_key));
     env->DeleteLocalRef(jkey);
   }
 
@@ -141,9 +135,10 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
 
     jbyteArray jkey_ba = reinterpret_cast<jbyteArray>(jkey);
     const jint len_key = key_lens[i];
-    jbyte* key = new jbyte[len_key];
-    key_bufs_to_free.push_back(key);
-    env->GetByteArrayRegion(jkey_ba, key_offs[i], len_key, key);
+    std::unique_ptr<jbyte[]> key = std::make_unique<jbyte[]>(len_key);
+    jbyte* raw_key = reinterpret_cast<jbyte*>(key.get());
+    key_bufs.push_back(std::move(key));
+    env->GetByteArrayRegion(jkey_ba, key_offs[i], len_key, raw_key);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       env->DeleteLocalRef(jkey);
@@ -151,7 +146,7 @@ bool MultiGetJNIKeys::fromByteArrays(JNIEnv* env, jobjectArray jkeys,
     }
 
     slices_.push_back(
-        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(key), len_key));
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(raw_key), len_key));
     env->DeleteLocalRef(jkey);
   }
   return true;

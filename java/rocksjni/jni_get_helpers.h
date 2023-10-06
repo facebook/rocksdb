@@ -20,19 +20,13 @@ namespace ROCKSDB_NAMESPACE {
 class GetJNIKey {
  private:
   ROCKSDB_NAMESPACE::Slice slice_;
-  jbyte* key_buf_to_free = nullptr;
+  std::unique_ptr<jbyte[]> key_buf;
 
  public:
   bool fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
                      jint jkey_len);
 
   inline ROCKSDB_NAMESPACE::Slice slice() { return slice_; }
-  inline ~GetJNIKey() {
-    if (key_buf_to_free != nullptr) {
-      delete[] key_buf_to_free;
-      key_buf_to_free = nullptr;
-    }
-  }
 };
 
 /**
@@ -42,11 +36,9 @@ class GetJNIKey {
 class MultiGetJNIKeys {
  private:
   std::vector<ROCKSDB_NAMESPACE::Slice> slices_;
-  std::vector<jbyte*> key_bufs_to_free;
+  std::vector<std::unique_ptr<jbyte[]>> key_bufs;
 
  public:
-  ~MultiGetJNIKeys();
-
   bool fromByteArrays(JNIEnv* env, jobjectArray jkeys, jintArray jkey_offs,
                       jintArray jkey_lens);
 
@@ -65,9 +57,31 @@ class GetJNIValue {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
 
+  /**
+   * @brief allocate and fill a byte array from the value in a pinnable slice
+   * If the supplied status is faulty, raise an exception instead
+   *
+   * @param env JNI environment in which to raise any exception
+   * @param s status to check before copying the result
+   * @param value pinnable slice containing a value
+   * @return jbyteArray
+   */
   static jbyteArray byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
                               ROCKSDB_NAMESPACE::PinnableSlice& value);
 
+  /**
+   * @brief fill an existing byte array from the value in a pinnable slice
+   *
+   * If the supplied status is faulty, raise an exception instead
+   *
+   * @param env JNI environment in which to raise any exception
+   * @param s status to check before copying the result
+   * @param value pinnable slice containing a value
+   * @param jval byte array target for value
+   * @param jval_off offset in the array at which to place the value
+   * @param jval_len length of byte array into which to copy
+   * @return jint length copied, or a -ve status code
+   */
   static jint fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
                         ROCKSDB_NAMESPACE::PinnableSlice& value,
                         jbyteArray jval, jint jval_off, jint jval_len);

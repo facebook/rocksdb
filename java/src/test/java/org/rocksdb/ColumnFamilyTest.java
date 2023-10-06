@@ -185,13 +185,11 @@ public class ColumnFamilyTest {
              new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
-      db.put(
-          columnFamilyHandleList.get(0), "key1".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandleList.get(0), "key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
 
       final byte[] partialOutValue = new byte[5];
-      int getResult = db.get(
-          columnFamilyHandleList.get(0), "key2".getBytes(), partialOutValue);
+      int getResult = db.get(columnFamilyHandleList.get(0), "key2".getBytes(), partialOutValue);
       assertThat(getResult).isEqualTo("12345678".getBytes().length);
       assertThat(partialOutValue).isEqualTo("12345".getBytes());
 
@@ -200,8 +198,7 @@ public class ColumnFamilyTest {
       final byte[] offsetOutValue = "abcdefghjk".getBytes();
       assertThat(offsetOutValue.length).isEqualTo(10);
 
-      getResult = db.get(columnFamilyHandleList.get(0), offsetKeyValue, 3, 4,
-          offsetOutValue, 2, 5);
+      getResult = db.get(columnFamilyHandleList.get(0), offsetKeyValue, 3, 4, offsetOutValue, 2, 5);
       assertThat(getResult).isEqualTo("12345678".getBytes().length);
       assertThat(offsetOutValue).isEqualTo("ab12345hjk".getBytes());
     }
