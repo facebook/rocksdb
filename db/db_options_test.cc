@@ -784,8 +784,10 @@ TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
 
   std::vector<ColumnFamilyDescriptor> cf_descs;
   DBOptions db_options;
-  ASSERT_OK(LoadLatestOptions({}, dbname_, &db_options, &cf_descs, nullptr));
-
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
   ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
 }
 
