@@ -2247,7 +2247,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker();
+    s = impl->RegisterRecordSeqnoTimeWorker(/*from_db_open=*/true);
   }
   if (!s.ok()) {
     for (auto* h : *handles) {

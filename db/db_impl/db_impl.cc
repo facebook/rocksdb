@@ -273,8 +273,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
                                    [this]() { this->FlushInfoLog(); });
   periodic_task_functions_.emplace(
-      PeriodicTaskType::kRecordSeqnoTime,
-      [this]() { this->RecordSeqnoToTimeMapping(); });
+      PeriodicTaskType::kRecordSeqnoTime, [this]() {
+        this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      });
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -815,9 +816,10 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker() {
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
+  bool mapping_was_empty = false;
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -836,7 +838,13 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     } else {
       seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
     }
+    mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
+  // FIXME: because we released the db mutex, there's a race here where
+  // if e.g. I create or drop two column families in parallel, I might end up
+  // with the periodic task scheduler in the wrong state. We don't want to
+  // just keep holding the mutex, however, because of global timer and mutex
+  // in PeriodicTaskScheduler.
 
   uint64_t seqno_time_cadence = 0;
   if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
@@ -851,6 +859,39 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   if (seqno_time_cadence == 0) {
     s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
   } else {
+    // Before registering the periodic task, we need to be sure to fulfill two
+    // promises:
+    // 1) Any DB created with preserve/preclude options set from the beginning
+    // will get pre-allocated seqnos with pre-populated time mappings back to
+    // the times we are interested in. (This will enable future import of data
+    // while preserving rough write time. We can only do this reliably from
+    // DB::Open, as otherwise there could be a race between CreateColumnFamily
+    // and the first Write to the DB, and seqno-to-time mappings need to be
+    // monotonic.
+    // 2) In any DB, any data written after setting preserve/preclude options
+    // must have a reasonable time estimate (so that we can accurately place
+    // the data), which means at least one entry in seqno_to_time_mapping_.
+    if (from_db_open && GetLatestSequenceNumber() == 0) {
+      // Pre-allocate seqnos and pre-populate historical mapping
+      assert(mapping_was_empty);
+
+      // We can simply modify these, before writes are allowed
+      constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
+      versions_->SetLastAllocatedSequence(kMax);
+      versions_->SetLastPublishedSequence(kMax);
+      versions_->SetLastSequence(kMax);
+      // Pre-populate mappings for reserved sequence numbers.
+      RecordSeqnoToTimeMapping(max_preserve_seconds);
+    } else if (mapping_was_empty) {
+      // To ensure there is at least one mapping, we need a non-zero sequence
+      // number. Outside of DB::Open, we have to be careful.
+      versions_->EnsureNonZeroSequence();
+      assert(GetLatestSequenceNumber() > 0);
+
+      // Ensure at least one mapping (or log a warning)
+      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+    }
+
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
@@ -3312,7 +3353,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
   Status s = WriteOptionsFile(true /*need_mutex_lock*/,
                               true /*need_enter_write_thread*/);
   if (register_worker) {
-    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false));
   }
   return s;
 }
@@ -3555,7 +3596,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   if (cfd->ioptions()->preserve_internal_time_seconds > 0 ||
       cfd->ioptions()->preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
+    s = RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false);
   }
 
   if (s.ok()) {
@@ -6383,21 +6424,51 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 
-void DBImpl::RecordSeqnoToTimeMapping() {
+void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // TECHNICALITY: Sample last sequence number *before* time, as prescribed
-  // for SeqnoToTimeMapping
+  // for SeqnoToTimeMapping. We don't know how long it has been since the last
+  // sequence number was written, so we at least have a one-sided bound by
+  // sampling in this order.
   SequenceNumber seqno = GetLatestSequenceNumber();
-  // Get time first then sequence number, so the actual time of seqno is <=
-  // unix_time recorded
-  int64_t unix_time = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+  int64_t unix_time_signed = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
       .PermitUncheckedError();  // Ignore error
+  uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);
-    appended = seqno_to_time_mapping_.Append(seqno, unix_time);
+    if (populate_historical_seconds > 0) {
+      if (seqno > 1 && unix_time > populate_historical_seconds) {
+        // seqno=0 is reserved
+        SequenceNumber from_seqno = 1;
+        appended = seqno_to_time_mapping_.PrePopulate(
+            from_seqno, seqno, unix_time - populate_historical_seconds,
+            unix_time);
+      } else {
+        // One of these will fail
+        assert(seqno > 1);
+        assert(unix_time > populate_historical_seconds);
+      }
+    } else {
+      assert(seqno > 0);
+      appended = seqno_to_time_mapping_.Append(seqno, unix_time);
+    }
   }
-  if (!appended) {
+  if (populate_historical_seconds > 0) {
+    if (appended) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Pre-populated sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    } else {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Failed to pre-populate sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    }
+  } else if (!appended) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to insert sequence number to time entry: %" PRIu64
                    " -> %" PRIu64,
