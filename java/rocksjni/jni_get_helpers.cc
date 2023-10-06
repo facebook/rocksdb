@@ -13,34 +13,24 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
-                         jbyteArray jkey, jint jkey_off, jint jkey_len,
-                         jbyteArray jval, jint jval_off, jint jval_len,
-                         bool* has_exception) {
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
+bool GetJNIKey::fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                              jint jkey_len) {
+  key_buf_to_free = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key_buf_to_free);
   if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    delete[] key;
-    *has_exception = true;
-    return kStatusError;
+    return false;
   }
+  slice_ = Slice(reinterpret_cast<char*>(key_buf_to_free), jkey_len);
 
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
-  ROCKSDB_NAMESPACE::Status s = fn_get(key_slice, &pinnable_value);
+  return true;
+}
 
-  // cleanup
-  delete[] key;
-
+jint GetJNIValue::fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                            ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value,
+                            jbyteArray jval, jint jval_off, jint jval_len) {
   if (s.IsNotFound()) {
-    *has_exception = false;
     return kNotFound;
   } else if (!s.ok()) {
-    *has_exception = true;
     // Here since we are throwing a Java exception from c++ side.
     // As a result, c++ does not know calling this function will in fact
     // throwing an exception.  As a result, the execution flow will
@@ -62,24 +52,10 @@ jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
   pinnable_value.Reset();
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
-    *has_exception = true;
     return kStatusError;
   }
 
-  *has_exception = false;
   return pinnable_value_len;
-}
-
-bool GetJNIKey::fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
-                              jint jkey_len) {
-  key_buf_to_free = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key_buf_to_free);
-  if (env->ExceptionCheck()) {
-    return false;
-  }
-  slice_ = Slice(reinterpret_cast<char*>(key_buf_to_free), jkey_len);
-
-  return true;
 }
 
 jbyteArray GetJNIValue::byteArray(

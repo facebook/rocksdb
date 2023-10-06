@@ -1612,15 +1612,16 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jobject,
                                                jint jkey_len, jbyteArray jval,
                                                jint jval_off, jint jval_len) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto fn_get = [db](const ROCKSDB_NAMESPACE::Slice& key_slice,
-                     ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-    return db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
-                   key_slice, value_slice);
-  };
-  bool has_exception = false;
-  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, jkey_off,
-                                                jkey_len, jval, jval_off,
-                                                jval_len, &has_exception);
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, jkey_off, jkey_len)) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s = db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
+                   key.slice(), &value);
+
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
+                                                   jval_off, jval_len);
 }
 
 /*
@@ -1635,25 +1636,22 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jobject,
                                                 jint jval_off, jint jval_len,
                                                 jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    bool has_exception = false;
-    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice,
-                      ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-      return db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key_slice,
-                     value_slice);
-    };
-    return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, jkey_off,
-                                                  jkey_len, jval, jval_off,
-                                                  jval_len, &has_exception);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
-    // will never be evaluated
-    return 0;
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
   }
+
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, jkey_off, jkey_len)) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s =
+      db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(), &value);
+
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
+                                                   jval_off, jval_len);
 }
 
 /*
@@ -1668,16 +1666,17 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jobject,
                                                 jint jkey_len, jbyteArray jval,
                                                 jint jval_off, jint jval_len) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  bool has_exception = false;
-  auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice,
-                    ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-    return db->Get(
-        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
-        db->DefaultColumnFamily(), key_slice, value_slice);
-  };
-  return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, jkey_off,
-                                                jkey_len, jval, jval_off,
-                                                jval_len, &has_exception);
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, jkey_off, jkey_len)) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s =
+      db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+              db->DefaultColumnFamily(), key.slice(), &value);
+
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
+                                                   jval_off, jval_len);
 }
 
 /*
@@ -1690,26 +1689,23 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
     jint jkey_off, jint jkey_len, jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    bool has_exception = false;
-    auto fn_get = [=](const ROCKSDB_NAMESPACE::Slice& key_slice,
-                      ROCKSDB_NAMESPACE::PinnableSlice* value_slice) {
-      return db->Get(
-          *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
-          cf_handle, key_slice, value_slice);
-    };
-    return ROCKSDB_NAMESPACE::rocksjni_get_helper(env, fn_get, jkey, jkey_off,
-                                                  jkey_len, jval, jval_off,
-                                                  jval_len, &has_exception);
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
-    // will never be evaluated
-    return 0;
+  auto cf_handle = ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+      env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
   }
+
+  ROCKSDB_NAMESPACE::GetJNIKey key;
+  if (!key.fromByteArray(env, jkey, jkey_off, jkey_len)) {
+    return ROCKSDB_NAMESPACE::GetJNIValue::kStatusError;
+  }
+  ROCKSDB_NAMESPACE::PinnableSlice value;
+  auto s =
+      db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+              cf_handle, key.slice(), &value);
+
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
+                                                   jval_off, jval_len);
 }
 
 /**

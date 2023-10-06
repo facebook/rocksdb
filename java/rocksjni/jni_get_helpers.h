@@ -17,16 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-typedef std::function<ROCKSDB_NAMESPACE::Status(
-    // const ROCKSDB_NAMESPACE::ReadOptions&,
-    const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::PinnableSlice*)>
-    FnGet;
-
-jint rocksjni_get_helper(JNIEnv* env, const ROCKSDB_NAMESPACE::FnGet& fn_get,
-                         jbyteArray jkey, jint jkey_off, jint jkey_len,
-                         jbyteArray jval, jint jval_off, jint jval_len,
-                         bool* has_exception);
-
 class GetJNIKey {
  private:
   ROCKSDB_NAMESPACE::Slice slice_;
@@ -72,8 +62,15 @@ class MultiGetJNIKeys {
 
 class GetJNIValue {
  public:
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+
   static jbyteArray byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
                               ROCKSDB_NAMESPACE::PinnableSlice& value);
+
+  static jint fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                        ROCKSDB_NAMESPACE::PinnableSlice& value,
+                        jbyteArray jval, jint jval_off, jint jval_len);
 };
 
 /**
