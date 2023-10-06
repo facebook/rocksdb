@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <shared_mutex>
 #include <string>
 
 #include "db/blob/blob_index.h"
@@ -149,6 +150,7 @@ class FlushJobTestBase : public testing::Test {
   ColumnFamilyOptions cf_options_;
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
+  std::shared_mutex seqno_to_time_mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 
@@ -178,7 +180,8 @@ TEST_F(FlushJobTest, Empty) {
       snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
       nullptr, kNoCompression, nullptr, &event_logger, false,
       true /* sync_output_directory */, true /* write_manifest */,
-      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
+      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_);
   {
     InstrumentedMutexLock l(&mutex_);
     flush_job.PickMemTable();
@@ -264,7 +267,8 @@ TEST_F(FlushJobTest, NonEmpty) {
       snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
-      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
+      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_);
 
   HistogramData hist;
   FileMetaData file_meta;
@@ -327,7 +331,8 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
       snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
-      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
+      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_);
   HistogramData hist;
   FileMetaData file_meta;
   mutex_.Lock();
@@ -400,8 +405,8 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
         &job_context, FlushReason::kTest, nullptr, nullptr, nullptr,
         kNoCompression, db_options_.statistics.get(), &event_logger, true,
         false /* sync_output_directory */, false /* write_manifest */,
-        Env::Priority::USER, nullptr /*IOTracer*/,
-        empty_seqno_to_time_mapping_));
+        Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+        &seqno_to_time_mutex_));
     k++;
   }
   HistogramData hist;
@@ -528,7 +533,8 @@ TEST_F(FlushJobTest, Snapshots) {
       snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
-      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
+      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_);
   mutex_.Lock();
   flush_job.PickMemTable();
   ASSERT_OK(flush_job.Run());
@@ -584,7 +590,8 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
       snapshot_checker, &job_context, FlushReason::kTest, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
-      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
+      Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_);
 
   // When the state from WriteController is normal.
   ASSERT_EQ(flush_job.GetRateLimiterPriorityForWrite(), Env::IO_HIGH);
@@ -699,6 +706,7 @@ TEST_P(FlushJobTimestampTest, AllKeysExpired) {
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_,
       /*db_id=*/"",
       /*db_session_id=*/"", full_history_ts_low);
 
@@ -761,6 +769,7 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
       true, true /* sync_output_directory */, true /* write_manifest */,
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_,
+      &seqno_to_time_mutex_,
       /*db_id=*/"",
       /*db_session_id=*/"", full_history_ts_low);
 
