@@ -1752,8 +1752,12 @@ struct ReadOptions {
 
   // *** END options only relevant to iterators or scans ***
 
-  // ** For RocksDB internal use only **
+  // *** BEGIN options for RocksDB internal use only ***
+
+  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
