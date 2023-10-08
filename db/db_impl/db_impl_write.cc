@@ -1953,9 +1953,13 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       // a chance to run. Now we guarantee we are still slowly making
       // progress.
       PERF_TIMER_GUARD(write_delay_time);
-      write_controller_.low_pri_rate_limiter()->Request(
-          my_batch->GetDataSize(), Env::IO_HIGH, nullptr /* stats */,
-          RateLimiter::OpType::kWrite);
+      auto data_size = my_batch->GetDataSize();
+      while (data_size > 0) {
+        size_t allowed = write_controller_.low_pri_rate_limiter()->RequestToken(
+            data_size, 0 /* alignment */, Env::IO_HIGH, nullptr /* stats */,
+            RateLimiter::OpType::kWrite);
+        data_size -= allowed;
+      }
     }
   }
   return Status::OK();

@@ -3880,16 +3880,26 @@ TEST_F(DBTest2, LowPriWrite) {
   ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
 
+  wo.low_pri = true;
+  std::string big_value = std::string(1 * 1024 * 1024, 'x');
+  ASSERT_OK(Put("", big_value, wo));
+  ASSERT_LT(1, rate_limit_count.load());
+  // Reset
+  rate_limit_count = 0;
+  wo.low_pri = false;
+  ASSERT_OK(Put("", big_value, wo));
+  ASSERT_EQ(0, rate_limit_count.load());
+
   TEST_SYNC_POINT("DBTest.LowPriWrite:0");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   wo.low_pri = true;
   ASSERT_OK(Put("", "", wo));
-  ASSERT_EQ(1, rate_limit_count.load());
+  ASSERT_EQ(0, rate_limit_count.load());
   wo.low_pri = false;
   ASSERT_OK(Put("", "", wo));
-  ASSERT_EQ(1, rate_limit_count.load());
+  ASSERT_EQ(0, rate_limit_count.load());
 }
 
 TEST_F(DBTest2, RateLimitedCompactionReads) {
