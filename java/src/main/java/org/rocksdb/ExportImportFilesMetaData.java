@@ -15,8 +15,6 @@ import java.util.List;
 public class ExportImportFilesMetaData extends RocksObject {
   private ExportImportFilesMetaData(final long nativeHandle) {
     super(nativeHandle);
-    // We do not own the native object!
-    disOwnNativeHandle();
   }
 
   @Override protected native void disposeInternal(final long handle);
