@@ -5,6 +5,7 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
+#include <cassert>
 #include <memory>
 
 #include "db/column_family.h"
@@ -426,11 +427,12 @@ Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
 Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
-                                         const DBOptions& options,
+                                         const DBOptions& /* options */,
                                          const Slice& key, std::string* value) {
+  MergeContext merge_context;
   Status s;
-  WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, &s);
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, value, &s);
 
   switch (result) {
     case WBWIIteratorImpl::kFound:
@@ -502,20 +504,27 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
+  assert(db);
+  assert(pinnable_val);
+
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   if (ts_sz > 0 && !read_options.timestamp) {
     return Status::InvalidArgument("Must specify timestamp");
   }
 
-  Status s;
-  WriteBatchWithIndexInternal wbwii(db, column_family);
-
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
-  std::string& batch_value = *pinnable_val->GetSelf();
-  auto result = wbwii.GetFromBatch(this, key, &batch_value, &s);
+  MergeContext merge_context;
+  Status s;
+
+  auto result = WriteBatchWithIndexInternal::GetFromBatch(
+      this, column_family, key, &merge_context, pinnable_val->GetSelf(), &s);
 
   if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
@@ -545,10 +554,14 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     if (result == WBWIIteratorImpl::kMergeInProgress) {
       // Merge result from DB with merges in Batch
       std::string merge_result;
+
       if (s.ok()) {
-        s = wbwii.MergeKey(key, *pinnable_val, &merge_result);
-      } else {  // Key not present in db (s.IsNotFound())
-        s = wbwii.MergeKey(key, &merge_result);
+        s = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+            column_family, key, *pinnable_val, merge_context, &merge_result);
+      } else {
+        assert(s.IsNotFound());
+        s = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+            column_family, key, merge_context, &merge_result);
       }
       if (s.ok()) {
         pinnable_val->Reset();
@@ -573,6 +586,15 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const size_t num_keys, const Slice* keys, PinnableSlice* values,
     Status* statuses, bool sorted_input, ReadCallback* callback) {
+  assert(db);
+  assert(keys);
+  assert(values);
+  assert(statuses);
+
+  if (!column_family) {
+    column_family = db->DefaultColumnFamily();
+  }
+
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   if (ts_sz > 0 && !read_options.timestamp) {
@@ -581,8 +603,6 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     }
     return;
   }
-
-  WriteBatchWithIndexInternal wbwii(db, column_family);
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -599,8 +619,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     Status* s = &statuses[i];
     PinnableSlice* pinnable_val = &values[i];
     pinnable_val->Reset();
-    auto result =
-        wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
+    auto result = WriteBatchWithIndexInternal::GetFromBatch(
+        this, column_family, keys[i], &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
       *pinnable_val->GetSelf() = std::move(batch_value);
@@ -640,13 +660,17 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
       std::pair<WBWIIteratorImpl::Result, MergeContext>& merge_result =
           merges[index];
       if (merge_result.first == WBWIIteratorImpl::kMergeInProgress) {
-        std::string merged_value;
         // Merge result from DB with merges in Batch
+        std::string merged_value;
+
         if (key.s->ok()) {
-          *key.s = wbwii.MergeKey(*key.key, *iter->value, merge_result.second,
-                                  &merged_value);
-        } else {  // Key not present in db (s.IsNotFound())
-          *key.s = wbwii.MergeKey(*key.key, merge_result.second, &merged_value);
+          *key.s = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+              column_family, *key.key, *key.value, merge_result.second,
+              &merged_value);
+        } else {
+          assert(key.s->IsNotFound());
+          *key.s = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+              column_family, *key.key, merge_result.second, &merged_value);
         }
         if (key.s->ok()) {
           key.value->Reset();
