@@ -112,6 +112,11 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
 
   std::shared_ptr<SecondaryCache> secondary_cache;
   if (!FLAGS_secondary_cache_uri.empty()) {
+    assert(!strstr(FLAGS_secondary_cache_uri.c_str(),
+                   "compressed_secondary_cache") ||
+           (FLAGS_compressed_secondary_cache_size == 0 &&
+            FLAGS_compressed_secondary_cache_ratio == 0.0 &&
+            !StartsWith(FLAGS_cache_type, "tiered_")));
     Status s = SecondaryCache::CreateFromString(
         config_options, FLAGS_secondary_cache_uri, &secondary_cache);
     if (secondary_cache == nullptr) {
@@ -3221,8 +3226,8 @@ void InitializeOptionsFromFlags(
   options.memtable_prefix_bloom_size_ratio =
       FLAGS_memtable_prefix_bloom_size_ratio;
   if (FLAGS_use_write_buffer_manager) {
-    options.write_buffer_manager.reset(new WriteBufferManager(
-          FLAGS_db_write_buffer_size, block_cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
   options.disable_auto_compactions = FLAGS_disable_auto_compactions;

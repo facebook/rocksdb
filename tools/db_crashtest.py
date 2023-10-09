@@ -686,6 +686,9 @@ def finalize_and_sanitize(src_params):
     if dest_params["write_fault_one_in"] > 0:
         # background work may be disabled while DB is resuming after some error
         dest_params["max_write_buffer_number"] = max(dest_params["max_write_buffer_number"], 10)
+    if dest_params["secondary_cache_uri"].find("compressed_secondary_cache") >= 0:
+        dest_params["compressed_secondary_cache_size"] = 0
+        dest_params["compressed_secondary_cache_ratio"] = 0.0
     if dest_params["cache_type"].find("tiered_") >= 0:
         if dest_params["compressed_secondary_cache_size"] > 0:
             dest_params["compressed_secondary_cache_ratio"] = \
@@ -696,7 +699,8 @@ def finalize_and_sanitize(src_params):
             dest_params["compressed_secondary_cache_ratio"] = 0.0
             dest_params["cache_type"] = dest_params["cache_type"].replace("tiered_", "")
     if dest_params["use_write_buffer_manager"]:
-        if dest_params["cache_size"] <= 0:
+        if (dest_params["cache_size"] <= 0
+            or dest_params["db_write_buffer_size"] <= 0):
             dest_params["use_write_buffer_manager"] = 0
     return dest_params
 
