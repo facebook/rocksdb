@@ -41,7 +41,7 @@ class BlobFetcherWithReadOptionsCopy : public BlobFetcher {
   BlobFetcherWithReadOptionsCopy(const Version* v, const ReadOptions& ro)
       : BlobFetcher(v, read_options_copy_), read_options_copy_(ro) {}
 
-private:
+ private:
   const ReadOptions read_options_copy_;
 };
 
