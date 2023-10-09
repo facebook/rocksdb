@@ -9,20 +9,21 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
+#include "db/version_edit.h"
 #include "env/file_system_tracer.h"
 #include "logging/event_logger.h"
 #include "options/db_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Directories;
+class SystemClock;
 
 struct IngestedFileInfo {
   // External file path
@@ -68,38 +69,56 @@ struct IngestedFileInfo {
   std::string file_checksum;
   // The name of checksum function that generate the checksum
   std::string file_checksum_func_name;
+  // The temperature of the file to be ingested
+  Temperature file_temperature = Temperature::kUnknown;
+  // Unique id of the file to be ingested
+  UniqueId64x2 unique_id{};
 };
 
 class ExternalSstFileIngestionJob {
  public:
   ExternalSstFileIngestionJob(
-      Env* env, VersionSet* versions, ColumnFamilyData* cfd,
-      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
+      VersionSet* versions, ColumnFamilyData* cfd,
+      const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
       Directories* directories, EventLogger* event_logger,
       const std::shared_ptr<IOTracer>& io_tracer)
-      : env_(env),
+      : clock_(db_options.clock),
         fs_(db_options.fs, io_tracer),
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
+        mutable_db_options_(mutable_db_options),
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
         directories_(directories),
         event_logger_(event_logger),
-        job_start_time_(env_->NowMicros()),
+        job_start_time_(clock_->NowMicros()),
         consumed_seqno_count_(0),
         io_tracer_(io_tracer) {
     assert(directories != nullptr);
+  }
+
+  ~ExternalSstFileIngestionJob() {
+    for (const auto& c : file_ingesting_compactions_) {
+      cfd_->compaction_picker()->UnregisterCompaction(c);
+      delete c;
+    }
+
+    for (const auto& f : compaction_input_metdatas_) {
+      delete f;
+    }
   }
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
-                 uint64_t next_file_number, SuperVersion* sv);
+                 const Temperature& file_temperature, uint64_t next_file_number,
+                 SuperVersion* sv);
 
   // Check if we need to flush the memtable before running the ingestion job
   // This will be true if the files we are ingesting are overlapping with any
@@ -114,6 +133,15 @@ class ExternalSstFileIngestionJob {
   // Will execute the ingestion job and prepare edit() to be applied.
   // REQUIRES: Mutex held
   Status Run();
+
+  // Register key range involved in this ingestion job
+  // to prevent key range conflict with other ongoing compaction/file ingestion
+  // REQUIRES: Mutex held
+  void RegisterRange();
+
+  // Unregister key range registered for this ingestion job
+  // REQUIRES: Mutex held
+  void UnregisterRange();
 
   // Update column family stats.
   // REQUIRES: Mutex held
@@ -135,10 +163,11 @@ class ExternalSstFileIngestionJob {
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,
+                             uint64_t new_file_number,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
 
-  // Assign `file_to_ingest` the appropriate sequence number and  the lowest
+  // Assign `file_to_ingest` the appropriate sequence number and the lowest
   // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held
   Status AssignLevelAndSeqnoForIngestedFile(SuperVersion* sv,
@@ -169,11 +198,17 @@ class ExternalSstFileIngestionJob {
   template <typename TWritableFile>
   Status SyncIngestedFile(TWritableFile* file);
 
-  Env* env_;
+  // Create equivalent `Compaction` objects to this file ingestion job
+  // , which will be used to check range conflict with other ongoing
+  // compactions.
+  void CreateEquivalentFileIngestingCompactions();
+
+  SystemClock* clock_;
   FileSystemPtr fs_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
+  const MutableDBOptions& mutable_db_options_;
   const EnvOptions& env_options_;
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
@@ -190,6 +225,14 @@ class ExternalSstFileIngestionJob {
   // file_checksum_gen_factory is set, DB will generate checksum each file.
   bool need_generate_file_checksum_{true};
   std::shared_ptr<IOTracer> io_tracer_;
+
+  // Below are variables used in (un)registering range for this ingestion job
+  //
+  // FileMetaData used in inputs of compactions equivalent to this ingestion
+  // job
+  std::vector<FileMetaData*> compaction_input_metdatas_;
+  // Compactions equivalent to this ingestion job
+  std::vector<Compaction*> file_ingesting_compactions_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

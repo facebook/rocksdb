@@ -4,18 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "rocksdb/slice.h"
-
 #include "port/port.h"
+#include "rocksdb/slice.h"
 #include "util/bloom_impl.h"
 #include "util/hash.h"
-
-#include "third-party/folly/folly/ConstexprMath.h"
-
-#include <memory>
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Slice;
@@ -69,7 +66,7 @@ class PlainTableBloomV1 {
   char* data_;
 
   static constexpr int LOG2_CACHE_LINE_SIZE =
-      folly::constexpr_log2(CACHE_LINE_SIZE);
+      ConstexprFloorLog2(CACHE_LINE_SIZE);
 };
 
 #if defined(_MSC_VER)
@@ -132,4 +129,4 @@ class BloomBlockBuilder {
   PlainTableBloomV1 bloom_;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

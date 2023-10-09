@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
@@ -11,9 +10,10 @@
 #include <memory>
 
 #include "db/dbformat.h"
-#include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/plain/plain_table_builder.h"
 #include "table/plain/plain_table_reader.h"
@@ -52,8 +52,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
 
 PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
     : table_options_(options) {
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &plain_table_type_info);
+  RegisterOptions(&table_options_, &plain_table_type_info);
 }
 
 Status PlainTableFactory::NewTableReader(
@@ -67,11 +66,11 @@ Status PlainTableFactory::NewTableReader(
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
       table_options_.full_scan_mode, table_reader_options.immortal,
-      table_reader_options.prefix_extractor);
+      table_reader_options.prefix_extractor.get());
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
   // Ignore the skip_filters flag. PlainTable format is optimized for small
   // in-memory dbs. The skip_filters optimization is not useful for plain
@@ -79,13 +78,15 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   //
   return new PlainTableBuilder(
       table_builder_options.ioptions, table_builder_options.moptions,
-      table_builder_options.int_tbl_prop_collector_factories, column_family_id,
-      file, table_options_.user_key_len, table_options_.encoding_type,
+      table_builder_options.int_tbl_prop_collector_factories,
+      table_builder_options.column_family_id,
+      table_builder_options.level_at_creation, file,
+      table_options_.user_key_len, table_options_.encoding_type,
       table_options_.index_sparseness, table_options_.bloom_bits_per_key,
       table_builder_options.column_family_name, 6,
       table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
       table_options_.store_index_in_file, table_builder_options.db_id,
-      table_builder_options.db_session_id);
+      table_builder_options.db_session_id, table_builder_options.cur_file_num);
 }
 
 std::string PlainTableFactory::GetPrintableOptions() const {
@@ -121,17 +122,6 @@ std::string PlainTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
-Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
-  return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
-                                        new_table_options);
-}
-
 Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
@@ -152,82 +142,126 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
   }
 }
 
-Status GetMemTableRepFactoryFromString(
-    const std::string& opts_str,
-    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
-  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
-  size_t len = opts_list.size();
+static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
+                                             const std::string& /*arg*/) {
+  // The MemTableRepFactory built-in classes will be either a class
+  // (VectorRepFactory) or a nickname (vector), followed optionally by ":#",
+  // where # is the "size" of the factory.
+  auto AsPattern = [](const std::string& name, const std::string& alt) {
+    auto pattern = ObjectLibrary::PatternEntry(name, true);
+    pattern.AnotherName(alt);
+    pattern.AddNumber(":");
+    return pattern;
+  };
+  library.AddFactory<MemTableRepFactory>(
+      AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(new VectorRepFactory(count));
+        } else {
+          guard->reset(new VectorRepFactory());
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemTableRepFactory>(
+      AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t lookahead = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(new SkipListFactory(lookahead));
+        } else {
+          guard->reset(new SkipListFactory());
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemTableRepFactory>(
+      AsPattern("HashLinkListRepFactory", "hash_linkedlist"),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        // Expecting format: hash_linkedlist:<hash_bucket_count>
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(NewHashLinkListRepFactory(hash_bucket_count));
+        } else {
+          guard->reset(NewHashLinkListRepFactory());
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemTableRepFactory>(
+      AsPattern("HashSkipListRepFactory", "prefix_hash"),
+      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /*errmsg*/) {
+        // Expecting format: prefix_hash:<hash_bucket_count>
+        auto colon = uri.find(":");
+        if (colon != std::string::npos) {
+          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
+          guard->reset(NewHashSkipListRepFactory(hash_bucket_count));
+        } else {
+          guard->reset(NewHashSkipListRepFactory());
+        }
+        return guard->get();
+      });
+  library.AddFactory<MemTableRepFactory>(
+      "cuckoo",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<MemTableRepFactory>* /*guard*/, std::string* errmsg) {
+        *errmsg = "cuckoo hash memtable is not supported anymore.";
+        return nullptr;
+      });
 
-  if (opts_list.empty() || opts_list.size() > 2) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                   opts_str);
-  }
-
-  MemTableRepFactory* mem_factory = nullptr;
-
-  if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
-    // Expecting format
-    // skip_list:<lookahead>
-    if (2 == len) {
-      size_t lookahead = ParseSizeT(opts_list[1]);
-      mem_factory = new SkipListFactory(lookahead);
-    } else if (1 == len) {
-      mem_factory = new SkipListFactory();
-    }
-  } else if (opts_list[0] == "prefix_hash" ||
-             opts_list[0] == "HashSkipListRepFactory") {
-    // Expecting format
-    // prfix_hash:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashSkipListRepFactory();
-    }
-  } else if (opts_list[0] == "hash_linkedlist" ||
-             opts_list[0] == "HashLinkListRepFactory") {
-    // Expecting format
-    // hash_linkedlist:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashLinkListRepFactory();
-    }
-  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
-    // Expecting format
-    // vector:<count>
-    if (2 == len) {
-      size_t count = ParseSizeT(opts_list[1]);
-      mem_factory = new VectorRepFactory(count);
-    } else if (1 == len) {
-      mem_factory = new VectorRepFactory();
-    }
-  } else if (opts_list[0] == "cuckoo") {
-    return Status::NotSupported(
-        "cuckoo hash memtable is not supported anymore.");
-  } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
-  }
-
-  if (mem_factory != nullptr) {
-    new_mem_factory->reset(mem_factory);
-  }
-
-  return Status::OK();
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
-Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
+Status GetMemTableRepFactoryFromString(
+    const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* result) {
   ConfigOptions config_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetPlainTableOptionsFromMap(config_options, table_options, opts_map,
-                                     new_table_options);
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+  return MemTableRepFactory::CreateFromString(config_options, opts_str, result);
+}
+
+Status MemTableRepFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::unique_ptr<MemTableRepFactory>* result) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinMemTableRepFactory(*(ObjectLibrary::Default().get()), "");
+  });
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  } else if (value.empty()) {
+    // No Id and no options.  Clear the object
+    result->reset();
+    return Status::OK();
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+    status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
+                                                 result);
+  }
+  return status;
+}
+
+Status MemTableRepFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<MemTableRepFactory>* result) {
+  std::unique_ptr<MemTableRepFactory> factory;
+  Status s = CreateFromString(config_options, value, &factory);
+  if (factory && s.ok()) {
+    result->reset(factory.release());
+  }
+  return s;
 }
 
 Status GetPlainTableOptionsFromMap(
@@ -260,4 +294,3 @@ const std::string PlainTablePropertyNames::kNumBloomBlocks =
     "rocksdb.plain.table.bloom.numblocks";
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -31,7 +31,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  */
 //@ThreadSafe
 public class CollectionMergeOperator extends MergeOperator {
-
   /**
    * Creates a Collection Merge Operator.
    *
@@ -43,7 +42,7 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param fixedRecordLen the fixed size of each record.
    */
   public CollectionMergeOperator(final short fixedRecordLen) {
-    this(fixedRecordLen, (AbstractComparator)null);
+    this(fixedRecordLen, (AbstractComparator) null);
   }
 
   /**
@@ -55,8 +54,7 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param fixedRecordLen the fixed size of each record.
    * @param comparator if records should be ordered, a comparator to order them.
    */
-  public CollectionMergeOperator(final short fixedRecordLen,
-      final AbstractComparator comparator) {
+  public CollectionMergeOperator(final short fixedRecordLen, final AbstractComparator comparator) {
     this(fixedRecordLen, comparator, UniqueConstraint.NONE);
   }
 
@@ -70,8 +68,8 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param builtinComparator if records should be ordered, a comparator
    *     to order them.
    */
-  public CollectionMergeOperator(final short fixedRecordLen,
-      final BuiltinComparator builtinComparator) {
+  public CollectionMergeOperator(
+      final short fixedRecordLen, final BuiltinComparator builtinComparator) {
     this(fixedRecordLen, builtinComparator, UniqueConstraint.NONE);
   }
 
@@ -82,9 +80,9 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param uniqueConstraint A constraint on whether records should be unique
    *     or not, controls Set vs Vector behaviour.
    */
-  public CollectionMergeOperator(final short fixedRecordLen,
-      final UniqueConstraint uniqueConstraint) {
-    this(fixedRecordLen, (AbstractComparator)null, uniqueConstraint);
+  public CollectionMergeOperator(
+      final short fixedRecordLen, final UniqueConstraint uniqueConstraint) {
+    this(fixedRecordLen, (AbstractComparator) null, uniqueConstraint);
   }
 
   /**
@@ -97,11 +95,9 @@ public class CollectionMergeOperator extends MergeOperator {
    *     or not, controls Set vs Vector behaviour.
    */
   public CollectionMergeOperator(final short fixedRecordLen,
-      final BuiltinComparator builtinComparator,
-      final UniqueConstraint uniqueConstraint) {
-    super(newCollectionMergeOperator(fixedRecordLen,
-        builtinComparator.getValue(),
-        uniqueConstraint.value));
+      final BuiltinComparator builtinComparator, final UniqueConstraint uniqueConstraint) {
+    super(newCollectionMergeOperator(
+        fixedRecordLen, builtinComparator.getValue(), uniqueConstraint.value));
   }
 
   /**
@@ -112,27 +108,25 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param uniqueConstraint A constraint on whether records should be unique
    *     or not, controls Set vs Vector behaviour.
    */
-  public CollectionMergeOperator(final short fixedRecordLen,
-      final AbstractComparator comparator, final UniqueConstraint uniqueConstraint) {
+  public CollectionMergeOperator(final short fixedRecordLen, final AbstractComparator comparator,
+      final UniqueConstraint uniqueConstraint) {
     super(newCollectionMergeOperator(fixedRecordLen,
-        comparator  == null ? 0 : comparator.nativeHandle_,
-        comparator == null ? ComparatorType.JAVA_NATIVE_COMPARATOR_WRAPPER.getValue() : comparator.getComparatorType().getValue(),
+        comparator == null ? 0 : comparator.nativeHandle_,
+        comparator == null ? ComparatorType.JAVA_NATIVE_COMPARATOR_WRAPPER.getValue()
+                           : comparator.getComparatorType().getValue(),
         uniqueConstraint.value));
   }
 
+  private native static long newCollectionMergeOperator(final short fixedRecordLen,
+      final long comparatorHandle, byte comparatorType, final byte uniqueConstraint);
   private native static long newCollectionMergeOperator(
-      final short fixedRecordLen, final long comparatorHandle,
-      byte comparatorType, final byte uniqueConstraint);
-  private native static long newCollectionMergeOperator(
-      final short fixedRecordLen, final byte builtinComparator,
-      final byte uniqueConstraint);
+      final short fixedRecordLen, final byte builtinComparator, final byte uniqueConstraint);
   @Override protected final native void disposeInternal(final long handle);
 
   /**
    * A constraint on the uniqueness of items within a Collection.
    */
   public enum UniqueConstraint {
-
     /**
      * Duplicate values in the Collection will be removed.
      */
@@ -163,21 +157,20 @@ public class CollectionMergeOperator extends MergeOperator {
    * The Operation to apply to a Collection.
    */
   public enum CollectionOperation {
-
     /**
      * Add one or more records to the Collection.
      */
-    ADD((byte)0x0),
+    ADD((byte) 0x0),
 
     /**
      * Remove one or more records from the Collection.
      */
-    REMOVE((byte)0x1),
+    REMOVE((byte) 0x1),
 
     /**
      * Clear all records from the Collection.
      */
-    CLEAR((byte)0x2);
+    CLEAR((byte) 0x2);
 
     private final byte value;
 
@@ -252,15 +245,14 @@ public class CollectionMergeOperator extends MergeOperator {
      *
      * @return the byte string.
      */
-    public static byte[] operation(
-        final CollectionOperation collectionOperation,
+    public static byte[] operation(final CollectionOperation collectionOperation,
         /*@Nullable*/ final byte[] records) {
-      if(records == null || records.length == 0) {
-        if(collectionOperation == CLEAR) {
+      if (records == null || records.length == 0) {
+        if (collectionOperation == CLEAR) {
           return new byte[] {CLEAR.value};
         } else {
-          throw new IllegalStateException("Only CLEAR is permissible" +
-              "without records");
+          throw new IllegalStateException("Only CLEAR is permissible"
+              + "without records");
         }
       }
 

@@ -9,8 +9,8 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_TransactionOptions.h"
-
 #include "rocksdb/utilities/transaction_db.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_TransactionOptions
@@ -20,7 +20,7 @@
 jlong Java_org_rocksdb_TransactionOptions_newTransactionOptions(
     JNIEnv* /*env*/, jclass /*jcls*/) {
   auto* opts = new ROCKSDB_NAMESPACE::TransactionOptions();
-  return reinterpret_cast<jlong>(opts);
+  return GET_CPLUSPLUS_POINTER(opts);
 }
 
 /*

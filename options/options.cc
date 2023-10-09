@@ -12,13 +12,15 @@
 #include <cinttypes>
 #include <limits>
 
-#include "monitoring/statistics.h"
+#include "logging/logging.h"
+#include "monitoring/statistics_impl.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -47,6 +49,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
+      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
@@ -68,6 +71,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
       max_compaction_bytes(options.max_compaction_bytes),
+      ignore_max_compaction_bytes_for_input(
+          options.ignore_max_compaction_bytes_for_input),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
@@ -89,13 +94,24 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
+      default_temperature(options.default_temperature),
+      preclude_last_level_data_seconds(
+          options.preclude_last_level_data_seconds),
+      preserve_internal_time_seconds(options.preserve_internal_time_seconds),
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
-          options.blob_garbage_collection_age_cutoff) {
+          options.blob_garbage_collection_age_cutoff),
+      blob_garbage_collection_force_threshold(
+          options.blob_garbage_collection_force_threshold),
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size),
+      blob_file_starting_level(options.blob_file_starting_level),
+      blob_cache(options.blob_cache),
+      prepopulate_blob_cache(options.prepopulate_blob_cache),
+      persist_user_defined_timestamps(options.persist_user_defined_timestamps) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -123,6 +139,11 @@ void DBOptions::Dump(Logger* log) const {
 void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "              Options.comparator: %s",
                    comparator->Name());
+  if (comparator->timestamp_size() > 0) {
+    ROCKS_LOG_HEADER(
+        log, "              Options.persist_user_defined_timestamps: %s",
+        persist_user_defined_timestamps ? "true" : "false");
+  }
   ROCKS_LOG_HEADER(log, "          Options.merge_operator: %s",
                    merge_operator ? merge_operator->Name() : "None");
   ROCKS_LOG_HEADER(log, "       Options.compaction_filter: %s",
@@ -201,6 +222,15 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.max_dict_buffer_bytes: "
+        "%" PRIu64,
+        bottommost_compression_opts.max_dict_buffer_bytes);
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.use_zstd_dict_trainer: %s",
+        bottommost_compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -215,6 +245,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(
+        log, "        Options.compression_opts.use_zstd_dict_trainer: %s",
+        compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log,
                      "        Options.compression_opts.parallel_threads: "
                      "%" PRIu32,
@@ -222,6 +255,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.max_dict_buffer_bytes: "
+                     "%" PRIu64,
+                     compression_opts.max_dict_buffer_bytes);
     ROCKS_LOG_HEADER(log, "     Options.level0_file_num_compaction_trigger: %d",
                      level0_file_num_compaction_trigger);
     ROCKS_LOG_HEADER(log, "         Options.level0_slowdown_writes_trigger: %d",
@@ -253,6 +290,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
+    ROCKS_LOG_HEADER(log, "  Options.ignore_max_compaction_bytes_for_input: %s",
+                     ignore_max_compaction_bytes_for_input ? "true" : "false");
     ROCKS_LOG_HEADER(
         log,
         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
@@ -263,8 +302,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "  Options.hard_pending_compaction_bytes_limit: %" PRIu64,
                      hard_pending_compaction_bytes_limit);
-    ROCKS_LOG_HEADER(log, "      Options.rate_limit_delay_max_milliseconds: %u",
-                     rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
 
@@ -376,26 +413,63 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
-    ROCKS_LOG_HEADER(log, "                   Options.enable_blob_files: %s",
+    const auto& it_temp = temperature_to_string.find(default_temperature);
+    std::string str_default_temperature;
+    if (it_temp == temperature_to_string.end()) {
+      assert(false);
+      str_default_temperature = "unknown_temperature";
+    } else {
+      str_default_temperature = it_temp->second;
+    }
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.default_temperature: %s",
+                     str_default_temperature.c_str());
+    ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
+                     preclude_last_level_data_seconds);
+    ROCKS_LOG_HEADER(log, "   Options.preserve_internal_time_seconds: %" PRIu64,
+                     preserve_internal_time_seconds);
+    ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
-    ROCKS_LOG_HEADER(log,
-                     "                       Options.min_blob_size: %" PRIu64,
-                     min_blob_size);
-    ROCKS_LOG_HEADER(log,
-                     "                      Options.blob_file_size: %" PRIu64,
-                     blob_file_size);
-    ROCKS_LOG_HEADER(log, "               Options.blob_compression_type: %s",
+    ROCKS_LOG_HEADER(
+        log, "                          Options.min_blob_size: %" PRIu64,
+        min_blob_size);
+    ROCKS_LOG_HEADER(
+        log, "                         Options.blob_file_size: %" PRIu64,
+        blob_file_size);
+    ROCKS_LOG_HEADER(log, "                  Options.blob_compression_type: %s",
                      CompressionTypeToString(blob_compression_type).c_str());
-    ROCKS_LOG_HEADER(log, "      Options.enable_blob_garbage_collection: %s",
+    ROCKS_LOG_HEADER(log, "         Options.enable_blob_garbage_collection: %s",
                      enable_blob_garbage_collection ? "true" : "false");
-    ROCKS_LOG_HEADER(log, "  Options.blob_garbage_collection_age_cutoff: %f",
+    ROCKS_LOG_HEADER(log, "     Options.blob_garbage_collection_age_cutoff: %f",
                      blob_garbage_collection_age_cutoff);
+    ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
+                     blob_garbage_collection_force_threshold);
+    ROCKS_LOG_HEADER(
+        log, "         Options.blob_compaction_readahead_size: %" PRIu64,
+        blob_compaction_readahead_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_file_starting_level: %d",
+                     blob_file_starting_level);
+    if (blob_cache) {
+      ROCKS_LOG_HEADER(log, "                          Options.blob_cache: %s",
+                       blob_cache->Name());
+      ROCKS_LOG_HEADER(log, "                          blob_cache options: %s",
+                       blob_cache->GetPrintableOptions().c_str());
+      ROCKS_LOG_HEADER(
+          log, "                          blob_cache prepopulated: %s",
+          prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+              ? "flush only"
+              : "disabled");
+    }
+    ROCKS_LOG_HEADER(log, "        Options.experimental_mempurge_threshold: %f",
+                     experimental_mempurge_threshold);
+    ROCKS_LOG_HEADER(log, "           Options.memtable_max_range_deletions: %d",
+                     memtable_max_range_deletions);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
   DBOptions::Dump(log);
   ColumnFamilyOptions::Dump(log);
-}   // Options::Dump
+}  // Options::Dump
 
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
@@ -452,6 +526,19 @@ Options* Options::OptimizeForSmallDb() {
 
   ColumnFamilyOptions::OptimizeForSmallDb(&cache);
   DBOptions::OptimizeForSmallDb(&cache);
+  return this;
+}
+
+Options* Options::DisableExtraChecks() {
+  // See https://github.com/facebook/rocksdb/issues/9354
+  force_consistency_checks = false;
+  // Considered but no clear performance impact seen:
+  // * check_flush_compaction_key_order
+  // * paranoid_checks
+  // * flush_verify_memtable_count
+  // By current API contract, not including
+  // * verify_checksums
+  // because checking storage data integrity is a more standard practice.
   return this;
 }
 
@@ -539,7 +626,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
   return this;
 }
 
-#ifndef ROCKSDB_LITE
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
   BlockBasedTableOptions block_based_options;
@@ -611,54 +697,10 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   return this;
 }
 
-#endif  // !ROCKSDB_LITE
+ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
+    : verify_checksums(_verify_checksums), fill_cache(_fill_cache) {}
 
-ReadOptions::ReadOptions()
-    : snapshot(nullptr),
-      iterate_lower_bound(nullptr),
-      iterate_upper_bound(nullptr),
-      readahead_size(0),
-      max_skippable_internal_keys(0),
-      read_tier(kReadAllTier),
-      verify_checksums(true),
-      fill_cache(true),
-      tailing(false),
-      managed(false),
-      total_order_seek(false),
-      auto_prefix_mode(false),
-      prefix_same_as_start(false),
-      pin_data(false),
-      background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false),
-      iter_start_seqnum(0),
-      timestamp(nullptr),
-      iter_start_ts(nullptr),
-      deadline(std::chrono::microseconds::zero()),
-      io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
-
-ReadOptions::ReadOptions(bool cksum, bool cache)
-    : snapshot(nullptr),
-      iterate_lower_bound(nullptr),
-      iterate_upper_bound(nullptr),
-      readahead_size(0),
-      max_skippable_internal_keys(0),
-      read_tier(kReadAllTier),
-      verify_checksums(cksum),
-      fill_cache(cache),
-      tailing(false),
-      managed(false),
-      total_order_seek(false),
-      auto_prefix_mode(false),
-      prefix_same_as_start(false),
-      pin_data(false),
-      background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false),
-      iter_start_seqnum(0),
-      timestamp(nullptr),
-      iter_start_ts(nullptr),
-      deadline(std::chrono::microseconds::zero()),
-      io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
+ReadOptions::ReadOptions(Env::IOActivity _io_activity)
+    : io_activity(_io_activity) {}
 
 }  // namespace ROCKSDB_NAMESPACE

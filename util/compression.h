@@ -20,9 +20,10 @@
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 #include <string>
 
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -47,9 +48,17 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+// v1.1.3+
+#if ZSTD_VERSION_NUMBER >= 10103
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+// v1.4.0+
+// ZSTD_Compress2(), ZSTD_compressStream2() and frame parameters all belong to
+// advanced APIs and require v1.4.0+.
+// https://github.com/facebook/zstd/blob/eb9f881eb810f2242f1ef36b3f3e7014eecb8fa6/lib/zstd.h#L297C40-L297C45
+#if ZSTD_VERSION_NUMBER >= 10400
+#define ZSTD_ADVANCED
+#endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
@@ -83,12 +92,11 @@ class ZSTDUncompressCachedData {
   // Init from cache
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData& o) = delete;
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) noexcept
       : ZSTDUncompressCachedData() {
     *this = std::move(o);
   }
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o)
-      ROCKSDB_NOEXCEPT {
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o) noexcept {
     assert(zstd_ctx_ == nullptr);
     std::swap(zstd_ctx_, o.zstd_ctx_);
     std::swap(cache_idx_, o.cache_idx_);
@@ -134,14 +142,14 @@ class ZSTDUncompressCachedData {
   ZSTDUncompressCachedData() {}
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData&) {}
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&)
-      ROCKSDB_NOEXCEPT = default;
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&)
-      ROCKSDB_NOEXCEPT = default;
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&) noexcept = default;
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&) noexcept =
+      default;
   ZSTDNativeContext Get() const { return nullptr; }
   int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+
  private:
   void ignore_padding__() { padding = nullptr; }
 };
@@ -175,6 +183,9 @@ struct CompressionDict {
       if (level == CompressionOptions::kDefaultCompressionLevel) {
         // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
         // https://github.com/facebook/zstd/issues/1148
+        // TODO(cbi): ZSTD_CLEVEL_DEFAULT is exposed after
+        //  https://github.com/facebook/zstd/pull/1174. Use ZSTD_CLEVEL_DEFAULT
+        //  instead of hardcoding 3.
         level = 3;
       }
       // Should be safe (but slower) if below call fails as we'll use the
@@ -317,6 +328,11 @@ struct UncompressionDict {
 
   const Slice& GetRawDict() const { return slice_; }
 
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return slice_; }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
+
 #ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }
 #endif  // ROCKSDB_ZSTD_DDICT
@@ -353,14 +369,43 @@ class CompressionContext {
  private:
 #if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 500)
   ZSTD_CCtx* zstd_ctx_ = nullptr;
-  void CreateNativeContext(CompressionType type) {
-    if (type == kZSTD || type == kZSTDNotFinalCompression) {
+
+  ZSTD_CCtx* CreateZSTDContext() {
 #ifdef ROCKSDB_ZSTD_CUSTOM_MEM
-      zstd_ctx_ =
-          ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
+    return ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
 #else   // ROCKSDB_ZSTD_CUSTOM_MEM
-      zstd_ctx_ = ZSTD_createCCtx();
+    return ZSTD_createCCtx();
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
+  }
+
+  void CreateNativeContext(CompressionType type, int level, bool checksum) {
+    if (type == kZSTD || type == kZSTDNotFinalCompression) {
+      zstd_ctx_ = CreateZSTDContext();
+#ifdef ZSTD_ADVANCED
+      if (level == CompressionOptions::kDefaultCompressionLevel) {
+        // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+        // https://github.com/facebook/zstd/issues/1148
+        level = 3;
+      }
+      size_t err =
+          ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_compressionLevel, level);
+      if (ZSTD_isError(err)) {
+        assert(false);
+        ZSTD_freeCCtx(zstd_ctx_);
+        zstd_ctx_ = CreateZSTDContext();
+      }
+      if (checksum) {
+        err = ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_checksumFlag, 1);
+        if (ZSTD_isError(err)) {
+          assert(false);
+          ZSTD_freeCCtx(zstd_ctx_);
+          zstd_ctx_ = CreateZSTDContext();
+        }
+      }
+#else
+      (void)level;
+      (void)checksum;
+#endif
     }
   }
   void DestroyNativeContext() {
@@ -378,12 +423,14 @@ class CompressionContext {
 
 #else   // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  private:
-  void CreateNativeContext(CompressionType /* type */) {}
+  void CreateNativeContext(CompressionType /* type */, int /* level */,
+                           bool /* checksum */) {}
   void DestroyNativeContext() {}
 #endif  // ZSTD && (ZSTD_VERSION_NUMBER >= 500)
  public:
-  explicit CompressionContext(CompressionType type) {
-    CreateNativeContext(type);
+  explicit CompressionContext(CompressionType type,
+                              const CompressionOptions& options) {
+    CreateNativeContext(type, options.level, options.checksum);
   }
   ~CompressionContext() { DestroyNativeContext(); }
   CompressionContext(const CompressionContext&) = delete;
@@ -514,6 +561,26 @@ inline bool ZSTDNotFinal_Supported() {
 #endif
 }
 
+inline bool ZSTD_Streaming_Supported() {
+#if defined(ZSTD_ADVANCED)
+  return true;
+#else
+  return false;
+#endif
+}
+
+inline bool StreamingCompressionTypeSupported(
+    CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return true;
+    case kZSTD:
+      return ZSTD_Streaming_Supported();
+    default:
+      return false;
+  }
+}
+
 inline bool CompressionTypeSupported(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
@@ -610,22 +677,28 @@ inline std::string CompressionOptionsToString(
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
-      .append(ToString(compression_options.window_bits))
+      .append(std::to_string(compression_options.window_bits))
       .append("; ");
   result.append("level=")
-      .append(ToString(compression_options.level))
+      .append(std::to_string(compression_options.level))
       .append("; ");
   result.append("strategy=")
-      .append(ToString(compression_options.strategy))
+      .append(std::to_string(compression_options.strategy))
       .append("; ");
   result.append("max_dict_bytes=")
-      .append(ToString(compression_options.max_dict_bytes))
+      .append(std::to_string(compression_options.max_dict_bytes))
       .append("; ");
   result.append("zstd_max_train_bytes=")
-      .append(ToString(compression_options.zstd_max_train_bytes))
+      .append(std::to_string(compression_options.zstd_max_train_bytes))
       .append("; ");
   result.append("enabled=")
-      .append(ToString(compression_options.enabled))
+      .append(std::to_string(compression_options.enabled))
+      .append("; ");
+  result.append("max_dict_buffer_bytes=")
+      .append(std::to_string(compression_options.max_dict_buffer_bytes))
+      .append("; ");
+  result.append("use_zstd_dict_trainer=")
+      .append(std::to_string(compression_options.use_zstd_dict_trainer))
       .append("; ");
   return result;
 }
@@ -721,9 +794,6 @@ inline bool Zlib_Compress(const CompressionInfo& info,
     output_header_len = compression::PutDecompressedSizeInfo(
         output, static_cast<uint32_t>(length));
   }
-  // Resize output to be the plain data length.
-  // This may not be big enough if the compression actually expands data.
-  output->resize(output_header_len + length);
 
   // The memLevel parameter specifies how much memory should be allocated for
   // the internal compression state.
@@ -757,12 +827,17 @@ inline bool Zlib_Compress(const CompressionInfo& info,
     }
   }
 
+  // Get an upper bound on the compressed size.
+  size_t upper_bound =
+      deflateBound(&_stream, static_cast<unsigned long>(length));
+  output->resize(output_header_len + upper_bound);
+
   // Compress the input, and put compressed data in output.
   _stream.next_in = (Bytef*)input;
   _stream.avail_in = static_cast<unsigned int>(length);
 
   // Initialize the output size.
-  _stream.avail_out = static_cast<unsigned int>(length);
+  _stream.avail_out = static_cast<unsigned int>(upper_bound);
   _stream.next_out = reinterpret_cast<Bytef*>(&(*output)[output_header_len]);
 
   bool compressed = false;
@@ -1078,9 +1153,15 @@ inline bool LZ4_Compress(const CompressionInfo& info,
                  static_cast<int>(compression_dict.size()));
   }
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
-  outlen =
-      LZ4_compress_fast_continue(stream, input, &(*output)[output_header_len],
-                                 static_cast<int>(length), compress_bound, 1);
+  int acceleration;
+  if (info.options().level < 0) {
+    acceleration = -info.options().level;
+  } else {
+    acceleration = 1;
+  }
+  outlen = LZ4_compress_fast_continue(
+      stream, input, &(*output)[output_header_len], static_cast<int>(length),
+      compress_bound, acceleration);
 #else  // up to r128
   outlen = LZ4_compress_limitedOutput_continue(
       stream, input, &(*output)[output_header_len], static_cast<int>(length),
@@ -1133,7 +1214,11 @@ inline CacheAllocationPtr LZ4_Uncompress(const UncompressionInfo& info,
     if (input_length < 8) {
       return nullptr;
     }
-    memcpy(&output_len, input_data, sizeof(output_len));
+    if (port::kLittleEndian) {
+      memcpy(&output_len, input_data, sizeof(output_len));
+    } else {
+      memcpy(&output_len, input_data + 4, sizeof(output_len));
+    }
     input_length -= 8;
     input_data += 8;
   }
@@ -1221,8 +1306,10 @@ inline bool LZ4HC_Compress(const CompressionInfo& info,
   const char* compression_dict_data =
       compression_dict.size() > 0 ? compression_dict.data() : nullptr;
   size_t compression_dict_size = compression_dict.size();
-  LZ4_loadDictHC(stream, compression_dict_data,
-                 static_cast<int>(compression_dict_size));
+  if (compression_dict_data != nullptr) {
+    LZ4_loadDictHC(stream, compression_dict_data,
+                   static_cast<int>(compression_dict_size));
+  }
 
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
   outlen =
@@ -1299,30 +1386,44 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
   size_t outlen = 0;
-  int level;
-  if (info.options().level == CompressionOptions::kDefaultCompressionLevel) {
-    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
-    // https://github.com/facebook/zstd/issues/1148
-    level = 3;
-  } else {
-    level = info.options().level;
-  }
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_CCtx* context = info.context().ZSTDPreallocCtx();
   assert(context != nullptr);
+#ifdef ZSTD_ADVANCED
+  if (info.dict().GetDigestedZstdCDict() != nullptr) {
+    ZSTD_CCtx_refCDict(context, info.dict().GetDigestedZstdCDict());
+  } else {
+    ZSTD_CCtx_loadDictionary(context, info.dict().GetRawDict().data(),
+                             info.dict().GetRawDict().size());
+  }
+
+  // Compression level is set in `contex` during CreateNativeContext()
+  outlen = ZSTD_compress2(context, &(*output)[output_header_len], compressBound,
+                          input, length);
+#else                           // ZSTD_ADVANCED
 #if ZSTD_VERSION_NUMBER >= 700  // v0.7.0+
   if (info.dict().GetDigestedZstdCDict() != nullptr) {
     outlen = ZSTD_compress_usingCDict(context, &(*output)[output_header_len],
                                       compressBound, input, length,
                                       info.dict().GetDigestedZstdCDict());
   }
-#endif  // ZSTD_VERSION_NUMBER >= 700
+#endif                          // ZSTD_VERSION_NUMBER >= 700
+  // TODO (cbi): error handling for compression.
   if (outlen == 0) {
+    int level;
+    if (info.options().level == CompressionOptions::kDefaultCompressionLevel) {
+      // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+      // https://github.com/facebook/zstd/issues/1148
+      level = 3;
+    } else {
+      level = info.options().level;
+    }
     outlen = ZSTD_compress_usingDict(context, &(*output)[output_header_len],
                                      compressBound, input, length,
                                      info.dict().GetRawDict().data(),
                                      info.dict().GetRawDict().size(), level);
   }
+#endif                          // ZSTD_ADVANCED
 #else   // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
                          length, level);
@@ -1343,17 +1444,28 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
 
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
+// @param error_message If not null, will be set if decompression fails.
+//
+// Returns nullptr if decompression fails.
 inline CacheAllocationPtr ZSTD_Uncompress(
     const UncompressionInfo& info, const char* input_data, size_t input_length,
-    size_t* uncompressed_size, MemoryAllocator* allocator = nullptr) {
+    size_t* uncompressed_size, MemoryAllocator* allocator = nullptr,
+    const char** error_message = nullptr) {
 #ifdef ZSTD
+  static const char* const kErrorDecodeOutputSize =
+      "Cannot decode output size.";
+  static const char* const kErrorOutputLenMismatch =
+      "Decompressed size does not match header.";
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
                                             &output_len)) {
+    if (error_message) {
+      *error_message = kErrorDecodeOutputSize;
+    }
     return nullptr;
   }
 
-  auto output = AllocateBlock(output_len, allocator);
+  CacheAllocationPtr output = AllocateBlock(output_len, allocator);
   size_t actual_output_length = 0;
 #if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
   ZSTD_DCtx* context = info.context().GetZSTDContext();
@@ -1363,19 +1475,31 @@ inline CacheAllocationPtr ZSTD_Uncompress(
     actual_output_length = ZSTD_decompress_usingDDict(
         context, output.get(), output_len, input_data, input_length,
         info.dict().GetDigestedZstdDDict());
-  }
+  } else {
 #endif  // ROCKSDB_ZSTD_DDICT
-  if (actual_output_length == 0) {
     actual_output_length = ZSTD_decompress_usingDict(
         context, output.get(), output_len, input_data, input_length,
         info.dict().GetRawDict().data(), info.dict().GetRawDict().size());
+#ifdef ROCKSDB_ZSTD_DDICT
   }
+#endif  // ROCKSDB_ZSTD_DDICT
 #else   // up to v0.4.x
   (void)info;
   actual_output_length =
       ZSTD_decompress(output.get(), output_len, input_data, input_length);
 #endif  // ZSTD_VERSION_NUMBER >= 500
-  assert(actual_output_length == output_len);
+  if (ZSTD_isError(actual_output_length)) {
+    if (error_message) {
+      *error_message = ZSTD_getErrorName(actual_output_length);
+    }
+    return nullptr;
+  } else if (actual_output_length != output_len) {
+    if (error_message) {
+      *error_message = kErrorOutputLenMismatch;
+    }
+    return nullptr;
+  }
+
   *uncompressed_size = actual_output_length;
   return output;
 #else  // ZSTD
@@ -1384,6 +1508,7 @@ inline CacheAllocationPtr ZSTD_Uncompress(
   (void)input_length;
   (void)uncompressed_size;
   (void)allocator;
+  (void)error_message;
   return nullptr;
 #endif
 }
@@ -1448,6 +1573,53 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 #endif  // ZSTD_VERSION_NUMBER >= 10103
 }
 
+inline bool ZSTD_FinalizeDictionarySupported() {
+#ifdef ZSTD
+  // ZDICT_finalizeDictionary API is stable since v1.4.5
+  return (ZSTD_versionNumber() >= 10405);
+#else
+  return false;
+#endif
+}
+
+inline std::string ZSTD_FinalizeDictionary(
+    const std::string& samples, const std::vector<size_t>& sample_lens,
+    size_t max_dict_bytes, int level) {
+  // ZDICT_finalizeDictionary is stable since version v1.4.5
+#if ZSTD_VERSION_NUMBER >= 10405  // v1.4.5+
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+    // https://github.com/facebook/zstd/issues/1148
+    level = 3;
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      dict_data.data(), max_dict_bytes, samples.data(),
+      std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
+      samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()),
+      {level, 0 /* notificationLevel */, 0 /* dictID */});
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else   // up to v1.4.4
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  (void)level;
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 10405
+}
+
 inline bool CompressData(const Slice& raw,
                          const CompressionInfo& compression_info,
                          uint32_t compress_format_version,
@@ -1499,7 +1671,8 @@ inline bool CompressData(const Slice& raw,
 inline CacheAllocationPtr UncompressData(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     size_t* uncompressed_size, uint32_t compress_format_version,
-    MemoryAllocator* allocator = nullptr) {
+    MemoryAllocator* allocator = nullptr,
+    const char** error_message = nullptr) {
   switch (uncompression_info.type()) {
     case kSnappyCompression:
       return Snappy_Uncompress(data, n, uncompressed_size, allocator);
@@ -1519,11 +1692,188 @@ inline CacheAllocationPtr UncompressData(
       return CacheAllocationPtr(XPRESS_Uncompress(data, n, uncompressed_size));
     case kZSTD:
     case kZSTDNotFinalCompression:
+      // TODO(cbi): error message handling for other compression algorithms.
       return ZSTD_Uncompress(uncompression_info, data, n, uncompressed_size,
-                             allocator);
+                             allocator, error_message);
     default:
       return CacheAllocationPtr();
   }
 }
+
+// Records the compression type for subsequent WAL records.
+class CompressionTypeRecord {
+ public:
+  explicit CompressionTypeRecord(CompressionType compression_type)
+      : compression_type_(compression_type) {}
+
+  CompressionType GetCompressionType() const { return compression_type_; }
+
+  inline void EncodeTo(std::string* dst) const {
+    assert(dst != nullptr);
+    PutFixed32(dst, compression_type_);
+  }
+
+  inline Status DecodeFrom(Slice* src) {
+    constexpr char class_name[] = "CompressionTypeRecord";
+
+    uint32_t val;
+    if (!GetFixed32(src, &val)) {
+      return Status::Corruption(class_name,
+                                "Error decoding WAL compression type");
+    }
+    CompressionType compression_type = static_cast<CompressionType>(val);
+    if (!StreamingCompressionTypeSupported(compression_type)) {
+      return Status::Corruption(class_name,
+                                "WAL compression type not supported");
+    }
+    compression_type_ = compression_type;
+    return Status::OK();
+  }
+
+  inline std::string DebugString() const {
+    return "compression_type: " + CompressionTypeToString(compression_type_);
+  }
+
+ private:
+  CompressionType compression_type_;
+};
+
+// Base class to implement compression for a stream of buffers.
+// Instantiate an implementation of the class using Create() with the
+// compression type and use Compress() repeatedly.
+// The output buffer needs to be at least max_output_len.
+// Call Reset() in between frame boundaries or in case of an error.
+// NOTE: This class is not thread safe.
+class StreamingCompress {
+ public:
+  StreamingCompress(CompressionType compression_type,
+                    const CompressionOptions& opts,
+                    uint32_t compress_format_version, size_t max_output_len)
+      : compression_type_(compression_type),
+        opts_(opts),
+        compress_format_version_(compress_format_version),
+        max_output_len_(max_output_len) {}
+  virtual ~StreamingCompress() = default;
+  // compress should be called repeatedly with the same input till the method
+  // returns 0
+  // Parameters:
+  // input - buffer to compress
+  // input_size - size of input buffer
+  // output - compressed buffer allocated by caller, should be at least
+  // max_output_len
+  // output_size - size of the output buffer
+  // Returns -1 for errors, the remaining size of the input buffer that needs to
+  // be compressed
+  virtual int Compress(const char* input, size_t input_size, char* output,
+                       size_t* output_pos) = 0;
+  // static method to create object of a class inherited from StreamingCompress
+  // based on the actual compression type.
+  static StreamingCompress* Create(CompressionType compression_type,
+                                   const CompressionOptions& opts,
+                                   uint32_t compress_format_version,
+                                   size_t max_output_len);
+  virtual void Reset() = 0;
+
+ protected:
+  const CompressionType compression_type_;
+  const CompressionOptions opts_;
+  const uint32_t compress_format_version_;
+  const size_t max_output_len_;
+};
+
+// Base class to uncompress a stream of compressed buffers.
+// Instantiate an implementation of the class using Create() with the
+// compression type and use Uncompress() repeatedly.
+// The output buffer needs to be at least max_output_len.
+// Call Reset() in between frame boundaries or in case of an error.
+// NOTE: This class is not thread safe.
+class StreamingUncompress {
+ public:
+  StreamingUncompress(CompressionType compression_type,
+                      uint32_t compress_format_version, size_t max_output_len)
+      : compression_type_(compression_type),
+        compress_format_version_(compress_format_version),
+        max_output_len_(max_output_len) {}
+  virtual ~StreamingUncompress() = default;
+  // Uncompress can be called repeatedly to progressively process the same
+  // input buffer, or can be called with a new input buffer. When the input
+  // buffer is not fully consumed, the return value is > 0 or output_size
+  // == max_output_len. When calling uncompress to continue processing the
+  // same input buffer, the input argument should be nullptr.
+  // Parameters:
+  // input - buffer to uncompress
+  // input_size - size of input buffer
+  // output - uncompressed buffer allocated by caller, should be at least
+  // max_output_len
+  // output_size - size of the output buffer
+  // Returns -1 for errors, remaining input to be processed otherwise.
+  virtual int Uncompress(const char* input, size_t input_size, char* output,
+                         size_t* output_pos) = 0;
+  static StreamingUncompress* Create(CompressionType compression_type,
+                                     uint32_t compress_format_version,
+                                     size_t max_output_len);
+  virtual void Reset() = 0;
+
+ protected:
+  CompressionType compression_type_;
+  uint32_t compress_format_version_;
+  size_t max_output_len_;
+};
+
+class ZSTDStreamingCompress final : public StreamingCompress {
+ public:
+  explicit ZSTDStreamingCompress(const CompressionOptions& opts,
+                                 uint32_t compress_format_version,
+                                 size_t max_output_len)
+      : StreamingCompress(kZSTD, opts, compress_format_version,
+                          max_output_len) {
+#ifdef ZSTD_ADVANCED
+    cctx_ = ZSTD_createCCtx();
+    // Each compressed frame will have a checksum
+    ZSTD_CCtx_setParameter(cctx_, ZSTD_c_checksumFlag, 1);
+    assert(cctx_ != nullptr);
+    input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
+#endif
+  }
+  ~ZSTDStreamingCompress() override {
+#ifdef ZSTD_ADVANCED
+    ZSTD_freeCCtx(cctx_);
+#endif
+  }
+  int Compress(const char* input, size_t input_size, char* output,
+               size_t* output_pos) override;
+  void Reset() override;
+#ifdef ZSTD_ADVANCED
+  ZSTD_CCtx* cctx_;
+  ZSTD_inBuffer input_buffer_;
+#endif
+};
+
+class ZSTDStreamingUncompress final : public StreamingUncompress {
+ public:
+  explicit ZSTDStreamingUncompress(uint32_t compress_format_version,
+                                   size_t max_output_len)
+      : StreamingUncompress(kZSTD, compress_format_version, max_output_len) {
+#ifdef ZSTD_ADVANCED
+    dctx_ = ZSTD_createDCtx();
+    assert(dctx_ != nullptr);
+    input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
+#endif
+  }
+  ~ZSTDStreamingUncompress() override {
+#ifdef ZSTD_ADVANCED
+    ZSTD_freeDCtx(dctx_);
+#endif
+  }
+  int Uncompress(const char* input, size_t input_size, char* output,
+                 size_t* output_size) override;
+  void Reset() override;
+
+ private:
+#ifdef ZSTD_ADVANCED
+  ZSTD_DCtx* dctx_;
+  ZSTD_inBuffer input_buffer_;
+#endif
+};
 
 }  // namespace ROCKSDB_NAMESPACE

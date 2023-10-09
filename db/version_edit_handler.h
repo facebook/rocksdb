@@ -15,10 +15,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct FileMetaData;
+
 class VersionEditHandlerBase {
  public:
-  explicit VersionEditHandlerBase()
-      : max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options)
+      : read_options_(read_options),
+        max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
 
   virtual ~VersionEditHandlerBase() {}
 
@@ -26,9 +29,12 @@ class VersionEditHandlerBase {
 
   const Status& status() const { return status_; }
 
+  AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
+
  protected:
-  explicit VersionEditHandlerBase(uint64_t max_read_size)
-      : max_manifest_read_size_(max_read_size) {}
+  explicit VersionEditHandlerBase(const ReadOptions& read_options,
+                                  uint64_t max_read_size)
+      : read_options_(read_options), max_manifest_read_size_(max_read_size) {}
   virtual Status Initialize() { return Status::OK(); }
 
   virtual Status ApplyVersionEdit(VersionEdit& edit,
@@ -37,7 +43,11 @@ class VersionEditHandlerBase {
   virtual void CheckIterationResult(const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
 
+  void ClearReadBuffer() { read_buffer_.Clear(); }
+
   Status status_;
+
+  const ReadOptions& read_options_;
 
  private:
   AtomicGroupReadBuffer read_buffer_;
@@ -46,7 +56,8 @@ class VersionEditHandlerBase {
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
  public:
-  ListColumnFamiliesHandler() : VersionEditHandlerBase() {}
+  explicit ListColumnFamiliesHandler(const ReadOptions& read_options)
+      : VersionEditHandlerBase(read_options) {}
 
   ~ListColumnFamiliesHandler() override {}
 
@@ -66,9 +77,9 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
 
 class FileChecksumRetriever : public VersionEditHandlerBase {
  public:
-  FileChecksumRetriever(uint64_t max_read_size,
+  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size,
                         FileChecksumList& file_checksum_list)
-      : VersionEditHandlerBase(max_read_size),
+      : VersionEditHandlerBase(read_options, max_read_size),
         file_checksum_list_(file_checksum_list) {}
 
   ~FileChecksumRetriever() override {}
@@ -91,7 +102,7 @@ using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
 //                               track_missing_files,
-//                               no_error_if_table_files_missing);
+//                               no_error_if_files_missing);
 // 2. Status s = handler.Iterate(reader, &db_id);
 // 3. Check s and handle possible errors.
 //
@@ -103,11 +114,15 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool no_error_if_table_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_missing_files, no_error_if_table_files_missing,
-                           io_tracer, /*skip_load_table_files=*/false) {}
+      bool no_error_if_files_missing,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent)
+      : VersionEditHandler(
+            read_only, column_families, version_set, track_missing_files,
+            no_error_if_files_missing, io_tracer, read_options,
+            /*skip_load_table_files=*/false, epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -125,15 +140,17 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
  protected:
   explicit VersionEditHandler(
-      bool read_only,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
+      bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool no_error_if_table_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files);
+      bool no_error_if_files_missing,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options, bool skip_load_table_files,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
-  Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
+  virtual Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
 
   Status OnColumnFamilyDrop(VersionEdit& edit, ColumnFamilyData** cfd);
 
@@ -159,12 +176,14 @@ class VersionEditHandler : public VersionEditHandlerBase {
                                     ColumnFamilyData* cfd,
                                     bool force_create_version);
 
-  Status LoadTables(ColumnFamilyData* cfd,
-                    bool prefetch_index_and_filter_in_cache,
-                    bool is_initial_load);
+  virtual Status LoadTables(ColumnFamilyData* cfd,
+                            bool prefetch_index_and_filter_in_cache,
+                            bool is_initial_load);
+
+  virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
 
   const bool read_only_;
-  const std::vector<ColumnFamilyDescriptor>& column_families_;
+  std::vector<ColumnFamilyDescriptor> column_families_;
   VersionSet* version_set_;
   std::unordered_map<uint32_t, VersionBuilderUPtr> builders_;
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
@@ -176,15 +195,29 @@ class VersionEditHandler : public VersionEditHandlerBase {
   const bool track_missing_files_;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
-  bool no_error_if_table_files_missing_;
+  std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
+  bool no_error_if_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
+  bool initialized_;
+  std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
+  EpochNumberRequirement epoch_number_requirement_;
+  std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
 
-  bool initialized_;
+  // When `FileMetaData.user_defined_timestamps_persisted` is false and
+  // user-defined timestamp size is non-zero. User-defined timestamps are
+  // stripped from file boundaries: `smallest`, `largest` in
+  // `VersionEdit.DecodeFrom` before they were written to Manifest.
+  // This is the mirroring change to handle file boundaries on the Manifest read
+  // path for this scenario: to pad a minimum timestamp to the user key in
+  // `smallest` and `largest` so their format are consistent with the running
+  // user comparator.
+  Status MaybeHandleFileBoundariesForNewFiles(VersionEdit& edit,
+                                              const ColumnFamilyData* cfd);
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
@@ -196,9 +229,11 @@ class VersionEditHandler : public VersionEditHandlerBase {
 class VersionEditHandlerPointInTime : public VersionEditHandler {
  public:
   VersionEditHandlerPointInTime(
-      bool read_only,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer);
+      bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
 
  protected:
@@ -206,35 +241,94 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& fmeta);
+  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
+                                const BlobFileAddition& blob_addition);
 
- private:
+  Status LoadTables(ColumnFamilyData* cfd,
+                    bool prefetch_index_and_filter_in_cache,
+                    bool is_initial_load) override;
+
   std::unordered_map<uint32_t, Version*> versions_;
+};
+
+class ManifestTailer : public VersionEditHandlerPointInTime {
+ public:
+  explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
+                          VersionSet* version_set,
+                          const std::shared_ptr<IOTracer>& io_tracer,
+                          const ReadOptions& read_options,
+                          EpochNumberRequirement epoch_number_requirement =
+                              EpochNumberRequirement::kMustPresent)
+      : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
+                                      version_set, io_tracer, read_options,
+                                      epoch_number_requirement),
+        mode_(Mode::kRecovery) {}
+
+  void PrepareToReadNewManifest() {
+    initialized_ = false;
+    ClearReadBuffer();
+  }
+
+  std::unordered_set<ColumnFamilyData*>& GetUpdatedColumnFamilies() {
+    return cfds_changed_;
+  }
+
+ protected:
+  Status Initialize() override;
+
+  bool MustOpenAllColumnFamilies() const override { return false; }
+
+  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
+
+  Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
+
+  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
+                    const FileMetaData& fmeta) override;
+
+  enum Mode : uint8_t {
+    kRecovery = 0,
+    kCatchUp = 1,
+  };
+
+  Mode mode_;
+  std::unordered_set<ColumnFamilyData*> cfds_changed_;
 };
 
 class DumpManifestHandler : public VersionEditHandler {
  public:
-  DumpManifestHandler(
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
-      bool verbose, bool hex, bool json)
+  DumpManifestHandler(std::vector<ColumnFamilyDescriptor> column_families,
+                      VersionSet* version_set,
+                      const std::shared_ptr<IOTracer>& io_tracer,
+                      const ReadOptions& read_options, bool verbose, bool hex,
+                      bool json)
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
             /*track_missing_files=*/false,
-            /*no_error_if_table_files_missing=*/false, io_tracer,
+            /*no_error_if_files_missing=*/false, io_tracer, read_options,
             /*skip_load_table_files=*/true),
         verbose_(verbose),
         hex_(hex),
         json_(json),
-        count_(0) {}
+        count_(0) {
+    cf_to_cmp_names_.reset(new std::unordered_map<uint32_t, std::string>());
+  }
 
   ~DumpManifestHandler() override {}
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
-      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);

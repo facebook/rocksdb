@@ -3,15 +3,22 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
+using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::ReadOptions;
+using ROCKSDB_NAMESPACE::Snapshot;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::Transaction;
+using ROCKSDB_NAMESPACE::WriteOptions;
 
 #if defined(OS_WIN)
 std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_transaction_example";
@@ -181,4 +188,3 @@ int main() {
   return 0;
 }
 
-#endif  // ROCKSDB_LITE

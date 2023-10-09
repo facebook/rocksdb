@@ -34,7 +34,9 @@
 #include "table/block_based/block_builder.h"
 
 #include <assert.h>
+
 #include <algorithm>
+
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "table/block_based/data_block_footer.h"
@@ -46,11 +48,14 @@ BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
     bool use_value_delta_encoding,
     BlockBasedTableOptions::DataBlockIndexType index_type,
-    double data_block_hash_table_util_ratio)
+    double data_block_hash_table_util_ratio, size_t ts_sz,
+    bool persist_user_defined_timestamps, bool is_user_key)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
-      restarts_(),
+      strip_ts_sz_(persist_user_defined_timestamps ? 0 : ts_sz),
+      is_user_key_(is_user_key),
+      restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false) {
   switch (index_type) {
@@ -64,14 +69,13 @@ BlockBuilder::BlockBuilder(
       assert(0);
   }
   assert(block_restart_interval_ >= 1);
-  restarts_.push_back(0);  // First restart point is at offset 0
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
 }
 
 void BlockBuilder::Reset() {
   buffer_.clear();
-  restarts_.clear();
-  restarts_.push_back(0);  // First restart point is at offset 0
+  restarts_.resize(1);  // First restart point is at offset 0
+  assert(restarts_[0] == 0);
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
   counter_ = 0;
   finished_ = false;
@@ -79,6 +83,9 @@ void BlockBuilder::Reset() {
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
+#ifndef NDEBUG
+  add_with_last_key_called_ = false;
+#endif
 }
 
 void BlockBuilder::SwapAndReset(std::string& buffer) {
@@ -92,6 +99,9 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
   // Note: this is an imprecise estimate as it accounts for the whole key size
   // instead of non-shared key size.
   estimate += key.size();
+  if (strip_ts_sz_ > 0) {
+    estimate -= strip_ts_sz_;
+  }
   // In value delta encoding we estimate the value delta size as half the full
   // value size since only the size field of block handle is encoded.
   estimate +=
@@ -139,33 +149,71 @@ Slice BlockBuilder::Finish() {
 
 void BlockBuilder::Add(const Slice& key, const Slice& value,
                        const Slice* const delta_value) {
-  assert(!finished_);
-  assert(counter_ <= block_restart_interval_);
-  assert(!use_value_delta_encoding_ || delta_value);
-  size_t shared = 0;  // number of bytes shared with prev key
-  if (counter_ >= block_restart_interval_) {
-    // Restart compression
-    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
-    estimate_ += sizeof(uint32_t);
-    counter_ = 0;
+  // Ensure no unsafe mixing of Add and AddWithLastKey
+  assert(!add_with_last_key_called_);
 
-    if (use_delta_encoding_) {
-      // Update state
-      last_key_.assign(key.data(), key.size());
-    }
-  } else if (use_delta_encoding_) {
-    Slice last_key_piece(last_key_);
-    // See how much sharing to do with previous string
-    shared = key.difference_offset(last_key_piece);
-
+  AddWithLastKeyImpl(key, value, last_key_, delta_value, buffer_.size());
+  if (use_delta_encoding_) {
     // Update state
-    // We used to just copy the changed data here, but it appears to be
+    // We used to just copy the changed data, but it appears to be
     // faster to just copy the whole thing.
     last_key_.assign(key.data(), key.size());
   }
+}
 
-  const size_t non_shared = key.size() - shared;
-  const size_t curr_size = buffer_.size();
+void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
+                                  const Slice& last_key_param,
+                                  const Slice* const delta_value) {
+  // Ensure no unsafe mixing of Add and AddWithLastKey
+  assert(last_key_.empty());
+#ifndef NDEBUG
+  add_with_last_key_called_ = false;
+#endif
+
+  // Here we make sure to use an empty `last_key` on first call after creation
+  // or Reset. This is more convenient for the caller and we can be more
+  // clever inside BlockBuilder. On this hot code path, we want to avoid
+  // conditional jumps like `buffer_.empty() ? ... : ...` so we can use a
+  // fast arithmetic operation instead, with an assertion to be sure our logic
+  // is sound.
+  size_t buffer_size = buffer_.size();
+  size_t last_key_size = last_key_param.size();
+  assert(buffer_size == 0 || buffer_size >= last_key_size - strip_ts_sz_);
+
+  Slice last_key(last_key_param.data(), last_key_size * (buffer_size > 0));
+
+  AddWithLastKeyImpl(key, value, last_key, delta_value, buffer_size);
+}
+
+inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
+                                             const Slice& value,
+                                             const Slice& last_key,
+                                             const Slice* const delta_value,
+                                             size_t buffer_size) {
+  assert(!finished_);
+  assert(counter_ <= block_restart_interval_);
+  assert(!use_value_delta_encoding_ || delta_value);
+  std::string key_buf;
+  std::string last_key_buf;
+  const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
+  // For delta key encoding, the first key in each restart interval doesn't have
+  // a last key to share bytes with.
+  const Slice last_key_persisted =
+      last_key.size() == 0
+          ? last_key
+          : MaybeStripTimestampFromKey(&last_key_buf, last_key);
+  size_t shared = 0;  // number of bytes shared with prev key
+  if (counter_ >= block_restart_interval_) {
+    // Restart compression
+    restarts_.push_back(static_cast<uint32_t>(buffer_size));
+    estimate_ += sizeof(uint32_t);
+    counter_ = 0;
+  } else if (use_delta_encoding_) {
+    // See how much sharing to do with previous string
+    shared = key_to_persist.difference_offset(last_key_persisted);
+  }
+
+  const size_t non_shared = key_to_persist.size() - shared;
 
   if (use_value_delta_encoding_) {
     // Add "<shared><non_shared>" to buffer_
@@ -179,7 +227,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   }
 
   // Add string delta to buffer_ followed by value
-  buffer_.append(key.data() + shared, non_shared);
+  buffer_.append(key_to_persist.data() + shared, non_shared);
   // Use value delta encoding only when the key has shared bytes. This would
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
@@ -189,13 +237,31 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
     buffer_.append(value.data(), value.size());
   }
 
+  // TODO(yuzhangyu): make user defined timestamp work with block hash index.
   if (data_block_hash_index_builder_.Valid()) {
+    // Only data blocks should be using `kDataBlockBinaryAndHash` index type.
+    // And data blocks should always be built with internal keys instead of
+    // user keys.
+    assert(!is_user_key_);
     data_block_hash_index_builder_.Add(ExtractUserKey(key),
                                        restarts_.size() - 1);
   }
 
   counter_++;
-  estimate_ += buffer_.size() - curr_size;
+  estimate_ += buffer_.size() - buffer_size;
 }
 
+const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
+                                                     const Slice& key) {
+  Slice stripped_key = key;
+  if (strip_ts_sz_ > 0) {
+    if (is_user_key_) {
+      stripped_key.remove_suffix(strip_ts_sz_);
+    } else {
+      StripTimestampFromInternalKey(key_buf, key, strip_ts_sz_);
+      stripped_key = *key_buf;
+    }
+  }
+  return stripped_key;
+}
 }  // namespace ROCKSDB_NAMESPACE

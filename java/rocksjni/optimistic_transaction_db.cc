@@ -6,14 +6,14 @@
 // This file implements the "bridge" between Java and C++
 // for ROCKSDB_NAMESPACE::TransactionDB.
 
+#include "rocksdb/utilities/optimistic_transaction_db.h"
+
 #include <jni.h>
 
 #include "include/org_rocksdb_OptimisticTransactionDB.h"
-
 #include "rocksdb/options.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
-
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -38,7 +38,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2(
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return reinterpret_cast<jlong>(otdb);
+    return GET_CPLUSPLUS_POINTER(otdb);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -63,12 +63,6 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   const jsize len_cols = env->GetArrayLength(jcolumn_names);
   if (len_cols > 0) {
-    if (env->EnsureLocalCapacity(len_cols) != 0) {
-      // out of memory
-      env->ReleaseStringUTFChars(jdb_path, db_path);
-      return nullptr;
-    }
-
     jlong* jco = env->GetLongArrayElements(jcolumn_options_handles, nullptr);
     if (jco == nullptr) {
       // exception thrown: OutOfMemoryError
@@ -87,14 +81,6 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
 
       const jbyteArray jcn_ba = reinterpret_cast<jbyteArray>(jcn);
       const jsize jcf_name_len = env->GetArrayLength(jcn_ba);
-      if (env->EnsureLocalCapacity(jcf_name_len) != 0) {
-        // out of memory
-        env->DeleteLocalRef(jcn);
-        env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
-        env->ReleaseStringUTFChars(jdb_path, db_path);
-        return nullptr;
-      }
-
       jbyte* jcf_name = env->GetByteArrayElements(jcn_ba, nullptr);
       if (jcf_name == nullptr) {
         // exception thrown: OutOfMemoryError
@@ -159,8 +145,8 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
+void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(JNIEnv*, jobject,
+                                                              jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
   assert(optimistic_txn_db != nullptr);
@@ -172,8 +158,8 @@ void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(
  * Method:    closeDatabase
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionDB_closeDatabase(
-    JNIEnv* env, jclass, jlong jhandle) {
+void Java_org_rocksdb_OptimisticTransactionDB_closeDatabase(JNIEnv* env, jclass,
+                                                            jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
   assert(optimistic_txn_db != nullptr);
@@ -194,7 +180,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   ROCKSDB_NAMESPACE::Transaction* txn =
       optimistic_txn_db->BeginTransaction(*write_options);
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -214,7 +200,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
           joptimistic_txn_options_handle);
   ROCKSDB_NAMESPACE::Transaction* txn = optimistic_txn_db->BeginTransaction(
       *write_options, *optimistic_txn_options);
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -240,7 +226,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
   // when providing an old_optimistic_txn
   assert(txn == old_txn);
 
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -268,7 +254,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
   // when providing an old_optimisic_txn
   assert(txn == old_txn);
 
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -276,9 +262,9 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getBaseDB
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(
-    JNIEnv*, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv*, jobject,
+                                                         jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
-  return reinterpret_cast<jlong>(optimistic_txn_db->GetBaseDB());
+  return GET_CPLUSPLUS_POINTER(optimistic_txn_db->GetBaseDB());
 }

@@ -5,13 +5,11 @@
 
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import org.rocksdb.util.Environment;
 
@@ -22,7 +20,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes();
+  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes(UTF_8);
   public static final int NOT_FOUND = -1;
 
   private enum LibraryState {
@@ -31,14 +29,14 @@ public class RocksDB extends RocksObject {
     LOADED
   }
 
-  private static AtomicReference<LibraryState> libraryLoaded
-      = new AtomicReference<>(LibraryState.NOT_LOADED);
+  private static final AtomicReference<LibraryState> libraryLoaded =
+      new AtomicReference<>(LibraryState.NOT_LOADED);
 
   static {
     RocksDB.loadLibrary();
   }
 
-  private List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
+  private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
    * Loads the necessary library files.
@@ -342,7 +340,7 @@ public class RocksDB extends RocksObject {
    * The factory constructor of RocksDB that opens a RocksDB instance in
    * Read-Only mode given the path to the database using the specified
    * options and db path.
-   *
+   * <p>
    * Options instance *should* not be disposed before all DBs using this options
    * instance have been closed. If user doesn't call options dispose explicitly,
    * then this options instance will be GC'd automatically.
@@ -364,7 +362,7 @@ public class RocksDB extends RocksObject {
    * The factory constructor of RocksDB that opens a RocksDB instance in
    * Read-Only mode given the path to the database using the specified
    * options and db path.
-   *
+   * <p>
    * Options instance *should* not be disposed before all DBs using this options
    * instance have been closed. If user doesn't call options dispose explicitly,
    * then this options instance will be GC'd automatically.
@@ -500,7 +498,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Open DB as secondary instance with only the default column family.
-   *
+   * <p>
    * The secondary instance can dynamically tail the MANIFEST of
    * a primary that must have already been created. User can call
    * {@link #tryCatchUpWithPrimary()} to make the secondary instance catch up
@@ -537,7 +535,7 @@ public class RocksDB extends RocksObject {
   /**
    * Open DB as secondary instance with column families.
    * You can open a subset of column families in secondary mode.
-   *
+   * <p>
    * The secondary instance can dynamically tail the MANIFEST of
    * a primary that must have already been created. User can call
    * {@link #tryCatchUpWithPrimary()} to make the secondary instance catch up
@@ -597,12 +595,12 @@ public class RocksDB extends RocksObject {
   /**
    * This is similar to {@link #close()} except that it
    * throws an exception if any error occurs.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    *
    * @throws RocksDBException if an error occurs whilst closing.
@@ -625,12 +623,12 @@ public class RocksDB extends RocksObject {
   /**
    * This is similar to {@link #closeE()} except that it
    * silently ignores any errors.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    */
   @Override
@@ -710,8 +708,8 @@ public class RocksDB extends RocksObject {
         columnFamilyOptions.nativeHandle_, cfNames);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
-    for (int i = 0; i < cfHandles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+    for (final long cfHandle : cfHandles) {
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -743,8 +741,8 @@ public class RocksDB extends RocksObject {
         cfOptsHandles, cfNames);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
-    for (int i = 0; i < cfHandles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+    for (final long cfHandle : cfHandles) {
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -845,7 +843,7 @@ public class RocksDB extends RocksObject {
    *     instance
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
-   *
+   * <p>
    * throws IllegalArgumentException if column family is not present
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -942,7 +940,7 @@ public class RocksDB extends RocksObject {
    * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
-   *
+   * <p>
    * throws IllegalArgumentException if column family is not present
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -967,7 +965,7 @@ public class RocksDB extends RocksObject {
    *     Supports direct buffer only.
    * @param value the value associated with the specified key. Position and limit is used.
    *     Supports direct buffer only.
-   *
+   * <p>
    * throws IllegalArgumentException if column family is not present
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -991,7 +989,7 @@ public class RocksDB extends RocksObject {
    *     Supports direct buffer only.
    * @param value the value associated with the specified key. Position and limit is used.
    *     Supports direct buffer only.
-   *
+   * <p>
    * throws IllegalArgumentException if column family is not present
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -1041,23 +1039,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(byte[])}
-   */
-  @Deprecated
-  public void remove(final byte[] key) throws RocksDBException {
-    delete(key);
-  }
-
-  /**
    * Delete the database entry (if any) for "key".  Returns OK on
    * success, and a non-OK status on error.  It is not an error if "key"
    * did not exist in the database.
@@ -1088,26 +1069,6 @@ public class RocksDB extends RocksObject {
   public void delete(final byte[] key, final int offset, final int len)
       throws RocksDBException {
     delete(nativeHandle_, key, offset, len);
-  }
-
-  /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
-   */
-  @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
-    delete(columnFamilyHandle, key);
   }
 
   /**
@@ -1150,25 +1111,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param writeOpt WriteOptions to be used with delete operation
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(WriteOptions, byte[])}
-   */
-  @Deprecated
-  public void remove(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
-    delete(writeOpt, key);
-  }
-
-  /**
    * Delete the database entry (if any) for "key".  Returns OK on
    * success, and a non-OK status on error.  It is not an error if "key"
    * did not exist in the database.
@@ -1202,27 +1144,6 @@ public class RocksDB extends RocksObject {
   public void delete(final WriteOptions writeOpt, final byte[] key,
       final int offset, final int len) throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, offset, len);
-  }
-
-  /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param writeOpt WriteOptions to be used with delete operation
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(ColumnFamilyHandle, WriteOptions, byte[])}
-   */
-  @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
-    delete(columnFamilyHandle, writeOpt, key);
   }
 
   /**
@@ -1291,8 +1212,8 @@ public class RocksDB extends RocksObject {
   public int get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
       throws RocksDBException {
     assert key.isDirect() && value.isDirect();
-    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
-        value, value.position(), value.remaining(), 0);
+    final int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(),
+        key.remaining(), value, value.position(), value.remaining(), 0);
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
@@ -1324,8 +1245,9 @@ public class RocksDB extends RocksObject {
   public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
       final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
-    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
-        value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    final int result =
+        getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(), value,
+            value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
@@ -1337,12 +1259,12 @@ public class RocksDB extends RocksObject {
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
    * in the database.
-   *
+   * <p>
    * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
    * times), then the result of calling SingleDelete() on this key is undefined.
    * SingleDelete() only behaves correctly if there has been only one Put()
    * for this key since the previous call to SingleDelete() for this key.
-   *
+   * <p>
    * This feature is currently an experimental performance optimization
    * for a very specific workload. It is up to the caller to ensure that
    * SingleDelete is only used for a key that is not deleted using Delete() or
@@ -1363,12 +1285,12 @@ public class RocksDB extends RocksObject {
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
    * in the database.
-   *
+   * <p>
    * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
    * times), then the result of calling SingleDelete() on this key is undefined.
    * SingleDelete() only behaves correctly if there has been only one Put()
    * for this key since the previous call to SingleDelete() for this key.
-   *
+   * <p>
    * This feature is currently an experimental performance optimization
    * for a very specific workload. It is up to the caller to ensure that
    * SingleDelete is only used for a key that is not deleted using Delete() or
@@ -1392,18 +1314,18 @@ public class RocksDB extends RocksObject {
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
    * in the database.
-   *
+   * <p>
    * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
    * times), then the result of calling SingleDelete() on this key is undefined.
    * SingleDelete() only behaves correctly if there has been only one Put()
    * for this key since the previous call to SingleDelete() for this key.
-   *
+   * <p>
    * This feature is currently an experimental performance optimization
    * for a very specific workload. It is up to the caller to ensure that
    * SingleDelete is only used for a key that is not deleted using Delete() or
    * written using Merge(). Mixing SingleDelete operations with Deletes and
    * Merges can result in undefined behavior.
-   *
+   * <p>
    * Note: consider setting {@link WriteOptions#setSync(boolean)} true.
    *
    * @param writeOpt Write options for the delete
@@ -1422,18 +1344,18 @@ public class RocksDB extends RocksObject {
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
    * in the database.
-   *
+   * <p>
    * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
    * times), then the result of calling SingleDelete() on this key is undefined.
    * SingleDelete() only behaves correctly if there has been only one Put()
    * for this key since the previous call to SingleDelete() for this key.
-   *
+   * <p>
    * This feature is currently an experimental performance optimization
    * for a very specific workload. It is up to the caller to ensure that
    * SingleDelete is only used for a key that is not deleted using Delete() or
    * written using Merge(). Mixing SingleDelete operations with Deletes and
    * Merges can result in undefined behavior.
-   *
+   * <p>
    * Note: consider setting {@link WriteOptions#setSync(boolean)} true.
    *
    * @param columnFamilyHandle The column family to delete the key from
@@ -1450,12 +1372,11 @@ public class RocksDB extends RocksObject {
         columnFamilyHandle.nativeHandle_);
   }
 
-
   /**
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
    * including "beginKey" and excluding "endKey". a non-OK status on error. It
    * is not an error if no keys exist in the range ["beginKey", "endKey").
-   *
+   * <p>
    * Delete the database entry (if any) for "key". Returns OK on success, and a
    * non-OK status on error. It is not an error if "key" did not exist in the
    * database.
@@ -1476,7 +1397,7 @@ public class RocksDB extends RocksObject {
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
    * including "beginKey" and excluding "endKey". a non-OK status on error. It
    * is not an error if no keys exist in the range ["beginKey", "endKey").
-   *
+   * <p>
    * Delete the database entry (if any) for "key". Returns OK on success, and a
    * non-OK status on error. It is not an error if "key" did not exist in the
    * database.
@@ -1498,7 +1419,7 @@ public class RocksDB extends RocksObject {
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
    * including "beginKey" and excluding "endKey". a non-OK status on error. It
    * is not an error if no keys exist in the range ["beginKey", "endKey").
-   *
+   * <p>
    * Delete the database entry (if any) for "key". Returns OK on success, and a
    * non-OK status on error. It is not an error if "key" did not exist in the
    * database.
@@ -1520,7 +1441,7 @@ public class RocksDB extends RocksObject {
    * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
    * including "beginKey" and excluding "endKey". a non-OK status on error. It
    * is not an error if no keys exist in the range ["beginKey", "endKey").
-   *
+   * <p>
    * Delete the database entry (if any) for "key". Returns OK on success, and a
    * non-OK status on error. It is not an error if "key" did not exist in the
    * database.
@@ -1577,7 +1498,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    * @throws IndexOutOfBoundsException if an offset or length is out of bounds
    */
-  public void merge(final byte[] key, int offset, int len, final byte[] value,
+  public void merge(final byte[] key, final int offset, final int len, final byte[] value,
       final int vOffset, final int vLen) throws RocksDBException {
     checkBounds(offset, len, key.length);
     checkBounds(vOffset, vLen, value.length);
@@ -2201,205 +2122,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
-   *
-   * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Consider {@link #multiGetAsList(List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final List<byte[]> keys)
-      throws RocksDBException {
-    assert(keys.size() != 0);
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   * <p>
-   * Note: Every key needs to have a related column family name in
-   * {@code columnFamilyHandleList}.
-   * </p>
-   *
-   * @param columnFamilyHandleList {@link java.util.List} containing
-   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
-   * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   * @throws IllegalArgumentException thrown if the size of passed keys is not
-   *    equal to the amount of passed column family handles.
-   *
-   * @deprecated Consider {@link #multiGetAsList(List, List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(
-      final List<ColumnFamilyHandle> columnFamilyHandleList,
-      final List<byte[]> keys) throws RocksDBException,
-      IllegalArgumentException {
-    assert(keys.size() != 0);
-    // Check if key size equals cfList size. If not a exception must be
-    // thrown. If not a Segmentation fault happens.
-    if (keys.size() != columnFamilyHandleList.size()) {
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
-    }
-    final long[] cfHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
-      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
-    }
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if (values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   *
-   * @param opt Read options.
-   * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
-      final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   * <p>
-   * Note: Every key needs to have a related column family name in
-   * {@code columnFamilyHandleList}.
-   * </p>
-   *
-   * @param opt Read options.
-   * @param columnFamilyHandleList {@link java.util.List} containing
-   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
-   * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   * @throws IllegalArgumentException thrown if the size of passed keys is not
-   *    equal to the amount of passed column family handles.
-   *
-   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List, List)}
-   *     instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
-      final List<ColumnFamilyHandle> columnFamilyHandleList,
-      final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
-    // Check if key size equals cfList size. If not a exception must be
-    // thrown. If not a Segmentation fault happens.
-    if (keys.size()!=columnFamilyHandleList.size()){
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
-    }
-    final long[] cfHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
-      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
-    }
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap
-        = new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
    * Takes a list of keys, and returns a list of values for the given list of
    * keys. List will contain null for keys which could not be found.
    *
@@ -2415,8 +2137,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2461,8 +2183,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2488,8 +2210,8 @@ public class RocksDB extends RocksObject {
     assert(keys.size() != 0);
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2534,8 +2256,8 @@ public class RocksDB extends RocksObject {
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    final int keyOffsets[] = new int[keysArray.length];
-    final int keyLengths[] = new int[keysArray.length];
+    final int[] keyOffsets = new int[keysArray.length];
+    final int[] keyLengths = new int[keysArray.length];
     for(int i = 0; i < keyLengths.length; i++) {
       keyLengths[i] = keysArray[i].length;
     }
@@ -2545,12 +2267,165 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
+   * Fetches a list of values for the given list of keys, all from the default column family.
    *
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @return list of number of bytes in DB for each requested key
+   * this can be more than the size of the corresponding buffer; then the buffer will be filled
+   * with the appropriate truncation of the database value.
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys and passed values
+   * do not match.
+   */
+  public List<ByteBufferGetStatus> multiGetByteBuffers(
+      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
+    final ReadOptions readOptions = new ReadOptions();
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
+    columnFamilyHandleList.add(getDefaultColumnFamily());
+    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys, all from the default column family.
+   *
+   * @param readOptions Read options
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys and passed values
+   * do not match.
+   * @return the list of values for the given list of keys
+   */
+  public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
+      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
+    columnFamilyHandleList.add(getDefaultColumnFamily());
+    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   * {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
+   * passed column family handles do not match.
+   * @return the list of values for the given list of keys
+   */
+  public List<ByteBufferGetStatus> multiGetByteBuffers(
+      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
+    final ReadOptions readOptions = new ReadOptions();
+    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param readOptions Read options
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   * {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
+   * passed column family handles do not match.
+   * @return the list of values for the given list of keys
+   */
+  public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
+      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
+    assert (keys.size() != 0);
+
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size() != columnFamilyHandleList.size() && columnFamilyHandleList.size() > 1) {
+      throw new IllegalArgumentException(
+          "Wrong number of ColumnFamilyHandle(s) supplied. Provide 0, 1, or as many as there are key/value(s)");
+    }
+
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (values.size() != keys.size()) {
+      throw new IllegalArgumentException("For each key there must be a corresponding value.");
+    }
+
+    // TODO (AP) support indirect buffers
+    for (final ByteBuffer key : keys) {
+      if (!key.isDirect()) {
+        throw new IllegalArgumentException("All key buffers must be direct byte buffers");
+      }
+    }
+
+    // TODO (AP) support indirect buffers, though probably via a less efficient code path
+    for (final ByteBuffer value : values) {
+      if (!value.isDirect()) {
+        throw new IllegalArgumentException("All value buffers must be direct byte buffers");
+      }
+    }
+
+    final int numCFHandles = columnFamilyHandleList.size();
+    final long[] cfHandles = new long[numCFHandles];
+    for (int i = 0; i < numCFHandles; i++) {
+      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
+    }
+
+    final int numValues = keys.size();
+
+    final ByteBuffer[] keysArray = keys.toArray(new ByteBuffer[0]);
+    final int[] keyOffsets = new int[numValues];
+    final int[] keyLengths = new int[numValues];
+    for (int i = 0; i < numValues; i++) {
+      // TODO (AP) add keysArray[i].arrayOffset() if the buffer is indirect
+      // TODO (AP) because in that case we have to pass the array directly,
+      // so that the JNI C++ code will not know to compensate for the array offset
+      keyOffsets[i] = keysArray[i].position();
+      keyLengths[i] = keysArray[i].limit();
+    }
+    final ByteBuffer[] valuesArray = values.toArray(new ByteBuffer[0]);
+    final int[] valuesSizeArray = new int[numValues];
+    final Status[] statusArray = new Status[numValues];
+
+    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, keyOffsets, keyLengths,
+        valuesArray, valuesSizeArray, statusArray);
+
+    final List<ByteBufferGetStatus> results = new ArrayList<>();
+    for (int i = 0; i < numValues; i++) {
+      final Status status = statusArray[i];
+      if (status.getCode() == Status.Code.Ok) {
+        final ByteBuffer value = valuesArray[i];
+        value.position(Math.min(valuesSizeArray[i], value.capacity()));
+        value.flip(); // prepare for read out
+        results.add(new ByteBufferGetStatus(status, valuesSizeArray[i], value));
+      } else {
+        results.add(new ByteBufferGetStatus(status));
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(byte[])}. One way to make this lighter weight is to avoid
    * doing any IOs.
@@ -2570,11 +2445,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(byte[], int, int)}. One way to make this lighter weight is to
    * avoid doing any IOs.
@@ -2599,11 +2476,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle,byte[])}. One way to make this lighter
    * weight is to avoid doing any IOs.
@@ -2626,11 +2505,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, byte[], int, int)}. One way to make this
    * lighter weight is to avoid doing any IOs.
@@ -2648,9 +2529,8 @@ public class RocksDB extends RocksObject {
    * @return false if the key definitely does not exist in the database,
    *     otherwise true.
    */
-  public boolean keyMayExist(
-      final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, int offset, int len,
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final int offset, final int len,
       /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(columnFamilyHandle, null, key, offset, len,
         valueHolder);
@@ -2658,11 +2538,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ReadOptions, byte[])}. One way to make this
    * lighter weight is to avoid doing any IOs.
@@ -2685,11 +2567,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ReadOptions, byte[], int, int)}. One way to make this
    * lighter weight is to avoid doing any IOs.
@@ -2717,11 +2601,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a true negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, ReadOptions, byte[])}. One way to make this
    * lighter weight is to avoid doing any IOs.
@@ -2746,11 +2632,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns null, else it returns an instance of KeyMayExistResult
-   *
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   * <p>
    * If the caller wants to obtain value when the key
    * is found in memory, then {@code valueHolder} must be set.
-   *
+   * <p>
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, ReadOptions, byte[], int, int)}.
    * One way to make this lighter weight is to avoid doing any IOs.
@@ -2800,6 +2688,159 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ByteBuffer key) {
+    return keyMayExist(null, (ReadOptions) null, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key) {
+    return keyMayExist(columnFamilyHandle, (ReadOptions) null, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ReadOptions readOptions, final ByteBuffer key) {
+    return keyMayExist(null, readOptions, key);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(null, null, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(columnFamilyHandle, null, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(
+      final ReadOptions readOptions, final ByteBuffer key, final ByteBuffer value) {
+    return keyMayExist(null, readOptions, key, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, otherwise it returns true if the key might exist.
+   * That is to say that this method is probabilistic and may return false
+   * positives, but never a false negative.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
+   */
+  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final ByteBuffer key) {
+    assert key != null : "key ByteBuffer parameter cannot be null";
+    assert key.isDirect() : "key parameter must be a direct ByteBuffer";
+    return keyMayExistDirect(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.limit());
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns {@link KeyMayExist.KeyMayExistEnum#kNotExist},
+   * otherwise if it can with best effort retreive the value, it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithValue} otherwise it returns {@link
+   * KeyMayExist.KeyMayExistEnum#kExistsWithoutValue}. The choice not to return a value which might
+   * exist is at the discretion of the implementation; the only guarantee is that {@link
+   * KeyMayExist.KeyMayExistEnum#kNotExist} is an assurance that the key does not exist.
+   *
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @param value bytebuffer which will receive a value if the key exists and a value is known
+   * @return a {@link KeyMayExist} object reporting if key may exist and if a value is provided
+   */
+  public KeyMayExist keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final ByteBuffer key, final ByteBuffer value) {
+    assert key != null : "key ByteBuffer parameter cannot be null";
+    assert key.isDirect() : "key parameter must be a direct ByteBuffer";
+    assert value
+        != null
+        : "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method";
+    assert value.isDirect() : "value parameter must be a direct ByteBuffer";
+
+    final int[] result = keyMayExistDirectFoundValue(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.remaining(),
+        value, value.position(), value.remaining());
+    final int valueLength = result[1];
+    value.limit(value.position() + Math.min(valueLength, value.remaining()));
+    return new KeyMayExist(KeyMayExist.KeyMayExistEnum.values()[result[0]], valueLength);
+  }
+
+  /**
    * <p>Return a heap-allocated iterator over the contents of the
    * database. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
@@ -2834,8 +2875,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -2854,8 +2895,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -2940,7 +2981,7 @@ public class RocksDB extends RocksObject {
    * @return Snapshot {@link Snapshot} instance
    */
   public Snapshot getSnapshot() {
-    long snapshotHandle = getSnapshot(nativeHandle_);
+    final long snapshotHandle = getSnapshot(nativeHandle_);
     if (snapshotHandle != 0) {
       return new Snapshot(snapshotHandle);
     }
@@ -2949,7 +2990,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Release a previously acquired snapshot.
-   *
+   * <p>
    * The caller must not use "snapshot" after this call.
    *
    * @param snapshot {@link Snapshot} instance
@@ -3116,7 +3157,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Reset internal stats for DB and all column families.
-   *
+   * <p>
    * Note this doesn't reset {@link Options#statistics()} as it is not
    * owned by DB.
    *
@@ -3155,11 +3196,11 @@ public class RocksDB extends RocksObject {
 
   /**
    * Get the approximate file system space used by keys in each range.
-   *
+   * <p>
    * Note that the returned sizes measure file system space usage, so
    * if the user data compresses by a factor of ten, the returned
    * sizes will be one-tenth the size of the corresponding user data size.
-   *
+   * <p>
    * If {@code sizeApproximationFlags} defines whether the returned size
    * should include the recently written data in the mem-tables (if
    * the mem-table type supports it), data serialized to disk, or both.
@@ -3191,11 +3232,11 @@ public class RocksDB extends RocksObject {
   /**
    * Get the approximate file system space used by keys in each range for
    * the default column family.
-   *
+   * <p>
    * Note that the returned sizes measure file system space usage, so
    * if the user data compresses by a factor of ten, the returned
    * sizes will be one-tenth the size of the corresponding user data size.
-   *
+   * <p>
    * If {@code sizeApproximationFlags} defines whether the returned size
    * should include the recently written data in the mem-tables (if
    * the mem-table type supports it), data serialized to disk, or both.
@@ -3264,9 +3305,7 @@ public class RocksDB extends RocksObject {
    *
    * <p><strong>See also</strong></p>
    * <ul>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
    * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @throws RocksDBException thrown if an error occurs within the native
@@ -3285,14 +3324,7 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
    *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
    * </li>
    * </ul>
    *
@@ -3318,8 +3350,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @param begin start of key range (included in range)
@@ -3342,13 +3372,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
    * </ul>
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -3366,174 +3389,6 @@ public class RocksDB extends RocksObject {
         begin, begin == null ? -1 : begin.length,
         end, end == null ? -1 : end.length,
         0, columnFamilyHandle == null ? 0: columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance, or null for the default column family.
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-    /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-    final boolean changeLevel, final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        null, -1,
-        null, -1,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
-   *     instead
-   *
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final byte[] begin, final byte[] end,
-      final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, begin, end, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance.
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end, final boolean changeLevel,
-      final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3574,9 +3429,52 @@ public class RocksDB extends RocksObject {
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
       final MutableColumnFamilyOptions mutableColumnFamilyOptions)
       throws RocksDBException {
-    setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        mutableColumnFamilyOptions.getKeys(),
-        mutableColumnFamilyOptions.getValues());
+    setOptions(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        mutableColumnFamilyOptions.getKeys(), mutableColumnFamilyOptions.getValues());
+  }
+
+  /**
+   * Get the options for the column family handle
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance, or null for the default column family.
+   *
+   * @return the options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder getOptions(
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    final String optionsString = getOptions(
+        nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
+    return MutableColumnFamilyOptions.parse(optionsString, true);
+  }
+
+  /**
+   * Default column family options
+   *
+   * @return the options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder getOptions()
+      throws RocksDBException {
+    return getOptions(null);
+  }
+
+  /**
+   * Get the database options
+   *
+   * @return the DB options parsed from the options string return by RocksDB
+   *
+   * @throws RocksDBException if an error occurs while getting the options string, or parsing the
+   *     resulting options string into options
+   */
+  public MutableDBOptions.MutableDBOptionsBuilder getDBOptions() throws RocksDBException {
+    final String optionsString = getDBOptions(nativeHandle_);
+    return MutableDBOptions.parse(optionsString, true);
   }
 
   /**
@@ -3609,7 +3507,7 @@ public class RocksDB extends RocksObject {
   /**
    * Takes a list of files specified by file names and
    * compacts them to the specified level.
-   *
+   * <p>
    * Note that the behavior is different from
    * {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
    * in that CompactFiles() performs the compaction job using the CURRENT
@@ -3641,7 +3539,7 @@ public class RocksDB extends RocksObject {
   /**
    * Takes a list of files specified by file names and
    * compacts them to the specified level.
-   *
+   * <p>
    * Note that the behavior is different from
    * {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
    * in that CompactFiles() performs the compaction job using the CURRENT
@@ -3684,7 +3582,7 @@ public class RocksDB extends RocksObject {
    *   returning.
    *
    */
-  public void cancelAllBackgroundWork(boolean wait) {
+  public void cancelAllBackgroundWork(final boolean wait) {
     cancelAllBackgroundWork(nativeHandle_, wait);
   }
 
@@ -3712,11 +3610,11 @@ public class RocksDB extends RocksObject {
   /**
    * Enable automatic compactions for the given column
    * families if they were previously disabled.
-   *
+   * <p>
    * The function will first set the
    * {@link ColumnFamilyOptions#disableAutoCompactions()} option for each
    * column family to false, after which it will schedule a flush/compaction.
-   *
+   * <p>
    * NOTE: Setting disableAutoCompactions to 'false' through
    * {@link #setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}
    * does NOT schedule a flush/compaction afterwards, and only changes the
@@ -3859,15 +3757,15 @@ public class RocksDB extends RocksObject {
       /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle)
       throws RocksDBException {
     flush(flushOptions,
-        columnFamilyHandle == null ? null : Arrays.asList(columnFamilyHandle));
+        columnFamilyHandle == null ? null : Collections.singletonList(columnFamilyHandle));
   }
 
   /**
    * Flushes multiple column families.
-   *
+   * <p>
    * If atomic flush is not enabled, this is equivalent to calling
    * {@link #flush(FlushOptions, ColumnFamilyHandle)} multiple times.
-   *
+   * <p>
    * If atomic flush is enabled, this will flush all column families
    * specified up to the latest sequence number at the time when flush is
    * requested.
@@ -3898,13 +3796,13 @@ public class RocksDB extends RocksObject {
 
   /**
    * Sync the WAL.
-   *
+   * <p>
    * Note that {@link #write(WriteOptions, WriteBatch)} followed by
-   * {@link #syncWal()} is not exactly the same as
+   * {@code #syncWal()} is not exactly the same as
    * {@link #write(WriteOptions, WriteBatch)} with
    * {@link WriteOptions#sync()} set to true; In the latter case the changes
    * won't be visible until the sync is done.
-   *
+   * <p>
    * Currently only works if {@link Options#allowMmapWrites()} is set to false.
    *
    * @throws RocksDBException if an error occurs whilst syncing
@@ -3921,25 +3819,6 @@ public class RocksDB extends RocksObject {
    */
   public long getLatestSequenceNumber() {
     return getLatestSequenceNumber(nativeHandle_);
-  }
-
-  /**
-   * Instructs DB to preserve deletes with sequence numbers &gt;= sequenceNumber.
-   *
-   * Has no effect if DBOptions#preserveDeletes() is set to false.
-   *
-   * This function assumes that user calls this function with monotonically
-   * increasing seqnums (otherwise we can't guarantee that a particular delete
-   * hasn't been already processed).
-   *
-   * @param sequenceNumber the minimum sequence number to preserve
-   *
-   * @return true if the value was successfully updated,
-   *     false if user attempted to call if with
-   *     sequenceNumber &lt;= current value.
-   */
-  public boolean setPreserveDeletesSequenceNumber(final long sequenceNumber) {
-    return setPreserveDeletesSequenceNumber(nativeHandle_, sequenceNumber);
   }
 
   /**
@@ -4001,7 +3880,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Retrieve the list of all files in the database after flushing the memtable.
-   *
+   * <p>
    * See {@link #getLiveFiles(boolean)}.
    *
    * @return the live files
@@ -4015,14 +3894,14 @@ public class RocksDB extends RocksObject {
 
   /**
    * Retrieve the list of all files in the database.
-   *
+   * <p>
    * In case you have multiple column families, even if {@code flushMemtable}
    * is true, you still need to call {@link #getSortedWalFiles()}
-   * after {@link #getLiveFiles(boolean)} to compensate for new data that
+   * after {@code #getLiveFiles(boolean)} to compensate for new data that
    * arrived to already-flushed column families while other column families
    * were flushing.
-   *
-   * NOTE: Calling {@link #getLiveFiles(boolean)} followed by
+   * <p>
+   * NOTE: Calling {@code #getLiveFiles(boolean)} followed by
    *     {@link #getSortedWalFiles()} can generate a lossless backup.
    *
    * @param flushMemtable set to true to flush before recoding the live
@@ -4133,7 +4012,7 @@ public class RocksDB extends RocksObject {
    * ingest the file into this level (2). A file that have a key range that
    * overlap with the memtable key range will require us to Flush the memtable
    * first before ingesting the file.
-   *
+   * <p>
    * (1) External SST files can be created using {@link SstFileWriter}
    * (2) We will try to ingest the files to the lowest possible level
    * even if the file compression doesn't match the level compression
@@ -4158,7 +4037,7 @@ public class RocksDB extends RocksObject {
    * ingest the file into this level (2). A file that have a key range that
    * overlap with the memtable key range will require us to Flush the memtable
    * first before ingesting the file.
-   *
+   * <p>
    * (1) External SST files can be created using {@link SstFileWriter}
    * (2) We will try to ingest the files to the lowest possible level
    * even if the file compression doesn't match the level compression
@@ -4324,7 +4203,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Trace DB operations.
-   *
+   * <p>
    * Use {@link #endTrace()} to stop tracing.
    *
    * @param traceOptions the options
@@ -4336,7 +4215,7 @@ public class RocksDB extends RocksObject {
       final AbstractTraceWriter traceWriter) throws RocksDBException {
     startTrace(nativeHandle_, traceOptions.getMaxTraceFileSize(),
         traceWriter.nativeHandle_);
-    /**
+    /*
      * NOTE: {@link #startTrace(long, long, long) transfers the ownership
      * from Java to C++, so we must disown the native handle here.
      */
@@ -4345,7 +4224,7 @@ public class RocksDB extends RocksObject {
 
   /**
    * Stop tracing DB operations.
-   *
+   * <p>
    * See {@link #startTrace(TraceOptions, AbstractTraceWriter)}
    *
    * @throws RocksDBException if an error occurs whilst ending the trace
@@ -4431,7 +4310,7 @@ public class RocksDB extends RocksObject {
   }
 
   private static long[] toRangeSliceHandles(final List<Range> ranges) {
-    final long rangeSliceHandles[] = new long [ranges.size() * 2];
+    final long[] rangeSliceHandles = new long[ranges.size() * 2];
     for (int i = 0, j = 0; i < ranges.size(); i++) {
       final Range range = ranges.get(i);
       rangeSliceHandles[j++] = range.start.getNativeHandle();
@@ -4440,11 +4319,11 @@ public class RocksDB extends RocksObject {
     return rangeSliceHandles;
   }
 
-  protected void storeOptionsInstance(DBOptionsInterface options) {
+  protected void storeOptionsInstance(final DBOptionsInterface<?> options) {
     options_ = options;
   }
 
-  private static void checkBounds(int offset, int len, int size) {
+  private static void checkBounds(final int offset, final int len, final int size) {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
       throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
@@ -4457,8 +4336,8 @@ public class RocksDB extends RocksObject {
   }
 
   // native methods
-  private native static long open(final long optionsHandle,
-      final String path) throws RocksDBException;
+  private static native long open(final long optionsHandle, final String path)
+      throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -4472,11 +4351,10 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] open(final long optionsHandle,
-      final String path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions) throws RocksDBException;
+  private static native long[] open(final long optionsHandle, final String path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions) throws RocksDBException;
 
-  private native static long openROnly(final long optionsHandle, final String path,
+  private static native long openROnly(final long optionsHandle, final String path,
       final boolean errorIfWalFileExists) throws RocksDBException;
 
   /**
@@ -4491,31 +4369,30 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] openROnly(final long optionsHandle, final String path,
+  private static native long[] openROnly(final long optionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions,
       final boolean errorIfWalFileExists) throws RocksDBException;
 
-  private native static long openAsSecondary(final long optionsHandle, final String path,
+  private static native long openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath) throws RocksDBException;
 
-  private native static long[] openAsSecondary(final long optionsHandle, final String path,
+  private static native long[] openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions) throws RocksDBException;
 
   @Override protected native void disposeInternal(final long handle);
 
-  private native static void closeDatabase(final long handle)
+  private static native void closeDatabase(final long handle) throws RocksDBException;
+  private static native byte[][] listColumnFamilies(final long optionsHandle, final String path)
       throws RocksDBException;
-  private native static byte[][] listColumnFamilies(final long optionsHandle,
-      final String path) throws RocksDBException;
   private native long createColumnFamily(final long handle,
       final byte[] columnFamilyName, final int columnFamilyNamelen,
       final long columnFamilyOptions) throws RocksDBException;
   private native long[] createColumnFamilies(final long handle,
       final long columnFamilyOptionsHandle, final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private native long[] createColumnFamilies(final long handle,
-      final long columnFamilyOptionsHandles[], final byte[][] columnFamilyNames)
+  private native long[] createColumnFamilies(
+      final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
       throws RocksDBException;
   private native void dropColumnFamily(
       final long handle, final long cfHandle) throws RocksDBException;
@@ -4630,6 +4507,12 @@ public class RocksDB extends RocksObject {
   private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
+
+  private native void multiGet(final long dbHandle, final long rOptHandle,
+      final long[] columnFamilyHandles, final ByteBuffer[] keysArray, final int[] keyOffsets,
+      final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
+      final Status[] statusArray);
+
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength);
@@ -4659,6 +4542,11 @@ public class RocksDB extends RocksObject {
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
+  private native boolean keyMayExistDirect(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
+  private native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
+      final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength,
+      final ByteBuffer value, final int valueOffset, final int valueLength);
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;
   private native long getLongProperty(final long nativeHandle,
@@ -4671,9 +4559,9 @@ public class RocksDB extends RocksObject {
   private native long[] getApproximateSizes(final long nativeHandle,
       final long columnFamilyHandle, final long[] rangeSliceHandles,
       final byte includeFlags);
-  private final native long[] getApproximateMemTableStats(
-      final long nativeHandle, final long columnFamilyHandle,
-      final long rangeStartSliceHandle, final long rangeLimitSliceHandle);
+  private native long[] getApproximateMemTableStats(final long nativeHandle,
+      final long columnFamilyHandle, final long rangeStartSliceHandle,
+      final long rangeLimitSliceHandle);
   private native void compactRange(final long handle,
       /* @Nullable */ final byte[] begin, final int beginLen,
       /* @Nullable */ final byte[] end, final int endLen,
@@ -4681,8 +4569,10 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void setOptions(final long handle, final long cfHandle,
       final String[] keys, final String[] values) throws RocksDBException;
+  private native String getOptions(final long handle, final long cfHandle);
   private native void setDBOptions(final long handle,
       final String[] keys, final String[] values) throws RocksDBException;
+  private native String getDBOptions(final long handle);
   private native String[] compactFiles(final long handle,
       final long compactionOptionsHandle,
       final long columnFamilyHandle,
@@ -4712,8 +4602,6 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void syncWal(final long handle) throws RocksDBException;
   private native long getLatestSequenceNumber(final long handle);
-  private native boolean setPreserveDeletesSequenceNumber(final long handle,
-      final long sequenceNumber);
   private native void disableFileDeletions(long handle) throws RocksDBException;
   private native void enableFileDeletions(long handle, boolean force)
       throws RocksDBException;
@@ -4751,12 +4639,12 @@ public class RocksDB extends RocksObject {
   private native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
       boolean include_end) throws RocksDBException;
 
-  private native static void destroyDB(final String path,
-      final long optionsHandle) throws RocksDBException;
+  private static native void destroyDB(final String path, final long optionsHandle)
+      throws RocksDBException;
 
-  private native static int version();
+  private static native int version();
 
-  protected DBOptionsInterface options_;
+  protected DBOptionsInterface<?> options_;
   private static Version version;
 
   public static class Version {

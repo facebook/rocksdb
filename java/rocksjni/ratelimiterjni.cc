@@ -7,6 +7,7 @@
 
 #include "include/org_rocksdb_RateLimiter.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -27,7 +28,7 @@ jlong Java_org_rocksdb_RateLimiter_newRateLimiterHandle(
           static_cast<int64_t>(jrefill_period_micros),
           static_cast<int32_t>(jfairness), rate_limiter_mode, jauto_tune));
 
-  return reinterpret_cast<jlong>(sptr_rate_limiter);
+  return GET_CPLUSPLUS_POINTER(sptr_rate_limiter);
 }
 
 /*

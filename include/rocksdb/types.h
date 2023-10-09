@@ -6,6 +6,10 @@
 #pragma once
 
 #include <stdint.h>
+
+#include <memory>
+#include <unordered_map>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,9 +19,26 @@ namespace ROCKSDB_NAMESPACE {
 using ColumnFamilyId = uint32_t;
 
 // Represents a sequence number in a WAL file.
-typedef uint64_t SequenceNumber;
+using SequenceNumber = uint64_t;
+
+struct TableProperties;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
+
+enum class TableFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+  kMisc,
+};
+
+enum class BlobFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+};
 
 // The types of files RocksDB uses in a DB directory. (Available for
 // advanced options.)
@@ -45,30 +66,36 @@ enum EntryType {
   kEntryRangeDeletion,
   kEntryBlobIndex,
   kEntryDeleteWithTimestamp,
+  kEntryWideColumnEntity,
   kEntryOther,
 };
 
-// <user key, sequence number, and entry type> tuple.
-struct FullKey {
-  Slice user_key;
-  SequenceNumber sequence;
-  EntryType type;
+enum class WriteStallCause {
+  // Beginning of CF-scope write stall causes
+  //
+  // Always keep `kMemtableLimit` as the first stat in this section
+  kMemtableLimit,
+  kL0FileCountLimit,
+  kPendingCompactionBytes,
+  kCFScopeWriteStallCauseEnumMax,
+  // End of CF-scope write stall causes
 
-  FullKey() : sequence(0) {}  // Intentionally left uninitialized (for speed)
-  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
+  // Beginning of DB-scope write stall causes
+  //
+  // Always keep `kWriteBufferManagerLimit` as the first stat in this section
+  kWriteBufferManagerLimit,
+  kDBScopeWriteStallCauseEnumMax,
+  // End of DB-scope write stall causes
 
-  void clear() {
-    user_key.clear();
-    sequence = 0;
-    type = EntryType::kEntryPut;
-  }
+  // Always add new WriteStallCause before `kNone`
+  kNone,
 };
 
-// Parse slice representing internal key to FullKey
-// Parsed FullKey is valid for as long as the memory pointed to by
-// internal_key is alive.
-bool ParseFullKey(const Slice& internal_key, FullKey* result);
+enum class WriteStallCondition {
+  kDelayed,
+  kStopped,
+  // Always add new WriteStallCondition before `kNormal`
+  kNormal,
+};
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,24 +11,24 @@ int main() {
 }
 #else
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <random>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
-#include "test_util/testutil.h"
+#include "rocksdb/system_clock.h"
 #include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-
-#include "util/gflags_compat.h"
+#include "util/vector_iterator.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -54,12 +54,17 @@ DEFINE_int32(should_deletes_per_run, 1, "number of ShouldDelete calls per run");
 DEFINE_int32(add_tombstones_per_run, 1,
              "number of AddTombstones calls per run");
 
+DEFINE_bool(use_compaction_range_del_aggregator, false,
+            "Whether to use CompactionRangeDelAggregator. Default is to use "
+            "ReadRangeDelAggregator.");
+
 namespace {
 
 struct Stats {
   uint64_t time_add_tombstones = 0;
   uint64_t time_first_should_delete = 0;
   uint64_t time_rest_should_delete = 0;
+  uint64_t time_fragment_tombstones = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const Stats& s) {
@@ -67,6 +72,10 @@ std::ostream& operator<<(std::ostream& os, const Stats& s) {
   fmt_holder.copyfmt(os);
 
   os << std::left;
+  os << std::setw(25) << "Fragment Tombstones: "
+     << s.time_fragment_tombstones /
+            (FLAGS_add_tombstones_per_run * FLAGS_num_runs * 1.0e3)
+     << " us\n";
   os << std::setw(25) << "AddTombstones: "
      << s.time_add_tombstones /
             (FLAGS_add_tombstones_per_run * FLAGS_num_runs * 1.0e3)
@@ -147,8 +156,8 @@ std::unique_ptr<InternalIterator> MakeRangeDelIterator(
     keys.push_back(key_and_value.first.Encode().ToString());
     values.push_back(key_and_value.second.ToString());
   }
-  return std::unique_ptr<test::VectorIterator>(
-      new test::VectorIterator(keys, values));
+  return std::unique_ptr<VectorIterator>(
+      new VectorIterator(keys, values, &icmp));
 }
 
 // convert long to a big-endian slice key
@@ -172,6 +181,8 @@ int main(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
   Stats stats;
+  ROCKSDB_NAMESPACE::SystemClock* clock =
+      ROCKSDB_NAMESPACE::SystemClock::Default().get();
   ROCKSDB_NAMESPACE::Random64 rnd(FLAGS_seed);
   std::default_random_engine random_gen(FLAGS_seed);
   std::normal_distribution<double> normal_dist(FLAGS_tombstone_width_mean,
@@ -184,10 +195,17 @@ int main(int argc, char** argv) {
             FLAGS_num_range_tombstones);
   }
   auto mode = ROCKSDB_NAMESPACE::RangeDelPositioningMode::kForwardTraversal;
-
+  std::vector<ROCKSDB_NAMESPACE::SequenceNumber> snapshots{0};
   for (int i = 0; i < FLAGS_num_runs; i++) {
-    ROCKSDB_NAMESPACE::ReadRangeDelAggregator range_del_agg(
-        &icmp, ROCKSDB_NAMESPACE::kMaxSequenceNumber /* upper_bound */);
+    std::unique_ptr<ROCKSDB_NAMESPACE::RangeDelAggregator> range_del_agg =
+        nullptr;
+    if (FLAGS_use_compaction_range_del_aggregator) {
+      range_del_agg.reset(new ROCKSDB_NAMESPACE::CompactionRangeDelAggregator(
+          &icmp, snapshots));
+    } else {
+      range_del_agg.reset(new ROCKSDB_NAMESPACE::ReadRangeDelAggregator(
+          &icmp, ROCKSDB_NAMESPACE::kMaxSequenceNumber /* upper_bound */));
+    }
 
     std::vector<
         std::unique_ptr<ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList> >
@@ -205,14 +223,16 @@ int main(int argc, char** argv) {
             ROCKSDB_NAMESPACE::PersistentRangeTombstone(
                 ROCKSDB_NAMESPACE::Key(start), ROCKSDB_NAMESPACE::Key(end), j);
       }
-
-      auto range_del_iter =
+      auto iter =
           ROCKSDB_NAMESPACE::MakeRangeDelIterator(persistent_range_tombstones);
+      ROCKSDB_NAMESPACE::StopWatchNano stop_watch_fragment_tombstones(
+          clock, true /* auto_start */);
       fragmented_range_tombstone_lists.emplace_back(
           new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList(
-              ROCKSDB_NAMESPACE::MakeRangeDelIterator(
-                  persistent_range_tombstones),
-              icmp));
+              std::move(iter), icmp, FLAGS_use_compaction_range_del_aggregator,
+              snapshots));
+      stats.time_fragment_tombstones +=
+          stop_watch_fragment_tombstones.ElapsedNanos();
       std::unique_ptr<ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator>
           fragmented_range_del_iter(
               new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator(
@@ -220,8 +240,8 @@ int main(int argc, char** argv) {
                   ROCKSDB_NAMESPACE::kMaxSequenceNumber));
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_add_tombstones(
-          ROCKSDB_NAMESPACE::Env::Default(), true /* auto_start */);
-      range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
+          clock, true /* auto_start */);
+      range_del_agg->AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
 
@@ -237,8 +257,8 @@ int main(int argc, char** argv) {
       parsed_key.user_key = key_string;
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_should_delete(
-          ROCKSDB_NAMESPACE::Env::Default(), true /* auto_start */);
-      range_del_agg.ShouldDelete(parsed_key, mode);
+          clock, true /* auto_start */);
+      range_del_agg->ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 
       if (j == 0) {

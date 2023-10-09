@@ -19,9 +19,11 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -45,7 +47,6 @@ class Iterator : public Cleanable {
 
   // Position at the last key in the source.  The iterator is
   // Valid() after this call iff the source is not empty.
-  // Currently incompatible with user timestamp.
   virtual void SeekToLast() = 0;
 
   // Position at the first key in the source that at or past target.
@@ -60,7 +61,7 @@ class Iterator : public Cleanable {
   // Position at the last key in the source that at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
-  // Currently incompatible with user timestamp.
+  // Target does not contain timestamp.
   virtual void SeekForPrev(const Slice& target) = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is
@@ -70,31 +71,52 @@ class Iterator : public Cleanable {
 
   // Moves to the previous entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the first entry in source.
-  // Currently incompatible with user timestamp.
   // REQUIRES: Valid()
   virtual void Prev() = 0;
 
   // Return the key for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // the returned slice is valid only until the next modification of the
+  // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
+  // operation).
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
-  // Return the value for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of
-  // the iterator.
+  // Return the value for the current entry.  If the entry is a plain key-value,
+  // return the value as-is; if it is a wide-column entity, return the value of
+  // the default anonymous column (see kDefaultWideColumnName) if any, or an
+  // empty value otherwise.  The underlying storage for the returned slice is
+  // valid only until the next modification of the iterator (i.e. the next
+  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
+
+  // Return the wide columns for the current entry.  If the entry is a
+  // wide-column entity, return it as-is; if it is a plain key-value, return it
+  // as an entity with a single anonymous column (see kDefaultWideColumnName)
+  // which contains the value.  The underlying storage for the returned
+  // structure is valid only until the next modification of the iterator (i.e.
+  // the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
+  // REQUIRES: Valid()
+  virtual const WideColumns& columns() const {
+    assert(false);
+    return kNoWideColumns;
+  }
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // If supported, renew the iterator to represent the latest state. The
-  // iterator will be invalidated after the call. Not supported if
-  // ReadOptions.snapshot is given when creating the iterator.
-  virtual Status Refresh() {
+  // If supported, the DB state that the iterator reads from is updated to
+  // the latest state. The iterator will be invalidated after the call.
+  // Regardless of whether the iterator was created/refreshed previously
+  // with or without a snapshot, the iterator will be reading the
+  // latest DB state after this call.
+  virtual Status Refresh() { return Refresh(nullptr); }
+
+  // Similar to Refresh() but the iterator will be reading the latest DB state
+  // under the given snapshot.
+  virtual Status Refresh(const class Snapshot*) {
     return Status::NotSupported("Refresh() is not supported");
   }
 

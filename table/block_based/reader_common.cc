@@ -9,56 +9,56 @@
 #include "table/block_based/reader_common.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/table.h"
+#include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/hash.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ForceReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, true /* force_erase */);
+  cache->Release(handle, true /* erase_if_last_ref */);
 }
 
-Status VerifyBlockChecksum(ChecksumType type, const char* data,
+// WART: this is specific to block-based table
+Status VerifyBlockChecksum(const Footer& footer, const char* data,
                            size_t block_size, const std::string& file_name,
                            uint64_t offset) {
   PERF_TIMER_GUARD(block_checksum_time);
+
+  assert(footer.GetBlockTrailerSize() == 5);
+  ChecksumType type = footer.checksum_type();
+
   // After block_size bytes is compression type (1 byte), which is part of
   // the checksummed section.
   size_t len = block_size + 1;
   // And then the stored checksum value (4 bytes).
   uint32_t stored = DecodeFixed32(data + len);
 
-  Status s;
-  uint32_t computed = 0;
-  switch (type) {
-    case kNoChecksum:
-      break;
-    case kCRC32c:
+  uint32_t computed = ComputeBuiltinChecksum(type, data, len);
+
+  // Unapply context to 'stored' rather than apply to 'computed, for people
+  // who might look for reference crc value in error message
+  uint32_t modifier =
+      ChecksumModifierForContext(footer.base_context_checksum(), offset);
+  stored -= modifier;
+
+  if (stored == computed) {
+    return Status::OK();
+  } else {
+    // Unmask for people who might look for reference crc value
+    if (type == kCRC32c) {
       stored = crc32c::Unmask(stored);
-      computed = crc32c::Value(data, len);
-      break;
-    case kxxHash:
-      computed = XXH32(data, len, 0);
-      break;
-    case kxxHash64:
-      computed = Lower32of64(XXH64(data, len, 0));
-      break;
-    default:
-      s = Status::Corruption(
-          "unknown checksum type " + ToString(type) + " from footer of " +
-          file_name + ", while checking block at offset " + ToString(offset) +
-          " size " + ToString(block_size));
+      computed = crc32c::Unmask(computed);
+    }
+    return Status::Corruption(
+        "block checksum mismatch: stored" +
+        std::string(modifier ? "(context removed)" : "") + " = " +
+        std::to_string(stored) + ", computed = " + std::to_string(computed) +
+        ", type = " + std::to_string(type) + "  in " + file_name + " offset " +
+        std::to_string(offset) + " size " + std::to_string(block_size));
   }
-  if (s.ok() && stored != computed) {
-    s = Status::Corruption(
-        "block checksum mismatch: stored = " + ToString(stored) +
-        ", computed = " + ToString(computed) + "  in " + file_name +
-        " offset " + ToString(offset) + " size " + ToString(block_size));
-  }
-  return s;
 }
 }  // namespace ROCKSDB_NAMESPACE

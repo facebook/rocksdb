@@ -4,12 +4,17 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/flush_block_policy.h"
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "table/block_based/block_builder.h"
-#include "table/format.h"
 
 #include <cassert>
+#include <mutex>
+
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/block_builder.h"
+#include "table/block_based/flush_block_policy_impl.h"
+#include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -21,8 +26,7 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
   // @params block_size_deviation: This is used to close a block before it
   //                               reaches the configured
   FlushBlockBySizePolicy(const uint64_t block_size,
-                         const uint64_t block_size_deviation,
-                         const bool align,
+                         const uint64_t block_size_deviation, const bool align,
                          const BlockBuilder& data_block_builder)
       : block_size_(block_size),
         block_size_deviation_limit_(
@@ -57,7 +61,7 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
         data_block_builder_.EstimateSizeAfterKV(key, value);
 
     if (align_) {
-      estimated_size_after += kBlockTrailerSize;
+      estimated_size_after += BlockBasedTable::kBlockTrailerSize;
       return estimated_size_after > block_size_;
     }
 
@@ -85,4 +89,44 @@ FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
   return new FlushBlockBySizePolicy(size, deviation, false, data_block_builder);
 }
 
+static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
+                                             const std::string& /*arg*/) {
+  library.AddFactory<FlushBlockPolicyFactory>(
+      FlushBlockBySizePolicyFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FlushBlockPolicyFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushBlockBySizePolicyFactory());
+        return guard->get();
+      });
+  library.AddFactory<FlushBlockPolicyFactory>(
+      FlushBlockEveryKeyPolicyFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FlushBlockPolicyFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FlushBlockEveryKeyPolicyFactory());
+        return guard->get();
+      });
+  return 2;
+}
+
+FlushBlockBySizePolicyFactory::FlushBlockBySizePolicyFactory()
+    : FlushBlockPolicyFactory() {}
+
+Status FlushBlockPolicyFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<FlushBlockPolicyFactory>* factory) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterFlushBlockPolicyFactories(*(ObjectLibrary::Default().get()), "");
+  });
+
+  if (value.empty()) {
+    factory->reset(new FlushBlockBySizePolicyFactory());
+    return Status::OK();
+  } else {
+    return LoadSharedObject<FlushBlockPolicyFactory>(config_options, value,
+                                                     factory);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

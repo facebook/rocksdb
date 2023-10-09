@@ -9,12 +9,14 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <functional>
 #include <string>
 
 #include "include/org_rocksdb_AbstractComparator.h"
 #include "include/org_rocksdb_NativeComparatorWrapper.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -29,7 +31,7 @@ jlong Java_org_rocksdb_AbstractComparator_createNewComparator(
           copt_handle);
   auto* c =
       new ROCKSDB_NAMESPACE::ComparatorJniCallback(env, jcomparator, copt);
-  return reinterpret_cast<jlong>(c);
+  return GET_CPLUSPLUS_POINTER(c);
 }
 
 /*
@@ -37,8 +39,9 @@ jlong Java_org_rocksdb_AbstractComparator_createNewComparator(
  * Method:    usingDirectBuffers
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(
-    JNIEnv*, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
   auto* c =
       reinterpret_cast<ROCKSDB_NAMESPACE::ComparatorJniCallback*>(jhandle);
   return static_cast<jboolean>(c->m_options->direct_buffer);

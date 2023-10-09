@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 
+#include "port/lang.h"
 #if !defined(OS_WIN)
 
 #include <dirent.h>
@@ -36,6 +37,8 @@
 #include <sys/uio.h>
 #endif
 #include <time.h>
+#include <unistd.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
@@ -52,12 +55,14 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
+#include "port/sys_time.h"
+#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -122,21 +127,100 @@ class PosixDynamicLibrary : public DynamicLibrary {
 };
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
-class PosixEnv : public CompositeEnvWrapper {
+class PosixClock : public SystemClock {
  public:
-  // This constructor is for constructing non-default Envs, mainly by
-  // NewCompositeEnv(). It allows new instances to share the same
-  // threadpool and other resources as the default Env, while allowing
-  // a non-default FileSystem implementation
-  PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs);
+  static const char* kClassName() { return "PosixClock"; }
+  const char* Name() const override { return kDefaultName(); }
+  const char* NickName() const override { return kClassName(); }
 
-  ~PosixEnv() override {
-    if (this == Env::Default()) {
-      for (const auto tid : threads_to_join_) {
+  uint64_t NowMicros() override {
+    port::TimeVal tv;
+    port::GetTimeOfDay(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+  }
+
+  uint64_t NowNanos() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX)
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#elif defined(OS_SOLARIS)
+    return gethrtime();
+#elif defined(__MACH__)
+    clock_serv_t cclock;
+    mach_timespec_t ts;
+    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+    clock_get_time(cclock, &ts);
+    mach_port_deallocate(mach_task_self(), cclock);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#else
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+#endif
+  }
+
+  uint64_t CPUMicros() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec) / 1000;
+#endif
+    return 0;
+  }
+
+  uint64_t CPUNanos() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#endif
+    return 0;
+  }
+
+  void SleepForMicroseconds(int micros) override { usleep(micros); }
+
+  Status GetCurrentTime(int64_t* unix_time) override {
+    time_t ret = time(nullptr);
+    if (ret == (time_t)-1) {
+      return IOError("GetCurrentTime", "", errno);
+    }
+    *unix_time = (int64_t)ret;
+    return Status::OK();
+  }
+
+  std::string TimeToString(uint64_t secondsSince1970) override {
+    const time_t seconds = (time_t)secondsSince1970;
+    struct tm t;
+    int maxsize = 64;
+    std::string dummy;
+    dummy.reserve(maxsize);
+    dummy.resize(maxsize);
+    char* p = &dummy[0];
+    port::LocalTimeR(&seconds, &t);
+    snprintf(p, maxsize, "%04d/%02d/%02d-%02d:%02d:%02d ", t.tm_year + 1900,
+             t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+    return dummy;
+  }
+};
+
+class PosixEnv : public CompositeEnv {
+ public:
+  static const char* kClassName() { return "PosixEnv"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
+  struct JoinThreadsOnExit {
+    explicit JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
+    ~JoinThreadsOnExit() {
+      for (const auto tid : deflt.threads_to_join_) {
         pthread_join(tid, nullptr);
       }
       for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-        thread_pools_[pool_id].JoinAllThreads();
+        deflt.thread_pools_[pool_id].JoinAllThreads();
       }
       // Do not delete the thread_status_updater_ in order to avoid the
       // free after use when Env::Default() is destructed while some other
@@ -144,7 +228,8 @@ class PosixEnv : public CompositeEnvWrapper {
       // PosixEnv instances use the same thread_status_updater_, so never
       // explicitly delete it.
     }
-  }
+    PosixEnv& deflt;
+  };
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -219,81 +304,44 @@ class PosixEnv : public CompositeEnvWrapper {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override;
+
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
   }
 
-  static uint64_t gettid(pthread_t tid) {
+  uint64_t GetThreadID() const override {
     uint64_t thread_id = 0;
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 30)
+    thread_id = ::gettid();
+#else   // __GLIBC_PREREQ(2, 30)
+    pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // __GLIBC_PREREQ(2, 30)
+#else   // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+    pthread_t tid = pthread_self();
+    memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
     return thread_id;
   }
 
-  static uint64_t gettid() {
-    pthread_t tid = pthread_self();
-    return gettid(tid);
-  }
-
-  uint64_t GetThreadID() const override { return gettid(pthread_self()); }
-
-  uint64_t NowMicros() override {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
-  }
-
-  uint64_t NowNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
-    defined(OS_AIX)
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#elif defined(OS_SOLARIS)
-    return gethrtime();
-#elif defined(__MACH__)
-    clock_serv_t cclock;
-    mach_timespec_t ts;
-    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
-    clock_get_time(cclock, &ts);
-    mach_port_deallocate(mach_task_self(), cclock);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#else
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-       std::chrono::steady_clock::now().time_since_epoch()).count();
-#endif
-  }
-
-  uint64_t NowCPUNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
-    defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
-    struct timespec ts;
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#endif
-    return 0;
-  }
-
-  void SleepForMicroseconds(int micros) override { usleep(micros); }
-
   Status GetHostName(char* name, uint64_t len) override {
-    int ret = gethostname(name, static_cast<size_t>(len));
+    const size_t max_len = static_cast<size_t>(len);
+    int ret = gethostname(name, max_len);
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL) {
-        return Status::InvalidArgument(strerror(errno));
+        return Status::InvalidArgument(errnoStr(errno).c_str());
+      } else if (errno == ENAMETOOLONG) {
+        return IOError("GetHostName", std::string(name, strnlen(name, max_len)),
+                       errno);
       } else {
-        return IOError("GetHostName", name, errno);
+        return IOError("GetHostName", "", errno);
       }
     }
-    return Status::OK();
-  }
-
-  Status GetCurrentTime(int64_t* unix_time) override {
-    time_t ret = time(nullptr);
-    if (ret == (time_t) -1) {
-      return IOError("GetCurrentTime", "", errno);
-    }
-    *unix_time = (int64_t) ret;
     return Status::OK();
   }
 
@@ -345,26 +393,6 @@ class PosixEnv : public CompositeEnvWrapper {
     return Status::OK();
   }
 
-  std::string TimeToString(uint64_t secondsSince1970) override {
-    const time_t seconds = (time_t)secondsSince1970;
-    struct tm t;
-    int maxsize = 64;
-    std::string dummy;
-    dummy.reserve(maxsize);
-    dummy.resize(maxsize);
-    char* p = &dummy[0];
-    localtime_r(&seconds, &t);
-    snprintf(p, maxsize,
-             "%04d/%02d/%02d-%02d:%02d:%02d ",
-             t.tm_year + 1900,
-             t.tm_mon + 1,
-             t.tm_mday,
-             t.tm_hour,
-             t.tm_min,
-             t.tm_sec);
-    return dummy;
-  }
-
  private:
   friend Env* Env::Default();
   // Constructs the default Env, a singleton
@@ -387,7 +415,7 @@ class PosixEnv : public CompositeEnvWrapper {
 };
 
 PosixEnv::PosixEnv()
-    : CompositeEnvWrapper(this, FileSystem::Default()),
+    : CompositeEnv(FileSystem::Default(), SystemClock::Default()),
       thread_pools_storage_(Priority::TOTAL),
       allow_non_owner_access_storage_(true),
       thread_pools_(thread_pools_storage_),
@@ -404,15 +432,6 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-PosixEnv::PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs)
-  : CompositeEnvWrapper(this, fs),
-    thread_pools_(default_env->thread_pools_),
-    mu_(default_env->mu_),
-    threads_to_join_(default_env->threads_to_join_),
-    allow_non_owner_access_(default_env->allow_non_owner_access_) {
-  thread_status_updater_ = default_env->thread_status_updater_;
-}
-
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
                         void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
@@ -426,6 +445,16 @@ int PosixEnv::UnSchedule(void* arg, Priority pri) {
 unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
   return thread_pools_[pri].GetQueueLen();
+}
+
+int PosixEnv::ReserveThreads(int threads_to_reserved, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReserveThreads(threads_to_reserved);
+}
+
+int PosixEnv::ReleaseThreads(int threads_to_released, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReleaseThreads(threads_to_released);
 }
 
 struct StartThreadState {
@@ -461,32 +490,6 @@ void PosixEnv::WaitForJoin() {
 
 }  // namespace
 
-std::string Env::GenerateUniqueId() {
-  std::string uuid_file = "/proc/sys/kernel/random/uuid";
-  std::shared_ptr<FileSystem> fs = FileSystem::Default();
-
-  Status s = fs->FileExists(uuid_file, IOOptions(), nullptr);
-  if (s.ok()) {
-    std::string uuid;
-    s = ReadFileToString(fs.get(), uuid_file, &uuid);
-    if (s.ok()) {
-      return uuid;
-    }
-  }
-  // Could not read uuid_file - generate uuid using "nanos-random"
-  Random64 r(time(nullptr));
-  uint64_t random_uuid_portion =
-    r.Uniform(std::numeric_limits<uint64_t>::max());
-  uint64_t nanos_uuid_portion = NowNanos();
-  char uuid2[200];
-  snprintf(uuid2,
-           200,
-           "%lx-%lx",
-           (unsigned long)nanos_uuid_portion,
-           (unsigned long)random_uuid_portion);
-  return uuid2;
-}
-
 //
 // Default Posix Env
 //
@@ -504,15 +507,22 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  static PosixEnv default_env;
+  // Avoid problems with accessing most members of Env::Default() during
+  // static destruction.
+  STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
+  // This destructor must be called on exit
+  static PosixEnv::JoinThreadsOnExit thread_joiner(default_env);
   return &default_env;
 }
 
-std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
-  PosixEnv* default_env = static_cast<PosixEnv*>(Env::Default());
-  return std::unique_ptr<Env>(new PosixEnv(default_env, fs));
+//
+// Default Posix SystemClock
+//
+const std::shared_ptr<SystemClock>& SystemClock::Default() {
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, instance)
+  (std::make_shared<PosixClock>());
+  return instance;
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif

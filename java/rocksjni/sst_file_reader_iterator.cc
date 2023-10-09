@@ -176,7 +176,8 @@ jbyteArray Java_org_rocksdb_SstFileReaderIterator_key0(JNIEnv* env,
  * Method:    value0
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_SstFileReaderIterator_value0(JNIEnv* env, jobject /*jobj*/,
+jbyteArray Java_org_rocksdb_SstFileReaderIterator_value0(JNIEnv* env,
+                                                         jobject /*jobj*/,
                                                          jlong handle) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
@@ -186,10 +187,11 @@ jbyteArray Java_org_rocksdb_SstFileReaderIterator_value0(JNIEnv* env, jobject /*
   if (jkeyValue == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
-    }
-    env->SetByteArrayRegion(jkeyValue, 0, static_cast<jsize>(value_slice.size()),
-                            const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
-    return jkeyValue;
+  }
+  env->SetByteArrayRegion(
+      jkeyValue, 0, static_cast<jsize>(value_slice.size()),
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
+  return jkeyValue;
 }
 
 /*
@@ -207,6 +209,29 @@ jint Java_org_rocksdb_SstFileReaderIterator_keyDirect0(
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    keyByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_SstFileReaderIterator_keyByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jkey, jint jkey_off,
+    jint jkey_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice key_slice = it->key();
+  auto slice_size = key_slice.size();
+  jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
+                             static_cast<uint32_t>(jkey_len));
+  env->SetByteArrayRegion(
+      jkey, jkey_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
+
+  return static_cast<jsize>(slice_size);
+}
+
+/*
  * Class:     org_rocksdb_SstFileReaderIterator
  * Method:    valueDirect0
  * Signature: (JLjava/nio/ByteBuffer;II)I
@@ -218,6 +243,29 @@ jint Java_org_rocksdb_SstFileReaderIterator_valueDirect0(
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, value_slice, jtarget,
                                                   jtarget_off, jtarget_len);
+}
+
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    valueByteArray0
+ * Signature: (J[BII)I
+ */
+jint Java_org_rocksdb_SstFileReaderIterator_valueByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue_target,
+    jint jvalue_off, jint jvalue_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Slice value_slice = it->value();
+  auto slice_size = value_slice.size();
+  jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
+                             static_cast<uint32_t>(jvalue_len));
+  env->SetByteArrayRegion(
+      jvalue_target, jvalue_off, copy_size,
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
+
+  return static_cast<jsize>(slice_size);
 }
 
 /*
@@ -253,12 +301,67 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevDirect0(
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    seekByteArray0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_SstFileReaderIterator_seekByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  it->Seek(target_slice);
+}
+
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    seekForPrevByteArray0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_SstFileReaderIterator_seekForPrevByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  it->SeekForPrev(target_slice);
+}
+
+/*
  * Class:     org_rocksdb_SstFileReaderIterator
  * Method:    refresh0
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
-                                            jlong handle) {
+void Java_org_rocksdb_SstFileReaderIterator_refresh0(JNIEnv* env,
+                                                     jobject /*jobj*/,
+                                                     jlong handle) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
 

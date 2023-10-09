@@ -3,11 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+#include "table/plain/plain_table_index.h"
 
 #include <cinttypes>
 
-#include "table/plain/plain_table_index.h"
+#include "logging/logging.h"
 #include "util/coding.h"
 #include "util/hash.h"
 
@@ -18,7 +18,7 @@ inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
   assert(num_buckets > 0);
   return hash % num_buckets;
 }
-}
+}  // namespace
 
 Status PlainTableIndex::InitFromRawData(Slice data) {
   if (!GetVarint32(&data, &index_size_)) {
@@ -98,7 +98,7 @@ Slice PlainTableIndexBuilder::Finish() {
   BucketizeIndexes(&hash_to_offsets, &entries_per_bucket);
 
   keys_per_prefix_hist_.Add(num_keys_per_prefix_);
-  ROCKS_LOG_INFO(ioptions_.info_log, "Number of Keys per prefix Histogram: %s",
+  ROCKS_LOG_INFO(ioptions_.logger, "Number of Keys per prefix Histogram: %s",
                  keys_per_prefix_hist_.ToString().c_str());
 
   // From the temp data structure, populate indexes.
@@ -113,7 +113,7 @@ void PlainTableIndexBuilder::AllocateIndex() {
   } else {
     double hash_table_size_multipier = 1.0 / hash_table_ratio_;
     index_size_ =
-      static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
+        static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
     assert(index_size_ > 0);
   }
 }
@@ -153,12 +153,12 @@ void PlainTableIndexBuilder::BucketizeIndexes(
 Slice PlainTableIndexBuilder::FillIndexes(
     const std::vector<IndexRecord*>& hash_to_offsets,
     const std::vector<uint32_t>& entries_per_bucket) {
-  ROCKS_LOG_DEBUG(ioptions_.info_log,
+  ROCKS_LOG_DEBUG(ioptions_.logger,
                   "Reserving %" PRIu32 " bytes for plain table's sub_index",
                   sub_index_size_);
   auto total_allocate_size = GetTotalSize();
   char* allocated = arena_->AllocateAligned(
-      total_allocate_size, huge_page_tlb_size_, ioptions_.info_log);
+      total_allocate_size, huge_page_tlb_size_, ioptions_.logger);
 
   auto temp_ptr = EncodeVarint32(allocated, index_size_);
   uint32_t* index =
@@ -179,7 +179,8 @@ Slice PlainTableIndexBuilder::FillIndexes(
         break;
       default:
         // point to second level indexes.
-        PutUnaligned(index + i, sub_index_offset | PlainTableIndex::kSubIndexMask);
+        PutUnaligned(index + i,
+                     sub_index_offset | PlainTableIndex::kSubIndexMask);
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
         sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);
@@ -198,7 +199,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
   }
   assert(sub_index_offset == sub_index_size_);
 
-  ROCKS_LOG_DEBUG(ioptions_.info_log,
+  ROCKS_LOG_DEBUG(ioptions_.logger,
                   "hash table size: %" PRIu32 ", suffix_map length %" PRIu32,
                   index_size_, sub_index_size_);
   return Slice(allocated, GetTotalSize());
@@ -206,6 +207,5 @@ Slice PlainTableIndexBuilder::FillIndexes(
 
 const std::string PlainTableIndexBuilder::kPlainTableIndexBlock =
     "PlainTableIndexBlock";
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

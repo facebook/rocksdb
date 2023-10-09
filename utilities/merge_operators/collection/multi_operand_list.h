@@ -21,24 +21,24 @@ namespace ROCKSDB_NAMESPACE {
  * as it goes if it finds a CollectionOperation::_kMulti
  * it will transparently expand it on the fly, so its operands
  * appear as standard operands during the iteration.
- * 
+ *
  * NOTE this iterator is a "Stashing Iterator" and
  * so cannot be used with std::reverse_iterator.
- * 
+ *
  * If you wish to iterate in reverse the following pattern
  * can be used:
- * 
+ *
  *     auto it = multi_operand_list.end();
  *     while (it != multi_operand_list.begin()) {
  *         --it;
- * 
+ *
  *         // process *it here
  *     }
  */
 template <typename CollectionType>
-class MultiOperandListIterator
-    : public std::iterator<std::bidirectional_iterator_tag, const Slice> {
- 
+class MultiOperandListIterator {
+  //: public std::iterator<std::bidirectional_iterator_tag, const Slice>
+
  private:
   typename CollectionType::const_iterator it_operand_list_;
   const typename CollectionType::const_iterator it_operand_list_begin_;
@@ -48,11 +48,16 @@ class MultiOperandListIterator
   // state for _kMulti Collection Operation operands
   bool in_multi_ = false;
   const Slice* multi_operand_;
-  std::vector<const char*> multi_operand_index_; 
+  std::vector<const char*> multi_operand_index_;
   size_t multi_operand_index_offset_ = 0;
 
  public:
   using iterator = MultiOperandListIterator<CollectionType>;
+  using iterator_category = std::bidirectional_iterator_tag;
+  using value_type = const Slice;
+  using difference_type = std::ptrdiff_t;
+  using pointer = const Slice*;
+  using reference = const Slice&;
 
   MultiOperandListIterator() = default;
 
@@ -60,7 +65,7 @@ class MultiOperandListIterator
       typename CollectionType::const_iterator it_operand_list,
       const typename CollectionType::const_iterator it_operand_list_begin,
       const typename CollectionType::const_iterator it_operand_list_end)
-        : it_operand_list_(it_operand_list),
+      : it_operand_list_(it_operand_list),
         it_operand_list_begin_(it_operand_list_begin),
         it_operand_list_end_(it_operand_list_end) {
     if (it_operand_list < it_operand_list_end) {
@@ -70,14 +75,15 @@ class MultiOperandListIterator
 
   MultiOperandListIterator(const iterator& other)
       : it_operand_list_(other.it_operand_list_),
-      it_operand_list_begin_(other.it_operand_list_begin_),
-      it_operand_list_end_(other.it_operand_list_end_),
-      in_multi_(other.in_multi_),
-      multi_operand_(other.multi_operand_),
-      multi_operand_index_(other.multi_operand_index_),
-      multi_operand_index_offset_(other.multi_operand_index_offset_)  {
+        it_operand_list_begin_(other.it_operand_list_begin_),
+        it_operand_list_end_(other.it_operand_list_end_),
+        in_multi_(other.in_multi_),
+        multi_operand_(other.multi_operand_),
+        multi_operand_index_(other.multi_operand_index_),
+        multi_operand_index_offset_(other.multi_operand_index_offset_) {
     if (other.in_multi_) {
-      current_operand_ = new Slice(other.current_operand_->data(), other.current_operand_->size());
+      current_operand_ = new Slice(other.current_operand_->data(),
+                                   other.current_operand_->size());
     } else {
       current_operand_ = other.current_operand_;
     }
@@ -93,18 +99,16 @@ class MultiOperandListIterator
     return MultiOperandListIterator(rhs);
   }
 
-  reference operator*() const {
-    return *current_operand_;
-  }
+  reference operator*() const { return *current_operand_; }
 
   bool operator==(const iterator& rhs) const {
-    if(it_operand_list_ == rhs.it_operand_list_) {
-      if(!in_multi_) {
+    if (it_operand_list_ == rhs.it_operand_list_) {
+      if (!in_multi_) {
         return true;
       } else {
         // we are in a _kMulti, check rhs _kMulti is equal
-        return rhs.in_multi
-            && multi_operand_index_offset_ == rhs.multi_operand_index_offset_;
+        return rhs.in_multi &&
+               multi_operand_index_offset_ == rhs.multi_operand_index_offset_;
       }
     }
 
@@ -112,14 +116,14 @@ class MultiOperandListIterator
   }
 
   bool operator!=(const iterator& rhs) const {
-    if(it_operand_list_ != rhs.it_operand_list_) {
+    if (it_operand_list_ != rhs.it_operand_list_) {
       return true;
     }
 
-    if(in_multi_) {
+    if (in_multi_) {
       if (!rhs.in_multi_) {
         // we are in a _kMulti, but rhs is not, so not equal
-        return true;    
+        return true;
       } else {
         return multi_operand_index_offset_ != rhs.multi_operand_index_offset_;
       }
@@ -169,29 +173,29 @@ class MultiOperandListIterator
   // TODO(AR) temp - see https://github.com/facebook/rocksdb/issues/3655
   // handles the case where previous PartialMergeMulti returns a no-op
   const Slice* begin_operand() {
-      while (it_operand_list_ != it_operand_list_end_) {
-        // read from underlying operand_list
-        const Slice* operand = &(*it_operand_list_);
+    while (it_operand_list_ != it_operand_list_end_) {
+      // read from underlying operand_list
+      const Slice* operand = &(*it_operand_list_);
 
-        // handles the case where previous PartialMergeMulti returns a no-op
-        if (operand->size() == 0) {
-            ++it_operand_list_;   // this is empty, attempt next
-            continue;
-        }
-
-        // is multi Collection Operation?
-        if ((*operand)[0] == CollectionOperation::_kMulti) {
-          in_multi_ = true;
-          multi_operand_ = operand;
-          build_multi_operand_index();
-
-          operand = get_multi_operand_operand(multi_operand_index_offset_);
-        }
-
-        return operand;
+      // handles the case where previous PartialMergeMulti returns a no-op
+      if (operand->size() == 0) {
+        ++it_operand_list_;  // this is empty, attempt next
+        continue;
       }
 
-      return nullptr;
+      // is multi Collection Operation?
+      if ((*operand)[0] == CollectionOperation::_kMulti) {
+        in_multi_ = true;
+        multi_operand_ = operand;
+        build_multi_operand_index();
+
+        operand = get_multi_operand_operand(multi_operand_index_offset_);
+      }
+
+      return operand;
+    }
+
+    return nullptr;
   }
 
   // const Slice* next_operand() {
@@ -210,7 +214,8 @@ class MultiOperandListIterator
   //       // end of previous multi
   //       in_multi_ = false;
   //       multi_operand_ = nullptr;
-  //       delete current_operand_;  // free the memory allocated for the last multi
+  //       delete current_operand_;  // free the memory allocated for the last
+  //       multi
   //     }
   //   }
 
@@ -244,7 +249,6 @@ class MultiOperandListIterator
 
     if (in_multi_) {
       if (has_next_multi_operand()) {
-
         // cleanup memory from previous operand of multi
         delete current_operand_;
 
@@ -255,20 +259,20 @@ class MultiOperandListIterator
         // end of previous multi
         in_multi_ = false;
         multi_operand_ = nullptr;
-        delete current_operand_;  // free the memory allocated for the last multi
+        delete current_operand_;  // free the memory allocated for the last
+                                  // multi
       }
     }
-    
-    if (!in_multi_
-        && it_operand_list_ != it_operand_list_end_) {
+
+    if (!in_multi_ && it_operand_list_ != it_operand_list_end_) {
       // read next from underlying operand_list
-      
+
       while (++it_operand_list_ != it_operand_list_end_) {
         operand = &(*it_operand_list_);
 
         // handles the case where previous PartialMergeMulti returns a no-op
         if (operand->size() == 0) {
-            continue; // this is empty, attempt next
+          continue;  // this is empty, attempt next
         }
 
         // is multi Collection Operation?
@@ -277,7 +281,7 @@ class MultiOperandListIterator
           multi_operand_ = operand;
           build_multi_operand_index();
           multi_operand_index_offset_ = 0;
-          
+
           operand = get_multi_operand_operand(multi_operand_index_offset_);
         }
 
@@ -293,16 +297,19 @@ class MultiOperandListIterator
   }
 
   bool has_next_multi_operand() const {
-    return in_multi_
-        && multi_operand_index_offset_ + 1 < multi_operand_index_.size() ;
+    return in_multi_ &&
+           multi_operand_index_offset_ + 1 < multi_operand_index_.size();
   }
 
-  const Slice* get_multi_operand_operand(const size_t multi_operand_index_offset) const {
-    const char* multi_operand_ptr = multi_operand_index_.at(multi_operand_index_offset);
+  const Slice* get_multi_operand_operand(
+      const size_t multi_operand_index_offset) const {
+    const char* multi_operand_ptr =
+        multi_operand_index_.at(multi_operand_index_offset);
     const uint32_t records_len = DecodeFixed32(multi_operand_ptr);
     multi_operand_ptr += sizeof(uint32_t);
 
-    const Slice* operand = new Slice(multi_operand_ptr, sizeof(CollectionOperation) + records_len);
+    const Slice* operand =
+        new Slice(multi_operand_ptr, sizeof(CollectionOperation) + records_len);
     return operand;
   }
 
@@ -322,7 +329,8 @@ class MultiOperandListIterator
   //       // end of previous multi
   //       in_multi_ = false;
   //       multi_operand_ = nullptr;
-  //       delete current_operand_;  // free the memory allocated for the last multi
+  //       delete current_operand_;  // free the memory allocated for the last
+  //       multi
   //     }
   //   }
 
@@ -351,18 +359,18 @@ class MultiOperandListIterator
 
     if (in_multi_) {
       if (has_prev_multi_operand()) {
-
         // cleanup memory from previous operand of multi
         delete current_operand_;
 
         // return prev from multi
         operand = get_multi_operand_operand(--multi_operand_index_offset_);
 
-        } else {
+      } else {
         // end of previous multi
         in_multi_ = false;
         multi_operand_ = nullptr;
-        delete current_operand_;  // free the memory allocated for the last multi
+        delete current_operand_;  // free the memory allocated for the last
+                                  // multi
       }
     }
 
@@ -373,7 +381,7 @@ class MultiOperandListIterator
 
         // handles the case where previous PartialMergeMulti returns a no-op
         if (operand->size() == 0) {
-            continue; // this is empty, attempt prev
+          continue;  // this is empty, attempt prev
         }
 
         // is multi Collection Operation?
@@ -394,8 +402,7 @@ class MultiOperandListIterator
   }
 
   bool has_prev_multi_operand() const {
-    return in_multi_
-        && multi_operand_index_offset_ > 0;
+    return in_multi_ && multi_operand_index_offset_ > 0;
   }
 
   void build_multi_operand_index() {
@@ -403,7 +410,7 @@ class MultiOperandListIterator
 
     multi_operand_index_.clear();  // clear the current index
 
-    const char * const end_ptr = multi_operand_->data() + multi_operand_->size();
+    const char* const end_ptr = multi_operand_->data() + multi_operand_->size();
     const char* data_ptr = multi_operand_->data();
     data_ptr += sizeof(CollectionOperation);  // skip over _kMulti
 
@@ -429,10 +436,10 @@ class MultiOperandList {
 
  public:
   using iterator = MultiOperandListIterator<CollectionType>;
-  
+
   MultiOperandList(CollectionType& operand_list)
       : operand_list_(operand_list) {}
-  
+
   iterator begin() const {
     return MultiOperandListIterator<CollectionType>(
         operand_list_.begin(), operand_list_.begin(), operand_list_.end());
@@ -444,4 +451,4 @@ class MultiOperandList {
   }
 };
 
-}  // end ROCKSDB_NAMESPACE namespace
+}  // namespace ROCKSDB_NAMESPACE

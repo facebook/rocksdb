@@ -14,6 +14,7 @@ int main() {
 #include "file/writable_file_writer.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
@@ -34,13 +35,14 @@ void RunBenchmark() {
   std::string file_name = test::PerThreadDBPath("log_write_benchmark.log");
   DBOptions options;
   Env* env = Env::Default();
+  const auto& clock = env->GetSystemClock();
   EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions(), options);
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
   std::unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
   std::unique_ptr<WritableFileWriter> writer;
   writer.reset(new WritableFileWriter(std::move(file), file_name, env_options,
-                                      env, nullptr /* stats */,
+                                      clock, nullptr /* stats */,
                                       options.listeners));
 
   std::string record;
@@ -48,24 +50,24 @@ void RunBenchmark() {
 
   HistogramImpl hist;
 
-  uint64_t start_time = env->NowMicros();
+  uint64_t start_time = clock->NowMicros();
   for (int i = 0; i < FLAGS_num_records; i++) {
-    uint64_t start_nanos = env->NowNanos();
+    uint64_t start_nanos = clock->NowNanos();
     writer->Append(record);
     writer->Flush();
     if (FLAGS_enable_sync) {
       writer->Sync(false);
     }
-    hist.Add(env->NowNanos() - start_nanos);
+    hist.Add(clock->NowNanos() - start_nanos);
 
     if (i % 1000 == 1) {
       fprintf(stderr, "Wrote %d records...\n", i);
     }
 
     int time_to_sleep =
-        (i + 1) * FLAGS_record_interval - (env->NowMicros() - start_time);
+        (i + 1) * FLAGS_record_interval - (clock->NowMicros() - start_time);
     if (time_to_sleep > 0) {
-      env->SleepForMicroseconds(time_to_sleep);
+      clock->SleepForMicroseconds(time_to_sleep);
     }
   }
 

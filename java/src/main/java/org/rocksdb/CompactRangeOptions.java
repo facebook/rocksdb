@@ -5,23 +5,26 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * CompactRangeOptions is used by CompactRange() call. In the documentation of the methods "the compaction" refers to
  * any compaction that is using this CompactRangeOptions.
  */
 public class CompactRangeOptions extends RocksObject {
+  private static final byte VALUE_kSkip = 0;
+  private static final byte VALUE_kIfHaveCompactionFilter = 1;
+  private static final byte VALUE_kForce = 2;
+  private static final byte VALUE_kForceOptimized = 3;
 
-  private final static byte VALUE_kSkip = 0;
-  private final static byte VALUE_kIfHaveCompactionFilter = 1;
-  private final static byte VALUE_kForce = 2;
-
-  // For level based compaction, we can configure if we want to skip/force bottommost level compaction.
-  // The order of this neum MUST follow the C++ layer. See BottommostLevelCompaction in db/options.h
+  // For level based compaction, we can configure if we want to skip/force bottommost level
+  // compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
+  // db/options.h
   public enum BottommostLevelCompaction {
     /**
      * Skip bottommost level compaction
      */
-    kSkip((byte)VALUE_kSkip),
+    kSkip(VALUE_kSkip),
     /**
      * Only compact bottommost level if there is a compaction filter. This is the default option
      */
@@ -29,7 +32,12 @@ public class CompactRangeOptions extends RocksObject {
     /**
      * Always compact bottommost level
      */
-    kForce(VALUE_kForce);
+    kForce(VALUE_kForce),
+    /**
+     * Always compact bottommost level but in bottommost level avoid
+     * double-compacting files created in the same compaction
+     */
+    kForceOptimized(VALUE_kForceOptimized);
 
     private final byte value;
 
@@ -56,8 +64,40 @@ public class CompactRangeOptions extends RocksObject {
         case VALUE_kSkip: return kSkip;
         case VALUE_kIfHaveCompactionFilter: return kIfHaveCompactionFilter;
         case VALUE_kForce: return kForce;
+        case VALUE_kForceOptimized:
+          return kForceOptimized;
         default: return null;
       }
+    }
+  }
+
+  public static class Timestamp {
+    public final long start;
+    public final long range;
+
+    public Timestamp(final long start, final long duration) {
+      this.start = start;
+      this.range = duration;
+    }
+
+    public Timestamp() {
+      this.start = 0;
+      this.range = 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      if (o == null || getClass() != o.getClass())
+        return false;
+      Timestamp timestamp = (Timestamp) o;
+      return start == timestamp.start && range == timestamp.range;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(start, range);
     }
   }
 
@@ -210,7 +250,25 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
-  private native static long newCompactRangeOptions();
+  public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
+    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.range);
+    return this;
+  }
+
+  public Timestamp fullHistoryTSLow() {
+    return fullHistoryTSLow(nativeHandle_);
+  }
+
+  public CompactRangeOptions setCanceled(final boolean canceled) {
+    setCanceled(nativeHandle_, canceled);
+    return this;
+  }
+
+  public boolean canceled() {
+    return canceled(nativeHandle_);
+  }
+
+  private static native long newCompactRangeOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native boolean exclusiveManualCompaction(final long handle);
@@ -234,4 +292,13 @@ public class CompactRangeOptions extends RocksObject {
   private native void setMaxSubcompactions(final long handle,
       final int maxSubcompactions);
   private native int maxSubcompactions(final long handle);
+
+  private native void setFullHistoryTSLow(
+      final long handle, final long timestampStart, final long timestampRange);
+
+  private native Timestamp fullHistoryTSLow(final long handle);
+
+  private native void setCanceled(final long handle, final boolean canceled);
+
+  private native boolean canceled(final long handle);
 }

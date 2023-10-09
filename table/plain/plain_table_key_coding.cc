@@ -3,11 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_key_coding.h"
 
 #include <algorithm>
 #include <string>
+
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "table/plain/plain_table_factory.h"
@@ -212,6 +212,7 @@ bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
     new_buffer->buf_len = 0;
   }
   Slice read_result;
+  // TODO: rate limit plain table reads.
   Status s =
       file_info_->file->Read(IOOptions(), file_offset, size_to_read,
                              &read_result, new_buffer->buf.get(), nullptr);
@@ -503,4 +504,3 @@ Status PlainTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LIT

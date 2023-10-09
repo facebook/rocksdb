@@ -7,6 +7,7 @@
 
 #include "rocksdb/table.h"
 #include "util/gflags_compat.h"
+#include "util/random.h"
 
 DECLARE_int32(mark_for_compaction_one_file_in);
 

@@ -71,8 +71,8 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
 
   /**
    * Creates an Event Listener that will
-   * received all callbacks from C++.
-   *
+   * receive all callbacks from C++.
+   * <p>
    * If you don't need all callbacks, it is much more efficient to
    * just register for the ones you need by calling
    * {@link #AbstractEventListener(EnabledEventCallback...)} instead.
@@ -106,8 +106,8 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private static long packToLong(final EnabledEventCallback... enabledEventCallbacks) {
     long l = 0;
-    for (int i = 0; i < enabledEventCallbacks.length; i++) {
-      l |= 1 << enabledEventCallbacks[i].getValue();
+    for (final EnabledEventCallback enabledEventCallback : enabledEventCallbacks) {
+      l |= 1L << enabledEventCallback.getValue();
     }
     return l;
   }

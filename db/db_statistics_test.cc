@@ -16,78 +16,119 @@ namespace ROCKSDB_NAMESPACE {
 class DBStatisticsTest : public DBTestBase {
  public:
   DBStatisticsTest()
-      : DBTestBase("/db_statistics_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_statistics_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBStatisticsTest, CompressionStatsTest) {
-  CompressionType type;
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    if (type == kBZip2Compression) {
+      // Weird behavior in this test
+      continue;
+    }
+    SCOPED_TRACE("Compression type: " + std::to_string(type));
 
-  if (Snappy_Supported()) {
-    type = kSnappyCompression;
-    fprintf(stderr, "using snappy\n");
-  } else if (Zlib_Supported()) {
-    type = kZlibCompression;
-    fprintf(stderr, "using zlib\n");
-  } else if (BZip2_Supported()) {
-    type = kBZip2Compression;
-    fprintf(stderr, "using bzip2\n");
-  } else if (LZ4_Supported()) {
-    type = kLZ4Compression;
-    fprintf(stderr, "using lz4\n");
-  } else if (XPRESS_Supported()) {
-    type = kXpressCompression;
-    fprintf(stderr, "using xpress\n");
-  } else if (ZSTD_Supported()) {
-    type = kZSTD;
-    fprintf(stderr, "using ZSTD\n");
-  } else {
-    fprintf(stderr, "skipping test, compression disabled\n");
-    return;
+    Options options = CurrentOptions();
+    options.compression = type;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    auto PopStat = [&](Tickers t) -> uint64_t {
+      return options.statistics->getAndResetTickerCount(t);
+    };
+
+    int kNumKeysWritten = 100;
+    double compress_to = 0.5;
+    // About three KVs per block
+    int len = static_cast<int>(BlockBasedTableOptions().block_size / 3);
+    int uncomp_est = kNumKeysWritten * (len + 20);
+
+    Random rnd(301);
+    std::string buf;
+
+    // Check that compressions occur and are counted when compression is turned
+    // on
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(
+          Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
+    }
+    ASSERT_OK(Flush());
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
+    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+    // And decompressions
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
+    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+
+    // Check when compression is rejected.
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomBinaryString(len)));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_REJECTED),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
+
+    // Check when compression is disabled.
+    options.compression = kNoCompression;
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(Put(Key(i), rnd.RandomBinaryString(len)));
+    }
+    ASSERT_OK(Flush());
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      auto r = Get(Key(i));
+    }
+    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSION_BYPASSED),
+                 uncomp_est / 10);
+
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSED_TO));
+    EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
+    EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_TO));
   }
-
-  Options options = CurrentOptions();
-  options.compression = type;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-  DestroyAndReopen(options);
-
-  int kNumKeysWritten = 100000;
-
-  // Check that compressions occur and are counted when compression is turned on
-  Random rnd(301);
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED), 0);
-
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-  uint64_t currentCompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
-  uint64_t currentDecompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED);
-
-  // Check that compressions do not occur when turned off
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED)
-            - currentCompressions, 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED)
-            - currentDecompressions, 0);
 }
 
 TEST_F(DBStatisticsTest, MutexWaitStatsDisabledByDefault) {
@@ -153,6 +194,93 @@ TEST_F(DBStatisticsTest, ExcludeTickers) {
   Reopen(options);
   ASSERT_EQ("value", Get("foo"));
   ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
+}
+
+
+TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
+  Options options = CurrentOptions();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Expected to be populated regardless of `PerfLevel` in user thread
+  SetPerfLevel(kDisable);
+
+  {
+    // Scenario 0: only WAL data. Not verified so require ticker to be zero.
+    ASSERT_OK(Put("foo", "value"));
+    ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+    ASSERT_OK(db_->VerifyChecksum());
+    ASSERT_EQ(0,
+              options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+  }
+
+  // Create one SST.
+  ASSERT_OK(Flush());
+  std::unordered_map<std::string, uint64_t> table_files;
+  uint64_t table_files_size = 0;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files, &table_files_size));
+
+  {
+    // Scenario 1: Table verified in `VerifyFileChecksums()`. This should read
+    // the whole file so we require the ticker stat exactly matches the file
+    // size.
+    ASSERT_OK(options.statistics->Reset());
+    ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+    ASSERT_EQ(table_files_size,
+              options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES));
+  }
+
+  {
+    // Scenario 2: Table verified in `VerifyChecksum()`. This opens a
+    // `TableReader` to verify each block. It can involve duplicate reads of the
+    // same data so we set a lower-bound only.
+    ASSERT_OK(options.statistics->Reset());
+    ASSERT_OK(db_->VerifyChecksum());
+    ASSERT_GE(options.statistics->getTickerCount(VERIFY_CHECKSUM_READ_BYTES),
+              table_files_size);
+  }
+}
+
+TEST_F(DBStatisticsTest, BlockChecksumStats) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Scenario 0: only WAL data. Not verified so require ticker to be zero.
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 1: Flushed table verified in `VerifyChecksum()`. This opens a
+  // `TableReader` to verify each of the four blocks (meta-index, table
+  // properties, index, and data block).
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_OK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(0,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+
+  // Scenario 2: Corrupted table verified in `VerifyChecksum()`. The corruption
+  // is in the fourth and final verified block, i.e., the data block.
+  std::unordered_map<std::string, uint64_t> table_files;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files));
+  ASSERT_EQ(1, table_files.size());
+  std::string table_name = table_files.begin()->first;
+  // Assumes the data block starts at offset zero.
+  ASSERT_OK(test::CorruptFile(options.env, table_name, 0 /* offset */,
+                              3 /* bytes_to_corrupt */));
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_NOK(db_->VerifyChecksum());
+  ASSERT_EQ(4,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

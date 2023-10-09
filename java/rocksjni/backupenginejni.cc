@@ -7,10 +7,12 @@
 // calling C++ ROCKSDB_NAMESPACE::BackupEngine methods from the Java side.
 
 #include <jni.h>
+
 #include <vector>
 
 #include "include/org_rocksdb_BackupEngine.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -20,17 +22,17 @@
  */
 jlong Java_org_rocksdb_BackupEngine_open(JNIEnv* env, jclass /*jcls*/,
                                          jlong env_handle,
-                                         jlong backupable_db_options_handle) {
+                                         jlong backup_engine_options_handle) {
   auto* rocks_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(env_handle);
-  auto* backupable_db_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::BackupableDBOptions*>(
-          backupable_db_options_handle);
+  auto* backup_engine_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngineOptions*>(
+          backup_engine_options_handle);
   ROCKSDB_NAMESPACE::BackupEngine* backup_engine;
   auto status = ROCKSDB_NAMESPACE::BackupEngine::Open(
-      rocks_env, *backupable_db_options, &backup_engine);
+      rocks_env, *backup_engine_options, &backup_engine);
 
   if (status.ok()) {
-    return reinterpret_cast<jlong>(backup_engine);
+    return GET_CPLUSPLUS_POINTER(backup_engine);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
     return 0;

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <thread>
@@ -22,16 +23,16 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/sst_file_writer.h"
@@ -40,7 +41,6 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
-#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -49,7 +49,11 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
+// In case defined by Windows headers
+#undef small
+
 namespace ROCKSDB_NAMESPACE {
+class MockEnv;
 
 namespace anon {
 class AtomicCounter {
@@ -103,108 +107,32 @@ struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
+  // Force using a default block cache. (Setting to false allows ASAN build
+  // use a trivially small block cache for better UAF error detection.)
+  bool full_block_cache = false;
   uint64_t metadata_block_size = 1024;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
+
+  // The default value for this option is changed from false to true.
+  // Keeping the default to false for unit tests as old unit tests assume
+  // this behavior. Tests for level_compaction_dynamic_level_bytes
+  // will set the option to true explicitly.
+  bool level_compaction_dynamic_level_bytes = false;
 };
 
 }  // namespace anon
 
 enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 
-// A hacky skip list mem table that triggers flush after number of entries.
-class SpecialMemTableRep : public MemTableRep {
- public:
-  explicit SpecialMemTableRep(Allocator* allocator, MemTableRep* memtable,
-                              int num_entries_flush)
-      : MemTableRep(allocator),
-        memtable_(memtable),
-        num_entries_flush_(num_entries_flush),
-        num_entries_(0) {}
-
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
-    return memtable_->Allocate(len, buf);
-  }
-
-  // Insert key into the list.
-  // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(KeyHandle handle) override {
-    num_entries_++;
-    memtable_->Insert(handle);
-  }
-
-  void InsertConcurrently(KeyHandle handle) override {
-    num_entries_++;
-    memtable_->Insert(handle);
-  }
-
-  // Returns true iff an entry that compares equal to key is in the list.
-  virtual bool Contains(const char* key) const override {
-    return memtable_->Contains(key);
-  }
-
-  virtual size_t ApproximateMemoryUsage() override {
-    // Return a high memory usage when number of entries exceeds the threshold
-    // to trigger a flush.
-    return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
-  }
-
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
-    memtable_->Get(k, callback_args, callback_func);
-  }
-
-  uint64_t ApproximateNumEntries(const Slice& start_ikey,
-                                 const Slice& end_ikey) override {
-    return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
-  }
-
-  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
-    return memtable_->GetIterator(arena);
-  }
-
-  virtual ~SpecialMemTableRep() override {}
-
- private:
-  std::unique_ptr<MemTableRep> memtable_;
-  int num_entries_flush_;
-  int num_entries_;
-};
-
-// The factory for the hacky skip list mem table that triggers flush after
-// number of entries exceeds a threshold.
-class SpecialSkipListFactory : public MemTableRepFactory {
- public:
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
-  // flush.
-  explicit SpecialSkipListFactory(int num_entries_flush)
-      : num_entries_flush_(num_entries_flush) {}
-
-  using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* /*logger*/) override {
-    return new SpecialMemTableRep(
-        allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
-        num_entries_flush_);
-  }
-  virtual const char* Name() const override { return "SkipListFactory"; }
-
-  bool IsInsertConcurrentlySupported() const override {
-    return factory_.IsInsertConcurrentlySupported();
-  }
-
- private:
-  SkipListFactory factory_;
-  int num_entries_flush_;
-};
-
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
+
+  static const char* kClassName() { return "SpecialEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -230,6 +158,11 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(data);
+      }
       Status PositionedAppend(const Slice& data, uint64_t offset) override {
         if (env_->table_write_callback_) {
           (*env_->table_write_callback_)();
@@ -243,6 +176,11 @@ class SpecialEnv : public EnvWrapper {
           env_->bytes_written_ += data.size();
           return base_->PositionedAppend(data, offset);
         }
+      }
+      Status PositionedAppend(
+          const Slice& data, uint64_t offset,
+          const DataVerificationInfo& /* verification_info */) override {
+        return PositionedAppend(data, offset);
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status RangeSync(uint64_t offset, uint64_t nbytes) override {
@@ -288,12 +226,14 @@ class SpecialEnv : public EnvWrapper {
       Env::IOPriority GetIOPriority() override {
         return base_->GetIOPriority();
       }
-      bool use_direct_io() const override {
-        return base_->use_direct_io();
-      }
+      bool use_direct_io() const override { return base_->use_direct_io(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      size_t GetUniqueId(char* id, size_t max_size) const override {
+        return base_->GetUniqueId(id, max_size);
+      }
+      uint64_t GetFileSize() final { return base_->GetFileSize(); }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -306,6 +246,12 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /*verification_info*/) override {
+        return Append(data);
+      }
+
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
@@ -357,15 +303,26 @@ class SpecialEnv : public EnvWrapper {
 #endif
         return s;
       }
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(data);
+      }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      void PrepareWrite(size_t offset, size_t len) override {
+        base_->PrepareWrite(offset, len);
+      }
+      void SetPreallocationBlockSize(size_t size) override {
+        base_->SetPreallocationBlockSize(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        // preallocation size is never passed to base file.
-        size_t preallocation_size = preallocation_block_size();
+        size_t block_size, last_allocated_block;
+        base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
-                                 &preallocation_size);
+                                 &block_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
         return base_->Close();
@@ -373,6 +330,10 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
+        if (env_->corrupt_in_sync_) {
+          EXPECT_OK(Append(std::string(33000, ' ')));
+          return Status::IOError("Ingested Sync Failure");
+        }
         if (env_->skip_fsync_) {
           return Status::OK();
         } else {
@@ -385,6 +346,7 @@ class SpecialEnv : public EnvWrapper {
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
+      uint64_t GetFileSize() final { return base_->GetFileSize(); }
 
      private:
       SpecialEnv* env_;
@@ -395,6 +357,11 @@ class SpecialEnv : public EnvWrapper {
       OtherFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) override { return base_->Append(data); }
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /*verification_info*/) override {
+        return Append(data);
+      }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
@@ -414,6 +381,11 @@ class SpecialEnv : public EnvWrapper {
       SpecialEnv* env_;
       std::unique_ptr<WritableFile> base_;
     };
+
+    if (no_file_overwrite_.load(std::memory_order_acquire) &&
+        target()->FileExists(f).ok()) {
+      return Status::NotSupported("SpecialEnv::no_file_overwrite_ is true.");
+    }
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
       uint32_t random_number;
@@ -625,11 +597,20 @@ class SpecialEnv : public EnvWrapper {
         ~NoopDirectory() {}
 
         Status Fsync() override { return Status::OK(); }
+        Status Close() override { return Status::OK(); }
       };
 
       result->reset(new NoopDirectory());
       return Status::OK();
     }
+  }
+
+  Status RenameFile(const std::string& src, const std::string& dest) override {
+    rename_count_.fetch_add(1);
+    if (rename_error_.load(std::memory_order_acquire)) {
+      return Status::NotSupported("Simulated `RenameFile()` error.");
+    }
+    return target()->RenameFile(src, dest);
   }
 
   // Something to return when mocking current time
@@ -659,8 +640,14 @@ class SpecialEnv : public EnvWrapper {
   // Force write to log files to fail while this pointer is non-nullptr
   std::atomic<bool> log_write_error_;
 
+  // Force `RenameFile()` to fail while this pointer is non-nullptr
+  std::atomic<bool> rename_error_{false};
+
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
+
+  // If true, returns Status::NotSupported for file overwrite.
+  std::atomic<bool> no_file_overwrite_;
 
   // Number of WAL files that are still open for write.
   std::atomic<int> num_open_wal_file_;
@@ -684,6 +671,9 @@ class SpecialEnv : public EnvWrapper {
   // If true, all fsync to files and directories are skipped.
   bool skip_fsync_ = false;
 
+  // If true, ingest the corruption to file during sync.
+  bool corrupt_in_sync_ = false;
+
   std::atomic<uint32_t> non_writeable_rate_;
 
   std::atomic<uint32_t> new_writable_count_;
@@ -695,6 +685,8 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
+
+  std::atomic<int> rename_count_{0};
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
@@ -711,10 +703,146 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 };
 
-#ifndef ROCKSDB_LITE
+class FileTemperatureTestFS : public FileSystemWrapper {
+ public:
+  explicit FileTemperatureTestFS(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FileTemperatureTestFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    IOStatus s = target()->NewSequentialFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
+        *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
+  }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
+        *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
+  }
+
+  void PopRequestedSstFileTemperatures(
+      std::vector<std::pair<uint64_t, Temperature>>* out = nullptr) {
+    MutexLock lock(&mu_);
+    if (out) {
+      *out = std::move(requested_sst_file_temperatures_);
+      assert(requested_sst_file_temperatures_.empty());
+    } else {
+      requested_sst_file_temperatures_.clear();
+    }
+  }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      current_sst_file_temperatures_[number] = opts.temperature;
+    }
+    return target()->NewWritableFile(fname, opts, result, dbg);
+  }
+
+  void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
+    MutexLock lock(&mu_);
+    *out = current_sst_file_temperatures_;
+  }
+
+  void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
+    MutexLock lock(&mu_);
+    current_sst_file_temperatures_[number] = temp;
+  }
+
+ protected:
+  port::Mutex mu_;
+  std::vector<std::pair<uint64_t, Temperature>>
+      requested_sst_file_temperatures_;
+  std::map<uint64_t, Temperature> current_sst_file_temperatures_;
+
+  std::string GetFileName(const std::string& fname) {
+    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+    // workaround only for Windows that the file path could contain both Windows
+    // FilePathSeparator and '/'
+    filename = filename.substr(filename.find_last_of('/') + 1);
+    return filename;
+  }
+
+  template <class FileOwnerWrapperT, /*inferred*/ class FileT>
+  std::unique_ptr<FileT> WrapWithTemperature(uint64_t number,
+                                             std::unique_ptr<FileT>&& t) {
+    class FileWithTemp : public FileOwnerWrapperT {
+     public:
+      FileWithTemp(FileTemperatureTestFS* fs, uint64_t number,
+                   std::unique_ptr<FileT>&& t)
+          : FileOwnerWrapperT(std::move(t)), fs_(fs), number_(number) {}
+
+      Temperature GetTemperature() const override {
+        MutexLock lock(&fs_->mu_);
+        return fs_->current_sst_file_temperatures_[number_];
+      }
+
+     private:
+      FileTemperatureTestFS* fs_;
+      uint64_t number_;
+    };
+    return std::make_unique<FileWithTemp>(this, number, std::move(t));
+  }
+};
+
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "OnFileDeletionListener"; }
 
   void SetExpectedFileName(const std::string file_name) {
     expected_file_name_ = file_name;
@@ -736,20 +864,49 @@ class OnFileDeletionListener : public EventListener {
   size_t matched_count_;
   std::string expected_file_name_;
 };
-#endif
+
+class FlushCounterListener : public EventListener {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "FlushCounterListener"; }
+  std::atomic<int> count{0};
+  std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
+
+  void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
+    count++;
+    ASSERT_EQ(expected_flush_reason.load(), flush_job_info.flush_reason);
+  }
+};
 
 // A test merge operator mimics put but also fails if one of merge operands is
-// "corrupted".
+// "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
+    static const std::map<std::string, MergeOperator::OpFailureScope>
+        bad_operand_to_op_failure_scope = {
+            {"corrupted", MergeOperator::OpFailureScope::kDefault},
+            {"corrupted_try_merge", MergeOperator::OpFailureScope::kTryMerge},
+            {"corrupted_must_merge",
+             MergeOperator::OpFailureScope::kMustMerge}};
+    auto check_operand =
+        [](Slice operand_val,
+           MergeOperator::OpFailureScope* op_failure_scope) -> bool {
+      auto iter = bad_operand_to_op_failure_scope.find(operand_val.ToString());
+      if (iter != bad_operand_to_op_failure_scope.end()) {
+        *op_failure_scope = iter->second;
+        return false;
+      }
+      return true;
+    };
     if (merge_in.existing_value != nullptr &&
-        *(merge_in.existing_value) == "corrupted") {
+        !check_operand(*merge_in.existing_value,
+                       &merge_out->op_failure_scope)) {
       return false;
     }
     for (auto value : merge_in.operand_list) {
-      if (value == "corrupted") {
+      if (!check_operand(value, &merge_out->op_failure_scope)) {
         return false;
       }
     }
@@ -760,70 +917,51 @@ class TestPutOperator : public MergeOperator {
   virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
-// A wrapper around Cache that can easily be extended with instrumentation,
-// etc.
-class CacheWrapper : public Cache {
+/*
+ * A cache wrapper that tracks certain CacheEntryRole's cache charge, its
+ * peaks and increments
+ *
+ *        p0
+ *       / \   p1
+ *      /   \  /\
+ *     /     \/  \
+ *  a /       b   \
+ * peaks = {p0, p1}
+ * increments = {p1-a, p2-b}
+ */
+template <CacheEntryRole R>
+class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
-  explicit CacheWrapper(std::shared_ptr<Cache> target)
-      : target_(std::move(target)) {}
+  explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
 
-  const char* Name() const override { return target_->Name(); }
+  const char* Name() const override { return "TargetCacheChargeTrackingCache"; }
 
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, charge, deleter, handle, priority);
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& compressed = Slice(),
+                CompressionType type = kNoCompression) override;
+
+  using Cache::Release;
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override;
+
+  std::size_t GetCacheCharge() { return cur_cache_charge_; }
+
+  std::deque<std::size_t> GetChargedCachePeaks() { return cache_charge_peaks_; }
+
+  std::size_t GetChargedCacheIncrementSum() {
+    return cache_charge_increments_sum_;
   }
 
-  Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
-    return target_->Lookup(key, stats);
-  }
+ private:
+  static const Cache::CacheItemHelper* kCrmHelper;
 
-  bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-  bool Release(Handle* handle, bool force_erase = false) override {
-    return target_->Release(handle, force_erase);
-  }
-
-  void* Value(Handle* handle) override { return target_->Value(handle); }
-
-  void Erase(const Slice& key) override { target_->Erase(key); }
-  uint64_t NewId() override { return target_->NewId(); }
-
-  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
-
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-    target_->SetStrictCapacityLimit(strict_capacity_limit);
-  }
-
-  bool HasStrictCapacityLimit() const override {
-    return target_->HasStrictCapacityLimit();
-  }
-
-  size_t GetCapacity() const override { return target_->GetCapacity(); }
-
-  size_t GetUsage() const override { return target_->GetUsage(); }
-
-  size_t GetUsage(Handle* handle) const override {
-    return target_->GetUsage(handle);
-  }
-
-  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
-
-  size_t GetCharge(Handle* handle) const override {
-    return target_->GetCharge(handle);
-  }
-
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override {
-    target_->ApplyToAllCacheEntries(callback, thread_safe);
-  }
-
-  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
-
- protected:
-  std::shared_ptr<Cache> target_;
+  std::size_t cur_cache_charge_;
+  std::size_t cache_charge_peak_;
+  std::size_t cache_charge_increment_;
+  bool last_peak_tracked_;
+  std::deque<std::size_t> cache_charge_peaks_;
+  std::size_t cache_charge_increments_sum_;
 };
 
 class DBTestBase : public testing::Test {
@@ -851,24 +989,23 @@ class DBTestBase : public testing::Test {
     kHashSkipList = 18,
     kUniversalCompaction = 19,
     kUniversalCompactionMultiLevel = 20,
-    kCompressedBlockCache = 21,
-    kInfiniteMaxOpenFiles = 22,
-    kxxHashChecksum = 23,
-    kFIFOCompaction = 24,
-    kOptimizeFiltersForHits = 25,
-    kRowCache = 26,
-    kRecycleLogFiles = 27,
-    kConcurrentSkipList = 28,
-    kPipelinedWrite = 29,
-    kConcurrentWALWrites = 30,
+    kInfiniteMaxOpenFiles = 21,
+    kCRC32cChecksum = 22,
+    kFIFOCompaction = 23,
+    kOptimizeFiltersForHits = 24,
+    kRowCache = 25,
+    kRecycleLogFiles = 26,
+    kConcurrentSkipList = 27,
+    kPipelinedWrite = 28,
+    kConcurrentWALWrites = 29,
     kDirectIO,
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
     kBlockBasedTableWithPartitionedIndexFormat4,
+    kBlockBasedTableWithLatestFormat,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
-    kxxHash64Checksum,
     kUnorderedWrite,
     // This must be the last line
     kEnd,
@@ -1018,8 +1155,6 @@ class DBTestBase : public testing::Test {
 
   Status SingleDelete(int cf, const std::string& k);
 
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
-
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 
   std::string Get(int cf, const std::string& k,
@@ -1030,10 +1165,12 @@ class DBTestBase : public testing::Test {
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
                                     const Snapshot* snapshot,
-                                    const bool batched);
+                                    const bool batched,
+                                    const bool async = false);
 
   std::vector<std::string> MultiGet(const std::vector<std::string>& k,
-                                    const Snapshot* snapshot = nullptr);
+                                    const Snapshot* snapshot = nullptr,
+                                    const bool async = false);
 
   uint64_t GetNumSnapshots();
 
@@ -1047,7 +1184,15 @@ class DBTestBase : public testing::Test {
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0);
 
-#ifndef ROCKSDB_LITE
+  // Similar to AllEntriesFor but this function also covers reopen with fifo.
+  // Note that test cases with snapshots or entries in memtable should simply
+  // use AllEntriesFor instead as snapshots and entries in memtable will
+  // survive after db reopen.
+  void CheckAllEntriesWithFifoReopen(const std::string& expected_value,
+                                     const Slice& user_key, int cf,
+                                     const std::vector<std::string>& cfs,
+                                     const Options& options);
+
   int NumSortedRuns(int cf = 0);
 
   uint64_t TotalSize(int cf = 0);
@@ -1056,6 +1201,8 @@ class DBTestBase : public testing::Test {
 
   size_t TotalLiveFiles(int cf = 0);
 
+  size_t TotalLiveFilesAtPath(int cf, const std::string& path);
+
   size_t CountLiveFiles();
 
   int NumTableFilesAtLevel(int level, int cf = 0);
@@ -1063,14 +1210,21 @@ class DBTestBase : public testing::Test {
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
-#endif  // ROCKSDB_LITE
+
+  std::vector<uint64_t> GetBlobFileNumbers();
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
 
   size_t CountFiles();
 
-  uint64_t Size(const Slice& start, const Slice& limit, int cf = 0);
+  Status CountFiles(size_t* count);
+
+  Status Size(const Slice& start, const Slice& limit, uint64_t* size) {
+    return Size(start, limit, 0, size);
+  }
+
+  Status Size(const Slice& start, const Slice& limit, int cf, uint64_t* size);
 
   void Compact(int cf, const Slice& start, const Slice& limit,
                uint32_t target_path_id);
@@ -1091,9 +1245,7 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
-#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
-#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
@@ -1148,8 +1300,9 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  Status GetAllSSTFiles(std::unordered_map<std::string, uint64_t>* sst_files,
-                        uint64_t* total_size = nullptr);
+  Status GetAllDataFiles(const FileType file_type,
+                         std::unordered_map<std::string, uint64_t>* sst_files,
+                         uint64_t* total_size = nullptr);
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
@@ -1161,10 +1314,10 @@ class DBTestBase : public testing::Test {
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);
 
-#ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
-#endif  // ROCKSDB_LITE
+
+  uint64_t GetSstSizeHelper(Temperature temperature);
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
     return options.statistics->getTickerCount(ticker_type);
@@ -1174,15 +1327,57 @@ class DBTestBase : public testing::Test {
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
   }
+  // Short name for TestGetAndResetTickerCount
+  uint64_t PopTicker(const Options& options, Tickers ticker_type) {
+    return options.statistics->getAndResetTickerCount(ticker_type);
+  }
 
   // Note: reverting this setting within the same test run is not yet
   // supported
   void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+  void ResetTableProperties(TableProperties* tp) {
+    tp->data_size = 0;
+    tp->index_size = 0;
+    tp->filter_size = 0;
+    tp->raw_key_size = 0;
+    tp->raw_value_size = 0;
+    tp->num_data_blocks = 0;
+    tp->num_entries = 0;
+    tp->num_deletions = 0;
+    tp->num_merge_operands = 0;
+    tp->num_range_deletions = 0;
+  }
+
+  void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
+    double dummy_double;
+    std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
+    std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
+    ResetTableProperties(tp);
+    sscanf(tp_string.c_str(),
+           "# data blocks %" SCNu64 " # entries %" SCNu64
+           " # deletions %" SCNu64 " # merge operands %" SCNu64
+           " # range deletions %" SCNu64 " raw key size %" SCNu64
+           " raw average key size %lf "
+           " raw value size %" SCNu64
+           " raw average value size %lf "
+           " data block size %" SCNu64 " index block size (user-key? %" SCNu64
+           ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
+           &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
+           &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
+           &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
+           &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
+           &tp->index_size, &tp->filter_size);
+  }
 
  private:  // Prone to error on direct use
   void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
 
   bool time_elapse_only_sleep_on_reopen_ = false;
 };
+
+// For verifying that all files generated by current version have SST
+// unique ids.
+void VerifySstUniqueIds(const TablePropertiesCollection& props);
 
 }  // namespace ROCKSDB_NAMESPACE

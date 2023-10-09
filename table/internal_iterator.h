@@ -7,7 +7,9 @@
 #pragma once
 
 #include <string>
+
 #include "db/dbformat.h"
+#include "file/readahead_file_info.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -40,6 +42,17 @@ class InternalIteratorBase : public Cleanable {
   InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
 
   virtual ~InternalIteratorBase() {}
+
+  // This iterator will only process range tombstones with sequence
+  // number <= `read_seqno`.
+  // Noop for most child classes.
+  // For range tombstone iterators (TruncatedRangeDelIterator,
+  // FragmentedRangeTombstoneIterator), will only return range tombstones with
+  // sequence number <= `read_seqno`. For LevelIterator, it may open new table
+  // files and create new range tombstone iterators during scanning. It will use
+  // `read_seqno` as the sequence number for creating new range tombstone
+  // iterators.
+  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */) {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
@@ -172,8 +185,27 @@ class InternalIteratorBase : public Cleanable {
     return Status::NotSupported("");
   }
 
+  // When iterator moves from one file to another file at same level, new file's
+  // readahead state (details of last block read) is updated with previous
+  // file's readahead state. This way internal readahead_size of Prefetch Buffer
+  // doesn't start from scratch and can fall back to 8KB with no prefetch if
+  // reads are not sequential.
+  //
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void GetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // When used under merging iterator, LevelIterator treats file boundaries
+  // as sentinel keys to prevent it from moving to next SST file before range
+  // tombstones in the current SST file are no longer needed. This method makes
+  // it cheap to check if the current key is a sentinel key. This should only be
+  // used by MergingIterator and LevelIterator for now.
+  virtual bool IsDeleteRangeSentinelKey() const { return false; }
+
  protected:
-  void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
+  void SeekForPrevImpl(const Slice& target, const CompareInterface* cmp) {
     Seek(target);
     if (!Valid()) {
       SeekToLast();
@@ -182,8 +214,6 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-
-  bool is_mutable_;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;

@@ -13,31 +13,33 @@
 #if defined(OS_WIN)
 
 #include "port/win/win_logger.h"
-#include "port/win/io_win.h"
 
-#include <algorithm>
+#include <fcntl.h>
 #include <stdio.h>
 #include <time.h>
-#include <fcntl.h>
-#include <atomic>
 
-#include "rocksdb/env.h"
+#include <algorithm>
+#include <atomic>
 
 #include "monitoring/iostats_context_imp.h"
 #include "port/sys_time.h"
+#include "port/win/env_win.h"
+#include "port/win/io_win.h"
+#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace port {
 
-WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
+WinLogger::WinLogger(uint64_t (*gettid)(), SystemClock* clock, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
       file_(file),
       gettid_(gettid),
       log_size_(0),
       last_flush_micros_(0),
-      env_(env),
+      clock_(clock),
       flush_pending_(false) {
   assert(file_ != NULL);
   assert(file_ != INVALID_HANDLE_VALUE);
@@ -53,11 +55,9 @@ void WinLogger::DebugWriter(const char* str, int len) {
   }
 }
 
-WinLogger::~WinLogger() { CloseInternal(); }
+WinLogger::~WinLogger() { CloseInternal().PermitUncheckedError(); }
 
-Status WinLogger::CloseImpl() {
-  return CloseInternal();
-}
+Status WinLogger::CloseImpl() { return CloseInternal(); }
 
 Status WinLogger::CloseInternal() {
   Status s;
@@ -88,7 +88,7 @@ void WinLogger::Flush() {
     // for perf reasons.
   }
 
-  last_flush_micros_ = env_->NowMicros();
+  last_flush_micros_ = clock_->NowMicros();
 }
 
 void WinLogger::Logv(const char* format, va_list ap) {
@@ -116,8 +116,8 @@ void WinLogger::Logv(const char* format, va_list ap) {
     char* p = base;
     char* limit = base + bufsize;
 
-    struct timeval now_tv;
-    gettimeofday(&now_tv, nullptr);
+    port::TimeVal now_tv;
+    port::GetTimeOfDay(&now_tv, nullptr);
     const time_t seconds = now_tv.tv_sec;
     struct tm t;
     localtime_s(&t, &seconds);
@@ -158,7 +158,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
 
     DWORD bytesWritten = 0;
     BOOL ret = WriteFile(file_, base, static_cast<DWORD>(write_size),
-      &bytesWritten, NULL);
+                         &bytesWritten, NULL);
     if (ret == FALSE) {
       std::string errSz = GetWindowsErrSz(GetLastError());
       fprintf(stderr, "%s", errSz.c_str());
@@ -185,7 +185,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
 
 size_t WinLogger::GetLogFileSize() const { return log_size_; }
 
-}
+}  // namespace port
 
 }  // namespace ROCKSDB_NAMESPACE
 

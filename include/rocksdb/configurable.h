@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,7 +29,7 @@ struct DBOptions;
 // standard way of configuring objects.  A Configurable object can:
 //   -> Populate itself given:
 //        - One or more "name/value" pair strings
-//        - A string repesenting the set of name=value properties
+//        - A string representing the set of name=value properties
 //        - A map of name/value properties.
 //   -> Convert itself into its string representation
 //   -> Dump itself to a Logger
@@ -48,14 +49,11 @@ class Configurable {
     std::string name;
     // Pointer to the object being registered
     void* opt_ptr;
-#ifndef ROCKSDB_LITE
     // The map of options being registered
     const std::unordered_map<std::string, OptionTypeInfo>* type_map;
-#endif
   };
 
  public:
-  Configurable() : prepared_(false) {}
   virtual ~Configurable() {}
 
   // Returns the raw pointer of the named options that is used by this
@@ -121,7 +119,6 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opt_map,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Updates the named option to the input value, returning OK if successful.
   // Note that ConfigureOption does not cause PrepareOptions to be invoked.
   // @param config_options Controls how the name/value is processed.
@@ -135,7 +132,6 @@ class Configurable {
   // @return InvalidArgument If the value cannot be successfully  parsed.
   Status ConfigureOption(const ConfigOptions& config_options,
                          const std::string& name, const std::string& value);
-#endif  // ROCKSDB_LITE
 
   // Configures the options for this class based on the input parameters.
   // On successful completion, the object is updated with the settings from
@@ -166,12 +162,11 @@ class Configurable {
   // This is the inverse of ConfigureFromString.
   // @param config_options Controls how serialization happens.
   // @param result The string representation of this object.
-  // @return OK If the options for this object wer successfully serialized.
+  // @return OK If the options for this object were successfully serialized.
   // @return InvalidArgument If one or more of the options could not be
   // serialized.
   Status GetOptionString(const ConfigOptions& config_options,
                          std::string* result) const;
-#ifndef ROCKSDB_LITE
   // Returns the serialized options for this object.
   // This method is similar to GetOptionString with no errors.
   // @param config_options Controls how serialization happens.
@@ -202,7 +197,6 @@ class Configurable {
   //      its value cannot be serialized.
   virtual Status GetOption(const ConfigOptions& config_options,
                            const std::string& name, std::string* value) const;
-#endif  // ROCKSDB_LITE
 
   // Checks to see if this Configurable is equivalent to other.
   // This method assumes that the two objects are of the same class.
@@ -261,22 +255,31 @@ class Configurable {
   virtual Status ValidateOptions(const DBOptions& db_opts,
                                  const ColumnFamilyOptions& cf_opts) const;
 
-  // Returns true if this object has been initialized via PrepareOptions, false
-  // otherwise. Once an object has been prepared, only mutable options may be
-  // changed.
-  virtual bool IsPrepared() const { return prepared_; }
+  // Splits the input opt_value into the ID field and the remaining options.
+  // The input opt_value can be in the form of "name" or "name=value
+  // [;name=value]". The first form uses the "name" as an id with no options The
+  // latter form converts the input into a map of name=value pairs and sets "id"
+  // to the "id" value from the map.
+  // @param opt_value The value to split into id and options
+  // @param id The id field from the opt_value
+  // @param options The remaining name/value pairs from the opt_value
+  // @param default_id If specified and there is no id field in the map, this
+  // value is returned as the ID
+  // @return OK if the value was converted to a map successfully and an ID was
+  // found.
+  // @return InvalidArgument if the value could not be converted to a map or
+  // there was or there is no id property in the map.
+  static Status GetOptionsMap(
+      const std::string& opt_value, const std::string& default_id,
+      std::string* id, std::unordered_map<std::string, std::string>* options);
 
  protected:
-  // True once the object is prepared.  Once the object is prepared, only
-  // mutable options can be configured.
-  bool prepared_;
-
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the
   // Classes may override this method to provide further specialization (such as
   // returning a sub-option)
   //
-  // The default implemntation looks at the registered options.  If the
+  // The default implementation looks at the registered options.  If the
   // input name matches that of a registered option, the pointer registered
   // with that name is returned.
   // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns
@@ -308,7 +311,6 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Method that configures a the specific opt_name from opt_value.
   // By default, this method calls opt_info.ParseOption with the
   // input parameters.
@@ -339,16 +341,45 @@ class Configurable {
                                const void* const this_ptr,
                                const void* const that_ptr,
                                std::string* bad_name) const;
-#endif
-#ifndef ROCKSDB_LITE
   // Internal method to serialize options (ToString)
   // Classes may override this value to change its behavior.
   virtual std::string SerializeOptions(const ConfigOptions& config_options,
                                        const std::string& header) const;
-#endif  // ROCKSDB_LITE
 
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   virtual std::string GetOptionName(const std::string& long_name) const;
+
+  // Registers the input name with the options and associated map.
+  // When classes register their options in this manner, most of the
+  // functionality (excluding unknown options and validate/prepare) is
+  // implemented by the base class.
+  //
+  // This method should be called in the class constructor to register the
+  // option set for this object.  For example, to register the options
+  // associated with the BlockBasedTableFactory, the constructor calls this
+  // method passing in:
+  // - the name of the options ("BlockBasedTableOptions");
+  // - the options object (the BlockBasedTableOptions object for this object;
+  // - the options type map for the BlockBasedTableOptions.
+  // This registration allows the Configurable class to process the option
+  // values associated with the BlockBasedTableOptions without further code in
+  // the derived class.
+  //
+  // @param name    The name of this set of options (@see GetOptionsPtr)
+  // @param opt_ptr Pointer to the options to associate with this name
+  // @param opt_map Options map that controls how this option is configured.
+  template <typename T>
+  void RegisterOptions(
+      T* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
+    RegisterOptions(T::kName(), opt_ptr, opt_map);
+  }
+  void RegisterOptions(
+      const std::string& name, void* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
+
+  // Returns true if there are registered options for this Configurable object
+  inline bool HasRegisteredOptions() const { return !options_.empty(); }
 
  private:
   // Contains the collection of options (name, opt_ptr, opt_map) associated with

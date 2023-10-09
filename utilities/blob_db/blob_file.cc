@@ -3,19 +3,17 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_file.h"
 
 #include <stdio.h>
-#include <cinttypes>
 
 #include <algorithm>
+#include <cinttypes>
 #include <memory>
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/readahead_raf.h"
 #include "logging/logging.h"
@@ -113,6 +111,7 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   std::string buf;
   AlignedBuf aligned_buf;
   Status s;
+  // TODO: rate limit reading footers from blob files.
   if (ra_file_reader_->use_direct_io()) {
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
                               &result, nullptr, &aligned_buf);
@@ -151,15 +150,16 @@ void BlobFile::CloseRandomAccessLocked() {
   last_access_ = -1;
 }
 
-Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
+Status BlobFile::GetReader(Env* env, const FileOptions& file_options,
                            std::shared_ptr<RandomAccessFileReader>* reader,
                            bool* fresh_open) {
   assert(reader != nullptr);
   assert(fresh_open != nullptr);
   *fresh_open = false;
   int64_t current_time = 0;
-  env->GetCurrentTime(&current_time);
-  last_access_.store(current_time);
+  if (env->GetCurrentTime(&current_time).ok()) {
+    last_access_.store(current_time);
+  }
   Status s;
 
   {
@@ -177,8 +177,9 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  std::unique_ptr<RandomAccessFile> rfile;
-  s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
+  std::unique_ptr<FSRandomAccessFile> rfile;
+  s = env->GetFileSystem()->NewRandomAccessFile(PathName(), file_options,
+                                                &rfile, nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file for random-read: %s status: '%s'"
@@ -188,52 +189,51 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(
-      NewLegacyRandomAccessFileWrapper(rfile), PathName());
+  ra_file_reader_ =
+      std::make_shared<RandomAccessFileReader>(std::move(rfile), PathName());
   *reader = ra_file_reader_;
   *fresh_open = true;
   return s;
 }
 
-Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
+Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
+                              const FileOptions& file_options) {
   assert(Immutable());
   // Get file size.
   uint64_t file_size = 0;
-  Status s = env->GetFileSize(PathName(), &file_size);
+  Status s =
+      fs->GetFileSize(PathName(), file_options.io_options, &file_size, nullptr);
   if (s.ok()) {
     file_size_ = file_size;
   } else {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to get size of blob file %" PRIu64
-                    ", status: %s",
+                    "Failed to get size of blob file %" PRIu64 ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
   if (file_size < BlobLogHeader::kSize) {
-    ROCKS_LOG_ERROR(info_log_,
-                    "Incomplete blob file blob file %" PRIu64
-                    ", size: %" PRIu64,
-                    file_number_, file_size);
+    ROCKS_LOG_ERROR(
+        info_log_, "Incomplete blob file blob file %" PRIu64 ", size: %" PRIu64,
+        file_number_, file_size);
     return Status::Corruption("Incomplete blob file header.");
   }
 
   // Create file reader.
-  std::unique_ptr<RandomAccessFile> file;
-  s = env->NewRandomAccessFile(PathName(), &file, env_options);
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  s = RandomAccessFileReader::Create(fs, PathName(), file_options, &file_reader,
+                                     nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file %" PRIu64 ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                 PathName()));
 
   // Read file header.
   std::string header_buf;
   AlignedBuf aligned_buf;
   Slice header_slice;
+  // TODO: rate limit reading headers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
                           nullptr, &aligned_buf);
@@ -243,10 +243,9 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                           &header_buf[0], nullptr);
   }
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read header of blob file %" PRIu64
-                    ", status: %s",
-                    file_number_, s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        info_log_, "Failed to read header of blob file %" PRIu64 ", status: %s",
+        file_number_, s.ToString().c_str());
     return s;
   }
   BlobLogHeader header;
@@ -274,6 +273,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   }
   std::string footer_buf;
   Slice footer_slice;
+  // TODO: rate limit reading footers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
@@ -285,10 +285,9 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                           nullptr);
   }
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read footer of blob file %" PRIu64
-                    ", status: %s",
-                    file_number_, s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        info_log_, "Failed to read footer of blob file %" PRIu64 ", status: %s",
+        file_number_, s.ToString().c_str());
     return s;
   }
   BlobLogFooter footer;
@@ -310,4 +309,3 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

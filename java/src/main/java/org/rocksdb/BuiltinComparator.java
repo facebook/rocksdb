@@ -16,8 +16,8 @@ package org.rocksdb;
  * </ol>
  */
 public enum BuiltinComparator {
-  BYTEWISE_COMPARATOR((byte)0x0),
-  REVERSE_BYTEWISE_COMPARATOR((byte)0x1);
+  BYTEWISE_COMPARATOR((byte) 0x0),
+  REVERSE_BYTEWISE_COMPARATOR((byte) 0x1);
 
   private final byte value;
 

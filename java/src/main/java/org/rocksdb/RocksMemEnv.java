@@ -26,14 +26,6 @@ public class RocksMemEnv extends Env {
     super(createMemEnv(baseEnv.nativeHandle_));
   }
 
-  /**
-   * @deprecated Use {@link #RocksMemEnv(Env)}.
-   */
-  @Deprecated
-  public RocksMemEnv() {
-    this(Env.getDefault());
-  }
-
   private static native long createMemEnv(final long baseEnvHandle);
   @Override protected final native void disposeInternal(final long handle);
 }

@@ -1,6 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 // vim: ft=cpp:expandtab:ts=8:sw=2:softtabstop=2:
-#ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
 /*======
@@ -368,8 +367,6 @@ void lock_request::retry_all_lock_requests(
 
   toku_mutex_lock(&info->retry_mutex);
 
-  lock_wait_infos conflicts_collector;
-
   // here is the group retry algorithm.
   // get the latest retry_want count and use it as the generation number of
   // this retry operation. if this retry generation is > the last retry
@@ -381,7 +378,7 @@ void lock_request::retry_all_lock_requests(
         info->running_retry = true;
         info->retry_done = info->retry_want;
         toku_mutex_unlock(&info->retry_mutex);
-        retry_all_lock_requests_info(info, &conflicts_collector);
+        retry_all_lock_requests_info(info, lock_wait_callback, callback_arg);
         if (after_retry_all_test_callback) after_retry_all_test_callback();
         toku_mutex_lock(&info->retry_mutex);
         info->running_retry = false;
@@ -393,14 +390,14 @@ void lock_request::retry_all_lock_requests(
     }
   }
   toku_mutex_unlock(&info->retry_mutex);
-
-  report_waits(&conflicts_collector, lock_wait_callback, callback_arg);
 }
 
-void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info,
-                                                lock_wait_infos *collector) {
+void lock_request::retry_all_lock_requests_info(
+    lt_lock_request_info *info,
+    void (*lock_wait_callback)(void *, lock_wait_infos *), void *callback_arg) {
   toku_external_mutex_lock(&info->mutex);
   // retry all of the pending lock requests.
+  lock_wait_infos conflicts_collector;
   for (uint32_t i = 0; i < info->pending_lock_requests.size();) {
     lock_request *request;
     int r = info->pending_lock_requests.fetch(i, &request);
@@ -410,11 +407,15 @@ void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info,
     // move on to the next lock request. otherwise
     // the request is gone from the list so we may
     // read the i'th entry for the next one.
-    r = request->retry(collector);
+    r = request->retry(&conflicts_collector);
     if (r != 0) {
       i++;
     }
   }
+
+  // call report_waits while holding the pending queue lock since
+  // the waiter object is still valid while it's in the queue
+  report_waits(&conflicts_collector, lock_wait_callback, callback_arg);
 
   // future threads should only retry lock requests if some still exist
   info->should_retry_lock_requests = info->pending_lock_requests.size() > 0;
@@ -522,4 +523,3 @@ void lock_request::set_retry_test_callback(void (*f)(void)) {
 
 } /* namespace toku */
 #endif  // OS_WIN
-#endif  // ROCKSDB_LITE

@@ -23,7 +23,7 @@ uint32_t roundUpToPow2(uint32_t x) {
   }
   return rv;
 }
-}
+}  // namespace
 
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
                            uint32_t num_probes, size_t huge_page_tlb_size,

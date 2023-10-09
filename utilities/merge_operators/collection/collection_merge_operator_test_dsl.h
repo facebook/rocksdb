@@ -17,6 +17,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "utilities/merge_operators/collection/collection_merge_operator.h"
 
 /**
  * Simple functions which form a DSL
@@ -40,9 +41,7 @@ std::string Add(const std::initializer_list<std::string> records) {
   return str_add;
 }
 
-std::string Add(const std::string record) {
-  return Add({record});
-}
+std::string Add(const std::string record) { return Add({record}); }
 
 std::string Add(const std::initializer_list<uint32_t> records) {
   std::string str_add;
@@ -55,9 +54,7 @@ std::string Add(const std::initializer_list<uint32_t> records) {
   return str_add;
 }
 
-std::string Add(const uint32_t record) {
-  return Add({record});
-}
+std::string Add(const uint32_t record) { return Add({record}); }
 
 std::string Remove(const std::initializer_list<std::string> records) {
   std::string str_remove;
@@ -68,9 +65,7 @@ std::string Remove(const std::initializer_list<std::string> records) {
   return str_remove;
 }
 
-std::string Remove(const std::string record) {
-  return Remove({record});
-}
+std::string Remove(const std::string record) { return Remove({record}); }
 
 std::string Remove(const std::initializer_list<uint32_t> records) {
   std::string str_remove;
@@ -83,9 +78,7 @@ std::string Remove(const std::initializer_list<uint32_t> records) {
   return str_remove;
 }
 
-std::string Remove(const uint32_t record) {
-  return Remove({record});
-}
+std::string Remove(const uint32_t record) { return Remove({record}); }
 
 std::string Multi(const std::initializer_list<std::string> operations) {
   std::string str_multi;
@@ -94,7 +87,8 @@ std::string Multi(const std::initializer_list<std::string> operations) {
     std::string operation = *it;
     // _kMulti sub-operations are prefixed with records length
     char buf[sizeof(uint32_t)];
-    EncodeFixed32(buf, (operation.size() & 0xFFFFFFFF) - (sizeof(CollectionOperation) & 0xFFFFFFFF));
+    EncodeFixed32(buf, (operation.size() & 0xFFFFFFFF) -
+                           (sizeof(CollectionOperation) & 0xFFFFFFFF));
     str_multi.append(buf, sizeof(uint32_t));
     str_multi.append(operation);
   }
@@ -116,7 +110,7 @@ OwningMergeOperationOutput EmptyMergeOut() {
 std::string RecordString(const size_t record_len, const size_t record_count) {
   std::string str(record_len * record_count, '0');
   char n = '1';
-  std::generate(str.begin(), str.end(), [record_len, n] () mutable {
+  std::generate(str.begin(), str.end(), [record_len, n]() mutable {
     if (n > '0' + (char)record_len) {
       n = '1';
     }
@@ -139,18 +133,19 @@ std::string toString(std::initializer_list<std::string>& records) {
 
 class TestLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
-  virtual ~TestLogger() { }
+  virtual ~TestLogger() {}
 
   virtual void Logv(const char* format, va_list ap) {
     printf(format, ap);
     std::cout << std::endl;
   }
 
-  virtual void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
+  virtual void Logv(const InfoLogLevel log_level, const char* format,
+                    va_list ap) {
     std::cout << "[" << log_level << "] ";
     printf(format, ap);
     std::cout << std::endl;
   }
 };
 
-}  // end ROCKSDB_NAMESPACE namespace
+}  // namespace ROCKSDB_NAMESPACE

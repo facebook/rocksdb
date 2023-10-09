@@ -49,7 +49,8 @@ class MockTableFactory : public TableFactory {
   };
 
   MockTableFactory();
-  const char* Name() const override { return "MockTable"; }
+  static const char* kClassName() { return "MockTable"; }
+  const char* Name() const override { return kClassName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& ro, const TableReaderOptions& table_reader_options,
@@ -58,7 +59,7 @@ class MockTableFactory : public TableFactory {
       bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_familly_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // This function will directly create mock table instead of going through
   // MockTableBuilder. file_contents has to have a format of <internal_key,
@@ -71,10 +72,12 @@ class MockTableFactory : public TableFactory {
   }
 
   void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
+
+  void SetKeyValueSize(size_t size) { key_value_size_ = size; }
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
   void AssertSingleFile(const KVVector& file_contents);
-  void AssertLatestFile(const KVVector& file_contents);
+  void AssertLatestFiles(const std::vector<KVVector>& files_contents);
 
  private:
   Status GetAndWriteNextID(WritableFileWriter* file, uint32_t* id) const;
@@ -83,6 +86,8 @@ class MockTableFactory : public TableFactory {
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;
   MockCorruptionMode corrupt_mode_;
+
+  size_t key_value_size_ = 1;
 };
 
 }  // namespace mock

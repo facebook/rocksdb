@@ -6,7 +6,7 @@ package org.rocksdb;
  * Such memtable contains a fix-sized array of buckets, where
  * each bucket points to a sorted singly-linked
  * list (or null if the bucket is empty).
- *
+ * <p>
  * Note that since this mem-table representation relies on the
  * key prefix, it is required to invoke one of the usePrefixExtractor
  * functions to specify how to extract key prefix given a key.
@@ -125,7 +125,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * Returns information about logging the distribution of
    *  number of entries on flush.
    *
-   * @return if distrubtion of number of entries shall be logged.
+   * @return if distribution of number of entries shall be logged.
    */
   public boolean ifLogBucketDistWhenFlush() {
     return ifLogBucketDistWhenFlush_;

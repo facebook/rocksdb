@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -15,18 +14,17 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include <sstream>
 #include <unordered_map>
 
-#include "rocksdb/env.h"
-
-#include "utilities/persistent_cache/block_cache_tier.h"
-#include "utilities/persistent_cache/persistent_cache_tier.h"
-#include "utilities/persistent_cache/volatile_tier_impl.h"
-
 #include "monitoring/histogram.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "table/block_based/block_builder.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
+#include "utilities/persistent_cache/block_cache_tier.h"
+#include "utilities/persistent_cache/persistent_cache_tier.h"
+#include "utilities/persistent_cache/volatile_tier_impl.h"
 
 DEFINE_int32(nsec, 10, "nsec");
 DEFINE_int32(nthread_write, 1, "Insert threads");
@@ -128,7 +126,7 @@ class CacheTierBenchmark {
           std::bind(&CacheTierBenchmark::Read, this));
 
     // Wait till FLAGS_nsec and then signal to quit
-    StopWatchNano t(Env::Default(), /*auto_start=*/true);
+    StopWatchNano t(SystemClock::Default().get(), /*auto_start=*/true);
     size_t sec = t.ElapsedNanos() / 1000000000ULL;
     while (!quit_) {
       sec = t.ElapsedNanos() / 1000000000ULL;
@@ -195,7 +193,7 @@ class CacheTierBenchmark {
     auto block = NewBlock(key);
 
     // insert
-    StopWatchNano timer(Env::Default(), /*auto_start=*/true);
+    StopWatchNano timer(SystemClock::Default().get(), /*auto_start=*/true);
     while (true) {
       Status status = cache_->Insert(block_key, block.get(), FLAGS_iosize);
       if (status.ok()) {
@@ -227,7 +225,7 @@ class CacheTierBenchmark {
     Slice key = FillKey(k, val);
 
     // Lookup in cache
-    StopWatchNano timer(Env::Default(), /*auto_start=*/true);
+    StopWatchNano timer(SystemClock::Default().get(), /*auto_start=*/true);
     std::unique_ptr<char[]> block;
     size_t size;
     Status status = cache_->Lookup(key, &block, &size);
@@ -235,7 +233,7 @@ class CacheTierBenchmark {
       fprintf(stderr, "%s\n", status.ToString().c_str());
     }
     assert(status.ok());
-    assert(size == (size_t) FLAGS_iosize);
+    assert(size == (size_t)FLAGS_iosize);
 
     // adjust stats
     const size_t elapsed_micro = timer.ElapsedNanos() / 1000;
@@ -355,6 +353,3 @@ int main(int argc, char** argv) {
   return 0;
 }
 #endif  // #ifndef GFLAGS
-#else
-int main(int, char**) { return 0; }
-#endif

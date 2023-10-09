@@ -3,11 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db.h"
 
 #include <cinttypes>
+
+#include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -109,4 +110,3 @@ void BlobDBOptions::Dump(Logger* log) const {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif

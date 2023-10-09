@@ -4,50 +4,65 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "monitoring/statistics.h"
-#include "rocksdb/env.h"
+#include "monitoring/statistics_impl.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto-scoped.
-// Records the measure time into the corresponding histogram if statistics
-// is not nullptr. It is also saved into *elapsed if the pointer is not nullptr
-// and overwrite is true, it will be added to *elapsed if overwrite is false.
+// When statistics is not nullptr, records the measured time into any enabled
+// histograms supplied to the constructor. A histogram argument may be omitted
+// by setting it to Histograms::HISTOGRAM_ENUM_MAX. It is also saved into
+// *elapsed if the pointer is not nullptr and overwrite is true, it will be
+// added to *elapsed if overwrite is false.
 class StopWatch {
  public:
-  StopWatch(Env* const env, Statistics* statistics, const uint32_t hist_type,
+  StopWatch(SystemClock* clock, Statistics* statistics,
+            const uint32_t hist_type_1,
+            const uint32_t hist_type_2 = Histograms::HISTOGRAM_ENUM_MAX,
             uint64_t* elapsed = nullptr, bool overwrite = true,
             bool delay_enabled = false)
-      : env_(env),
+      : clock_(clock),
         statistics_(statistics),
-        hist_type_(hist_type),
+        hist_type_1_(statistics && statistics->HistEnabledForType(hist_type_1)
+                         ? hist_type_1
+                         : Histograms::HISTOGRAM_ENUM_MAX),
+        hist_type_2_(statistics && statistics->HistEnabledForType(hist_type_2)
+                         ? hist_type_2
+                         : Histograms::HISTOGRAM_ENUM_MAX),
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
-                       statistics->get_stats_level() >=
+                       statistics->get_stats_level() >
                            StatsLevel::kExceptTimers &&
-                       statistics->HistEnabledForType(hist_type)),
+                       (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX ||
+                        hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX)),
         delay_enabled_(delay_enabled),
         total_delay_(0),
         delay_start_time_(0),
-        start_time_((stats_enabled_ || elapsed != nullptr) ? env->NowMicros()
+        start_time_((stats_enabled_ || elapsed != nullptr) ? clock->NowMicros()
                                                            : 0) {}
 
   ~StopWatch() {
     if (elapsed_) {
       if (overwrite_) {
-        *elapsed_ = env_->NowMicros() - start_time_;
+        *elapsed_ = clock_->NowMicros() - start_time_;
       } else {
-        *elapsed_ += env_->NowMicros() - start_time_;
+        *elapsed_ += clock_->NowMicros() - start_time_;
       }
     }
     if (elapsed_ && delay_enabled_) {
       *elapsed_ -= total_delay_;
     }
     if (stats_enabled_) {
-      statistics_->reportTimeToHistogram(
-          hist_type_, (elapsed_ != nullptr)
-                          ? *elapsed_
-                          : (env_->NowMicros() - start_time_));
+      const auto time = (elapsed_ != nullptr)
+                            ? *elapsed_
+                            : (clock_->NowMicros() - start_time_);
+      if (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX) {
+        statistics_->reportTimeToHistogram(hist_type_1_, time);
+      }
+      if (hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX) {
+        statistics_->reportTimeToHistogram(hist_type_2_, time);
+      }
     }
   }
 
@@ -55,13 +70,13 @@ class StopWatch {
     // if delay_start_time_ is not 0, it means we are already tracking delay,
     // so delay_start_time_ should not be overwritten
     if (elapsed_ && delay_enabled_ && delay_start_time_ == 0) {
-      delay_start_time_ = env_->NowMicros();
+      delay_start_time_ = clock_->NowMicros();
     }
   }
 
   void DelayStop() {
     if (elapsed_ && delay_enabled_ && delay_start_time_ != 0) {
-      total_delay_ += env_->NowMicros() - delay_start_time_;
+      total_delay_ += clock_->NowMicros() - delay_start_time_;
     }
     // reset to 0 means currently no delay is being tracked, so two consecutive
     // calls to DelayStop will not increase total_delay_
@@ -73,9 +88,10 @@ class StopWatch {
   uint64_t start_time() const { return start_time_; }
 
  private:
-  Env* const env_;
+  SystemClock* clock_;
   Statistics* statistics_;
-  const uint32_t hist_type_;
+  const uint32_t hist_type_1_;
+  const uint32_t hist_type_2_;
   uint64_t* elapsed_;
   bool overwrite_;
   bool stats_enabled_;
@@ -88,17 +104,17 @@ class StopWatch {
 // a nano second precision stopwatch
 class StopWatchNano {
  public:
-  explicit StopWatchNano(Env* const env, bool auto_start = false)
-      : env_(env), start_(0) {
+  explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
+      : clock_(clock), start_(0) {
     if (auto_start) {
       Start();
     }
   }
 
-  void Start() { start_ = env_->NowNanos(); }
+  void Start() { start_ = clock_->NowNanos(); }
 
   uint64_t ElapsedNanos(bool reset = false) {
-    auto now = env_->NowNanos();
+    auto now = clock_->NowNanos();
     auto elapsed = now - start_;
     if (reset) {
       start_ = now;
@@ -107,11 +123,13 @@ class StopWatchNano {
   }
 
   uint64_t ElapsedNanosSafe(bool reset = false) {
-    return (env_ != nullptr) ? ElapsedNanos(reset) : 0U;
+    return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
 
+  bool IsStarted() { return start_ != 0; }
+
  private:
-  Env* const env_;
+  SystemClock* clock_;
   uint64_t start_;
 };
 

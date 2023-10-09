@@ -5,36 +5,10 @@
 
 #pragma once
 
-#if !defined(ROCKSDB_LITE)
 
 #include "rocksdb/env_encryption.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// Implements a BlockCipher using ROT13.
-//
-// Note: This is a sample implementation of BlockCipher,
-// it is NOT considered safe and should NOT be used in production.
-class ROT13BlockCipher : public BlockCipher {
- private:
-  size_t blockSize_;
-
- public:
-  ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {}
-  virtual ~ROT13BlockCipher(){};
-  const char* Name() const override;
-  // BlockSize returns the size of each block supported by this cipher stream.
-  size_t BlockSize() override { return blockSize_; }
-
-  // Encrypt a block of data.
-  // Length of data is equal to BlockSize().
-  Status Encrypt(char* data) override;
-
-  // Decrypt a block of data.
-  // Length of data is equal to BlockSize().
-  Status Decrypt(char* data) override;
-};
-
 // CTRCipherStream implements BlockAccessCipherStream using an
 // Counter operations mode.
 // See https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation
@@ -53,19 +27,13 @@ class CTRCipherStream final : public BlockAccessCipherStream {
       : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){};
   virtual ~CTRCipherStream(){};
 
-  // BlockSize returns the size of each block supported by this cipher stream.
   size_t BlockSize() override { return cipher_->BlockSize(); }
 
  protected:
-  // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
   void AllocateScratch(std::string&) override;
 
-  // Encrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
   Status EncryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 
-  // Decrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
   Status DecryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 };
 
@@ -86,26 +54,15 @@ class CTREncryptionProvider : public EncryptionProvider {
 
  public:
   explicit CTREncryptionProvider(
-      const std::shared_ptr<BlockCipher>& c = nullptr)
-      : cipher_(c){};
+      const std::shared_ptr<BlockCipher>& c = nullptr);
   virtual ~CTREncryptionProvider() {}
 
-  const char* Name() const override;
-
-  // GetPrefixLength returns the length of the prefix that is added to every
-  // file
-  // and used for storing encryption options.
-  // For optimal performance when using direct IO, the prefix length should be a
-  // multiple of the page size.
+  static const char* kClassName() { return "CTR"; }
+  const char* Name() const override { return kClassName(); }
+  bool IsInstanceOf(const std::string& name) const override;
   size_t GetPrefixLength() const override;
-
-  // CreateNewPrefix initialized an allocated block of prefix memory
-  // for a new file.
   Status CreateNewPrefix(const std::string& fname, char* prefix,
                          size_t prefixLength) const override;
-
-  // CreateCipherStream creates a block access cipher stream for a file given
-  // given name and options.
   Status CreateCipherStream(
       const std::string& fname, const EnvOptions& options, Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result) override;
@@ -114,8 +71,6 @@ class CTREncryptionProvider : public EncryptionProvider {
                    size_t /*len*/, bool /*for_write*/) override;
 
  protected:
-  Status TEST_Initialize() override;
-
   // PopulateSecretPrefixPart initializes the data into a new prefix block
   // that will be encrypted. This function will store the data in plain text.
   // It will be encrypted later (before written to disk).
@@ -132,6 +87,11 @@ class CTREncryptionProvider : public EncryptionProvider {
       uint64_t initialCounter, const Slice& iv, const Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result);
 };
+
+Status NewEncryptedFileSystemImpl(
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::shared_ptr<EncryptionProvider>& provider,
+    std::unique_ptr<FileSystem>* fs);
+
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)

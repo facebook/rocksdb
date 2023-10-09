@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cassert>
+
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
 
@@ -26,7 +27,20 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                           CachableEntry<TBlocklike>&& filter_block)
       : table_(t), filter_block_(std::move(filter_block)) {
     assert(table_);
+    const SliceTransform* const prefix_extractor = table_prefix_extractor();
+    if (prefix_extractor) {
+      full_length_enabled_ =
+          prefix_extractor->FullLengthEnabled(&prefix_extractor_full_length_);
+    }
   }
+
+  bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
+                     const SliceTransform* prefix_extractor,
+                     const Comparator* comparator,
+                     const Slice* const const_ikey_ptr, bool* filter_checked,
+                     bool need_upper_bound_check, bool no_io,
+                     BlockCacheLookupContext* lookup_context,
+                     const ReadOptions& read_options) override;
 
  protected:
   static Status ReadFilterBlock(const BlockBasedTable* table,
@@ -43,13 +57,20 @@ class FilterBlockReaderCommon : public FilterBlockReader {
 
   Status GetOrReadFilterBlock(bool no_io, GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
-                              CachableEntry<TBlocklike>* filter_block) const;
+                              CachableEntry<TBlocklike>* filter_block,
+                              const ReadOptions& read_options) const;
 
   size_t ApproximateFilterBlockMemoryUsage() const;
 
  private:
+  bool IsFilterCompatible(const Slice* iterate_upper_bound, const Slice& prefix,
+                          const Comparator* comparator) const;
+
+ private:
   const BlockBasedTable* table_;
   CachableEntry<TBlocklike> filter_block_;
+  size_t prefix_extractor_full_length_ = 0;
+  bool full_length_enabled_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

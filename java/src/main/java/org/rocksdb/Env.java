@@ -19,7 +19,7 @@ public abstract class Env extends RocksObject {
 
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
-    /**
+    /*
      * The Ownership of the Default Env belongs to C++
      * and so we disown the native handle here so that
      * we cannot accidentally free it from Java.
@@ -43,8 +43,8 @@ public abstract class Env extends RocksObject {
   }
 
   /**
-   * <p>Sets the number of background worker threads of the flush pool
-   * for this environment.</p>
+   * <p>Sets the number of background worker threads of the low priority
+   * pool for this environment.</p>
    * <p>Default number: 1</p>
    *
    * @param number the number of threads

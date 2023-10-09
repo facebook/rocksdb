@@ -5,12 +5,11 @@
 
 package org.rocksdb;
 
-import org.junit.ClassRule;
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.ClassRule;
+import org.junit.Test;
 
 public class WriteOptionsTest {
 
@@ -50,20 +49,27 @@ public class WriteOptionsTest {
       assertThat(writeOptions.lowPri()).isTrue();
       writeOptions.setLowPri(false);
       assertThat(writeOptions.lowPri()).isFalse();
+
+      writeOptions.setMemtableInsertHintPerBatch(true);
+      assertThat(writeOptions.memtableInsertHintPerBatch()).isTrue();
+      writeOptions.setMemtableInsertHintPerBatch(false);
+      assertThat(writeOptions.memtableInsertHintPerBatch()).isFalse();
     }
   }
 
   @Test
   public void copyConstructor() {
-    WriteOptions origOpts = new WriteOptions();
+    final WriteOptions origOpts = new WriteOptions();
     origOpts.setDisableWAL(rand.nextBoolean());
     origOpts.setIgnoreMissingColumnFamilies(rand.nextBoolean());
     origOpts.setSync(rand.nextBoolean());
-    WriteOptions copyOpts = new WriteOptions(origOpts);
+    origOpts.setMemtableInsertHintPerBatch(true);
+    final WriteOptions copyOpts = new WriteOptions(origOpts);
     assertThat(origOpts.disableWAL()).isEqualTo(copyOpts.disableWAL());
     assertThat(origOpts.ignoreMissingColumnFamilies()).isEqualTo(
             copyOpts.ignoreMissingColumnFamilies());
     assertThat(origOpts.sync()).isEqualTo(copyOpts.sync());
+    assertThat(origOpts.memtableInsertHintPerBatch())
+        .isEqualTo(copyOpts.memtableInsertHintPerBatch());
   }
-
 }

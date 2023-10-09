@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include "rocksdb/status.h"
-
 #include <memory>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,12 +16,12 @@ namespace ROCKSDB_NAMESPACE {
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class MemoryAllocator {
+class MemoryAllocator : public Customizable {
  public:
-  virtual ~MemoryAllocator() = default;
-
-  // Name of the cache allocator, printed in the log
-  virtual const char* Name() const = 0;
+  static const char* Type() { return "MemoryAllocator"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<MemoryAllocator>* result);
 
   // Allocate a block of at least size. Has to be thread-safe.
   virtual void* Allocate(size_t size) = 0;
@@ -34,9 +35,12 @@ class MemoryAllocator {
     // default implementation just returns the allocation size
     return allocation_size;
   }
+
+  std::string GetId() const override { return GenerateIndividualId(); }
 };
 
 struct JemallocAllocatorOptions {
+  static const char* kName() { return "JemallocAllocatorOptions"; }
   // Jemalloc tcache cache allocations by size class. For each size class,
   // it caches between 20 (for large size classes) to 200 (for small size
   // classes). To reduce tcache memory usage in case the allocator is access
@@ -51,6 +55,11 @@ struct JemallocAllocatorOptions {
   // Upper bound of allocation size to use tcache, if limit_tcache_size=true.
   // When used with block cache, it is recommended to set it to block_size.
   size_t tcache_size_upper_bound = 16 * 1024;
+
+  // Number of arenas across which we spread allocation requests. Increasing
+  // this setting can mitigate arena mutex contention. The value must be
+  // positive.
+  size_t num_arenas = 1;
 };
 
 // Generate memory allocator which allocates through Jemalloc and utilize
@@ -66,12 +75,13 @@ struct JemallocAllocatorOptions {
 // core dump. Side benefit of using single arena would be reduction of jemalloc
 // metadata for some workloads.
 //
-// To mitigate mutex contention for using one single arena, jemalloc tcache
+// To mitigate mutex contention for using one single arena (see also
+// `JemallocAllocatorOptions::num_arenas` above), jemalloc tcache
 // (thread-local cache) is enabled to cache unused allocations for future use.
 // The tcache normally incurs 0.5M extra memory usage per-thread. The usage
 // can be reduced by limiting allocation sizes to cache.
 extern Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
 }  // namespace ROCKSDB_NAMESPACE

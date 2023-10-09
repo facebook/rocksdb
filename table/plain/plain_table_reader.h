@@ -5,14 +5,13 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-#include <unordered_map>
-#include <memory>
-#include <vector>
-#include <string>
 #include <stdint.h>
 
-#include "db/dbformat.h"
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "file/random_access_file_reader.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
@@ -59,15 +58,15 @@ struct PlainTableReaderFileInfo {
 // The reader class of PlainTable. For description of PlainTable format
 // See comments of class PlainTableFactory, where instances of
 // PlainTableReader are created.
-class PlainTableReader: public TableReader {
+class PlainTableReader : public TableReader {
  public:
-// Based on following output file format shown in plain_table_factory.h
-// When opening the output file, PlainTableReader creates a hash table
-// from key prefixes to offset of the output file. PlainTable will decide
-// whether it points to the data offset of the first key with the key prefix
-// or the offset of it. If there are too many keys share this prefix, it will
-// create a binary search-able index from the suffix to offset on disk.
-  static Status Open(const ImmutableCFOptions& ioptions,
+  // Based on following output file format shown in plain_table_factory.h
+  // When opening the output file, PlainTableReader creates a hash table
+  // from key prefixes to offset of the output file. PlainTable will decide
+  // whether it points to the data offset of the first key with the key prefix
+  // or the offset of it. If there are too many keys share this prefix, it will
+  // create a binary search-able index from the suffix to offset on disk.
+  static Status Open(const ImmutableOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      std::unique_ptr<RandomAccessFileReader>&& file,
@@ -93,11 +92,12 @@ class PlainTableReader: public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& key,
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key,
                                TableReaderCaller caller) override;
 
-  uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                           TableReaderCaller caller) override;
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, TableReaderCaller caller) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;
@@ -110,7 +110,7 @@ class PlainTableReader: public TableReader {
     return arena_.MemoryAllocatedBytes();
   }
 
-  PlainTableReader(const ImmutableCFOptions& ioptions,
+  PlainTableReader(const ImmutableOptions& ioptions,
                    std::unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
@@ -163,13 +163,14 @@ class PlainTableReader: public TableReader {
   CacheAllocationPtr index_block_alloc_;
   CacheAllocationPtr bloom_block_alloc_;
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
- protected: // for testing
-  std::shared_ptr<const TableProperties> table_properties_;
- private:
 
+ protected:  // for testing
+  std::shared_ptr<const TableProperties> table_properties_;
+
+ private:
   bool IsFixedLength() const {
     return user_key_len_ != kPlainTableVariableLength;
   }
@@ -180,15 +181,11 @@ class PlainTableReader: public TableReader {
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
-    return GetPrefixFromUserKey(GetUserKey(target));
+    return GetPrefixFromUserKey(ExtractUserKey(target));
   }
 
   Slice GetPrefix(const ParsedInternalKey& target) const {
     return GetPrefixFromUserKey(target.user_key);
-  }
-
-  Slice GetUserKey(const Slice& key) const {
-    return Slice(key.data(), key.size() - 8);
   }
 
   Slice GetPrefixFromUserKey(const Slice& user_key) const {
@@ -244,4 +241,3 @@ class PlainTableReader: public TableReader {
   void operator=(const TableReader&) = delete;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

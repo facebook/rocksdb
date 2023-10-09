@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/env_mirror.h"
 
@@ -27,13 +26,17 @@ class SequentialFileMirror : public SequentialFile {
     if (as == Status::OK()) {
       char* bscratch = new char[n];
       Slice bslice;
+#ifndef NDEBUG
       size_t off = 0;
+#endif
       size_t left = aslice.size();
       while (left) {
         Status bs = b_->Read(left, &bslice, bscratch);
+#ifndef NDEBUG
         assert(as == bs);
         assert(memcmp(bscratch, scratch + off, bslice.size()) == 0);
         off += bslice.size();
+#endif
         left -= bslice.size();
       }
       delete[] bscratch;
@@ -107,11 +110,20 @@ class WritableFileMirror : public WritableFile {
     assert(as == bs);
     return as;
   }
+  Status Append(const Slice& data,
+                const DataVerificationInfo& /* verification_info */) override {
+    return Append(data);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status as = a_->PositionedAppend(data, offset);
     Status bs = b_->PositionedAppend(data, offset);
     assert(as == bs);
     return as;
+  }
+  Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /* verification_info */) override {
+    return PositionedAppend(data, offset);
   }
   Status Truncate(uint64_t size) override {
     Status as = a_->Truncate(size);
@@ -259,4 +271,3 @@ Status EnvMirror::ReuseWritableFile(const std::string& fname,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif

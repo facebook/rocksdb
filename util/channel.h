@@ -10,6 +10,8 @@
 #include <queue>
 #include <utility>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 template <class T>

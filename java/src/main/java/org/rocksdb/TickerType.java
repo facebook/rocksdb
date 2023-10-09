@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * The logical mapping of tickers defined in rocksdb::Tickers.
- *
+ * <p>
  * Java byte value mappings don't align 1:1 to the c++ values. c++ rocksdb::Tickers enumeration type
  * is uint32_t and java org.rocksdb.TickerType is byte, this causes mapping issues when
  * rocksdb::Tickers value is greater then 127 (0x7F) for jbyte jni interface as range greater is not
@@ -63,11 +63,6 @@ public enum TickerType {
     BLOCK_CACHE_INDEX_BYTES_INSERT((byte) 0x7),
 
     /**
-     * # of bytes of index block erased from cache
-     */
-    BLOCK_CACHE_INDEX_BYTES_EVICT((byte) 0x8),
-
-    /**
      * # of times cache miss when accessing filter block from block cache.
      */
     BLOCK_CACHE_FILTER_MISS((byte) 0x9),
@@ -86,11 +81,6 @@ public enum TickerType {
      * # of bytes of bloom filter blocks inserted into cache
      */
     BLOCK_CACHE_FILTER_BYTES_INSERT((byte) 0xC),
-
-    /**
-     * # of bytes of bloom filter block erased from cache
-     */
-    BLOCK_CACHE_FILTER_BYTES_EVICT((byte) 0xD),
 
     /**
      * # of times cache miss when accessing data block from block cache.
@@ -269,35 +259,9 @@ public enum TickerType {
      */
     ITER_BYTES_READ((byte) 0x2E),
 
-    NO_FILE_CLOSES((byte) 0x2F),
-
     NO_FILE_OPENS((byte) 0x30),
 
     NO_FILE_ERRORS((byte) 0x31),
-
-    /**
-     * Time system had to wait to do LO-L1 compactions.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_SLOWDOWN_MICROS((byte) 0x32),
-
-    /**
-     * Time system had to wait to move memtable to L1.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_MEMTABLE_COMPACTION_MICROS((byte) 0x33),
-
-    /**
-     * write throttle because of too many files in L0.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_NUM_FILES_MICROS((byte) 0x34),
 
     /**
      * Writer has to wait for compaction or flush to finish.
@@ -310,14 +274,6 @@ public enum TickerType {
      * Disabled by default. To enable it set stats level to {@link StatsLevel#ALL}
      */
     DB_MUTEX_WAIT_MICROS((byte) 0x36),
-
-    RATE_LIMIT_DELAY_MILLIS((byte) 0x37),
-
-    /**
-     * Number of iterators created.
-     *
-     */
-    NO_ITERATORS((byte) 0x38),
 
     /**
      * Number of MultiGet calls.
@@ -334,11 +290,6 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_BYTES_READ((byte) 0x3B),
 
-    /**
-     * Number of deletes records that were not required to be
-     * written to storage because key does not exist.
-     */
-    NUMBER_FILTERED_DELETES((byte) 0x3C),
     NUMBER_MERGE_FAILURES((byte) 0x3D),
 
     /**
@@ -362,26 +313,6 @@ public enum TickerType {
     GET_UPDATES_SINCE_CALLS((byte) 0x41),
 
     /**
-     * Miss in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_MISS((byte) 0x42),
-
-    /**
-     * Hit in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_HIT((byte) 0x43),
-
-    /**
-     * Number of blocks added to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD((byte) 0x44),
-
-    /**
-     * Number of failures when adding blocks to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD_FAILURES((byte) 0x45),
-
-    /**
      * Number of times WAL sync is done.
      */
     WAL_FILE_SYNCED((byte) 0x46),
@@ -401,11 +332,6 @@ public enum TickerType {
      * Equivalent to writes done for others.
      */
     WRITE_DONE_BY_OTHER((byte) 0x49),
-
-    /**
-     * Number of writes ending up with timed-out.
-     */
-    WRITE_TIMEDOUT((byte) 0x4A),
 
     /**
      * Number of Write calls that request WAL.
@@ -649,31 +575,9 @@ public enum TickerType {
     BLOB_DB_GC_FAILURES((byte) 0x7D),
 
     /**
-     * # of keys drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_NUM_KEYS_OVERWRITTEN((byte) 0x7E),
-
-    /**
-     * # of keys drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_NUM_KEYS_EXPIRED((byte) 0x7F),
-
-    /**
      * # of keys relocated to new blob file by garbage collection.
      */
     BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x02),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_BYTES_OVERWRITTEN((byte) -0x03),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_BYTES_EXPIRED((byte) -0x04),
 
     /**
      * # of bytes relocated to new blob file by garbage collection.
@@ -741,6 +645,126 @@ public enum TickerType {
     COMPACT_WRITE_BYTES_MARKED((byte) -0x13),
     COMPACT_WRITE_BYTES_PERIODIC((byte) -0x14),
     COMPACT_WRITE_BYTES_TTL((byte) -0x15),
+
+    /**
+     * DB error handler statistics
+     */
+    ERROR_HANDLER_BG_ERROR_COUNT((byte) -0x16),
+    ERROR_HANDLER_BG_IO_ERROR_COUNT((byte) -0x17),
+    ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT((byte) -0x18),
+    ERROR_HANDLER_AUTORESUME_COUNT((byte) -0x19),
+    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x1A),
+    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
+
+    /**
+     * Bytes of raw data (payload) found on memtable at flush time.
+     * Contains the sum of garbage payload (bytes that are discarded
+     * at flush time) and useful payload (bytes of data that will
+     * eventually be written to SSTable).
+     */
+    MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x1C),
+    /**
+     * Outdated bytes of data present on memtable at flush time.
+     */
+    MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
+
+    /**
+     * Number of secondary cache hits
+     */
+    SECONDARY_CACHE_HITS((byte) -0x1E),
+
+    /**
+     * Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
+     */
+    VERIFY_CHECKSUM_READ_BYTES((byte) -0x1F),
+
+    /**
+     * Bytes read/written while creating backups
+     */
+    BACKUP_READ_BYTES((byte) -0x20),
+    BACKUP_WRITE_BYTES((byte) -0x21),
+
+    /**
+     * Remote compaction read/write statistics
+     */
+    REMOTE_COMPACT_READ_BYTES((byte) -0x22),
+    REMOTE_COMPACT_WRITE_BYTES((byte) -0x23),
+
+    /**
+     * Tiered storage related statistics
+     */
+    HOT_FILE_READ_BYTES((byte) -0x24),
+    WARM_FILE_READ_BYTES((byte) -0x25),
+    COLD_FILE_READ_BYTES((byte) -0x26),
+    HOT_FILE_READ_COUNT((byte) -0x27),
+    WARM_FILE_READ_COUNT((byte) -0x28),
+    COLD_FILE_READ_COUNT((byte) -0x29),
+
+    /**
+     * (non-)last level read statistics
+     */
+    LAST_LEVEL_READ_BYTES((byte) -0x2A),
+    LAST_LEVEL_READ_COUNT((byte) -0x2B),
+    NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
+    NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
+
+    /**
+     * Number of block checksum verifications
+     */
+    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
+
+    /**
+     * # of times cache miss when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_MISS((byte) -0x2F),
+
+    /**
+     * # of times cache hit when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_HIT((byte) -0x30),
+
+    /**
+     * # of data blocks added to blob cache.
+     */
+    BLOB_DB_CACHE_ADD((byte) -0x31),
+
+    /**
+     * # # of failures when adding blobs to blob cache.
+     */
+    BLOB_DB_CACHE_ADD_FAILURES((byte) -0x32),
+
+    /**
+     * # of bytes read from blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_READ((byte) -0x33),
+
+    /**
+     * # of bytes written into blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
+
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that can't find its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_MISS((byte) -0x3A),
+
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that finds its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
+
+    /**
+     * Number of times RocksDB detected a corruption while verifying a block
+     * checksum. RocksDB does not remember corruptions that happened during user
+     * reads so the same block corruption may be detected multiple times.
+     */
+    BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x3C),
+
+    READAHEAD_TRIMMED((byte) -0x3D),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 

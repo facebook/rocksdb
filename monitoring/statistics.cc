@@ -3,12 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "monitoring/statistics.h"
+#include "rocksdb/statistics.h"
 
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
-#include "rocksdb/statistics.h"
+
+#include "monitoring/statistics_impl.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,13 +28,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
     {BLOCK_CACHE_INDEX_ADD, "rocksdb.block.cache.index.add"},
     {BLOCK_CACHE_INDEX_BYTES_INSERT, "rocksdb.block.cache.index.bytes.insert"},
-    {BLOCK_CACHE_INDEX_BYTES_EVICT, "rocksdb.block.cache.index.bytes.evict"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
     {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
     {BLOCK_CACHE_FILTER_ADD, "rocksdb.block.cache.filter.add"},
     {BLOCK_CACHE_FILTER_BYTES_INSERT,
      "rocksdb.block.cache.filter.bytes.insert"},
-    {BLOCK_CACHE_FILTER_BYTES_EVICT, "rocksdb.block.cache.filter.bytes.evict"},
     {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
     {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
     {BLOCK_CACHE_DATA_ADD, "rocksdb.block.cache.data.add"},
@@ -40,7 +43,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_FULL_POSITIVE, "rocksdb.bloom.filter.full.positive"},
     {BLOOM_FILTER_FULL_TRUE_POSITIVE,
      "rocksdb.bloom.filter.full.true.positive"},
-    {BLOOM_FILTER_MICROS, "rocksdb.bloom.filter.micros"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
     {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
@@ -71,35 +73,24 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_DB_NEXT_FOUND, "rocksdb.number.db.next.found"},
     {NUMBER_DB_PREV_FOUND, "rocksdb.number.db.prev.found"},
     {ITER_BYTES_READ, "rocksdb.db.iter.bytes.read"},
-    {NO_FILE_CLOSES, "rocksdb.no.file.closes"},
     {NO_FILE_OPENS, "rocksdb.no.file.opens"},
     {NO_FILE_ERRORS, "rocksdb.no.file.errors"},
-    {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
-    {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
-    {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
     {STALL_MICROS, "rocksdb.stall.micros"},
     {DB_MUTEX_WAIT_MICROS, "rocksdb.db.mutex.wait.micros"},
-    {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
-    {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
     {NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"},
     {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
-    {NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered"},
     {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
     {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
     {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
+    {BLOOM_FILTER_PREFIX_TRUE_POSITIVE,
+     "rocksdb.bloom.filter.prefix.true.positive"},
     {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
-    {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
-    {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
-    {BLOCK_CACHE_COMPRESSED_ADD, "rocksdb.block.cachecompressed.add"},
-    {BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
-     "rocksdb.block.cachecompressed.add.failures"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
-    {WRITE_TIMEDOUT, "rocksdb.write.timeout"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
@@ -120,6 +111,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
     {MERGE_OPERATION_TOTAL_TIME, "rocksdb.merge.operation.time.nanos"},
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
+    {COMPACTION_CPU_TOTAL_TIME, "rocksdb.compaction.total.time.cpu_micros"},
     {ROW_CACHE_HIT, "rocksdb.row.cache.hit"},
     {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
@@ -153,11 +145,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_GC_NUM_FILES, "rocksdb.blobdb.gc.num.files"},
     {BLOB_DB_GC_NUM_NEW_FILES, "rocksdb.blobdb.gc.num.new.files"},
     {BLOB_DB_GC_FAILURES, "rocksdb.blobdb.gc.failures"},
-    {BLOB_DB_GC_NUM_KEYS_OVERWRITTEN, "rocksdb.blobdb.gc.num.keys.overwritten"},
-    {BLOB_DB_GC_NUM_KEYS_EXPIRED, "rocksdb.blobdb.gc.num.keys.expired"},
     {BLOB_DB_GC_NUM_KEYS_RELOCATED, "rocksdb.blobdb.gc.num.keys.relocated"},
-    {BLOB_DB_GC_BYTES_OVERWRITTEN, "rocksdb.blobdb.gc.bytes.overwritten"},
-    {BLOB_DB_GC_BYTES_EXPIRED, "rocksdb.blobdb.gc.bytes.expired"},
     {BLOB_DB_GC_BYTES_RELOCATED, "rocksdb.blobdb.gc.bytes.relocated"},
     {BLOB_DB_FIFO_NUM_FILES_EVICTED, "rocksdb.blobdb.fifo.num.files.evicted"},
     {BLOB_DB_FIFO_NUM_KEYS_EVICTED, "rocksdb.blobdb.fifo.num.keys.evicted"},
@@ -179,8 +167,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.block.cache.compression.dict.add"},
     {BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
      "rocksdb.block.cache.compression.dict.bytes.insert"},
-    {BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
-     "rocksdb.block.cache.compression.dict.bytes.evict"},
     {BLOCK_CACHE_ADD_REDUNDANT, "rocksdb.block.cache.add.redundant"},
     {BLOCK_CACHE_INDEX_ADD_REDUNDANT,
      "rocksdb.block.cache.index.add.redundant"},
@@ -190,7 +176,89 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
      "rocksdb.block.cache.compression.dict.add.redundant"},
     {FILES_MARKED_TRASH, "rocksdb.files.marked.trash"},
+    {FILES_DELETED_FROM_TRASH_QUEUE, "rocksdb.files.marked.trash.deleted"},
     {FILES_DELETED_IMMEDIATELY, "rocksdb.files.deleted.immediately"},
+    {ERROR_HANDLER_BG_ERROR_COUNT, "rocksdb.error.handler.bg.error.count"},
+    {ERROR_HANDLER_BG_ERROR_COUNT_MISSPELLED,
+     "rocksdb.error.handler.bg.errro.count"},
+    {ERROR_HANDLER_BG_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.io.error.count"},
+    {ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED,
+     "rocksdb.error.handler.bg.io.errro.count"},
+    {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.retryable.io.error.count"},
+    {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT_MISSPELLED,
+     "rocksdb.error.handler.bg.retryable.io.errro.count"},
+    {ERROR_HANDLER_AUTORESUME_COUNT, "rocksdb.error.handler.autoresume.count"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+     "rocksdb.error.handler.autoresume.retry.total.count"},
+    {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+     "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
+    {SECONDARY_CACHE_HITS, "rocksdb.secondary.cache.hits"},
+    {VERIFY_CHECKSUM_READ_BYTES, "rocksdb.verify_checksum.read.bytes"},
+    {BACKUP_READ_BYTES, "rocksdb.backup.read.bytes"},
+    {BACKUP_WRITE_BYTES, "rocksdb.backup.write.bytes"},
+    {REMOTE_COMPACT_READ_BYTES, "rocksdb.remote.compact.read.bytes"},
+    {REMOTE_COMPACT_WRITE_BYTES, "rocksdb.remote.compact.write.bytes"},
+    {HOT_FILE_READ_BYTES, "rocksdb.hot.file.read.bytes"},
+    {WARM_FILE_READ_BYTES, "rocksdb.warm.file.read.bytes"},
+    {COLD_FILE_READ_BYTES, "rocksdb.cold.file.read.bytes"},
+    {HOT_FILE_READ_COUNT, "rocksdb.hot.file.read.count"},
+    {WARM_FILE_READ_COUNT, "rocksdb.warm.file.read.count"},
+    {COLD_FILE_READ_COUNT, "rocksdb.cold.file.read.count"},
+    {LAST_LEVEL_READ_BYTES, "rocksdb.last.level.read.bytes"},
+    {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
+    {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
+    {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
+    {LAST_LEVEL_SEEK_FILTERED, "rocksdb.last.level.seek.filtered"},
+    {LAST_LEVEL_SEEK_FILTER_MATCH, "rocksdb.last.level.seek.filter.match"},
+    {LAST_LEVEL_SEEK_DATA, "rocksdb.last.level.seek.data"},
+    {LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+     "rocksdb.last.level.seek.data.useful.no.filter"},
+    {LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+     "rocksdb.last.level.seek.data.useful.filter.match"},
+    {NON_LAST_LEVEL_SEEK_FILTERED, "rocksdb.non.last.level.seek.filtered"},
+    {NON_LAST_LEVEL_SEEK_FILTER_MATCH,
+     "rocksdb.non.last.level.seek.filter.match"},
+    {NON_LAST_LEVEL_SEEK_DATA, "rocksdb.non.last.level.seek.data"},
+    {NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER,
+     "rocksdb.non.last.level.seek.data.useful.no.filter"},
+    {NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH,
+     "rocksdb.non.last.level.seek.data.useful.filter.match"},
+    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
+    {BLOCK_CHECKSUM_MISMATCH_COUNT, "rocksdb.block.checksum.mismatch.count"},
+    {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"},
+    {BLOB_DB_CACHE_MISS, "rocksdb.blobdb.cache.miss"},
+    {BLOB_DB_CACHE_HIT, "rocksdb.blobdb.cache.hit"},
+    {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
+    {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
+    {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
+    {READ_ASYNC_MICROS, "rocksdb.read.async.micros"},
+    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"},
+    {SECONDARY_CACHE_FILTER_HITS, "rocksdb.secondary.cache.filter.hits"},
+    {SECONDARY_CACHE_INDEX_HITS, "rocksdb.secondary.cache.index.hits"},
+    {SECONDARY_CACHE_DATA_HITS, "rocksdb.secondary.cache.data.hits"},
+    {TABLE_OPEN_PREFETCH_TAIL_MISS, "rocksdb.table.open.prefetch.tail.miss"},
+    {TABLE_OPEN_PREFETCH_TAIL_HIT, "rocksdb.table.open.prefetch.tail.hit"},
+    {TIMESTAMP_FILTER_TABLE_CHECKED, "rocksdb.timestamp.filter.table.checked"},
+    {TIMESTAMP_FILTER_TABLE_FILTERED,
+     "rocksdb.timestamp.filter.table.filtered"},
+    {BYTES_COMPRESSED_FROM, "rocksdb.bytes.compressed.from"},
+    {BYTES_COMPRESSED_TO, "rocksdb.bytes.compressed.to"},
+    {BYTES_COMPRESSION_BYPASSED, "rocksdb.bytes.compression_bypassed"},
+    {BYTES_COMPRESSION_REJECTED, "rocksdb.bytes.compression.rejected"},
+    {NUMBER_BLOCK_COMPRESSION_BYPASSED,
+     "rocksdb.number.block_compression_bypassed"},
+    {NUMBER_BLOCK_COMPRESSION_REJECTED,
+     "rocksdb.number.block_compression_rejected"},
+    {BYTES_DECOMPRESSED_FROM, "rocksdb.bytes.decompressed.from"},
+    {BYTES_DECOMPRESSED_TO, "rocksdb.bytes.decompressed.to"},
+    {READAHEAD_TRIMMED, "rocksdb.readahead.trimmed"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -208,15 +276,20 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"},
     {READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros"},
     {WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros"},
-    {STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
-    {STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
-    {STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
-    {HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
-    {SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
     {NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction"},
     {DB_SEEK, "rocksdb.db.seek.micros"},
     {WRITE_STALL, "rocksdb.db.write.stall"},
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
+    {FILE_READ_FLUSH_MICROS, "rocksdb.file.read.flush.micros"},
+    {FILE_READ_COMPACTION_MICROS, "rocksdb.file.read.compaction.micros"},
+    {FILE_READ_DB_OPEN_MICROS, "rocksdb.file.read.db.open.micros"},
+    {FILE_READ_GET_MICROS, "rocksdb.file.read.get.micros"},
+    {FILE_READ_MULTIGET_MICROS, "rocksdb.file.read.multiget.micros"},
+    {FILE_READ_DB_ITERATOR_MICROS, "rocksdb.file.read.db.iterator.micros"},
+    {FILE_READ_VERIFY_DB_CHECKSUM_MICROS,
+     "rocksdb.file.read.verify.db.checksum.micros"},
+    {FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS,
+     "rocksdb.file.read.verify.file.checksums.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},
@@ -237,23 +310,69 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_BLOB_FILE_WRITE_MICROS, "rocksdb.blobdb.blob.file.write.micros"},
     {BLOB_DB_BLOB_FILE_READ_MICROS, "rocksdb.blobdb.blob.file.read.micros"},
     {BLOB_DB_BLOB_FILE_SYNC_MICROS, "rocksdb.blobdb.blob.file.sync.micros"},
-    {BLOB_DB_GC_MICROS, "rocksdb.blobdb.gc.micros"},
     {BLOB_DB_COMPRESSION_MICROS, "rocksdb.blobdb.compression.micros"},
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
     {FLUSH_TIME, "rocksdb.db.flush.micros"},
     {SST_BATCH_SIZE, "rocksdb.sst.batch.size"},
     {NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
      "rocksdb.num.index.and.filter.blocks.read.per.level"},
-    {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+     "rocksdb.error.handler.autoresume.retry.count"},
+    {ASYNC_READ_BYTES, "rocksdb.async.read.bytes"},
+    {POLL_WAIT_MICROS, "rocksdb.poll.wait.micros"},
+    {PREFETCHED_BYTES_DISCARDED, "rocksdb.prefetched.bytes.discarded"},
+    {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
+    {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
+    {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
+    {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+     "rocksdb.table.open.prefetch.tail.read.bytes"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
+static int RegisterBuiltinStatistics(ObjectLibrary& library,
+                                     const std::string& /*arg*/) {
+  library.AddFactory<Statistics>(
+      StatisticsImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new StatisticsImpl(nullptr));
+        return guard->get();
+      });
+  return 1;
+}
+
+Status Statistics::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& id,
+                                    std::shared_ptr<Statistics>* result) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinStatistics(*(ObjectLibrary::Default().get()), "");
+  });
+  Status s;
+  if (id == "" || id == StatisticsImpl::kClassName()) {
+    result->reset(new StatisticsImpl(nullptr));
+  } else if (id == kNullptrString) {
+    result->reset();
+  } else {
+    s = LoadSharedObject<Statistics>(config_options, id, result);
+  }
+  return s;
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> stats_type_info = {
+    {"inner", OptionTypeInfo::AsCustomSharedPtr<Statistics>(
+                  0, OptionVerificationType::kByNameAllowFromNull,
+                  OptionTypeFlags::kCompareNever)},
+};
+
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)
-    : stats_(std::move(stats)) {}
+    : stats_(std::move(stats)) {
+  RegisterOptions("StatisticsOptions", &stats_, &stats_type_info);
+}
 
 StatisticsImpl::~StatisticsImpl() {}
 
@@ -375,7 +494,7 @@ namespace {
 // a buffer size used for temp string buffers
 const int kTmpStrBufferSize = 200;
 
-} // namespace
+}  // namespace
 
 std::string StatisticsImpl::ToString() const {
   MutexLock lock(&aggregate_lock_);

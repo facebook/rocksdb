@@ -17,6 +17,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
+#include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
@@ -44,10 +45,12 @@ static std::string RandomSkewedString(int i, Random* rnd) {
   return BigString(NumberString(i), rnd->Skewed(17));
 }
 
-// Param type is tuple<int, bool>
+// Param type is tuple<int, bool, CompressionType>
 // get<0>(tuple): non-zero if recycling log, zero if regular log
 // get<1>(tuple): true if allow retry after read EOF, false otherwise
-class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
+// get<2>(tuple): type of compression used
+class LogTest
+    : public ::testing::TestWithParam<std::tuple<int, bool, CompressionType>> {
  private:
   class StringSource : public FSSequentialFile {
    public:
@@ -126,7 +129,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     size_t dropped_bytes_;
     std::string message_;
 
-    ReportCollector() : dropped_bytes_(0) { }
+    ReportCollector() : dropped_bytes_(0) {}
     void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
@@ -143,23 +146,27 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   test::StringSink* sink_;
   StringSource* source_;
   ReportCollector report_;
-  std::unique_ptr<Writer> writer_;
-  std::unique_ptr<Reader> reader_;
 
  protected:
+  std::unique_ptr<Writer> writer_;
+  std::unique_ptr<Reader> reader_;
   bool allow_retry_read_;
+  CompressionType compression_type_;
 
  public:
   LogTest()
       : reader_contents_(),
         sink_(new test::StringSink(&reader_contents_)),
         source_(new StringSource(reader_contents_, !std::get<1>(GetParam()))),
-        allow_retry_read_(std::get<1>(GetParam())) {
+        allow_retry_read_(std::get<1>(GetParam())),
+        compression_type_(std::get<2>(GetParam())) {
     std::unique_ptr<FSWritableFile> sink_holder(sink_);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(sink_holder), "" /* don't care */, FileOptions()));
-    writer_.reset(
-        new Writer(std::move(file_writer), 123, std::get<0>(GetParam())));
+    Writer* writer =
+        new Writer(std::move(file_writer), 123, std::get<0>(GetParam()), false,
+                   compression_type_);
+    writer_.reset(writer);
     std::unique_ptr<FSSequentialFile> source_holder(source_);
     std::unique_ptr<SequentialFileReader> file_reader(
         new SequentialFileReader(std::move(source_holder), "" /* file name */));
@@ -175,21 +182,36 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
 
   Slice* get_reader_contents() { return &reader_contents_; }
 
-  void Write(const std::string& msg) {
+  void Write(const std::string& msg,
+             const UnorderedMap<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
+    if (cf_to_ts_sz != nullptr && !cf_to_ts_sz->empty()) {
+      ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(*cf_to_ts_sz));
+    }
     ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
-  size_t WrittenBytes() const {
-    return dest_contents().size();
-  }
+  size_t WrittenBytes() const { return dest_contents().size(); }
 
   std::string Read(const WALRecoveryMode wal_recovery_mode =
-                       WALRecoveryMode::kTolerateCorruptedTailRecords) {
+                       WALRecoveryMode::kTolerateCorruptedTailRecords,
+                   UnorderedMap<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
     std::string scratch;
     Slice record;
     bool ret = false;
-    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode);
+    uint64_t record_checksum;
+    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode,
+                              &record_checksum);
+    if (cf_to_ts_sz != nullptr) {
+      *cf_to_ts_sz = reader_->GetRecordedTimestampSize();
+    }
     if (ret) {
+      if (!allow_retry_read_) {
+        // allow_retry_read_ means using FragmentBufferedReader which does not
+        // support record checksum yet.
+        uint64_t actual_record_checksum =
+            XXH3_64bits(record.data(), record.size());
+        assert(actual_record_checksum == record_checksum);
+      }
       return record.ToString();
     } else {
       return "EOF";
@@ -220,13 +242,9 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     source_->force_error_position_ = position;
   }
 
-  size_t DroppedBytes() const {
-    return report_.dropped_bytes_;
-  }
+  size_t DroppedBytes() const { return report_.dropped_bytes_; }
 
-  std::string ReportMessage() const {
-    return report_.message_;
-  }
+  std::string ReportMessage() const { return report_.message_; }
 
   void ForceEOF(size_t position = 0) {
     source_->force_eof_ = true;
@@ -248,6 +266,16 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
       return "OK";
     }
   }
+
+  void CheckRecordAndTimestampSize(
+      std::string record, UnorderedMap<uint32_t, size_t>& expected_ts_sz) {
+    UnorderedMap<uint32_t, size_t> recorded_ts_sz;
+    ASSERT_EQ(record,
+              Read(WALRecoveryMode::
+                       kTolerateCorruptedTailRecords /* wal_recovery_mode */,
+                   &recorded_ts_sz));
+    EXPECT_EQ(expected_ts_sz, recorded_ts_sz);
+  }
 };
 
 TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
@@ -261,6 +289,42 @@ TEST_P(LogTest, ReadWrite) {
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("", Read());
   ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(LogTest, ReadWriteWithTimestampSize) {
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint64_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  Write("", &ts_sz_two);
+  Write("xxxx");
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
+  UnorderedMap<uint32_t, size_t> expected_ts_sz_two;
+  // User-defined timestamp size records are accumulated and applied to
+  // subsequent records.
+  expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());
+  expected_ts_sz_two.insert(ts_sz_two.begin(), ts_sz_two.end());
+  CheckRecordAndTimestampSize("", expected_ts_sz_two);
+  CheckRecordAndTimestampSize("xxxx", expected_ts_sz_two);
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(LogTest, ReadWriteWithTimestampSizeZeroTimestampIgnored) {
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {{1, sizeof(uint64_t)}};
+  Write("foo", &ts_sz_one);
+  UnorderedMap<uint32_t, size_t> ts_sz_two(ts_sz_one.begin(), ts_sz_one.end());
+  ts_sz_two.insert(std::make_pair(2, 0));
+  Write("bar", &ts_sz_two);
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
 }
@@ -374,7 +438,7 @@ TEST_P(LogTest, BadRecordType) {
 
 TEST_P(LogTest, TruncatedTrailingRecordIsIgnored) {
   Write("foo");
-  ShrinkSize(4);   // Drop all payload as well as a header byte
+  ShrinkSize(4);  // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
   // Truncated last record is ignored, not treated as an error
   ASSERT_EQ(0U, DroppedBytes());
@@ -566,7 +630,7 @@ TEST_P(LogTest, ErrorJoinsRecords) {
   Write("correct");
 
   // Wipe the middle block
-  for (unsigned int offset = kBlockSize; offset < 2*kBlockSize; offset++) {
+  for (unsigned int offset = kBlockSize; offset < 2 * kBlockSize; offset++) {
     SetByte(offset, 'x');
   }
 
@@ -676,11 +740,44 @@ TEST_P(LogTest, Recycle) {
   ASSERT_EQ("EOF", Read());
 }
 
-INSTANTIATE_TEST_CASE_P(bool, LogTest,
-                        ::testing::Values(std::make_tuple(0, false),
-                                          std::make_tuple(0, true),
-                                          std::make_tuple(1, false),
-                                          std::make_tuple(1, true)));
+TEST_P(LogTest, RecycleWithTimestampSize) {
+  bool recyclable_log = (std::get<0>(GetParam()) != 0);
+  if (!recyclable_log) {
+    return;  // test is only valid for recycled logs
+  }
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint32_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  Write("baz");
+  Write("bif");
+  Write("blitz");
+  while (get_reader_contents()->size() < log::kBlockSize * 2) {
+    Write("xxxxxxxxxxxxxxxx");
+  }
+  std::unique_ptr<FSWritableFile> sink(
+      new test::OverwritingStringSink(get_reader_contents()));
+  std::unique_ptr<WritableFileWriter> dest_holder(new WritableFileWriter(
+      std::move(sink), "" /* don't care */, FileOptions()));
+  Writer recycle_writer(std::move(dest_holder), 123, true);
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {
+      {2, sizeof(uint64_t)},
+  };
+  ASSERT_OK(recycle_writer.MaybeAddUserDefinedTimestampSizeRecord(ts_sz_two));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
+  ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
+  CheckRecordAndTimestampSize("foooo", ts_sz_two);
+  CheckRecordAndTimestampSize("bar", ts_sz_two);
+  ASSERT_EQ("EOF", Read());
+}
+
+// Do NOT enable compression for this instantiation.
+INSTANTIATE_TEST_CASE_P(
+    Log, LogTest,
+    ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
+                       ::testing::Values(CompressionType::kNoCompression)));
 
 class RetriableLogTest : public ::testing::TestWithParam<int> {
  private:
@@ -892,10 +989,224 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
 
 INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
+class CompressionLogTest : public LogTest {
+ public:
+  Status SetupTestEnv() { return writer_->AddCompressionTypeRecord(); }
+};
+
+TEST_P(CompressionLogTest, Empty) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // If WAL compression is enabled, a record is added for the compression type
+  const int compression_record_size = compression_enabled ? kHeaderSize + 4 : 0;
+  ASSERT_EQ(compression_record_size, WrittenBytes());
+  ASSERT_EQ("EOF", Read());
+}
+
+TEST_P(CompressionLogTest, ReadWrite) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  Write("foo");
+  Write("bar");
+  Write("");
+  Write("xxxx");
+  ASSERT_EQ("foo", Read());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ("", Read());
+  ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(CompressionLogTest, ReadWriteWithTimestampSize) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
+      {1, sizeof(uint64_t)},
+  };
+  Write("foo", &ts_sz_one);
+  Write("bar");
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  Write("", &ts_sz_two);
+  Write("xxxx");
+
+  CheckRecordAndTimestampSize("foo", ts_sz_one);
+  CheckRecordAndTimestampSize("bar", ts_sz_one);
+  UnorderedMap<uint32_t, size_t> expected_ts_sz_two;
+  // User-defined timestamp size records are accumulated and applied to
+  // subsequent records.
+  expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());
+  expected_ts_sz_two.insert(ts_sz_two.begin(), ts_sz_two.end());
+  CheckRecordAndTimestampSize("", expected_ts_sz_two);
+  CheckRecordAndTimestampSize("xxxx", expected_ts_sz_two);
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(CompressionLogTest, ManyBlocks) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  for (int i = 0; i < 100000; i++) {
+    Write(NumberString(i));
+  }
+  for (int i = 0; i < 100000; i++) {
+    ASSERT_EQ(NumberString(i), Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
+TEST_P(CompressionLogTest, Fragmentation) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  Random rnd(301);
+  const std::vector<std::string> wal_entries = {
+      "small",
+      rnd.RandomBinaryString(3 * kBlockSize / 2),  // Spans into block 2
+      rnd.RandomBinaryString(3 * kBlockSize),      // Spans into block 5
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    Write(wal_entry);
+  }
+
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
+TEST_P(CompressionLogTest, AlignedFragmentation) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  Random rnd(301);
+  int num_filler_records = 0;
+  // Keep writing small records until the next record will be aligned at the
+  // beginning of the block.
+  while ((WrittenBytes() & (kBlockSize - 1)) >= kHeaderSize) {
+    char entry = 'a';
+    ASSERT_OK(writer_->AddRecord(Slice(&entry, 1)));
+    num_filler_records++;
+  }
+  const std::vector<std::string> wal_entries = {
+      rnd.RandomBinaryString(3 * kBlockSize),
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    Write(wal_entry);
+  }
+
+  for (int i = 0; i < num_filler_records; ++i) {
+    ASSERT_EQ("a", Read());
+  }
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Compression, CompressionLogTest,
+    ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
+                       ::testing::Values(CompressionType::kNoCompression,
+                                         CompressionType::kZSTD)));
+
+class StreamingCompressionTest
+    : public ::testing::TestWithParam<std::tuple<int, CompressionType>> {};
+
+TEST_P(StreamingCompressionTest, Basic) {
+  size_t input_size = std::get<0>(GetParam());
+  CompressionType compression_type = std::get<1>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  CompressionOptions opts;
+  constexpr uint32_t compression_format_version = 2;
+  StreamingCompress* compress = StreamingCompress::Create(
+      compression_type, opts, compression_format_version, kBlockSize);
+  StreamingUncompress* uncompress = StreamingUncompress::Create(
+      compression_type, compression_format_version, kBlockSize);
+  MemoryAllocator* allocator = new DefaultMemoryAllocator();
+  std::string input_buffer = BigString("abc", input_size);
+  std::vector<std::string> compressed_buffers;
+  size_t remaining;
+  // Call compress till the entire input is consumed
+  do {
+    char* output_buffer = (char*)allocator->Allocate(kBlockSize);
+    size_t output_pos;
+    remaining = compress->Compress(input_buffer.c_str(), input_size,
+                                   output_buffer, &output_pos);
+    if (output_pos > 0) {
+      std::string compressed_buffer;
+      compressed_buffer.assign(output_buffer, output_pos);
+      compressed_buffers.emplace_back(std::move(compressed_buffer));
+    }
+    allocator->Deallocate((void*)output_buffer);
+  } while (remaining > 0);
+  std::string uncompressed_buffer = "";
+  int ret_val = 0;
+  size_t output_pos;
+  char* uncompressed_output_buffer = (char*)allocator->Allocate(kBlockSize);
+  // Uncompress the fragments and concatenate them.
+  for (int i = 0; i < (int)compressed_buffers.size(); i++) {
+    // Call uncompress till either the entire input is consumed or the output
+    // buffer size is equal to the allocated output buffer size.
+    const char* input = compressed_buffers[i].c_str();
+    do {
+      ret_val = uncompress->Uncompress(input, compressed_buffers[i].size(),
+                                       uncompressed_output_buffer, &output_pos);
+      input = nullptr;
+      if (output_pos > 0) {
+        std::string uncompressed_fragment;
+        uncompressed_fragment.assign(uncompressed_output_buffer, output_pos);
+        uncompressed_buffer += uncompressed_fragment;
+      }
+    } while (ret_val > 0 || output_pos == kBlockSize);
+  }
+  allocator->Deallocate((void*)uncompressed_output_buffer);
+  delete allocator;
+  delete compress;
+  delete uncompress;
+  // The final return value from uncompress() should be 0.
+  ASSERT_EQ(ret_val, 0);
+  ASSERT_EQ(input_buffer, uncompressed_buffer);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    StreamingCompression, StreamingCompressionTest,
+    ::testing::Combine(::testing::Values(10, 100, 1000, kBlockSize,
+                                         kBlockSize * 2),
+                       ::testing::Values(CompressionType::kZSTD)));
+
 }  // namespace log
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

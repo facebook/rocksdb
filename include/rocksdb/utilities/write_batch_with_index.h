@@ -10,7 +10,6 @@
 // inserted.
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -98,7 +97,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
       size_t reserved_bytes = 0, bool overwrite_key = false,
-      size_t max_bytes = 0);
+      size_t max_bytes = 0, size_t protection_bytes_per_key = 0);
 
   ~WriteBatchWithIndex() override;
   WriteBatchWithIndex(WriteBatchWithIndex&&);
@@ -110,20 +109,43 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   Status Put(const Slice& key, const Slice& value) override;
 
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
+
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    if (!column_family) {
+      return Status::InvalidArgument(
+          "Cannot call this method without a column family handle");
+    }
+
+    return Status::NotSupported(
+        "PutEntity not supported by WriteBatchWithIndex");
+  }
+
   using WriteBatchBase::Merge;
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                const Slice& value) override;
 
   Status Merge(const Slice& key, const Slice& value) override;
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
+  }
 
   using WriteBatchBase::Delete;
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   using WriteBatchBase::SingleDelete;
   Status SingleDelete(ColumnFamilyHandle* column_family,
                       const Slice& key) override;
   Status SingleDelete(const Slice& key) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   using WriteBatchBase::DeleteRange;
   Status DeleteRange(ColumnFamilyHandle* /* column_family */,
@@ -134,6 +156,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   }
   Status DeleteRange(const Slice& /* begin_key */,
                      const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
     return Status::NotSupported(
         "DeleteRange unsupported in WriteBatchWithIndex");
   }
@@ -161,15 +189,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // Will create a new Iterator that will use WBWIIterator as a delta and
   // base_iterator as base.
   //
-  // This function is only supported if the WriteBatchWithIndex was
-  // constructed with overwrite_key=true.
-  //
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the
   // returned iterator will also delete the base_iterator.
   //
   // Updating write batch with the current key of the iterator is not safe.
-  // We strongly recommand users not to do it. It will invalidate the current
+  // We strongly recommend users not to do it. It will invalidate the current
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
   // called.
@@ -257,6 +282,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   friend class WritePreparedTxn;
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  friend class WriteBatchWithIndexInternal;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.
@@ -276,4 +302,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

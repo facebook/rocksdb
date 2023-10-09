@@ -25,13 +25,13 @@
 
 // Some processors does not allow unaligned access to memory
 #if defined(__sparc)
-  #define PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED
+#define PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED
 #endif
 
 namespace ROCKSDB_NAMESPACE {
 
 // The maximum length of a varint in bytes for 64-bit.
-const unsigned int kMaxVarint64Length = 10;
+const uint32_t kMaxVarint64Length = 10;
 
 // Standard Put... routines append to a string
 extern void PutFixed16(std::string* dst, uint16_t value);
@@ -82,8 +82,10 @@ inline int64_t zigzagToI64(uint64_t n) {
 // in *v and return a pointer just past the parsed value, or return
 // nullptr on error.  These routines only look at bytes in the range
 // [p..limit-1]
-extern const char* GetVarint32Ptr(const char* p,const char* limit, uint32_t* v);
-extern const char* GetVarint64Ptr(const char* p,const char* limit, uint64_t* v);
+extern const char* GetVarint32Ptr(const char* p, const char* limit,
+                                  uint32_t* v);
+extern const char* GetVarint64Ptr(const char* p, const char* limit,
+                                  uint64_t* v);
 inline const char* GetVarsignedint64Ptr(const char* p, const char* limit,
                                         int64_t* value) {
   uint64_t u = 0;
@@ -102,11 +104,9 @@ extern char* EncodeVarint32(char* dst, uint32_t value);
 extern char* EncodeVarint64(char* dst, uint64_t value);
 
 // Internal routine for use by fallback path of GetVarint32Ptr
-extern const char* GetVarint32PtrFallback(const char* p,
-                                          const char* limit,
+extern const char* GetVarint32PtrFallback(const char* p, const char* limit,
                                           uint32_t* value);
-inline const char* GetVarint32Ptr(const char* p,
-                                  const char* limit,
+inline const char* GetVarint32Ptr(const char* p, const char* limit,
                                   uint32_t* value) {
   if (p < limit) {
     uint32_t result = *(reinterpret_cast<const unsigned char*>(p));
@@ -133,7 +133,7 @@ inline void PutFixed16(std::string* dst, uint16_t value) {
 inline void PutFixed32(std::string* dst, uint32_t value) {
   if (port::kLittleEndian) {
     dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
-      sizeof(value));
+                sizeof(value));
   } else {
     char buf[sizeof(value)];
     EncodeFixed32(buf, value);
@@ -144,7 +144,7 @@ inline void PutFixed32(std::string* dst, uint32_t value) {
 inline void PutFixed64(std::string* dst, uint64_t value) {
   if (port::kLittleEndian) {
     dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
-      sizeof(value));
+                sizeof(value));
   } else {
     char buf[sizeof(value)];
     EncodeFixed64(buf, value);
@@ -320,38 +320,6 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
   }
 }
 
-// Swaps between big and little endian. Can be used to in combination
-// with the little-endian encoding/decoding functions to encode/decode
-// big endian.
-template <typename T>
-inline T EndianSwapValue(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
-
-#ifdef _MSC_VER
-  if (sizeof(T) == 2) {
-    return static_cast<T>(_byteswap_ushort(static_cast<uint16_t>(v)));
-  } else if (sizeof(T) == 4) {
-    return static_cast<T>(_byteswap_ulong(static_cast<uint32_t>(v)));
-  } else if (sizeof(T) == 8) {
-    return static_cast<T>(_byteswap_uint64(static_cast<uint64_t>(v)));
-  }
-#else
-  if (sizeof(T) == 2) {
-    return static_cast<T>(__builtin_bswap16(static_cast<uint16_t>(v)));
-  } else if (sizeof(T) == 4) {
-    return static_cast<T>(__builtin_bswap32(static_cast<uint32_t>(v)));
-  } else if (sizeof(T) == 8) {
-    return static_cast<T>(__builtin_bswap64(static_cast<uint64_t>(v)));
-  }
-#endif
-  // Recognized by clang as bswap, but not by gcc :(
-  T ret_val = 0;
-  for (size_t i = 0; i < sizeof(T); ++i) {
-    ret_val |= ((v >> (8 * i)) & 0xff) << (8 * (sizeof(T) - 1 - i));
-  }
-  return ret_val;
-}
-
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   uint32_t len = 0;
   if (GetVarint32(input, &len) && input->size() >= len) {
@@ -382,7 +350,7 @@ inline Slice GetSliceUntil(Slice* slice, char delimiter) {
   return ret;
 }
 
-template<class T>
+template <class T>
 #ifdef ROCKSDB_UBSAN_RUN
 #if defined(__clang__)
 __attribute__((__no_sanitize__("alignment")))
@@ -390,16 +358,17 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void PutUnaligned(T *memory, const T &value) {
+inline void
+PutUnaligned(T* memory, const T& value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
-  char *nonAlignedMemory = reinterpret_cast<char*>(memory);
+  char* nonAlignedMemory = reinterpret_cast<char*>(memory);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(&value), sizeof(T));
 #else
   *memory = value;
 #endif
 }
 
-template<class T>
+template <class T>
 #ifdef ROCKSDB_UBSAN_RUN
 #if defined(__clang__)
 __attribute__((__no_sanitize__("alignment")))
@@ -407,9 +376,10 @@ __attribute__((__no_sanitize__("alignment")))
 __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
-inline void GetUnaligned(const T *memory, T *value) {
+inline void
+GetUnaligned(const T* memory, T* value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
-  char *nonAlignedMemory = reinterpret_cast<char*>(value);
+  char* nonAlignedMemory = reinterpret_cast<char*>(value);
   memcpy(nonAlignedMemory, reinterpret_cast<const char*>(memory), sizeof(T));
 #else
   *value = *memory;

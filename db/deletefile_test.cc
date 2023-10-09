@@ -7,12 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <stdlib.h>
+
 #include <map>
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/version_set.h"
@@ -35,7 +36,7 @@ class DeleteFileTest : public DBTestBase {
   const std::string wal_dir_;
 
   DeleteFileTest()
-      : DBTestBase("/deletefile_test", /*env_do_fsync=*/true),
+      : DBTestBase("deletefile_test", /*env_do_fsync=*/true),
         numlevels_(7),
         wal_dir_(dbname_ + "/wal_files") {}
 
@@ -55,18 +56,16 @@ class DeleteFileTest : public DBTestBase {
     WriteOptions options;
     options.sync = false;
     ReadOptions roptions;
-    for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+    for (int i = startkey; i < (numkeys + startkey); i++) {
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
     }
   }
 
-  int numKeysInLevels(
-    std::vector<LiveFileMetaData> &metadata,
-    std::vector<int> *keysperlevel = nullptr) {
-
+  int numKeysInLevels(std::vector<LiveFileMetaData>& metadata,
+                      std::vector<int>* keysperlevel = nullptr) {
     if (keysperlevel != nullptr) {
       keysperlevel->resize(numlevels_);
     }
@@ -82,8 +81,7 @@ class DeleteFileTest : public DBTestBase {
       }
       fprintf(stderr, "level %d name %s smallest %s largest %s\n",
               metadata[i].level, metadata[i].name.c_str(),
-              metadata[i].smallestkey.c_str(),
-              metadata[i].largestkey.c_str());
+              metadata[i].smallestkey.c_str(), metadata[i].largestkey.c_str());
     }
     return numKeys;
   }
@@ -117,9 +115,15 @@ class DeleteFileTest : public DBTestBase {
         manifest_cnt += (type == kDescriptorFile);
       }
     }
-    ASSERT_EQ(required_log, log_cnt);
-    ASSERT_EQ(required_sst, sst_cnt);
-    ASSERT_EQ(required_manifest, manifest_cnt);
+    if (required_log >= 0) {
+      ASSERT_EQ(required_log, log_cnt);
+    }
+    if (required_sst >= 0) {
+      ASSERT_EQ(required_sst, sst_cnt);
+    }
+    if (required_manifest >= 0) {
+      ASSERT_EQ(required_manifest, manifest_cnt);
+    }
   }
 
   static void DoSleep(void* arg) {
@@ -208,7 +212,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
 
   // this time, we keep an iterator alive
   Reopen(options);
-  Iterator *itr = nullptr;
+  Iterator* itr = nullptr;
   CreateTwoLevels();
   itr = db_->NewIterator(ReadOptions());
   ASSERT_OK(itr->status());
@@ -264,6 +268,41 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }
 
+TEST_F(DeleteFileTest, PurgeDuringOpen) {
+  Options options = CurrentOptions();
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+  Close();
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(options.env->NewWritableFile(dbname_ + "/000002.sst", &file,
+                                         EnvOptions()));
+  ASSERT_OK(file->Close());
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  options.avoid_unnecessary_blocking_io = false;
+  options.create_if_missing = false;
+  Reopen(options);
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+  Close();
+
+  // test background purge
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  ASSERT_OK(options.env->NewWritableFile(dbname_ + "/000002.sst", &file,
+                                         EnvOptions()));
+  ASSERT_OK(file->Close());
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DeleteFileTest::PurgeDuringOpen:1", "DBImpl::BGWorkPurge:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  // the obsolete file is not deleted until the background purge job is ran
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  TEST_SYNC_POINT("DeleteFileTest::PurgeDuringOpen:1");
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+}
+
 TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   Options options = CurrentOptions();
   SetOptions(&options);
@@ -310,6 +349,11 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     do_test(false);
   }
 
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency(
@@ -317,9 +361,6 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
         "DBImpl::BGWorkPurge:start"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  options.avoid_unnecessary_blocking_io = true;
-  options.create_if_missing = false;
-  Reopen(options);
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");
     do_test(true);
@@ -438,12 +479,12 @@ TEST_F(DeleteFileTest, DeleteFileWithIterator) {
   }
 
   Status status = db_->DeleteFile(level2file);
-  fprintf(stdout, "Deletion status %s: %s\n",
-          level2file.c_str(), status.ToString().c_str());
+  fprintf(stdout, "Deletion status %s: %s\n", level2file.c_str(),
+          status.ToString().c_str());
   ASSERT_OK(status);
   it->SeekToFirst();
   int numKeysIterated = 0;
-  while(it->Valid()) {
+  while (it->Valid()) {
     numKeysIterated++;
     it->Next();
   }
@@ -553,14 +594,6 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
@@ -568,13 +601,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as DBImpl::DeleteFile is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

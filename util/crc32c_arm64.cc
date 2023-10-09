@@ -19,6 +19,15 @@
 #ifndef HWCAP_PMULL
 #define HWCAP_PMULL (1 << 4)
 #endif
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+#if defined(__OpenBSD__)
+#include <machine/armreg.h>
+#include <machine/cpu.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#endif
 
 #ifdef HAVE_ARM64_CRYPTO
 /* unfolding to compute 8 * 3 = 24 bytes parallelly */
@@ -43,6 +52,7 @@
 extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__)
   uint64_t auxv = 0;
 #if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
@@ -50,9 +60,28 @@ uint32_t crc32c_runtime_check(void) {
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
   return (auxv & HWCAP_CRC32) != 0;
+#elif defined(__APPLE__)
+  int r;
+  size_t l = sizeof(r);
+  if (sysctlbyname("hw.optional.armv8_crc32", &r, &l, NULL, 0) == -1) return 0;
+  return r == 1;
+#elif defined(__OpenBSD__)
+  int r = 0;
+  const int isar0_mib[] = {CTL_MACHDEP, CPU_ID_AA64ISAR0};
+  uint64_t isar0;
+  size_t len = sizeof(isar0);
+
+  if (sysctl(isar0_mib, 2, &isar0, &len, NULL, 0) != -1) {
+    if (ID_AA64ISAR0_CRC32(isar0) >= ID_AA64ISAR0_CRC32_BASE) r = 1;
+  }
+  return r;
+#else
+  return 0;
+#endif
 }
 
 bool crc32c_pmull_runtime_check(void) {
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__)
   uint64_t auxv = 0;
 #if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
@@ -60,6 +89,21 @@ bool crc32c_pmull_runtime_check(void) {
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
   return (auxv & HWCAP_PMULL) != 0;
+#elif defined(__APPLE__)
+  return true;
+#elif defined(__OpenBSD__)
+  bool r = false;
+  const int isar0_mib[] = {CTL_MACHDEP, CPU_ID_AA64ISAR0};
+  uint64_t isar0;
+  size_t len = sizeof(isar0);
+
+  if (sysctl(isar0_mib, 2, &isar0, &len, NULL, 0) != -1) {
+    if (ID_AA64ISAR0_AES(isar0) >= ID_AA64ISAR0_AES_PMULL) r = true;
+  }
+  return r;
+#else
+  return false;
+#endif
 }
 
 #ifdef ROCKSDB_UBSAN_RUN

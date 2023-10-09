@@ -10,9 +10,9 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "port/stack_trace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBTestXactLogIterator : public DBTestBase {
  public:
   DBTestXactLogIterator()
-      : DBTestBase("/db_log_iter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_log_iter_test", /*env_do_fsync=*/true) {}
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
       const SequenceNumber seq) {
@@ -54,14 +54,13 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
   return res.sequence;
 }
 
-void ExpectRecords(
-    const int expected_no_records,
-    std::unique_ptr<TransactionLogIterator>& iter) {
+void ExpectRecords(const int expected_no_records,
+                   std::unique_ptr<TransactionLogIterator>& iter) {
   int num_records;
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
   do {
@@ -94,10 +93,9 @@ TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
 TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
   static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
-      {"WalManager::GetSortedWalFiles:1",  "WalManager::PurgeObsoleteFiles:1",
+      {"WalManager::GetSortedWalFiles:1", "WalManager::PurgeObsoleteFiles:1",
        "WalManager::PurgeObsoleteFiles:2", "WalManager::GetSortedWalFiles:2"},
-      {"WalManager::GetSortedWalsOfType:1",
-       "WalManager::PurgeObsoleteFiles:1",
+      {"WalManager::GetSortedWalsOfType:1", "WalManager::PurgeObsoleteFiles:1",
        "WalManager::PurgeObsoleteFiles:2",
        "WalManager::GetSortedWalsOfType:2"}};
   for (int test = 0; test < LOG_ITERATOR_RACE_TEST_COUNT; ++test) {
@@ -147,6 +145,41 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
     } while (ChangeCompactOptions());
   }
 }
+
+TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
+  do {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(options);
+    ColumnFamilyHandle* cf;
+    auto s = dbfull()->CreateColumnFamily(ColumnFamilyOptions(), "CF", &cf);
+    ASSERT_TRUE(s.ok());
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), cf, "key1", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key2", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key3", DummyString(1024)));
+
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ASSERT_OK(dbfull()->Put(WriteOptions(), "key4", DummyString(1024)));
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "WalManager::PurgeObsoleteFiles:1", [&](void*) {
+          auto iter = OpenTransactionLogIter(0);
+          ExpectRecords(4, iter);
+        });
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_OK(dbfull()->Flush(FlushOptions(), cf));
+
+    delete cf;
+  } while (ChangeCompactOptions());
+}
 #endif
 
 TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
@@ -184,31 +217,38 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
+
     for (int i = 0; i < 1024; i++) {
-      ASSERT_OK(Put("key" + ToString(i), DummyString(10)));
+      ASSERT_OK(Put("key" + std::to_string(i), DummyString(10)));
     }
-    ASSERT_OK(dbfull()->Flush(FlushOptions()));
-    ASSERT_OK(dbfull()->FlushWAL(false));
+
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->FlushWAL(false));
+
     // Corrupt this log to create a gap
-    ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
-    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_OK(db_->DisableFileDeletions());
+
+    VectorLogPtr wal_files;
+    ASSERT_OK(db_->GetSortedWalFiles(wal_files));
+    ASSERT_FALSE(wal_files.empty());
+
     const auto logfile_path = dbname_ + "/" + wal_files.front()->PathName();
-    if (mem_env_) {
-      mem_env_->Truncate(logfile_path, wal_files.front()->SizeFileBytes() / 2);
-    } else {
-      ASSERT_EQ(0, truncate(logfile_path.c_str(),
-                   wal_files.front()->SizeFileBytes() / 2));
-    }
+    ASSERT_OK(test::TruncateFile(env_, logfile_path,
+                                 wal_files.front()->SizeFileBytes() / 2));
+
+    ASSERT_OK(db_->EnableFileDeletions());
 
     // Insert a new entry to a new log file
     ASSERT_OK(Put("key1025", DummyString(10)));
-    ASSERT_OK(dbfull()->FlushWAL(false));
+    ASSERT_OK(db_->FlushWAL(false));
+
     // Try to read from the beginning. Should stop before the gap and read less
     // than 1025 entries
     auto iter = OpenTransactionLogIter(0);
-    int count;
+    int count = 0;
     SequenceNumber last_sequence_read = ReadRecords(iter, count, false);
     ASSERT_LT(last_sequence_read, 1025U);
+
     // Try to read past the gap, should be able to seek to key1025
     auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
     ExpectRecords(1, iter2);
@@ -255,20 +295,20 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Put(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
+      seen += "Delete(" + std::to_string(cf) + ", " + key.ToString() + ")";
       return Status::OK();
     }
   } handler;
@@ -284,16 +324,9 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void) argc;
-  (void) argv;
-  return 0;
-#endif
 }

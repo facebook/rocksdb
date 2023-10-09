@@ -5,11 +5,22 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifdef MEMKIND
+#include <memkind.h>
+#endif  // MEMKIND
 
-#include "memkind_kmem_allocator.h"
+#include "memory/memkind_kmem_allocator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+Status MemkindKmemAllocator::PrepareOptions(const ConfigOptions& options) {
+  std::string message;
+  if (!IsSupported(&message)) {
+    return Status::NotSupported(message);
+  } else {
+    return MemoryAllocator::PrepareOptions(options);
+  }
+}
 
+#ifdef MEMKIND
 void* MemkindKmemAllocator::Allocate(size_t size) {
   void* p = memkind_malloc(MEMKIND_DAX_KMEM, size);
   if (p == NULL) {
@@ -28,6 +39,6 @@ size_t MemkindKmemAllocator::UsableSize(void* p,
   return memkind_malloc_usable_size(MEMKIND_DAX_KMEM, p);
 }
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
-
-}  // namespace rocksdb
 #endif  // MEMKIND
+
+}  // namespace ROCKSDB_NAMESPACE

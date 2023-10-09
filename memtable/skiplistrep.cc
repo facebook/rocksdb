@@ -3,10 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include <random>
+
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/inlineskiplist.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -17,74 +21,76 @@ class SkipListRep : public MemTableRep {
   const size_t lookahead_;
 
   friend class LookaheadIterator;
-public:
- explicit SkipListRep(const MemTableRep::KeyComparator& compare,
-                      Allocator* allocator, const SliceTransform* transform,
-                      const size_t lookahead)
-     : MemTableRep(allocator),
-       skip_list_(compare, allocator),
-       cmp_(compare),
-       transform_(transform),
-       lookahead_(lookahead) {}
 
- KeyHandle Allocate(const size_t len, char** buf) override {
-   *buf = skip_list_.AllocateKey(len);
-   return static_cast<KeyHandle>(*buf);
- }
+ public:
+  explicit SkipListRep(const MemTableRep::KeyComparator& compare,
+                       Allocator* allocator, const SliceTransform* transform,
+                       const size_t lookahead)
+      : MemTableRep(allocator),
+        skip_list_(compare, allocator),
+        cmp_(compare),
+        transform_(transform),
+        lookahead_(lookahead) {}
+
+  KeyHandle Allocate(const size_t len, char** buf) override {
+    *buf = skip_list_.AllocateKey(len);
+    return static_cast<KeyHandle>(*buf);
+  }
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
- void Insert(KeyHandle handle) override {
-   skip_list_.Insert(static_cast<char*>(handle));
- }
+  void Insert(KeyHandle handle) override {
+    skip_list_.Insert(static_cast<char*>(handle));
+  }
 
- bool InsertKey(KeyHandle handle) override {
-   return skip_list_.Insert(static_cast<char*>(handle));
- }
+  bool InsertKey(KeyHandle handle) override {
+    return skip_list_.Insert(static_cast<char*>(handle));
+  }
 
- void InsertWithHint(KeyHandle handle, void** hint) override {
-   skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
- }
+  void InsertWithHint(KeyHandle handle, void** hint) override {
+    skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
 
- bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
-   return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
- }
+  bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
+    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
 
- void InsertWithHintConcurrently(KeyHandle handle, void** hint) override {
-   skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle), hint);
- }
+  void InsertWithHintConcurrently(KeyHandle handle, void** hint) override {
+    skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle), hint);
+  }
 
- bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) override {
-   return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle),
-                                                hint);
- }
+  bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) override {
+    return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle),
+                                                 hint);
+  }
 
- void InsertConcurrently(KeyHandle handle) override {
-   skip_list_.InsertConcurrently(static_cast<char*>(handle));
- }
+  void InsertConcurrently(KeyHandle handle) override {
+    skip_list_.InsertConcurrently(static_cast<char*>(handle));
+  }
 
- bool InsertKeyConcurrently(KeyHandle handle) override {
-   return skip_list_.InsertConcurrently(static_cast<char*>(handle));
- }
+  bool InsertKeyConcurrently(KeyHandle handle) override {
+    return skip_list_.InsertConcurrently(static_cast<char*>(handle));
+  }
 
   // Returns true iff an entry that compares equal to key is in the list.
- bool Contains(const char* key) const override {
-   return skip_list_.Contains(key);
- }
+  bool Contains(const char* key) const override {
+    return skip_list_.Contains(key);
+  }
 
- size_t ApproximateMemoryUsage() override {
-   // All memory is allocated through allocator; nothing to report here
-   return 0;
- }
+  size_t ApproximateMemoryUsage() override {
+    // All memory is allocated through allocator; nothing to report here
+    return 0;
+  }
 
- void Get(const LookupKey& k, void* callback_args,
-          bool (*callback_func)(void* arg, const char* entry)) override {
-   SkipListRep::Iterator iter(&skip_list_);
-   Slice dummy_slice;
-   for (iter.Seek(dummy_slice, k.memtable_key().data());
-        iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
-   }
- }
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override {
+    SkipListRep::Iterator iter(&skip_list_);
+    Slice dummy_slice;
+    for (iter.Seek(dummy_slice, k.memtable_key().data());
+         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Next()) {
+    }
+  }
 
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
                                  const Slice& end_ikey) override {
@@ -93,6 +99,66 @@ public:
         skip_list_.EstimateCount(EncodeKey(&tmp, start_ikey));
     uint64_t end_count = skip_list_.EstimateCount(EncodeKey(&tmp, end_ikey));
     return (end_count >= start_count) ? (end_count - start_count) : 0;
+  }
+
+  void UniqueRandomSample(const uint64_t num_entries,
+                          const uint64_t target_sample_size,
+                          std::unordered_set<const char*>* entries) override {
+    entries->clear();
+    // Avoid divide-by-0.
+    assert(target_sample_size > 0);
+    assert(num_entries > 0);
+    // NOTE: the size of entries is not enforced to be exactly
+    // target_sample_size at the end of this function, it might be slightly
+    // greater or smaller.
+    SkipListRep::Iterator iter(&skip_list_);
+    // There are two methods to create the subset of samples (size m)
+    // from the table containing N elements:
+    // 1-Iterate linearly through the N memtable entries. For each entry i,
+    //   add it to the sample set with a probability
+    //   (target_sample_size - entries.size() ) / (N-i).
+    //
+    // 2-Pick m random elements without repetition.
+    // We pick Option 2 when m<sqrt(N) and
+    // Option 1 when m > sqrt(N).
+    if (target_sample_size >
+        static_cast<uint64_t>(std::sqrt(1.0 * num_entries))) {
+      Random* rnd = Random::GetTLSInstance();
+      iter.SeekToFirst();
+      uint64_t counter = 0, num_samples_left = target_sample_size;
+      for (; iter.Valid() && (num_samples_left > 0); iter.Next(), counter++) {
+        // Add entry to sample set with probability
+        // num_samples_left/(num_entries - counter).
+        if (rnd->Next() % (num_entries - counter) < num_samples_left) {
+          entries->insert(iter.key());
+          num_samples_left--;
+        }
+      }
+    } else {
+      // Option 2: pick m random elements with no duplicates.
+      // If Option 2 is picked, then target_sample_size<sqrt(N)
+      // Using a set spares the need to check for duplicates.
+      for (uint64_t i = 0; i < target_sample_size; i++) {
+        // We give it 5 attempts to find a non-duplicate
+        // With 5 attempts, the chances of returning `entries` set
+        // of size target_sample_size is:
+        // PROD_{i=1}^{target_sample_size-1} [1-(i/N)^5]
+        // which is monotonically increasing with N in the worse case
+        // of target_sample_size=sqrt(N), and is always >99.9% for N>4.
+        // At worst, for the final pick , when m=sqrt(N) there is
+        // a probability of p= 1/sqrt(N) chances to find a duplicate.
+        for (uint64_t j = 0; j < 5; j++) {
+          iter.RandomSeek();
+          // unordered_set::insert returns pair<iterator, bool>.
+          // The second element is true if an insert successfully happened.
+          // If element is already in the set, this bool will be false, and
+          // true otherwise.
+          if ((entries->insert(iter.key())).second) {
+            break;
+          }
+        }
+      }
+    }
   }
 
   ~SkipListRep() override {}
@@ -143,6 +209,8 @@ public:
       }
     }
 
+    void RandomSeek() override { iter_.RandomSeek(); }
+
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToFirst() override { iter_.SeekToFirst(); }
@@ -152,7 +220,7 @@ public:
     void SeekToLast() override { iter_.SeekToLast(); }
 
    protected:
-    std::string tmp_;       // For passing to EncodeKey
+    std::string tmp_;  // For passing to EncodeKey
   };
 
   // Iterator over the contents of a skip list which also keeps track of the
@@ -161,8 +229,8 @@ public:
   // the target key hasn't been found.
   class LookaheadIterator : public MemTableRep::Iterator {
    public:
-    explicit LookaheadIterator(const SkipListRep& rep) :
-        rep_(rep), iter_(&rep_.skip_list_), prev_(iter_) {}
+    explicit LookaheadIterator(const SkipListRep& rep)
+        : rep_(rep), iter_(&rep_.skip_list_), prev_(iter_) {}
 
     ~LookaheadIterator() override {}
 
@@ -205,9 +273,9 @@ public:
     }
 
     void Seek(const Slice& internal_key, const char* memtable_key) override {
-      const char *encoded_key =
-        (memtable_key != nullptr) ?
-            memtable_key : EncodeKey(&tmp_, internal_key);
+      const char* encoded_key = (memtable_key != nullptr)
+                                    ? memtable_key
+                                    : EncodeKey(&tmp_, internal_key);
 
       if (prev_.Valid() && rep_.cmp_(encoded_key, prev_.key()) >= 0) {
         // prev_.key() is smaller or equal to our target key; do a quick
@@ -247,7 +315,7 @@ public:
     }
 
    protected:
-    std::string tmp_;       // For passing to EncodeKey
+    std::string tmp_;  // For passing to EncodeKey
 
    private:
     const SkipListRep& rep_;
@@ -257,18 +325,38 @@ public:
 
   MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
     if (lookahead_ > 0) {
-      void *mem =
-        arena ? arena->AllocateAligned(sizeof(SkipListRep::LookaheadIterator))
-              : operator new(sizeof(SkipListRep::LookaheadIterator));
+      void* mem =
+          arena ? arena->AllocateAligned(sizeof(SkipListRep::LookaheadIterator))
+                :
+                operator new(sizeof(SkipListRep::LookaheadIterator));
       return new (mem) SkipListRep::LookaheadIterator(*this);
     } else {
-      void *mem =
-        arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
-              : operator new(sizeof(SkipListRep::Iterator));
+      void* mem = arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
+                        :
+                        operator new(sizeof(SkipListRep::Iterator));
       return new (mem) SkipListRep::Iterator(&skip_list_);
     }
   }
 };
+}  // namespace
+
+static std::unordered_map<std::string, OptionTypeInfo> skiplist_factory_info = {
+    {"lookahead",
+     {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kDontSerialize /*Since it is part of the ID*/}},
+};
+
+SkipListFactory::SkipListFactory(size_t lookahead) : lookahead_(lookahead) {
+  RegisterOptions("SkipListFactoryOptions", &lookahead_,
+                  &skiplist_factory_info);
+}
+
+std::string SkipListFactory::GetId() const {
+  std::string id = Name();
+  if (lookahead_ > 0) {
+    id.append(":").append(std::to_string(lookahead_));
+  }
+  return id;
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(

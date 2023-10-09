@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/lock/point/point_lock_manager_test.h"
 
@@ -129,14 +128,14 @@ TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
   port::Thread t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
     // block because txn1 is holding a lock on k1.
-    locker_->TryLock(txn2, 1, "k1", env_, true);
+    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
 
   ASSERT_OK(locker_->TryLock(txn3, 1, "k3", env_, true));
 
   port::Thread t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
     // block because txn3 is holding a lock on k1.
-    locker_->TryLock(txn4, 1, "k3", env_, true);
+    ASSERT_OK(locker_->TryLock(txn4, 1, "k3", env_, true));
   });
 
   auto s = locker_->TryLock(txn3, 1, "k2", env_, true);
@@ -169,13 +168,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED because Transactions are not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

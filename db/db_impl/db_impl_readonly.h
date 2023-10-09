@@ -5,14 +5,15 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with CompactedDBImpl and DBImplSecondary
 class DBImplReadOnly : public DBImpl {
  public:
   DBImplReadOnly(const DBOptions& options, const std::string& dbname);
@@ -23,15 +24,14 @@ class DBImplReadOnly : public DBImpl {
   virtual ~DBImplReadOnly();
 
   // Implementations of the DB interface
-  using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) override;
+  using DBImpl::GetImpl;
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options) override;
 
   // TODO: Implement ReadOnly MultiGet?
 
   using DBImpl::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions&,
+  virtual Iterator* NewIterator(const ReadOptions& _read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   virtual Status NewIterators(
@@ -45,6 +45,15 @@ class DBImplReadOnly : public DBImpl {
                      const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   using DBImpl::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
@@ -129,6 +138,30 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const std::vector<const ExportImportFilesMetaData*>& /*metadatas*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& /*begin*/,
+                                  const Slice& /*end*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  // FIXME: some missing overrides for more "write" functions
+
+ protected:
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+
  private:
   // A "helper" function for DB::OpenForReadOnly without column families
   // to reduce unnecessary I/O
@@ -142,5 +175,3 @@ class DBImplReadOnly : public DBImpl {
   friend class DB;
 };
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE

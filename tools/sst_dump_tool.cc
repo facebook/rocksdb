@@ -3,14 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
 
 #include <cinttypes>
 #include <iostream>
 
+#include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/sst_file_dumper.h"
 
@@ -30,6 +31,16 @@ static const std::vector<std::pair<CompressionType, const char*>>
 namespace {
 
 void print_help(bool to_stderr) {
+  std::string supported_compressions;
+  for (CompressionType ct : GetSupportedCompressions()) {
+    if (!supported_compressions.empty()) {
+      supported_compressions += ", ";
+    }
+    std::string str;
+    Status s = GetStringFromCompressionType(&str, ct);
+    assert(s.ok());
+    supported_compressions += str;
+  }
   fprintf(
       to_stderr ? stderr : stdout,
       R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress|identify]
@@ -37,7 +48,10 @@ void print_help(bool to_stderr) {
       Path to SST file or directory containing SST files
 
     --env_uri=<uri of underlying Env>
-      URI of underlying Env
+      URI of underlying Env, mutually exclusive with fs_uri
+
+    --fs_uri=<uri of underlying FileSystem>
+      URI of underlying FileSystem, mutually exclusive with env_uri
 
     --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
@@ -85,6 +99,7 @@ void print_help(bool to_stderr) {
       kSnappyCompression>
       Can be combined with --command=recompress to run recompression for this
       list of compression types
+      Supported compression types: %s
 
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
@@ -103,7 +118,14 @@ void print_help(bool to_stderr) {
 
     --compression_zstd_max_train_bytes=<uint32_t>
       Maximum size of training data passed to zstd's dictionary trainer
-)");
+
+    --compression_max_dict_buffer_bytes=<int64_t>
+      Limit on buffer size from which we collect samples for dictionary generation.
+
+    --compression_use_zstd_finalize_dict
+      Use zstd's finalizeDictionary() API instead of zstd's dictionary trainer to generate dictionary.
+)",
+      supported_compressions.c_str());
 }
 
 // arg_name would include all prefix, e.g. "--my_arg="
@@ -127,7 +149,7 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 }  // namespace
 
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
-  const char* env_uri = nullptr;
+  std::string env_uri, fs_uri;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -166,12 +188,18 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       ROCKSDB_NAMESPACE::CompressionOptions().max_dict_bytes;
   uint32_t compression_zstd_max_train_bytes =
       ROCKSDB_NAMESPACE::CompressionOptions().zstd_max_train_bytes;
+  uint64_t compression_max_dict_buffer_bytes =
+      ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes;
+  bool compression_use_zstd_finalize_dict =
+      !ROCKSDB_NAMESPACE::CompressionOptions().use_zstd_dict_trainer;
 
   int64_t tmp_val;
 
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
       env_uri = argv[i] + 10;
+    } else if (strncmp(argv[i], "--fs_uri=", 9) == 0) {
+      fs_uri = argv[i] + 9;
     } else if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
@@ -230,9 +258,9 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       try {
         in_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(in_key);
       } catch (...) {
-        std::cerr << "ERROR: Invalid key input '"
-          << in_key
-          << "' Use 0x{hex representation of internal rocksdb key}" << std::endl;
+        std::cerr << "ERROR: Invalid key input '" << in_key
+                  << "' Use 0x{hex representation of internal rocksdb key}"
+                  << std::endl;
         return -1;
       }
       Slice sl_key = ROCKSDB_NAMESPACE::Slice(in_key);
@@ -258,7 +286,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (ParseIntArg(argv[i], "--compression_max_dict_bytes=",
                            "compression_max_dict_bytes must be numeric",
                            &tmp_val)) {
-      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+      if (tmp_val < 0 || tmp_val > std::numeric_limits<uint32_t>::max()) {
         fprintf(stderr, "compression_max_dict_bytes must be a uint32_t: '%s'\n",
                 argv[i]);
         print_help(/*to_stderr*/ true);
@@ -268,7 +296,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (ParseIntArg(argv[i], "--compression_zstd_max_train_bytes=",
                            "compression_zstd_max_train_bytes must be numeric",
                            &tmp_val)) {
-      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+      if (tmp_val < 0 || tmp_val > std::numeric_limits<uint32_t>::max()) {
         fprintf(stderr,
                 "compression_zstd_max_train_bytes must be a uint32_t: '%s'\n",
                 argv[i]);
@@ -276,12 +304,24 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         return 1;
       }
       compression_zstd_max_train_bytes = static_cast<uint32_t>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_max_dict_buffer_bytes=",
+                           "compression_max_dict_buffer_bytes must be numeric",
+                           &tmp_val)) {
+      if (tmp_val < 0) {
+        fprintf(stderr,
+                "compression_max_dict_buffer_bytes must be positive: '%s'\n",
+                argv[i]);
+        print_help(/*to_stderr*/ true);
+        return 1;
+      }
+      compression_max_dict_buffer_bytes = static_cast<uint64_t>(tmp_val);
+    } else if (strcmp(argv[i], "--compression_use_zstd_finalize_dict") == 0) {
+      compression_use_zstd_finalize_dict = true;
     } else if (strcmp(argv[i], "--help") == 0) {
       print_help(/*to_stderr*/ false);
       return 0;
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("sst_dump from RocksDB %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
-             ROCKSDB_PATCH);
+      printf("%s\n", GetRocksBuildInfoAsString("sst_dump").c_str());
       return 0;
     } else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
@@ -290,14 +330,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
   }
 
-  if(has_compression_level_from && has_compression_level_to) {
-    if(!has_specified_compression_types || compression_types.size() != 1) {
+  if (has_compression_level_from && has_compression_level_to) {
+    if (!has_specified_compression_types || compression_types.size() != 1) {
       fprintf(stderr, "Specify one compression type.\n\n");
       exit(1);
     }
-  } else if(has_compression_level_from || has_compression_level_to) {
-    fprintf(stderr, "Specify both --compression_level_from and "
-                     "--compression_level_to.\n\n");
+  } else if (has_compression_level_from || has_compression_level_to) {
+    fprintf(stderr,
+            "Specify both --compression_level_from and "
+            "--compression_level_to.\n\n");
     exit(1);
   }
 
@@ -324,18 +365,19 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
   // If caller of SSTDumpTool::Run(...) does not specify a different env other
-  // than Env::Default(), then try to load custom env based on dir_or_file.
+  // than Env::Default(), then try to load custom env based on env_uri/fs_uri.
   // Otherwise, the caller is responsible for creating custom env.
-  if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
-    Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+  {
+    ConfigOptions config_options;
+    config_options.env = options.env;
+    Status s = Env::CreateFromUri(config_options, env_uri, fs_uri, &options.env,
+                                  &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "CreateEnvFromUri: %s\n", s.ToString().c_str());
       exit(1);
+    } else {
+      fprintf(stdout, "options.env is %p\n", options.env);
     }
-    options.env = env;
-  } else {
-    fprintf(stdout, "options.env is %p\n", options.env);
   }
 
   std::vector<std::string> filenames;
@@ -377,9 +419,13 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, readahead_size,
-                                            verify_checksum, output_hex,
-                                            decode_blob_index);
+    if (command == "verify") {
+      verify_checksum = true;
+    }
+
+    ROCKSDB_NAMESPACE::SstFileDumper dumper(
+        options, filename, Temperature::kUnknown, readahead_size,
+        verify_checksum, output_hex, decode_blob_index);
     // Not a valid SST
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
@@ -404,7 +450,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
           set_block_size ? block_size : 16384,
           compression_types.empty() ? kCompressions : compression_types,
           compress_level_from, compress_level_to, compression_max_dict_bytes,
-          compression_zstd_max_train_bytes);
+          compression_zstd_max_train_bytes, compression_max_dict_buffer_bytes,
+          !compression_use_zstd_finalize_dict);
       if (!st.ok()) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);
@@ -433,8 +480,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
           has_from || use_from_as_prefix, from_key, has_to, to_key,
           use_from_as_prefix);
       if (!st.ok()) {
-        fprintf(stderr, "%s: %s\n", filename.c_str(),
-            st.ToString().c_str());
+        fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
       }
       total_read += dumper.GetReadNumber();
       if (read_num > 0 && total_read > read_num) {
@@ -538,4 +584,3 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

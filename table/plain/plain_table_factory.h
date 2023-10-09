@@ -5,10 +5,10 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
+#include <stdint.h>
+
 #include <memory>
 #include <string>
-#include <stdint.h>
 
 #include "rocksdb/table.h"
 
@@ -168,7 +168,7 @@ class PlainTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   std::string GetPrintableOptions() const override;
   static const char kValueTypeSeqId0 = char(~0);
@@ -177,6 +177,4 @@ class PlainTableFactory : public TableFactory {
   PlainTableOptions table_options_;
 };
 
-
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

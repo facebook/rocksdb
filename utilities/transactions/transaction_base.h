@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <stack>
 #include <string>
@@ -31,7 +30,7 @@ class TransactionBaseImpl : public Transaction {
   TransactionBaseImpl(DB* db, const WriteOptions& write_options,
                       const LockTrackerFactory& lock_tracker_factory);
 
-  virtual ~TransactionBaseImpl();
+  ~TransactionBaseImpl() override;
 
   // Remove pending operations queued in this transaction.
   virtual void Clear();
@@ -54,11 +53,13 @@ class TransactionBaseImpl : public Transaction {
   Status PopSavePoint() override;
 
   using Transaction::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             std::string* value) override;
 
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value) override;
+  Status Get(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override {
@@ -85,7 +86,7 @@ class TransactionBaseImpl : public Transaction {
 
   using Transaction::MultiGet;
   std::vector<Status> MultiGet(
-      const ReadOptions& options,
+      const ReadOptions& _read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
@@ -93,14 +94,16 @@ class TransactionBaseImpl : public Transaction {
   std::vector<Status> MultiGet(const ReadOptions& options,
                                const std::vector<Slice>& keys,
                                std::vector<std::string>* values) override {
-    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), db_->DefaultColumnFamily()),
+    return MultiGet(options,
+                    std::vector<ColumnFamilyHandle*>(
+                        keys.size(), db_->DefaultColumnFamily()),
                     keys, values);
   }
 
-  void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                const size_t num_keys, const Slice* keys, PinnableSlice* values,
-                Status* statuses, const bool sorted_input = false) override;
+  void MultiGet(const ReadOptions& _read_options,
+                ColumnFamilyHandle* column_family, const size_t num_keys,
+                const Slice* keys, PinnableSlice* values, Status* statuses,
+                const bool sorted_input = false) override;
 
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
@@ -202,7 +205,12 @@ class TransactionBaseImpl : public Transaction {
   }
 
   const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_.get() : nullptr;
+    // will return nullptr when there is no snapshot
+    return snapshot_.get();
+  }
+
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot() const override {
+    return snapshot_;
   }
 
   virtual void SetSnapshot() override;
@@ -218,6 +226,8 @@ class TransactionBaseImpl : public Transaction {
   void DisableIndexing() override { indexing_enabled_ = false; }
 
   void EnableIndexing() override { indexing_enabled_ = true; }
+
+  bool IndexingEnabled() const { return indexing_enabled_; }
 
   uint64_t GetElapsedTime() const override;
 
@@ -253,6 +263,13 @@ class TransactionBaseImpl : public Transaction {
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, std::string* value) override;
+
+  virtual Status GetImpl(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value) override;
+
   // Add a key to the list of tracked keys.
   //
   // seqno is the earliest seqno this key was involved with this transaction.
@@ -276,6 +293,8 @@ class TransactionBaseImpl : public Transaction {
     auto s = WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
     assert(s.ok());
   }
+
+  WriteBatchBase* GetBatchForWrite();
 
   DB* db_;
   DBImpl* dbimpl_;
@@ -341,7 +360,9 @@ class TransactionBaseImpl : public Transaction {
       save_points_;
 
  private:
+  friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
@@ -364,10 +385,7 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_tracked = false);
 
-  WriteBatchBase* GetBatchForWrite();
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

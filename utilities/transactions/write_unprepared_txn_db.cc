@@ -3,9 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn_db.h"
+
 #include "db/arena_wrapped_db_iter.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
@@ -59,7 +59,9 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); ++it) {
     auto last_visible_txn = it->first - 1;
     const auto& batch = it->second.batch_;
-    WriteBatch rollback_batch;
+    WriteBatch rollback_batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                              w_options.protection_bytes_per_key,
+                              0 /* default_cf_ts_sz */);
 
     struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
       DBImpl* db_;
@@ -383,9 +385,20 @@ static void CleanupWriteUnpreparedTxnDBIterator(void* arg1, void* /*arg2*/) {
 }
 }  // anonymous namespace
 
-Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
+Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& _read_options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool expose_blob_index = false;
   constexpr bool allow_refresh = false;
@@ -424,11 +437,11 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // max_visible_seq, and then return the last visible value, so that this
   // restriction can be lifted.
   const Snapshot* snapshot = nullptr;
-  if (options.snapshot == nullptr) {
+  if (read_options.snapshot == nullptr) {
     snapshot = GetSnapshot();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   } else {
-    snapshot = options.snapshot;
+    snapshot = read_options.snapshot;
   }
 
   snapshot_seq = snapshot->GetSequenceNumber();
@@ -459,12 +472,12 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
   auto* db_iter = db_impl_->NewIteratorImpl(
-      options, cfd, state->MaxVisibleSeq(), &state->callback, expose_blob_index,
-      allow_refresh);
+      read_options, cfd, super_version, state->MaxVisibleSeq(),
+      &state->callback, expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -9,9 +9,9 @@ import java.util.List;
 /**
  * BackupEngine allows you to backup
  * and restore the database
- *
+ * <p>
  * Be aware, that `new BackupEngine` takes time proportional to the amount
- * of backups. So if you have a slow filesystem to backup (like HDFS)
+ * of backups. So if you have a slow filesystem to backup
  * and you have a lot of backups then restoring can take some time.
  * That's why we recommend to limit the number of backups.
  * Also we recommend to keep BackupEngine alive and not to recreate it every
@@ -32,19 +32,19 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @return A new BackupEngine instance
    * @throws RocksDBException thrown if the backup engine could not be opened
    */
-  public static BackupEngine open(final Env env,
-      final BackupableDBOptions options) throws RocksDBException {
+  public static BackupEngine open(final Env env, final BackupEngineOptions options)
+      throws RocksDBException {
     return new BackupEngine(open(env.nativeHandle_, options.nativeHandle_));
   }
 
   /**
    * Captures the state of the database in the latest backup
-   *
+   * <p>
    * Just a convenience for {@link #createNewBackup(RocksDB, boolean)} with
    * the flushBeforeBackup parameter set to false
    *
    * @param db The database to backup
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -72,7 +72,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -105,7 +105,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.
-   *
+   * <p>
    * Note - This method is not thread safe
    *
    * @throws RocksDBException thrown if a new backup could not be created
@@ -179,11 +179,11 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
 
   /**
    * Restore the database from a backup
-   *
+   * <p>
    * IMPORTANT: if options.share_table_files == true and you restore the DB
    * from some backup that is not the latest, and you start creating new
    * backups from the new DB, they will probably fail!
-   *
+   * <p>
    * Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
    * If you add new data to the DB and try creating a new backup now, the
    * database will diverge from backups 4 and 5 and the new backup will fail.
@@ -226,8 +226,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
         restoreOptions.nativeHandle_);
   }
 
-  private native static long open(final long env,
-      final long backupableDbOptions) throws RocksDBException;
+  private static native long open(final long env, final long backupEngineOptions)
+      throws RocksDBException;
 
   private native void createNewBackup(final long handle, final long dbHandle,
       final boolean flushBeforeBackup) throws RocksDBException;

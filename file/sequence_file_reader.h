@@ -23,30 +23,89 @@ namespace ROCKSDB_NAMESPACE {
 // cache disabled) reads appropriately, and also updates the IO stats.
 class SequentialFileReader {
  private:
+  void NotifyOnFileReadFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const Status& status) const {
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status);
+    info.offset = offset;
+    info.length = length;
+
+    for (auto& listener : listeners_) {
+      listener->OnFileReadFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+
+  void AddFileIOListeners(
+      const std::vector<std::shared_ptr<EventListener>>& listeners) {
+    std::for_each(listeners.begin(), listeners.end(),
+                  [this](const std::shared_ptr<EventListener>& e) {
+                    if (e->ShouldBeNotifiedOnFileIO()) {
+                      listeners_.emplace_back(e);
+                    }
+                  });
+  }
+
+  bool ShouldNotifyListeners() const { return !listeners_.empty(); }
+
   std::string file_name_;
   FSSequentialFilePtr file_;
   std::atomic<size_t> offset_{0};  // read offset
+  std::vector<std::shared_ptr<EventListener>> listeners_{};
+  RateLimiter* rate_limiter_;
 
  public:
   explicit SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
-      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
-      : file_name_(_file_name), file_(std::move(_file), io_tracer) {}
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      RateLimiter* rate_limiter =
+          nullptr)  // TODO: migrate call sites to provide rate limiter
+      : file_name_(_file_name),
+        file_(std::move(_file), io_tracer, _file_name),
+        listeners_(),
+        rate_limiter_(rate_limiter) {
+    AddFileIOListeners(listeners);
+  }
 
   explicit SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       size_t _readahead_size,
-      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      RateLimiter* rate_limiter =
+          nullptr)  // TODO: migrate call sites to provide rate limiter
       : file_name_(_file_name),
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
-              io_tracer) {}
+              io_tracer, _file_name),
+        listeners_(),
+        rate_limiter_(rate_limiter) {
+    AddFileIOListeners(listeners);
+  }
+  static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& fname, const FileOptions& file_opts,
+                         std::unique_ptr<SequentialFileReader>* reader,
+                         IODebugContext* dbg, RateLimiter* rate_limiter);
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
-  Status Read(size_t n, Slice* result, char* scratch);
+  // `rate_limiter_priority` is used to charge the internal rate limiter when
+  // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
+  // rate limiter. The amount charged to the internal rate limiter is n, even
+  // when less than n bytes are actually read (e.g. at end of file). To avoid
+  // overcharging the rate limiter, the caller can use file size to cap n to
+  // read until end of file.
+  //
+  // TODO(hx235): accept parameter `IOOptions` containing
+  // `rate_limiter_priority` like RandomAccessFileReader::Read()
+  IOStatus Read(size_t n, Slice* result, char* scratch,
+                Env::IOPriority rate_limiter_priority);
 
-  Status Skip(uint64_t n);
+  IOStatus Skip(uint64_t n);
 
   FSSequentialFile* file() { return file_.get(); }
 

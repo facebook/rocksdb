@@ -17,7 +17,7 @@ class IniParser:
     @staticmethod
     def remove_trailing_comment(line):
         line = line.strip()
-        comment_start = line.find('#')
+        comment_start = line.find("#")
         if comment_start > -1:
             return line[:comment_start]
         return line
@@ -27,7 +27,7 @@ class IniParser:
         # A section header looks like: [Rule "my-new-rule"]. Essentially,
         # a line that is in square-brackets.
         line = line.strip()
-        if line.startswith('[') and line.endswith(']'):
+        if line.startswith("[") and line.endswith("]"):
             return True
         return False
 
@@ -38,7 +38,7 @@ class IniParser:
         token_list = line.strip()[1:-1].split('"')
         if len(token_list) < 3:
             error = 'needed section header: [<section_type> "<section_name>"]'
-            raise ValueError('Parsing error: ' + error + '\n' + line)
+            raise ValueError("Parsing error: " + error + "\n" + line)
         return token_list[1]
 
     @staticmethod
@@ -47,22 +47,22 @@ class IniParser:
         if not line:
             return IniParser.Element.comment
         if IniParser.is_section_header(line):
-            if line.strip()[1:-1].startswith('Suggestion'):
+            if line.strip()[1:-1].startswith("Suggestion"):
                 return IniParser.Element.sugg
-            if line.strip()[1:-1].startswith('Rule'):
+            if line.strip()[1:-1].startswith("Rule"):
                 return IniParser.Element.rule
-            if line.strip()[1:-1].startswith('Condition'):
+            if line.strip()[1:-1].startswith("Condition"):
                 return IniParser.Element.cond
-        if '=' in line:
+        if "=" in line:
             return IniParser.Element.key_val
-        error = 'not a recognizable RulesSpec element'
-        raise ValueError('Parsing error: ' + error + '\n' + line)
+        error = "not a recognizable RulesSpec element"
+        raise ValueError("Parsing error: " + error + "\n" + line)
 
     @staticmethod
     def get_key_value_pair(line):
         line = line.strip()
-        key = line.split('=')[0].strip()
-        value = "=".join(line.split('=')[1:])
+        key = line.split("=")[0].strip()
+        value = "=".join(line.split("=")[1:])
         if value == "":  # if the option has no value
             return (key, None)
         values = IniParser.get_list_from_value(value)
@@ -72,5 +72,5 @@ class IniParser:
 
     @staticmethod
     def get_list_from_value(value):
-        values = value.strip().split(':')
+        values = value.strip().split(":")
         return values

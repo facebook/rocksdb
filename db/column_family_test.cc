@@ -17,6 +17,7 @@
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -39,9 +40,7 @@ class EnvCounter : public SpecialEnv {
  public:
   explicit EnvCounter(Env* base)
       : SpecialEnv(base), num_new_writable_file_(0) {}
-  int GetNumberOfNewWritableFileCalls() {
-    return num_new_writable_file_;
-  }
+  int GetNumberOfNewWritableFileCalls() { return num_new_writable_file_; }
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     ++num_new_writable_file_;
@@ -56,16 +55,8 @@ class ColumnFamilyTestBase : public testing::Test {
  public:
   explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
     Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-      base_env = test_env;
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
-#endif  // !ROCKSDB_LITE
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = new EnvCounter(base_env);
     env_->skip_fsync_ = true;
@@ -73,6 +64,9 @@ class ColumnFamilyTestBase : public testing::Test {
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
+  }
+
+  void SetUp() override {
     EXPECT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
@@ -81,11 +75,7 @@ class ColumnFamilyTestBase : public testing::Test {
     for (auto h : handles_) {
       ColumnFamilyDescriptor cfdescriptor;
       Status s = h->GetDescriptor(&cfdescriptor);
-#ifdef ROCKSDB_LITE
-      EXPECT_TRUE(s.IsNotSupported());
-#else
       EXPECT_OK(s);
-#endif  // ROCKSDB_LITE
       column_families.push_back(cfdescriptor);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -187,42 +177,37 @@ class ColumnFamilyTestBase : public testing::Test {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
   }
 
   Status OpenReadOnly(std::vector<std::string> cf,
-                         std::vector<ColumnFamilyOptions> options = {}) {
+                      std::vector<ColumnFamilyOptions> options = {}) {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::OpenForReadOnly(db_options_, dbname_, column_families, &handles_,
                                &db_);
   }
 
-#ifndef ROCKSDB_LITE  // ReadOnlyDB is not supported
   void AssertOpenReadOnly(std::vector<std::string> cf,
-                    std::vector<ColumnFamilyOptions> options = {}) {
+                          std::vector<ColumnFamilyOptions> options = {}) {
     ASSERT_OK(OpenReadOnly(cf, options));
   }
-#endif  // !ROCKSDB_LITE
-
 
   void Open(std::vector<std::string> cf,
             std::vector<ColumnFamilyOptions> options = {}) {
     ASSERT_OK(TryOpen(cf, options));
   }
 
-  void Open() {
-    Open({"default"});
-  }
+  void Open() { Open({"default"}); }
 
   DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
@@ -237,31 +222,20 @@ class ColumnFamilyTestBase : public testing::Test {
   }
 
   bool IsDbWriteStopped() {
-#ifndef ROCKSDB_LITE
     uint64_t v;
     EXPECT_TRUE(dbfull()->GetIntProperty("rocksdb.is-write-stopped", &v));
     return (v == 1);
-#else
-    return dbfull()->TEST_write_controler().IsStopped();
-#endif  // !ROCKSDB_LITE
   }
 
   uint64_t GetDbDelayedWriteRate() {
-#ifndef ROCKSDB_LITE
     uint64_t v;
     EXPECT_TRUE(
         dbfull()->GetIntProperty("rocksdb.actual-delayed-write-rate", &v));
     return v;
-#else
-    if (!dbfull()->TEST_write_controler().NeedsDelay()) {
-      return 0;
-    }
-    return dbfull()->TEST_write_controler().delayed_write_rate();
-#endif  // !ROCKSDB_LITE
   }
 
   void Destroy(const std::vector<ColumnFamilyDescriptor>& column_families =
-                  std::vector<ColumnFamilyDescriptor>()) {
+                   std::vector<ColumnFamilyDescriptor>()) {
     Close();
     ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_),
                         column_families));
@@ -280,7 +254,6 @@ class ColumnFamilyTestBase : public testing::Test {
           db_->CreateColumnFamily(current_cf_opt, cfs[i], &handles_[cfi]));
       names_[cfi] = cfs[i];
 
-#ifndef ROCKSDB_LITE  // RocksDBLite does not support GetDescriptor
       // Verify the CF options of the returned CF handle.
       ColumnFamilyDescriptor desc;
       ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
@@ -289,7 +262,6 @@ class ColumnFamilyTestBase : public testing::Test {
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
           ConfigOptions(), desc.options,
           SanitizeOptions(dbfull()->immutable_db_options(), current_cf_opt)));
-#endif  // !ROCKSDB_LITE
       cfi++;
     }
   }
@@ -338,14 +310,11 @@ class ColumnFamilyTestBase : public testing::Test {
     ASSERT_OK(db_->FlushWAL(/*sync=*/false));
   }
 
-#ifndef ROCKSDB_LITE  // TEST functions in DB are not supported in lite
   void WaitForFlush(int cf) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
   }
 
-  void WaitForCompaction() {
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  }
+  void WaitForCompaction() { ASSERT_OK(dbfull()->TEST_WaitForCompact()); }
 
   uint64_t MaxTotalInMemoryState() {
     return dbfull()->TEST_MaxTotalInMemoryState();
@@ -354,7 +323,6 @@ class ColumnFamilyTestBase : public testing::Test {
   void AssertMaxTotalInMemoryState(uint64_t value) {
     ASSERT_EQ(value, MaxTotalInMemoryState());
   }
-#endif  // !ROCKSDB_LITE
 
   Status Put(int cf, const std::string& key, const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(value));
@@ -362,9 +330,7 @@ class ColumnFamilyTestBase : public testing::Test {
   Status Merge(int cf, const std::string& key, const std::string& value) {
     return db_->Merge(WriteOptions(), handles_[cf], Slice(key), Slice(value));
   }
-  Status Flush(int cf) {
-    return db_->Flush(FlushOptions(), handles_[cf]);
-  }
+  Status Flush(int cf) { return db_->Flush(FlushOptions(), handles_[cf]); }
 
   std::string Get(int cf, const std::string& key) {
     ReadOptions options;
@@ -391,10 +357,9 @@ class ColumnFamilyTestBase : public testing::Test {
 
   int NumTableFilesAtLevel(int level, int cf) {
     return GetProperty(cf,
-                       "rocksdb.num-files-at-level" + ToString(level));
+                       "rocksdb.num-files-at-level" + std::to_string(level));
   }
 
-#ifndef ROCKSDB_LITE
   // Return spread of files per level
   std::string FilesPerLevel(int cf) {
     std::string result;
@@ -411,31 +376,19 @@ class ColumnFamilyTestBase : public testing::Test {
     result.resize(last_non_zero_offset);
     return result;
   }
-#endif
 
   void AssertFilesPerLevel(const std::string& value, int cf) {
-#ifndef ROCKSDB_LITE
     ASSERT_EQ(value, FilesPerLevel(cf));
-#else
-    (void) value;
-    (void) cf;
-#endif
   }
 
-#ifndef ROCKSDB_LITE  // GetLiveFilesMetaData is not supported
   int CountLiveFiles() {
     std::vector<LiveFileMetaData> metadata;
     db_->GetLiveFilesMetaData(&metadata);
     return static_cast<int>(metadata.size());
   }
-#endif  // !ROCKSDB_LITE
 
   void AssertCountLiveFiles(int expected_value) {
-#ifndef ROCKSDB_LITE
     ASSERT_EQ(expected_value, CountLiveFiles());
-#else
-    (void) expected_value;
-#endif
   }
 
   // Do n memtable flushes, each of which produces an sstable
@@ -449,7 +402,6 @@ class ColumnFamilyTestBase : public testing::Test {
     }
   }
 
-#ifndef ROCKSDB_LITE  // GetSortedWalFiles is not supported
   int CountLiveLogFiles() {
     int micros_wait_for_log_deletion = 20000;
     env_->SleepForMicroseconds(micros_wait_for_log_deletion);
@@ -478,25 +430,18 @@ class ColumnFamilyTestBase : public testing::Test {
     return ret;
     return 0;
   }
-#endif  // !ROCKSDB_LITE
 
   void AssertCountLiveLogFiles(int value) {
-#ifndef ROCKSDB_LITE  // GetSortedWalFiles is not supported
     ASSERT_EQ(value, CountLiveLogFiles());
-#else
-    (void) value;
-#endif  // !ROCKSDB_LITE
   }
 
   void AssertNumberOfImmutableMemtables(std::vector<int> num_per_cf) {
     assert(num_per_cf.size() == handles_.size());
 
-#ifndef ROCKSDB_LITE  // GetProperty is not supported in lite
     for (size_t i = 0; i < num_per_cf.size(); ++i) {
       ASSERT_EQ(num_per_cf[i], GetProperty(static_cast<int>(i),
                                            "rocksdb.num-immutable-mem-table"));
     }
-#endif  // !ROCKSDB_LITE
   }
 
   void CopyFile(const std::string& source, const std::string& destination,
@@ -529,14 +474,14 @@ class ColumnFamilyTestBase : public testing::Test {
     return static_cast<int>(files.size());
   }
 
-  void RecalculateWriteStallConditions(ColumnFamilyData* cfd,
-      const MutableCFOptions& mutable_cf_options)  {
+  void RecalculateWriteStallConditions(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options) {
     // add lock to avoid race condition between
     // `RecalculateWriteStallConditions` which writes to CFStats and
     // background `DBImpl::DumpStats()` threads which read CFStats
     dbfull()->TEST_LockMutex();
     cfd->RecalculateWriteStallConditions(mutable_cf_options);
-    dbfull()-> TEST_UnlockMutex();
+    dbfull()->TEST_UnlockMutex();
   }
 
   std::vector<ColumnFamilyHandle*> handles_;
@@ -562,7 +507,7 @@ class ColumnFamilyTest
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
 INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(test::kLatestFormatVersion));
+                        testing::Values(kLatestFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -592,7 +537,6 @@ TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
   Open();
 
@@ -615,7 +559,6 @@ TEST_P(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // !ROCKSDB_LITE
 
 class FlushEmptyCFTestWithParam
     : public ColumnFamilyTestBase,
@@ -754,8 +697,8 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(test::kLatestFormatVersion, true),
-                    std::make_tuple(test::kLatestFormatVersion, false)));
+    testing::Values(std::make_tuple(kLatestFormatVersion, true),
+                    std::make_tuple(kLatestFormatVersion, false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();
@@ -791,7 +734,7 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
   std::vector<std::string> cf_names;
   std::vector<ColumnFamilyHandle*> cf_handles;
   for (int i = 1; i <= kNumCF; i++) {
-    cf_names.push_back("cf1-" + ToString(i));
+    cf_names.push_back("cf1-" + std::to_string(i));
   }
   ASSERT_OK(db_->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
   for (int i = 1; i <= kNumCF; i++) {
@@ -804,7 +747,8 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
   }
   cf_handles.clear();
   for (int i = 1; i <= kNumCF; i++) {
-    cf_descriptors.emplace_back("cf2-" + ToString(i), ColumnFamilyOptions());
+    cf_descriptors.emplace_back("cf2-" + std::to_string(i),
+                                ColumnFamilyOptions());
   }
   ASSERT_OK(db_->CreateColumnFamilies(cf_descriptors, &cf_handles));
   for (int i = 1; i <= kNumCF; i++) {
@@ -828,7 +772,7 @@ TEST_P(ColumnFamilyTest, DropTest) {
     Open({"default"});
     CreateColumnFamiliesAndReopen({"pikachu"});
     for (int i = 0; i < 100; ++i) {
-      ASSERT_OK(Put(1, ToString(i), "bar" + ToString(i)));
+      ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
     }
     ASSERT_OK(Flush(1));
 
@@ -898,9 +842,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::vector<std::string> old_files;
   ASSERT_OK(env_->GetChildren(backup_logs, &old_files));
   for (auto& file : old_files) {
-    if (file != "." && file != "..") {
-      ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
-    }
+    ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
   }
 
   column_family_options_.merge_operator =
@@ -929,9 +871,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::vector<std::string> logs;
   ASSERT_OK(env_->GetChildren(db_options_.wal_dir, &logs));
   for (auto& log : logs) {
-    if (log != ".." && log != ".") {
-      CopyFile(db_options_.wal_dir + "/" + log, backup_logs + "/" + log);
-    }
+    CopyFile(db_options_.wal_dir + "/" + log, backup_logs + "/" + log);
   }
 
   // recover the DB
@@ -956,15 +896,12 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
     if (iter == 0) {
       // copy the logs from backup back to wal dir
       for (auto& log : logs) {
-        if (log != ".." && log != ".") {
-          CopyFile(backup_logs + "/" + log, db_options_.wal_dir + "/" + log);
-        }
+        CopyFile(backup_logs + "/" + log, db_options_.wal_dir + "/" + log);
       }
     }
   }
 }
 
-#ifndef ROCKSDB_LITE  // TEST functions used are not supported
 TEST_P(ColumnFamilyTest, FlushTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
@@ -983,8 +920,7 @@ TEST_P(ColumnFamilyTest, FlushTest) {
     }
 
     for (int i = 0; i < 3; ++i) {
-      uint64_t max_total_in_memory_state =
-          MaxTotalInMemoryState();
+      uint64_t max_total_in_memory_state = MaxTotalInMemoryState();
       ASSERT_OK(Flush(i));
       AssertMaxTotalInMemoryState(max_total_in_memory_state);
     }
@@ -1080,7 +1016,6 @@ TEST_P(ColumnFamilyTest, LogDeletionTest) {
   AssertCountLiveLogFiles(4);
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_P(ColumnFamilyTest, CrashAfterFlush) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
@@ -1120,7 +1055,6 @@ TEST_P(ColumnFamilyTest, OpenNonexistentColumnFamily) {
   ASSERT_TRUE(TryOpen({"default", "dne"}).IsInvalidArgument());
 }
 
-#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 // Makes sure that obsolete log files get deleted
 TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   // disable flushing stale column families
@@ -1129,7 +1063,7 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   CreateColumnFamilies({"one", "two", "three"});
   ColumnFamilyOptions default_cf, one, two, three;
   // setup options. all column families have max_write_buffer_number setup to 10
-  // "default" -> 100KB memtable, start flushing immediatelly
+  // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
   // "two" -> 1MB memtable, start flushing with three immutable memtables
   // "three" -> 90KB memtable, start flushing with four immutable memtables
@@ -1222,20 +1156,18 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   AssertCountLiveLogFiles(12);
-  PutRandomData(1, 2*200, 1000);
+  PutRandomData(1, 2 * 200, 1000);
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   AssertCountLiveLogFiles(7);
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 // The test is commented out because we want to test that snapshot is
 // not created for memtables not supported it, but There isn't a memtable
 // that doesn't support snapshot right now. If we have one later, we can
 // re-enable the test.
 //
-// #ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
 //   TEST_P(ColumnFamilyTest, MemtableNotSupportSnapshot) {
 //   db_options_.allow_concurrent_memtable_write = false;
 //   Open();
@@ -1255,7 +1187,6 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
 //   {second}); auto* s3 = dbfull()->GetSnapshot(); ASSERT_TRUE(s3 == nullptr);
 //   Close();
 // }
-// #endif  // !ROCKSDB_LITE
 
 class TestComparator : public Comparator {
   int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
@@ -1322,13 +1253,13 @@ TEST_P(ColumnFamilyTest, DifferentMergeOperators) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1346,6 +1277,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1358,7 +1290,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
     PutRandomData(1, 10, 12000);
     PutRandomData(1, 1, 10);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   // SETUP column family "two" -- level style with 4 levels
@@ -1366,7 +1298,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
 
   // TRIGGER compaction "one"
@@ -1390,9 +1322,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
 
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 // Sync points not supported in RocksDB Lite
 
 TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
@@ -1402,6 +1332,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1418,6 +1349,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1430,18 +1362,17 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
+  std::atomic_bool cf_1_1{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::MultiManual:4", "ColumnFamilyTest::MultiManual:1"},
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:5"},
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:3");
         }
       });
@@ -1460,7 +1391,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   threads.emplace_back([&] {
     TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:1");
@@ -1501,13 +1432,14 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1518,6 +1450,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1528,15 +1461,14 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   auto stop_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
-  bool cf_1_1 = true;
+  std::atomic_bool cf_1_1{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:1"},
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:5"},
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
-          cf_1_1 = false;
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
         }
@@ -1547,7 +1479,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:1");
@@ -1557,7 +1489,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   ROCKSDB_NAMESPACE::port::Thread threads([&] {
     CompactRangeOptions compact_options;
@@ -1597,13 +1529,14 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1614,6 +1547,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1629,23 +1563,21 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:1"},
        {"ColumnFamilyTest::ManualAuto:5", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:2", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1664,7 +1596,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:5");
   threads.join();
@@ -1723,10 +1655,10 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualManual:4", "ColumnFamilyTest::ManualManual:2"},
        {"ColumnFamilyTest::ManualManual:4", "ColumnFamilyTest::ManualManual:5"},
@@ -1735,13 +1667,11 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
         "ColumnFamilyTest::ManualManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1762,8 +1692,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   ROCKSDB_NAMESPACE::port::Thread threads1([&] {
@@ -1825,10 +1755,10 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
@@ -1836,13 +1766,11 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1863,8 +1791,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
@@ -1918,10 +1846,10 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
@@ -1931,13 +1859,11 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1956,8 +1882,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
@@ -2012,8 +1938,8 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   auto stop_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:2"},
        {"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:5"},
@@ -2021,13 +1947,11 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
         "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:2");
-          cf_1_2 = false;
         }
       });
 
@@ -2038,7 +1962,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:5");
@@ -2068,9 +1992,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // Tailing iterator not supported
 namespace {
 std::string IterStatus(Iterator* iter) {
   std::string result;
@@ -2128,9 +2050,7 @@ TEST_P(ColumnFamilyTest, NewIteratorsTest) {
     Destroy();
   }
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // ReadOnlyDB is not supported
 TEST_P(ColumnFamilyTest, ReadOnlyDBTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
@@ -2147,7 +2067,6 @@ TEST_P(ColumnFamilyTest, ReadOnlyDBTest) {
   ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
   ASSERT_EQ("bla", Get(1, "foo"));
   ASSERT_EQ("blablablabla", Get(2, "foo"));
-
 
   // test newiterators
   {
@@ -2180,9 +2099,7 @@ TEST_P(ColumnFamilyTest, ReadOnlyDBTest) {
   s = OpenReadOnly({"one", "four"});
   ASSERT_TRUE(!s.ok());
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  //  WaitForFlush() is not supported in lite
 TEST_P(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
@@ -2204,9 +2121,7 @@ TEST_P(ColumnFamilyTest, DontRollEmptyLogs) {
   ASSERT_EQ(static_cast<size_t>(total_new_writable_files), handles_.size() + 1);
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  //  WaitForCompaction() is not supported in lite
 TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
@@ -2232,15 +2147,27 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   PutRandomData(0, 100, 1000);  // flush
   WaitForFlush(0);
   WaitForFlush(2);
-  // 3 files for default column families, 1 file for column family [two], zero
-  // files for column family [one], because it's empty
-  AssertCountLiveFiles(4);
+  // at least 3 files for default column families, 1 file for column family
+  // [two], zero files for column family [one], because it's empty
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 4);
+  bool has_cf1_sst = false;
+  bool has_cf2_sst = false;
+  for (const auto& file : metadata) {
+    if (file.column_family_name == "one") {
+      has_cf1_sst = true;
+    } else if (file.column_family_name == "two") {
+      has_cf2_sst = true;
+    }
+  }
+  ASSERT_FALSE(has_cf1_sst);
+  ASSERT_TRUE(has_cf2_sst);
 
   ASSERT_OK(Flush(0));
   ASSERT_EQ(0, dbfull()->TEST_total_log_size());
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Status s = TryOpen({"one", "two"});
@@ -2292,6 +2219,8 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
               // not a multiple of 4k, round up 4k
               expected_arena_block_size += 4 * 1024;
             }
+            expected_arena_block_size =
+                std::min(size_t{1024 * 1024}, expected_arena_block_size);
             ASSERT_EQ(expected_arena_block_size, result.arena_block_size);
           }
         }
@@ -2478,8 +2407,6 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   Destroy();
 }
 
-#ifndef ROCKSDB_LITE
-// skipped as persisting options is not supported in ROCKSDB_LITE
 namespace {
 std::atomic<int> test_stage(0);
 std::atomic<bool> ordered_by_writethread(false);
@@ -2498,7 +2425,7 @@ void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
   }
   test_stage = kChildThreadFinishDroppingColumnFamily;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(ColumnFamilyTest, CreateAndDropRace) {
   const int kCfCount = 5;
@@ -2561,7 +2488,6 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_P(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   const uint64_t kBaseRate = 800000u;
@@ -2949,7 +2875,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
-TEST_P(ColumnFamilyTest, CreateAndDestoryOptions) {
+TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;
   Open();
@@ -2971,7 +2897,6 @@ TEST_P(ColumnFamilyTest, CreateDropAndDestroy) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
   ColumnFamilyHandle* cfh;
   Open();
@@ -2987,7 +2912,8 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3025,14 +2951,13 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   db_options_.env = env_;
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3083,7 +3008,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
   ASSERT_OK(Put(1, "fodor", "mirko"));
@@ -3132,16 +3058,15 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   db_options_.env = env_;
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
 TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   SpecialEnv env(Env::Default());
   // Allow both of flush and purge job to schedule.
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
-  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(3));
+  column_family_options_.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(3));
   column_family_options_.level0_file_num_compaction_trigger = 2;
   Open();
   CreateColumnFamilies({"one"});
@@ -3209,7 +3134,6 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   db_options_.env = env_;
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 // Disable on windows because SyncWAL requires env->IsSyncThreadSafe()
 // to return true which is not so in unbuffered mode.
@@ -3415,15 +3339,251 @@ TEST(ColumnFamilyTest, ValidateBlobGCCutoff) {
                   .IsInvalidArgument());
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
+  DBOptions db_options;
 
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
+  ColumnFamilyOptions cf_options;
+  cf_options.enable_blob_garbage_collection = true;
+
+  cf_options.blob_garbage_collection_force_threshold = -0.5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsInvalidArgument());
+
+  cf_options.blob_garbage_collection_force_threshold = 0.0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 0.5;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 1.0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 1.5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsInvalidArgument());
 }
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
+TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
+  DBOptions db_options;
+
+  ColumnFamilyOptions cf_options;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 1;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 16;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+}
+
+// Tests the flushing behavior of a column family to retain user-defined
+// timestamp when `persist_user_defined_timestamp` is false.
+class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
+ public:
+  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
+
+  void SetUp() override {
+    db_options_.allow_concurrent_memtable_write = false;
+    column_family_options_.comparator =
+        test::BytewiseComparatorWithU64TsWrapper();
+    column_family_options_.persist_user_defined_timestamps = false;
+    ColumnFamilyTestBase::SetUp();
+  }
+
+  Status Put(int cf, const std::string& key, const std::string& ts,
+             const std::string& value) {
+    return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(ts),
+                    Slice(value));
+  }
+};
+
+class TestTsComparator : public Comparator {
+ public:
+  TestTsComparator() : Comparator(8 /*ts_sz*/) {}
+
+  int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
+              const ROCKSDB_NAMESPACE::Slice& /*b*/) const override {
+    return 0;
+  }
+  const char* Name() const override { return "TestTs"; }
+  void FindShortestSeparator(
+      std::string* /*start*/,
+      const ROCKSDB_NAMESPACE::Slice& /*limit*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
+TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
+  Open();
+  ColumnFamilyOptions cf_options;
+  cf_options.persist_user_defined_timestamps = false;
+  TestTsComparator test_comparator;
+  cf_options.comparator = &test_comparator;
+  ColumnFamilyHandle* handle;
+  // Not persisting user-defined timestamps feature only supports user-defined
+  // timestamps formatted as uint64_t.
+  ASSERT_TRUE(
+      db_->CreateColumnFamily(cf_options, "pikachu", &handle).IsNotSupported());
+
+  Destroy();
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with atomic flush.
+  db_options_.atomic_flush = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with concurrent memtable write.
+  db_options_.atomic_flush = false;
+  db_options_.allow_concurrent_memtable_write = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  // No `full_history_ts_low` explicitly set by user, flush is continued
+  // without checking if its UDTs expired.
+  ASSERT_OK(Flush(0));
+
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 2);
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // All keys expired w.r.t the configured `full_history_ts_low`, flush continue
+  // without the need for a re-schedule.
+  ASSERT_OK(Flush(0));
+
+  // `full_history_ts_low` stays unchanged after flush.
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string cutoff_ts;
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"max_write_buffer_number", "1"}}));
+  // Not all keys expired, but flush is continued without a re-schedule because
+  // of risk of write stall.
+  ASSERT_OK(Flush(0));
+
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+
+  cutoff_ts.clear();
+  PutFixed64(&cutoff_ts, 2);
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
+  std::string cutoff_ts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AfterRetainUDTReschedule:cb", [&](void* /*arg*/) {
+        // Increasing full_history_ts_low so all keys expired after the initial
+        // FlushRequest is rescheduled
+        cutoff_ts.clear();
+        PutFixed64(&cutoff_ts, 3);
+        ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(2, reschedule_count);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // Not all keys expired, and there is no risk of write stall. Flush is
+  // rescheduled. The actual flush happens after `full_history_ts_low` is
+  // increased to mark all keys expired.
+  ASSERT_OK(Flush(0));
+
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  // `full_history_ts_low` stays unchanged.
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

@@ -6,14 +6,14 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <memory>
 #include <string>
+
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
 #include "util/hash.h"
-
-#include <atomic>
-#include <memory>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -65,7 +65,7 @@ class DynamicBloom {
   // Multithreaded access to this function is OK
   bool MayContain(const Slice& key) const;
 
-  void MayContain(int num_keys, Slice** keys, bool* may_match) const;
+  void MayContain(int num_keys, Slice* keys, bool* may_match) const;
 
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
@@ -120,13 +120,13 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(BloomHash(key)));
 }
 
-inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
+inline void DynamicBloom::MayContain(int num_keys, Slice* keys,
                                      bool* may_match) const {
   std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
   std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
   for (int i = 0; i < num_keys; ++i) {
-    hashes[i] = BloomHash(*keys[i]);
-    size_t a = FastRange32(kLen, hashes[i]);
+    hashes[i] = BloomHash(keys[i]);
+    size_t a = FastRange32(hashes[i], kLen);
     PREFETCH(data_ + a, 0, 3);
     byte_offsets[i] = a;
   }
@@ -142,7 +142,7 @@ inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
 #pragma warning(disable : 4189)
 #endif
 inline void DynamicBloom::Prefetch(uint32_t h32) {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
 }
 #if defined(_MSC_VER)
@@ -171,7 +171,7 @@ inline void DynamicBloom::Prefetch(uint32_t h32) {
 // because of false positives.)
 
 inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
   return DoubleProbe(h32, a);
 }
@@ -195,7 +195,7 @@ inline bool DynamicBloom::DoubleProbe(uint32_t h32, size_t byte_offset) const {
 
 template <typename OrFunc>
 inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
-  size_t a = FastRange32(kLen, h32);
+  size_t a = FastRange32(h32, kLen);
   PREFETCH(data_ + a, 0, 3);
   // Expand/remix with 64-bit golden ratio
   uint64_t h = 0x9e3779b97f4a7c13ULL * h32;

@@ -28,6 +28,6 @@ struct LessOfComparator {
   const Comparator* cmp;
 };
 
-typedef std::map<std::string, std::string, LessOfComparator> KVMap;
-}
+using KVMap = std::map<std::string, std::string, LessOfComparator>;
+}  // namespace stl_wrappers
 }  // namespace ROCKSDB_NAMESPACE

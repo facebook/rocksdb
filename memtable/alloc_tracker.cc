@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <assert.h>
+
 #include "memory/allocator.h"
 #include "memory/arena.h"
 #include "rocksdb/write_buffer_manager.h"
