@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -25,6 +24,7 @@ class MergeContext;
 class WBWIIteratorImpl;
 class WriteBatchWithIndexInternal;
 struct Options;
+struct ImmutableOptions;
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -50,6 +50,7 @@ class BaseDeltaIterator : public Iterator {
   void Prev() override;
   Slice key() const override;
   Slice value() const override;
+  Slice timestamp() const override;
   Status status() const override;
   void Invalidate(Status s);
 
@@ -322,17 +323,31 @@ class WriteBatchWithIndexInternal {
                                         const Slice& key,
                                         MergeContext* merge_context,
                                         std::string* value, Status* s);
-  Status MergeKey(const Slice& key, const Slice* value,
+
+  // Merge with no base value
+  Status MergeKey(const Slice& key, const MergeContext& context,
+                  std::string* result) const;
+  Status MergeKey(const Slice& key, std::string* result) const {
+    return MergeKey(key, merge_context_, result);
+  }
+
+  // Merge with plain base value
+  Status MergeKey(const Slice& key, const Slice& value,
+                  const MergeContext& context, std::string* result) const;
+  Status MergeKey(const Slice& key, const Slice& value,
                   std::string* result) const {
     return MergeKey(key, value, merge_context_, result);
   }
-  Status MergeKey(const Slice& key, const Slice* value,
-                  const MergeContext& context, std::string* result) const;
+
   size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
   MergeContext* GetMergeContext() { return &merge_context_; }
   Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
 
  private:
+  const ImmutableOptions& GetCFOptions() const;
+  std::tuple<Logger*, Statistics*, SystemClock*> GetStatsLoggerAndClock(
+      const ImmutableOptions& cf_opts) const;
+
   DB* db_;
   const DBOptions* db_options_;
   ColumnFamilyHandle* column_family_;

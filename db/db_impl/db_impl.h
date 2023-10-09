@@ -1197,6 +1197,10 @@ class DBImpl : public DB {
 
   const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 
+  static Status TEST_ValidateOptions(const DBOptions& db_options) {
+    return ValidateOptions(db_options);
+  }
+
 #endif  // NDEBUG
 
   // persist stats to column family "_persistent_stats"
@@ -1208,8 +1212,11 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping
-  void RecordSeqnoToTimeMapping();
+  // record current sequence number to time mapping. If
+  // populate_historical_seconds > 0 then pre-populate all the
+  // sequence numbers from [1, last] to map to [now minus
+  // populate_historical_seconds, now].
+  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1819,9 +1826,14 @@ class DBImpl : public DB {
 
   const Status CreateArchivalDirectory();
 
+  // Create a column family, without some of the follow-up work yet
   Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
+
+  // Follow-up work to user creating a column family or (families)
+  Status WrapUpCreateColumnFamilies(
+      const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
 
@@ -1946,6 +1958,8 @@ class DBImpl : public DB {
       const FlushOptions& options, FlushReason flush_reason,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
+
+  Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
@@ -2095,6 +2109,12 @@ class DBImpl : public DB {
 #endif /* !NDEBUG */
   };
 
+  // In case of atomic flush, generates a `FlushRequest` for the latest atomic
+  // cuts for these `cfds`. Atomic cuts are recorded in
+  // `AssignAtomicFlushSeq()`. For each entry in `cfds`, all CFDs sharing the
+  // same latest atomic cut must also be present.
+  //
+  // REQUIRES: mutex held
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
@@ -2146,7 +2166,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker();
+  Status RegisterRecordSeqnoTimeWorker(bool from_db_open);
 
   void PrintStatistics();
 
@@ -2748,9 +2768,9 @@ class DBImpl : public DB {
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
 
-  // seqno_time_mapping_ stores the sequence number to time mapping, it's not
+  // seqno_to_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
-  SeqnoToTimeMapping seqno_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.

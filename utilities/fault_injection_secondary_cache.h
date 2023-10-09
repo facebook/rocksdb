@@ -35,6 +35,11 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* helper,
                 bool force_insert) override;
 
+  Status InsertSaved(const Slice& /*key*/, const Slice& /*saved*/,
+                     CompressionType /*type*/, CacheTier /*source*/) override {
+    return Status::OK();
+  }
+
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,

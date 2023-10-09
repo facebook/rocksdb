@@ -79,6 +79,10 @@ class BlockFetcher {
   inline size_t GetBlockSizeWithTrailer() const {
     return block_size_with_trailer_;
   }
+  inline Slice& GetCompressedBlock() {
+    assert(compression_type_ != kNoCompression);
+    return slice_;
+  }
 
 #ifndef NDEBUG
   int TEST_GetNumStackBufMemcpy() const { return num_stack_buf_memcpy_; }

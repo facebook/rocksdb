@@ -83,9 +83,14 @@ class FlushJob {
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
+  // @param skip_since_bg_error If not nullptr and if atomic_flush=false,
+  // then it is set to true if flush installation is skipped and memtable
+  // is rolled back due to existing background error.
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
-             bool* switched_to_mempurge = nullptr);
+             bool* switched_to_mempurge = nullptr,
+             bool* skipped_since_bg_error = nullptr,
+             ErrorHandler* error_handler = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
@@ -205,9 +210,9 @@ class FlushJob {
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
-  // reference to the seqno_time_mapping_ in db_impl.h, not safe to read without
-  // db mutex
-  const SeqnoToTimeMapping& db_impl_seqno_time_mapping_;
+  // reference to the seqno_to_time_mapping_ in db_impl.h, not safe to read
+  // without db mutex
+  const SeqnoToTimeMapping& db_impl_seqno_to_time_mapping_;
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Keeps track of the newest user-defined timestamp for this flush job if

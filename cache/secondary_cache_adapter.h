@@ -20,10 +20,12 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 
   ~CacheWithSecondaryAdapter() override;
 
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
+  Status Insert(
+      const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW,
+      const Slice& compressed_value = Slice(),
+      CompressionType type = CompressionType::kNoCompression) override;
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context,
@@ -42,6 +44,12 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   std::string GetPrintableOptions() const override;
 
   const char* Name() const override;
+
+  void SetCapacity(size_t capacity) override;
+
+  Status UpdateCacheReservationRatio(double ratio);
+
+  Status UpdateAdmissionPolicy(TieredAdmissionPolicy adm_policy);
 
   Cache* TEST_GetCache() { return target_.get(); }
 
@@ -73,6 +81,10 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
   double sec_cache_res_ratio_;
+  port::Mutex mutex_;
+#ifndef NDEBUG
+  bool ratio_changed_ = false;
+#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

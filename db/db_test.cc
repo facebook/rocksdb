@@ -644,6 +644,33 @@ TEST_F(DBTest, ReadFromPersistedTier) {
         ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
       }
 
+      const auto check_multiget_func =
+          [&](const ReadOptions& read_opts,
+              std::vector<ColumnFamilyHandle*> cfhs, std::vector<Slice>& keys,
+              std::vector<std::string>& values,
+              bool batched) -> std::vector<Status> {
+        if (!batched) {
+          return db_->MultiGet(read_opts, cfhs, keys, &values);
+        } else {
+          size_t num_keys = keys.size();
+          std::vector<Status> statuses;
+          std::vector<PinnableSlice> pinnable_values;
+          statuses.resize(num_keys);
+          pinnable_values.resize(num_keys);
+          values.resize(num_keys);
+          db_->MultiGet(read_opts, cfhs[0], num_keys, keys.data(),
+                        pinnable_values.data(), statuses.data(), false);
+          for (size_t i = 0; i < statuses.size(); ++i) {
+            if (statuses[i].ok()) {
+              values[i].assign(pinnable_values[i].data(),
+                               pinnable_values[i].size());
+              pinnable_values[i].Reset();
+            }
+          }
+          return statuses;
+        }
+      };
+
       // Multiget
       std::vector<ColumnFamilyHandle*> multiget_cfs;
       multiget_cfs.push_back(handles_[1]);
@@ -652,14 +679,17 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_keys.push_back("foo");
       multiget_keys.push_back("bar");
       std::vector<std::string> multiget_values;
-      auto statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[0].IsNotFound());
-        ASSERT_TRUE(statuses[1].IsNotFound());
-      } else {
-        ASSERT_OK(statuses[0]);
-        ASSERT_OK(statuses[1]);
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[0].IsNotFound());
+          ASSERT_TRUE(statuses[1].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[0]);
+          ASSERT_OK(statuses[1]);
+        }
       }
 
       // 2nd round: flush and put a new value in memtable.
@@ -683,16 +713,21 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       // Expect same result in multiget
       multiget_cfs.push_back(handles_[1]);
       multiget_keys.push_back("rocksdb");
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      ASSERT_TRUE(statuses[0].ok());
-      ASSERT_EQ("first", multiget_values[0]);
-      ASSERT_TRUE(statuses[1].ok());
-      ASSERT_EQ("one", multiget_values[1]);
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[2].IsNotFound());
-      } else {
-        ASSERT_OK(statuses[2]);
+      multiget_values.clear();
+
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        ASSERT_TRUE(statuses[0].ok());
+        ASSERT_EQ("first", multiget_values[0]);
+        ASSERT_TRUE(statuses[1].ok());
+        ASSERT_EQ("one", multiget_values[1]);
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[2].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[2]);
+        }
       }
 
       // 3rd round: delete and flush
@@ -712,17 +747,21 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_TRUE(db_->Get(ropt, handles_[1], "rocksdb", &value).ok());
       ASSERT_EQ(value, "hello");
 
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      ASSERT_TRUE(statuses[0].IsNotFound());
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[1].ok());
-        ASSERT_EQ("one", multiget_values[1]);
-      } else {
-        ASSERT_TRUE(statuses[1].IsNotFound());
+      multiget_values.clear();
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        ASSERT_TRUE(statuses[0].IsNotFound());
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[1].ok());
+          ASSERT_EQ("one", multiget_values[1]);
+        } else {
+          ASSERT_TRUE(statuses[1].IsNotFound());
+        }
+        ASSERT_TRUE(statuses[2].ok());
+        ASSERT_EQ("hello", multiget_values[2]);
       }
-      ASSERT_TRUE(statuses[2].ok());
-      ASSERT_EQ("hello", multiget_values[2]);
       if (wopt.disableWAL == 0) {
         DestroyAndReopen(options);
       }
@@ -6992,8 +7031,9 @@ TEST_F(DBTest, RowCache) {
     using CacheWrapper::CacheWrapper;
     const char* Name() const override { return "FailInsertionCache"; }
     Status Insert(const Slice&, Cache::ObjectPtr, const CacheItemHelper*,
-                  size_t, Handle** = nullptr,
-                  Priority = Priority::LOW) override {
+                  size_t, Handle** = nullptr, Priority = Priority::LOW,
+                  const Slice& /*compressed*/ = Slice(),
+                  CompressionType /*type*/ = kNoCompression) override {
       return Status::MemoryLimit();
     }
   };

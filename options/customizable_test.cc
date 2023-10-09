@@ -1234,6 +1234,10 @@ class TestSecondaryCache : public SecondaryCache {
                 bool /*force_insert*/) override {
     return Status::NotSupported();
   }
+  Status InsertSaved(const Slice& /*key*/, const Slice& /*saved*/,
+                     CompressionType /*type*/, CacheTier /*source*/) override {
+    return Status::OK();
+  }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,
       Cache::CreateContext* /*create_context*/, bool /*wait*/,

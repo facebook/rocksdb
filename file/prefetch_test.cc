@@ -654,9 +654,6 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
 
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
-
-  SyncPoint::GetInstance()->EnableProcessing();
-
   SyncPoint::GetInstance()->EnableProcessing();
 
   Status s = TryReopen(options);
@@ -1230,6 +1227,271 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(FileSystem::Default(), false);
+
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  Random rnd(309);
+  WriteBatch batch;
+
+  for (int i = 0; i < 26; i++) {
+    std::string key = "my_key_";
+
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(batch.Put(key, rnd.RandomString(1000)));
+    }
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = "my_key_a";
+
+  std::string end_key = "my_key_";
+  for (int j = 0; j < 10; j++) {
+    end_key += char('a' + 25);
+  }
+
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  // Try with different num_file_reads_for_auto_readahead from 0 to 3.
+  for (size_t i = 0; i < 3; i++) {
+    std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
+    table_options.block_cache = cache;
+    table_options.no_block_cache = false;
+    table_options.num_file_reads_for_auto_readahead = i;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    s = TryReopen(options);
+    ASSERT_OK(s);
+
+    // Warm up the cache.
+    {
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+      iter->Seek("my_key_bbb");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_ccccccccc");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_ddd");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_ddddddd");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_e");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_eeeee");
+      ASSERT_TRUE(iter->Valid());
+
+      iter->Seek("my_key_eeeeeeeee");
+      ASSERT_TRUE(iter->Valid());
+    }
+
+    ReadOptions ropts;
+    ropts.auto_readahead_size = true;
+    ReadOptions cmp_ro;
+    cmp_ro.auto_readahead_size = false;
+
+    if (std::get<0>(GetParam())) {
+      ropts.readahead_size = cmp_ro.readahead_size = 32768;
+    }
+
+    // With and without tuning readahead_size.
+    {
+      ASSERT_OK(options.statistics->Reset());
+      // Seek.
+      {
+        Slice ub = Slice("my_key_uuu");
+        Slice* ub_ptr = &ub;
+        cmp_ro.iterate_upper_bound = ub_ptr;
+        ropts.iterate_upper_bound = ub_ptr;
+
+        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+
+        Slice seek_key = Slice("my_key_aaa");
+        iter->Seek(seek_key);
+        cmp_iter->Seek(seek_key);
+
+        while (iter->Valid() && cmp_iter->Valid()) {
+          if (iter->key() != cmp_iter->key()) {
+            // Error
+            ASSERT_TRUE(false);
+          }
+          iter->Next();
+          cmp_iter->Next();
+        }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+
+        ASSERT_OK(cmp_iter->status());
+        ASSERT_OK(iter->status());
+      }
+
+      // Reseek with new upper_bound_iterator.
+      {
+        Slice ub = Slice("my_key_y");
+        ropts.iterate_upper_bound = &ub;
+        cmp_ro.iterate_upper_bound = &ub;
+
+        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+
+        Slice reseek_key = Slice("my_key_v");
+        iter->Seek(reseek_key);
+        cmp_iter->Seek(reseek_key);
+
+        while (iter->Valid() && cmp_iter->Valid()) {
+          if (iter->key() != cmp_iter->key()) {
+            // Error
+            ASSERT_TRUE(false);
+          }
+          iter->Next();
+          cmp_iter->Next();
+        }
+
+        uint64_t readahead_trimmed =
+            options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
+        ASSERT_GT(readahead_trimmed, 0);
+
+        ASSERT_OK(cmp_iter->status());
+        ASSERT_OK(iter->status());
+      }
+    }
+    Close();
+  }
+}
+
+TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  // First param is if the mockFS support_prefetch or not
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(FileSystem::Default(), false);
+
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
+  table_options.block_cache = cache;
+  table_options.no_block_cache = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  Random rnd(309);
+  WriteBatch batch;
+
+  for (int i = 0; i < 26; i++) {
+    std::string key = "my_key_";
+
+    for (int j = 0; j < 10; j++) {
+      key += char('a' + i);
+      ASSERT_OK(batch.Put(key, rnd.RandomString(1000)));
+    }
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = "my_key_a";
+
+  std::string end_key = "my_key_";
+  for (int j = 0; j < 10; j++) {
+    end_key += char('a' + 25);
+  }
+
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  ReadOptions ropts;
+  ropts.auto_readahead_size = true;
+
+  {
+    // Seek.
+    Slice ub = Slice("my_key_uuu");
+    Slice* ub_ptr = &ub;
+    ropts.iterate_upper_bound = ub_ptr;
+    ropts.auto_readahead_size = true;
+
+    ReadOptions cmp_readopts = ropts;
+    cmp_readopts.auto_readahead_size = false;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_readopts));
+
+    Slice seek_key = Slice("my_key_bbb");
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Seek(seek_key);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
+
+    // Prev op should pass with auto tuning of readahead_size.
+    {
+      cmp_iter->Prev();
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Prev();
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
+
+    // Reseek would follow as usual.
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Seek(seek_key);
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
+  }
   Close();
 }
 
@@ -3117,7 +3379,64 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   // Length should be 4000.
   ASSERT_EQ(async_result.size(), 4000);
   // Data correctness.
-  Slice result(content.c_str() + 3000, 4000);
+  Slice result(&content[3000], 4000);
+  ASSERT_EQ(result.size(), 4000);
+  ASSERT_EQ(result, async_result);
+}
+
+// This test checks if during seek in async_io, if first buffer already
+// prefetched the data till upper_bound offset, second buffer shouldn't go for
+// prefetching.
+TEST_F(FilePrefetchBufferTest, IterateUpperBoundTest1) {
+  std::string fname = "iterate-upperbound-test1";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  FilePrefetchBuffer fpb(
+      /*readahead_size=*/8192, /*max_readahead_size=*/16384, /*enable=*/true,
+      /*track_min_offset=*/false, /*implicit_auto_readahead=*/false,
+      /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0,
+      /*upper_bound_offset=*/8000, fs());
+
+  int read_async_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::ReadAsync",
+      [&](void* /*arg*/) { read_async_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice async_result;
+  // Simulate a seek of 4000 bytes at offset 3000. Due to the readahead
+  // settings, it will do 1 read of 4000+1000 (till 8000 - upper bound).
+  Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 3000, 4000, &async_result);
+
+  // Platforms that don't have IO uring may not support async IO
+  if (s.IsNotSupported()) {
+    return;
+  }
+
+  ASSERT_TRUE(s.IsTryAgain());
+  IOOptions io_opts;
+  io_opts.rate_limiter_priority = Env::IOPriority::IO_LOW;
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(io_opts, r.get(), /*offset=*/3000,
+                                        /*length=*/4000, &async_result, &s));
+  // No sync call should be made.
+  HistogramData sst_read_micros;
+  stats()->histogramData(SST_READ_MICROS, &sst_read_micros);
+  ASSERT_EQ(sst_read_micros.count, 0);
+
+  // Number of async calls should be 1.
+  // No Prefetching should happen in second buffer as first buffer has already
+  // prefetched till offset.
+  ASSERT_EQ(read_async_called, 1);
+  // Length should be 4000.
+  ASSERT_EQ(async_result.size(), 4000);
+  // Data correctness.
+  Slice result(&content[3000], 4000);
   ASSERT_EQ(result.size(), 4000);
   ASSERT_EQ(result, async_result);
 }

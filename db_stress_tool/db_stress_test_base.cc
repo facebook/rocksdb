@@ -17,6 +17,7 @@
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
+#include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
@@ -511,7 +512,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         ts = GetNowNanos();
       }
 
-      if (FLAGS_use_merge) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        s = db_->PutEntity(write_opts, cfh, key,
+                           GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
             s = db_->Merge(write_opts, cfh, key, ts, v);
@@ -523,9 +528,6 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
               write_opts, /*thread=*/nullptr,
               [&](Transaction& txn) { return txn.Merge(cfh, key, v); });
         }
-      } else if (FLAGS_use_put_entity_one_in > 0) {
-        s = db_->PutEntity(write_opts, cfh, key,
-                           GenerateWideColumns(value_base, v));
       } else {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size > 0) {
@@ -1235,7 +1237,6 @@ Status StressTest::TestIterate(ThreadState* thread,
   } else if (options_.prefix_extractor.get() == nullptr) {
     expect_total_order = true;
   }
-
   std::string upper_bound_str;
   Slice upper_bound;
   if (thread->rand.OneIn(16)) {
@@ -1246,6 +1247,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     upper_bound = Slice(upper_bound_str);
     ro.iterate_upper_bound = &upper_bound;
   }
+
   std::string lower_bound_str;
   Slice lower_bound;
   if (thread->rand.OneIn(16)) {
@@ -1563,7 +1565,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
           fprintf(stderr, "iterator has value %s\n",
                   iter->key().ToString(true).c_str());
         } else {
-          fprintf(stderr, "iterator is not valid\n");
+          fprintf(stderr, "iterator is not valid with status: %s\n",
+                  iter->status().ToString().c_str());
         }
         *diverged = true;
       }
@@ -2693,7 +2696,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
     // If this is for DB reopen, write error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
-    fault_fs_guard->DisableWriteErrorInjection();
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableWriteErrorInjection();
+    }
     if (!FLAGS_use_txn) {
       // Determine whether we need to inject file metadata write failures
       // during DB reopen. If it does, enable it.
@@ -2752,8 +2757,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           if (s.ok()) {
             db_ = blob_db;
           }
-        } else
-        {
+        } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
             s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
                                     cf_descriptors, &column_families_, &db_);
@@ -3334,7 +3338,11 @@ void InitializeOptionsFromFlags(
   if (FLAGS_use_full_merge_v1) {
     options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
   } else {
-    options.merge_operator = MergeOperators::CreatePutOperator();
+    if (FLAGS_use_put_entity_one_in > 0) {
+      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
+    } else {
+      options.merge_operator = MergeOperators::CreatePutOperator();
+    }
   }
 
   if (FLAGS_enable_compaction_filter) {

@@ -3,8 +3,6 @@
 # --> DO NOT EDIT MANUALLY <--
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
-#
-# @noautodeps @nocodemods
 load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
 
 
@@ -21,6 +19,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cache/secondary_cache.cc",
         "cache/secondary_cache_adapter.cc",
         "cache/sharded_cache.cc",
+        "cache/tiered_secondary_cache.cc",
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_contents.cc",
         "db/blob/blob_fetcher.cc",
@@ -394,6 +393,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/db_stress_stat.cc",
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
+        "db_stress_tool/db_stress_wide_merge_operator.cc",
         "db_stress_tool/expected_state.cc",
         "db_stress_tool/expected_value.cc",
         "db_stress_tool/multi_ops_txns_stress.cc",
@@ -5471,6 +5471,12 @@ cpp_unittest_wrapper(name="thread_local_test",
 
 cpp_unittest_wrapper(name="tiered_compaction_test",
             srcs=["db/compaction/tiered_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="tiered_secondary_cache_test",
+            srcs=["cache/tiered_secondary_cache_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

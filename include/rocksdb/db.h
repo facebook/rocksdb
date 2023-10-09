@@ -135,6 +135,11 @@ struct IngestExternalFileArg {
 };
 
 struct GetMergeOperandsOptions {
+  // A limit on the number of merge operands returned by the GetMergeOperands()
+  // API. In contrast with ReadOptions::merge_operator_max_count, this is a hard
+  // limit: when it is exceeded, no merge operands will be returned and the
+  // query will fail with an Incomplete status. See also the
+  // DB::GetMergeOperands() API below.
   int expected_max_number_of_operands = 0;
 };
 
@@ -357,6 +362,10 @@ class DB {
 
   // Create a column_family and return the handle of column family
   // through the argument handle.
+  // NOTE: creating many column families one-by-one is not recommended because
+  // of quadratic overheads, such as writing a full OPTIONS file for all CFs
+  // after each new CF creation. Use CreateColumnFamilies(), or DB::Open() with
+  // create_missing_column_families=true.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
@@ -1841,7 +1850,6 @@ class DB {
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
-
   // Returns the unique ID which is read from IDENTITY file during the opening
   // of database by setting in the identity variable
   // Returns Status::OK if identity could be set properly
@@ -1856,7 +1864,6 @@ class DB {
 
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
-
 
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
@@ -1922,7 +1929,6 @@ class DB {
       std::unique_ptr<Replayer>* /*replayer*/) {
     return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
-
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
@@ -2022,6 +2028,5 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 // @param options These options will be used for the database and for ALL column
 //                families encountered during the repair
 Status RepairDB(const std::string& dbname, const Options& options);
-
 
 }  // namespace ROCKSDB_NAMESPACE

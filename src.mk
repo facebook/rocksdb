@@ -12,6 +12,7 @@ LIB_SOURCES =                                                   \
   cache/secondary_cache.cc                                      \
   cache/secondary_cache_adapter.cc                              \
   cache/sharded_cache.cc                                        \
+  cache/tiered_secondary_cache.cc				\
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_contents.cc                                      \
   db/blob/blob_fetcher.cc                                       \
@@ -379,6 +380,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_stat.cc                             \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
+  db_stress_tool/db_stress_wide_merge_operator.cc              \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/expected_value.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
@@ -432,8 +434,9 @@ BENCH_MAIN_SOURCES =                                                    \
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/cache_reservation_manager_test.cc                               \
-  cache/lru_cache_test.cc                                               \
   cache/compressed_secondary_cache_test.cc                              \
+  cache/lru_cache_test.cc                                               \
+  cache/tiered_secondary_cache_test.cc					\
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \

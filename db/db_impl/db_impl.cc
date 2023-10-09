@@ -273,8 +273,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
                                    [this]() { this->FlushInfoLog(); });
   periodic_task_functions_.emplace(
-      PeriodicTaskType::kRecordSeqnoTime,
-      [this]() { this->RecordSeqnoToTimeMapping(); });
+      PeriodicTaskType::kRecordSeqnoTime, [this]() {
+        this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      });
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -387,13 +388,18 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
-  // We cannot guarantee consistency of the WAL. So force flush Memtables of
-  // all the column families
   if (s.ok()) {
-    FlushOptions flush_opts;
-    // We allow flush to stall write since we are trying to resume from error.
-    flush_opts.allow_write_stall = true;
-    s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    if (context.flush_reason == FlushReason::kErrorRecoveryRetryFlush) {
+      s = RetryFlushesForErrorRecovery(FlushReason::kErrorRecoveryRetryFlush,
+                                       true /* wait */);
+    } else {
+      // We cannot guarantee consistency of the WAL. So force flush Memtables of
+      // all the column families
+      FlushOptions flush_opts;
+      // We allow flush to stall write since we are trying to resume from error.
+      flush_opts.allow_write_stall = true;
+      s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "DB resume requested but failed due to Flush failure [%s]",
@@ -453,6 +459,25 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   if (shutdown_initiated_) {
     s = Status::ShutdownInProgress();
   }
+  if (s.ok() && context.flush_after_recovery) {
+    // Since we drop all non-recovery flush requests during recovery,
+    // and new memtable may fill up during recovery,
+    // schedule one more round of flush.
+    Status status = RetryFlushesForErrorRecovery(
+        FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
+    if (!status.ok()) {
+      // FlushAllColumnFamilies internally should take care of setting
+      // background error if needed.
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "The catch up flush after successful recovery failed [%s]",
+                     s.ToString().c_str());
+    }
+    // FlushAllColumnFamilies releases and re-acquires mutex.
+    if (shutdown_initiated_) {
+      s = Status::ShutdownInProgress();
+    }
+  }
+
   if (s.ok()) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       SchedulePendingCompaction(cfd);
@@ -748,7 +773,6 @@ void DBImpl::PrintStatistics() {
 }
 
 Status DBImpl::StartPeriodicTaskScheduler() {
-
 #ifndef NDEBUG
   // It only used by test to disable scheduler
   bool disable_scheduler = false;
@@ -792,42 +816,82 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker() {
-  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
-  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
+  uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
+  uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
+  bool mapping_was_empty = false;
   {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       // preserve time is the max of 2 options.
-      uint64_t preserve_time_duration =
+      uint64_t preserve_seconds =
           std::max(cfd->ioptions()->preserve_internal_time_seconds,
                    cfd->ioptions()->preclude_last_level_data_seconds);
-      if (!cfd->IsDropped() && preserve_time_duration > 0) {
-        min_time_duration = std::min(preserve_time_duration, min_time_duration);
-        max_time_duration = std::max(preserve_time_duration, max_time_duration);
+      if (!cfd->IsDropped() && preserve_seconds > 0) {
+        min_preserve_seconds = std::min(preserve_seconds, min_preserve_seconds);
+        max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
       }
     }
-    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
-      seqno_time_mapping_.Resize(0, 0);
+    if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
+      seqno_to_time_mapping_.Resize(0, 0);
     } else {
-      seqno_time_mapping_.Resize(min_time_duration, max_time_duration);
+      seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
     }
+    mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
+  // FIXME: because we released the db mutex, there's a race here where
+  // if e.g. I create or drop two column families in parallel, I might end up
+  // with the periodic task scheduler in the wrong state. We don't want to
+  // just keep holding the mutex, however, because of global timer and mutex
+  // in PeriodicTaskScheduler.
 
   uint64_t seqno_time_cadence = 0;
-  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+  if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
     // round up to 1 when the time_duration is smaller than
     // kMaxSeqnoTimePairsPerCF
-    seqno_time_cadence =
-        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
-        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+    seqno_time_cadence = (min_preserve_seconds +
+                          SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+                         SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
   Status s;
   if (seqno_time_cadence == 0) {
     s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
   } else {
+    // Before registering the periodic task, we need to be sure to fulfill two
+    // promises:
+    // 1) Any DB created with preserve/preclude options set from the beginning
+    // will get pre-allocated seqnos with pre-populated time mappings back to
+    // the times we are interested in. (This will enable future import of data
+    // while preserving rough write time. We can only do this reliably from
+    // DB::Open, as otherwise there could be a race between CreateColumnFamily
+    // and the first Write to the DB, and seqno-to-time mappings need to be
+    // monotonic.
+    // 2) In any DB, any data written after setting preserve/preclude options
+    // must have a reasonable time estimate (so that we can accurately place
+    // the data), which means at least one entry in seqno_to_time_mapping_.
+    if (from_db_open && GetLatestSequenceNumber() == 0) {
+      // Pre-allocate seqnos and pre-populate historical mapping
+      assert(mapping_was_empty);
+
+      // We can simply modify these, before writes are allowed
+      constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
+      versions_->SetLastAllocatedSequence(kMax);
+      versions_->SetLastPublishedSequence(kMax);
+      versions_->SetLastSequence(kMax);
+      // Pre-populate mappings for reserved sequence numbers.
+      RecordSeqnoToTimeMapping(max_preserve_seconds);
+    } else if (mapping_was_empty) {
+      // To ensure there is at least one mapping, we need a non-zero sequence
+      // number. Outside of DB::Open, we have to be careful.
+      versions_->EnsureNonZeroSequence();
+      assert(GetLatestSequenceNumber() > 0);
+
+      // Ensure at least one mapping (or log a warning)
+      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+    }
+
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
@@ -2010,7 +2074,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   assert(get_impl_options.column_family);
 
-
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
                                         *(read_options.timestamp));
@@ -2220,6 +2283,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (s.ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          merge_context.GetNumOperands() > merge_threshold.value()) {
+        s = Status::OkMergeOperandThresholdExceeded();
+      }
+
       if (get_impl_options.get_value) {
         if (get_impl_options.value) {
           size = get_impl_options.value->size();
@@ -2489,8 +2558,15 @@ std::vector<Status> DBImpl::MultiGet(
     }
 
     if (s.ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          merge_context.GetNumOperands() > merge_threshold.value()) {
+        s = Status::OkMergeOperandThresholdExceeded();
+      }
+
       bytes_read += value->size();
       num_found++;
+
       curr_value_size += value->size();
       if (curr_value_size > read_options.value_size_soft_limit) {
         while (++keys_read < num_keys) {
@@ -3175,6 +3251,12 @@ Status DBImpl::MultiGetImpl(
     assert(key->s);
 
     if (key->s->ok()) {
+      const auto& merge_threshold = read_options.merge_operand_count_threshold;
+      if (merge_threshold.has_value() &&
+          key->merge_context.GetNumOperands() > merge_threshold) {
+        *(key->s) = Status::OkMergeOperandThresholdExceeded();
+      }
+
       if (key->value) {
         bytes_read += key->value->size();
       } else {
@@ -3255,14 +3337,34 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                  statuses, sorted_input);
 }
 
+Status DBImpl::WrapUpCreateColumnFamilies(
+    const std::vector<const ColumnFamilyOptions*>& cf_options) {
+  // NOTE: this function is skipped for create_missing_column_families and
+  // DB::Open, so new functionality here might need to go into Open also.
+  bool register_worker = false;
+  for (auto* opts_ptr : cf_options) {
+    if (opts_ptr->preserve_internal_time_seconds > 0 ||
+        opts_ptr->preclude_last_level_data_seconds > 0) {
+      register_worker = true;
+      break;
+    }
+  }
+  // Attempt both follow-up actions even if one fails
+  Status s = WriteOptionsFile(true /*need_mutex_lock*/,
+                              true /*need_enter_write_thread*/);
+  if (register_worker) {
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false));
+  }
+  return s;
+}
+
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
   if (s.ok()) {
-    s = WriteOptionsFile(true /*need_mutex_lock*/,
-                         true /*need_enter_write_thread*/);
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3286,11 +3388,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3303,6 +3401,8 @@ Status DBImpl::CreateColumnFamilies(
   size_t num_cf = column_families.size();
   Status s;
   bool success_once = false;
+  std::vector<const ColumnFamilyOptions*> cf_opts;
+  cf_opts.reserve(num_cf);
   for (size_t i = 0; i < num_cf; i++) {
     ColumnFamilyHandle* handle;
     s = CreateColumnFamilyImpl(column_families[i].options,
@@ -3312,13 +3412,10 @@ Status DBImpl::CreateColumnFamilies(
     }
     handles->push_back(handle);
     success_once = true;
+    cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(cf_opts));
   }
   return s;
 }
@@ -3406,10 +3503,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
-  if (cf_options.preserve_internal_time_seconds > 0 ||
-      cf_options.preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
-  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
@@ -3503,7 +3596,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   if (cfd->ioptions()->preserve_internal_time_seconds > 0 ||
       cfd->ioptions()->preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
+    s = RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false);
   }
 
   if (s.ok()) {
@@ -4088,7 +4181,6 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
-
 const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
@@ -4106,7 +4198,6 @@ SystemClock* DBImpl::GetSystemClock() const {
   return immutable_db_options_.clock;
 }
 
-
 Status DBImpl::StartIOTrace(const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
@@ -4118,7 +4209,6 @@ Status DBImpl::EndIOTrace() {
   io_tracer_->EndIOTrace();
   return Status::OK();
 }
-
 
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);
@@ -6334,19 +6424,51 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 
-void DBImpl::RecordSeqnoToTimeMapping() {
-  // Get time first then sequence number, so the actual time of seqno is <=
-  // unix_time recorded
-  int64_t unix_time = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time)
-      .PermitUncheckedError();  // Ignore error
+void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
+  // TECHNICALITY: Sample last sequence number *before* time, as prescribed
+  // for SeqnoToTimeMapping. We don't know how long it has been since the last
+  // sequence number was written, so we at least have a one-sided bound by
+  // sampling in this order.
   SequenceNumber seqno = GetLatestSequenceNumber();
+  int64_t unix_time_signed = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
+      .PermitUncheckedError();  // Ignore error
+  uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);
-    appended = seqno_time_mapping_.Append(seqno, unix_time);
+    if (populate_historical_seconds > 0) {
+      if (seqno > 1 && unix_time > populate_historical_seconds) {
+        // seqno=0 is reserved
+        SequenceNumber from_seqno = 1;
+        appended = seqno_to_time_mapping_.PrePopulate(
+            from_seqno, seqno, unix_time - populate_historical_seconds,
+            unix_time);
+      } else {
+        // One of these will fail
+        assert(seqno > 1);
+        assert(unix_time > populate_historical_seconds);
+      }
+    } else {
+      assert(seqno > 0);
+      appended = seqno_to_time_mapping_.Append(seqno, unix_time);
+    }
   }
-  if (!appended) {
+  if (populate_historical_seconds > 0) {
+    if (appended) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Pre-populated sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    } else {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Failed to pre-populate sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    }
+  } else if (!appended) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to insert sequence number to time entry: %" PRIu64
                    " -> %" PRIu64,

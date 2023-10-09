@@ -932,7 +932,15 @@ void LDBCommand::PrepareOptions() {
                                  &column_families_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
-      std::string msg = s.ToString();
+      std::string current_version = std::to_string(ROCKSDB_MAJOR) + "." +
+                                    std::to_string(ROCKSDB_MINOR) + "." +
+                                    std::to_string(ROCKSDB_PATCH);
+      std::string msg =
+          s.ToString() + "\nThis tool was built with version " +
+          current_version +
+          ". If your db is in a different version, please try again "
+          "with option --" +
+          LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS + ".";
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
       db_ = nullptr;
       return;
@@ -1092,8 +1100,7 @@ std::string LDBCommand::PrintKeyValueOrWideColumns(
     const Slice& key, const Slice& value, const WideColumns& wide_columns,
     bool is_key_hex, bool is_value_hex) {
   if (wide_columns.empty() ||
-      (wide_columns.size() == 1 &&
-       WideColumnsHelper::HasDefaultColumn(wide_columns))) {
+      WideColumnsHelper::HasDefaultColumnOnly(wide_columns)) {
     return PrintKeyValue(key.ToString(), value.ToString(), is_key_hex,
                          is_value_hex);
   }

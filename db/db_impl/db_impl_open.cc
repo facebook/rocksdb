@@ -25,6 +25,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
+#include "util/string_util.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -291,6 +292,18 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "writes in direct IO require writable_file_max_buffer_size > 0");
   }
 
+  if (db_options.daily_offpeak_time_utc != "") {
+    int start_time, end_time;
+    if (!TryParseTimeRangeString(db_options.daily_offpeak_time_utc, start_time,
+                                 end_time)) {
+      return Status::InvalidArgument(
+          "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
+          "(e.g. 04:30-07:30)");
+    } else if (start_time == end_time) {
+      return Status::InvalidArgument(
+          "start_time and end_time cannot be the same");
+    }
+  }
   return Status::OK();
 }
 
@@ -1298,7 +1311,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
           flushed = true;
 
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                 *next_sequence);
+                                 *next_sequence - 1);
         }
       }
     }
@@ -1649,7 +1662,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
           0 /* file_creation_time */, db_id_, db_session_id_,
           0 /* target_file_size */, meta.fd.GetNumber());
-      SeqnoToTimeMapping empty_seqno_time_mapping;
+      SeqnoToTimeMapping empty_seqno_to_time_mapping;
       Version* version = cfd->current();
       version->Ref();
       const ReadOptions read_option(Env::IOActivity::kDBOpen);
@@ -1661,7 +1674,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
           snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
           io_tracer_, BlobFileCreationReason::kRecovery,
-          empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
+          empty_seqno_to_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, write_hint,
           nullptr /*full_history_ts_low*/, &blob_callback_, version,
           &num_input_entries);
@@ -2056,7 +2069,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           // missing column family, create it
           ColumnFamilyHandle* handle = nullptr;
           impl->mutex_.Unlock();
-          s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
+          // NOTE: the work normally done in WrapUpCreateColumnFamilies will
+          // be done separately below.
+          s = impl->CreateColumnFamilyImpl(cf.options, cf.name, &handle);
           impl->mutex_.Lock();
           if (s.ok()) {
             handles->push_back(handle);
@@ -2232,7 +2247,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker();
+    s = impl->RegisterRecordSeqnoTimeWorker(/*from_db_open=*/true);
   }
   if (!s.ok()) {
     for (auto* h : *handles) {

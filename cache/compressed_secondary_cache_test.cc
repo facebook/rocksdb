@@ -989,11 +989,11 @@ class CompressedSecCacheTestWithTiered
   CompressedSecCacheTestWithTiered() {
     LRUCacheOptions lru_opts;
     HyperClockCacheOptions hcc_opts(
-        /*_capacity=*/70 << 20,
+        /*_capacity=*/0,
         /*_estimated_entry_charge=*/256 << 10,
         /*_num_shard_bits=*/0);
-    TieredVolatileCacheOptions opts;
-    lru_opts.capacity = 70 << 20;
+    TieredCacheOptions opts;
+    lru_opts.capacity = 0;
     lru_opts.num_shard_bits = 0;
     lru_opts.high_pri_pool_ratio = 0;
     opts.cache_type = std::get<0>(GetParam());
@@ -1004,9 +1004,11 @@ class CompressedSecCacheTestWithTiered
     }
     opts.adm_policy = std::get<1>(GetParam());
     ;
-    opts.comp_cache_opts.capacity = 30 << 20;
+    opts.comp_cache_opts.capacity = 0;
     opts.comp_cache_opts.num_shard_bits = 0;
-    cache_ = NewTieredVolatileCache(opts);
+    opts.total_capacity = 100 << 20;
+    opts.compressed_secondary_ratio = 0.3;
+    cache_ = NewTieredCache(opts);
     cache_res_mgr_ =
         std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
             cache_);
@@ -1023,7 +1025,7 @@ class CompressedSecCacheTestWithTiered
  protected:
   CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
 
-  Cache* GetTieredCache() { return cache_.get(); }
+  std::shared_ptr<Cache> GetTieredCache() { return cache_; }
 
   Cache* GetCache() {
     return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
@@ -1110,7 +1112,7 @@ TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
     return;
   }
 
-  Cache* tiered_cache = GetTieredCache();
+  Cache* tiered_cache = GetTieredCache().get();
   Cache* cache = GetCache();
   std::vector<CacheKey> keys;
   std::vector<std::string> vals;
@@ -1163,6 +1165,151 @@ TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
   handle1 = tiered_cache->Lookup(keys[3].AsSlice(), GetHelper(),
                                  /*context*/ this, Cache::Priority::LOW);
   ASSERT_EQ(handle1, nullptr);
+}
+
+TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+
+  // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
+  // double explicit casts
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  size_t sec_capacity;
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 130 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (39 << 20),
+               GetPercent(39 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 70 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (21 << 20),
+               GetPercent(21 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (21 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.4));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (40 << 20),
+               GetPercent(40 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (40 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.2));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (20 << 20),
+               GetPercent(20 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (20 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 1.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (100 << 20),
+               GetPercent(100 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 100 << 20);
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.0));
+  // Only check usage for LRU cache. HCC shows a 64KB usage for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    ASSERT_EQ(GetCache()->GetUsage(), 0);
+  }
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+
+  ASSERT_NOK(UpdateTieredCache(tiered_cache, -1, 0.3));
+  // Only check usage for LRU cache. HCC shows a 64KB usage for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    ASSERT_EQ(GetCache()->GetUsage(), 0);
+  }
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+}
+
+TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
+  // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
+  // double explicit casts
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  size_t sec_capacity;
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 70 << 20));
+  // Only check usage for LRU cache. HCC is slightly off for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (28 << 20),
+                 GetPercent(28 << 20, 1));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (21 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 130 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (46 << 20),
+               GetPercent(46 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.39));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (45 << 20),
+               GetPercent(45 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (4 << 20),
+               GetPercent(4 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.2));
+  // Only check usage for LRU cache. HCC is slightly off for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (28 << 20),
+                 GetPercent(28 << 20, 1));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (2 << 20),
+               GetPercent(2 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (20 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 1.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (100 << 20),
+               GetPercent(100 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (10 << 20),
+               GetPercent(10 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 100 << 20);
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (10 << 20),
+               GetPercent(10 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
 }
 
 INSTANTIATE_TEST_CASE_P(

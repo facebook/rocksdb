@@ -2527,21 +2527,16 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     if (value || columns) {
-      std::string result;
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-          &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
-          /* op_failure_scope */ nullptr);
+          merge_operator_, user_key, MergeHelper::kNoBaseValue,
+          merge_context->GetOperands(), info_log_, db_statistics_, clock_,
+          /* update_num_ops_stats */ true, value ? value->GetSelf() : nullptr,
+          columns, /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
-          *(value->GetSelf()) = std::move(result);
           value->PinSelf();
-        } else {
-          assert(columns != nullptr);
-          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2778,22 +2773,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string result;
-
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          merge_operator_, user_key, MergeHelper::kNoBaseValue,
+          iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
+          /* update_num_ops_stats */ true,
+          iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
           /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
-        *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
-        iter->columns->SetPlainValue(std::move(result));
         range->AddValueSize(iter->columns->serialized_size());
       }
 
@@ -7237,6 +7229,20 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
     }
   }
   return status;
+}
+
+void VersionSet::EnsureNonZeroSequence() {
+  uint64_t expected = 0;
+  // Update each from 0->1, in order, or abort if any becomes non-zero in
+  // parallel
+  if (last_allocated_sequence_.compare_exchange_strong(expected, 1)) {
+    if (last_published_sequence_.compare_exchange_strong(expected, 1)) {
+      (void)last_sequence_.compare_exchange_strong(expected, 1);
+    }
+  }
+  assert(last_allocated_sequence_.load() > 0);
+  assert(last_published_sequence_.load() > 0);
+  assert(last_sequence_.load() > 0);
 }
 
 ReactiveVersionSet::ReactiveVersionSet(
