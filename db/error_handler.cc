@@ -720,7 +720,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       int64_t wait_until = db_options_.clock->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
     } else {
-      // There are three possibility: 1) recover_io_error is set during resume
+      // There are three possibility: 1) recovery_error_ is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
       // error happens during resume and cannot be resumed here.
       if (recovery_error_.ok() && s.ok()) {
@@ -745,8 +745,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         return;
       } else {
-        // In this case: 1) recovery_io_error is more serious or not retryable
-        // 2) other Non IO recovery_error happens. The auto recovery stops.
+        // In this case recovery_error_ is more serious or not retryable
+        // The auto recovery stops.
         recovery_in_prog_ = false;
         if (bg_error_stats_ != nullptr) {
           RecordInHistogram(bg_error_stats_.get(),
