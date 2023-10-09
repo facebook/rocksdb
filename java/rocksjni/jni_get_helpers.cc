@@ -25,6 +25,28 @@ bool GetJNIKey::fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
   return true;
 }
 
+bool GetJNIKey::fromByteBuffer(JNIEnv* env, jobject jkey, jint jkey_off,
+                               jint jkey_len) {
+  char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+  if (key == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    return false;
+  }
+  if (env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument. Capacity is less than requested region (offset "
+        "+ length).");
+    return false;
+  }
+
+  slice_ = Slice(key + jkey_off, jkey_len);
+
+  return true;
+}
+
 jint GetJNIValue::fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
                             ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value,
                             jbyteArray jval, jint jval_off, jint jval_len) {
@@ -58,17 +80,59 @@ jint GetJNIValue::fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
   return pinnable_value_len;
 }
 
-jbyteArray GetJNIValue::byteArray(
+jint GetJNIValue::fillByteBuffer(
     JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-    ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value) {
+    ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value, jobject jval,
+    jint jval_off, jint jval_len) {
+  if (s.IsNotFound()) {
+    return kNotFound;
+  } else if (!s.ok()) {
+    // Here since we are throwing a Java exception from c++ side.
+    // As a result, c++ does not know calling this function will in fact
+    // throwing an exception.  As a result, the execution flow will
+    // not stop here, and codes after this throw will still be
+    // executed.
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+
+    // Return a dummy const value to avoid compilation error, although
+    // java side might not have a chance to get the return value :)
+    return kStatusError;
+  }
+
+  char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
+  if (value == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument (argument is not a valid direct ByteBuffer)");
+    return kArgumentError;
+  }
+
+  if (env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument. Capacity is less than requested region "
+        "(offset + length).");
+    return kArgumentError;
+  }
+
+  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
+  const jint length = std::min(jval_len, pinnable_value_len);
+
+  memcpy(value + jval_off, pinnable_value.data(), length);
+  pinnable_value.Reset();
+
+  return pinnable_value_len;
+}
+
+jbyteArray GetJNIValue::byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                                  ROCKSDB_NAMESPACE::PinnableSlice& value) {
   if (s.IsNotFound()) {
     return nullptr;
   }
 
   if (s.ok()) {
-    jbyteArray jret_value =
-        ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
-    pinnable_value.Reset();
+    jbyteArray jret_value = ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, value);
+    value.Reset();
     if (jret_value == nullptr) {
       // exception occurred
       return nullptr;

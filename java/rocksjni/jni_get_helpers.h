@@ -26,6 +26,8 @@ class GetJNIKey {
   bool fromByteArray(JNIEnv* env, jbyteArray jkey, jint jkey_off,
                      jint jkey_len);
 
+  bool fromByteBuffer(JNIEnv* env, jobject jkey, jint jkey_off, jint jkey_len);
+
   inline ROCKSDB_NAMESPACE::Slice slice() { return slice_; }
 };
 
@@ -66,7 +68,7 @@ class MultiGetJNIKeys {
   bool fromByteArrays(JNIEnv* env, jobjectArray jkeys);
 
   /**
-   * @brief Construct helper multiget keys object from array of java keys
+   * @brief Construct helper multiget keys object from array of java ByteBuffers
    *
    * @param env JNI environment
    * @param jkeys Array of `java.nio.ByteBuffer`, each of which contains a key
@@ -115,6 +117,7 @@ class GetJNIValue {
  public:
   static const int kNotFound = -1;
   static const int kStatusError = -2;
+  static const int kArgumentError = -3;
 
   /**
    * @brief allocate and fill a byte array from the value in a pinnable slice
@@ -144,6 +147,25 @@ class GetJNIValue {
   static jint fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
                         ROCKSDB_NAMESPACE::PinnableSlice& value,
                         jbyteArray jval, jint jval_off, jint jval_len);
+
+  /**
+   * @brief fill an existing direct ByteBuffer from the value in a pinnable
+   * slice
+   *
+   * If the supplied status is faulty, raise an exception instead
+   *
+   * @param env JNI environment in which to raise any exception
+   * @param s status to check before copying the result
+   * @param value pinnable slice containing a value
+   * @param jval ByteBuffer target for value
+   * @param jval_off offset in the array at which to place the value
+   * @param jval_len length of byte array into which to copy
+   * @return jint length copied, or a -ve status code
+   */
+
+  static jint fillByteBuffer(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                             ROCKSDB_NAMESPACE::PinnableSlice& value,
+                             jobject jval, jint jval_off, jint jval_len);
 };
 
 /**
