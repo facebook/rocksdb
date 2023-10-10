@@ -613,8 +613,8 @@ public class PerfContext extends RocksObject {
     return getEnvNewLoggerNanos(nativeHandle_);
   }
 
-  public long getCpuNanos() {
-    return getCpuNanos(nativeHandle_);
+  public long getGetCpuNanos() {
+    return getGetCpuNanos(nativeHandle_);
   }
 
   public long getIterNextCpuNanos() {
@@ -746,7 +746,7 @@ public class PerfContext extends RocksObject {
   private native long getEnvLockFileNanos(long handle);
   private native long getEnvUnlockFileNanos(long handle);
   private native long getEnvNewLoggerNanos(long handle);
-  private native long getCpuNanos(long nativeHandle_);
+  private native long getGetCpuNanos(long nativeHandle_);
   private native long getIterNextCpuNanos(long nativeHandle_);
   private native long getIterPrevCpuNanos(long nativeHandle_);
   private native long getIterSeekCpuNanos(long nativeHandle_);

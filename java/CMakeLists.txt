@@ -195,7 +195,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PerfContext.java
-	src/main/java/org/rocksdb/PerfLevel.java
+  src/main/java/org/rocksdb/PerfLevel.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java

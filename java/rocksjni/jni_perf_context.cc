@@ -4,9 +4,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
 
-void Java_org_rocksdb_PerfContext_reset(JNIEnv*, jobject, jlong jpc_handler) {
+void Java_org_rocksdb_PerfContext_reset(JNIEnv*, jobject, jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
-      reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handler);
+      reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   perf_context->Reset();
 }
 
@@ -91,7 +91,7 @@ jlong Java_org_rocksdb_PerfContext_getIndexBlockReadCount(JNIEnv*, jobject,
                                                           jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
-  return perf_context->block_read_count;
+  return perf_context->index_block_read_count;
 }
 
 /*
@@ -1103,7 +1103,7 @@ jlong Java_org_rocksdb_PerfContext_getEnvNewLoggerNanos(JNIEnv*, jobject,
  * Method:    getCpuNanos
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_PerfContext_getCpuNanos(JNIEnv*, jobject,
+jlong Java_org_rocksdb_PerfContext_getGetCpuNanos(JNIEnv*, jobject,
                                                jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
