@@ -22,6 +22,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -3076,6 +3077,37 @@ jstring Java_org_rocksdb_RocksDB_getDBOptions(JNIEnv* env, jobject,
     return nullptr;
   }
   return env->NewStringUTF(options_as_string.c_str());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    setPerfLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_RocksDB_setPerfLevel(JNIEnv*, jobject,
+                                           jbyte jperf_level) {
+  rocksdb::SetPerfLevel(
+      ROCKSDB_NAMESPACE::PerfLevelTypeJni::toCppPerfLevelType(jperf_level));
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getPerfLevel
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_RocksDB_getPerfLevelNative(JNIEnv*, jobject) {
+  return ROCKSDB_NAMESPACE::PerfLevelTypeJni::toJavaPerfLevelType(
+      rocksdb::GetPerfLevel());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getPerfContextNative
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_RocksDB_getPerfContextNative(JNIEnv*, jobject) {
+  ROCKSDB_NAMESPACE::PerfContext* perf_context = rocksdb::get_perf_context();
+  return reinterpret_cast<jlong>(perf_context);
 }
 
 /*
