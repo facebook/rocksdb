@@ -974,6 +974,15 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     SequenceNumber seq;
     UnPackSequenceAndType(tag, &seq, &type);
+
+    if (GetThreadLogging()) {
+      ROCKS_LOG_INFO(
+          s->logger,
+          "In SaveValue, memtable %p, found key at sequence number: %" PRIu64
+          ", type: %d",
+          s->mem, seq, int(type));
+    }
+
     // If the value is not in the snapshot, skip it
     if (!s->CheckCallback(seq)) {
       return true;  // to continue to the next seq

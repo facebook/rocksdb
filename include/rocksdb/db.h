@@ -1957,4 +1957,7 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options);
 #endif
 
+void SetThreadLogging(bool v);
+bool GetThreadLogging();
+
 }  // namespace ROCKSDB_NAMESPACE

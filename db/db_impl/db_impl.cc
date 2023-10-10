@@ -6559,4 +6559,10 @@ ColumnFamilyData* DBImpl::GetAnyCFWithAutoFlushDisabled() const {
   return nullptr;
 }
 
+namespace {
+thread_local bool threadLogging{false};
+}
+void SetThreadLogging(bool v) { threadLogging = v; }
+bool GetThreadLogging() { return threadLogging; }
+
 }  // namespace ROCKSDB_NAMESPACE

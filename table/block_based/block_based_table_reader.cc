@@ -2178,6 +2178,15 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             s = pik_status;
           }
 
+          if (GetThreadLogging()) {
+            ROCKS_LOG_INFO(rep_->ioptions.logger,
+                           "In BlockBasedTable::Get, file %" PRIu64
+                           ", found key at sequence number: %" PRIu64
+                           ", type: %d",
+                           rep_->sst_number_for_tracing(), parsed_key.sequence,
+                           int(parsed_key.type));
+          }
+
           if (!get_context->SaveValue(
                   parsed_key, biter.value(), &matched,
                   biter.IsValuePinned() ? &biter : nullptr)) {
