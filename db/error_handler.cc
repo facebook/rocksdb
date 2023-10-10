@@ -320,7 +320,7 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   // Check if recovery is currently in progress. If it is, we will save this
   // error so we can check it at the end to see if recovery succeeded or not
   if (recovery_in_prog_ && recovery_error_.ok()) {
-    recovery_error_ = new_bg_err;
+    recovery_error_ = status_to_io_status(Status(new_bg_err));
   }
 
   bool auto_recovery = auto_recovery_;
@@ -396,9 +396,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
 
-  if (recovery_in_prog_ && recovery_io_error_.ok()) {
-    recovery_io_error_ = bg_io_err;
-  }
   if (BackgroundErrorReason::kManifestWrite == reason ||
       BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
@@ -502,10 +499,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
       RecordTick(bg_error_stats_.get(),
                  ERROR_HANDLER_BG_IO_ERROR_COUNT_MISSPELLED);
     }
-    // HandleKnownErrors() will use recovery_error_, so ignore
-    // recovery_io_error_.
-    // TODO: Do some refactoring and use only one recovery_error_
-    recovery_io_error_.PermitUncheckedError();
     return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
@@ -562,9 +555,9 @@ Status ErrorHandler::ClearBGError() {
     old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
     bg_error_ = Status::OK();
-    recovery_io_error_ = IOStatus::OK();
+    recovery_error_ = IOStatus::OK();
     bg_error_.PermitUncheckedError();
-    recovery_io_error_.PermitUncheckedError();
+    recovery_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
@@ -602,14 +595,14 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   if (bg_error_.severity() == Status::Severity::kSoftError &&
       recover_context_.flush_reason == FlushReason::kErrorRecovery) {
     // Simply clear the background error and return
-    recovery_error_ = Status::OK();
+    recovery_error_ = IOStatus::OK();
     return ClearBGError();
   }
 
   // Reset recovery_error_. We will use this to record any errors that happen
   // during the recovery process. While recovering, the only operations that
   // can generate background errors should be the flush operations
-  recovery_error_ = Status::OK();
+  recovery_error_ = IOStatus::OK();
   recovery_error_.PermitUncheckedError();
   Status s = db_->ResumeImpl(recover_context_);
   if (s.ok()) {
@@ -659,7 +652,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
 
-  if (recovery_io_error_.ok() && recovery_error_.ok()) {
+  if (recovery_error_.ok()) {
     return recovery_error_;
   } else {
     return bg_error_;
@@ -696,8 +689,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     }
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
-    recovery_io_error_ = IOStatus::OK();
-    recovery_error_ = Status::OK();
+    recovery_error_ = IOStatus::OK();
     retry_count++;
     Status s = db_->ResumeImpl(context);
     if (bg_error_stats_ != nullptr) {
@@ -717,9 +709,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
                                              bg_error_, db_mutex_);
       return;
     }
-    if (!recovery_io_error_.ok() &&
+    if (!recovery_error_.ok() &&
         recovery_error_.severity() <= Status::Severity::kHardError &&
-        recovery_io_error_.GetRetryable()) {
+        recovery_error_.GetRetryable()) {
       // If new BG IO error happens during auto recovery and it is retryable
       // and its severity is Hard Error or lower, the auto resmue sleep for
       // a period of time and redo auto resume if it is allowed.
@@ -728,10 +720,10 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       int64_t wait_until = db_options_.clock->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
     } else {
-      // There are three possibility: 1) recover_io_error is set during resume
+      // There are three possibility: 1) recovery_error_ is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
       // error happens during resume and cannot be resumed here.
-      if (recovery_io_error_.ok() && recovery_error_.ok() && s.ok()) {
+      if (recovery_error_.ok() && s.ok()) {
         // recover from the retryable IO error and no other BG errors. Clean
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
@@ -753,8 +745,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         return;
       } else {
-        // In this case: 1) recovery_io_error is more serious or not retryable
-        // 2) other Non IO recovery_error happens. The auto recovery stops.
+        // In this case: 1) recovery_error_ is more serious or not retryable
+        // 2) other error happens. The auto recovery stops.
         recovery_in_prog_ = false;
         if (bg_error_stats_ != nullptr) {
           RecordInHistogram(bg_error_stats_.get(),
@@ -762,10 +754,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         EventHelpers::NotifyOnErrorRecoveryEnd(
             db_options_.listeners, bg_error_,
-            !recovery_io_error_.ok()
-                ? recovery_io_error_
-                : (!recovery_error_.ok() ? recovery_error_ : s),
-            db_mutex_);
+            !recovery_error_.ok() ? recovery_error_ : s, db_mutex_);
         return;
       }
     }
@@ -785,7 +774,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 
 void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   if (recovery_in_prog_ && recovery_error_.ok()) {
-    recovery_error_ = bg_err;
+    recovery_error_ = status_to_io_status(Status(bg_err));
   }
   if (bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
