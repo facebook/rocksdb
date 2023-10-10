@@ -1858,11 +1858,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
       write_thread.EndWriteStall();
     }
 
-    // Don't wait if there's a background error, even if its a soft error. We
-    // might wait here indefinitely as the background compaction may never
-    // finish successfully, resulting in the stall condition lasting
-    // indefinitely
-    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped() &&
+    // Don't wait if there's a background error that is not pending recovery
+    // since recovery might never be attempted.
+    while ((error_handler_.GetBGError().ok() ||
+            error_handler_.IsRecoveryInProgress()) &&
+           write_controller_.IsStopped() &&
            !shutting_down_.load(std::memory_order_relaxed)) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
