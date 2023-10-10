@@ -429,6 +429,8 @@ best_efforts_recovery_params = {
     "atomic_flush": 0,
     "disable_wal": 1,
     "column_families": 1,
+    "skip_verifydb": 1,
+    "verify_db_one_in": 0
 }
 
 blob_params = {
@@ -670,7 +672,8 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
-        dest_params["open_read_fault_one_in"] = 0
+        dest_params["skip_verifydb"] = 1
+        dest_params["verify_db_one_in"] = 0
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
