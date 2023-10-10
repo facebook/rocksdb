@@ -234,7 +234,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // releases and re-acquires the db mutex. In the meantime, the application
   // can still insert into the memtables and increase the db's sequence number.
   // The application can take a snapshot, hoping that the latest visible state
-  // to this snapshto is preserved. This is hard to guarantee since db mutex
+  // to this snapshot is preserved. This is hard to guarantee since db mutex
   // not held. This newly-created snapshot is not included in `snapshot_seqs`
   // and the flush job is unaware of its presence. Consequently, the flush job
   // may drop certain keys when generating the L0, causing incorrect data to be
