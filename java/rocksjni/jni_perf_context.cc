@@ -1104,7 +1104,7 @@ jlong Java_org_rocksdb_PerfContext_getEnvNewLoggerNanos(JNIEnv*, jobject,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_PerfContext_getGetCpuNanos(JNIEnv*, jobject,
-                                               jlong jpc_handle) {
+                                                  jlong jpc_handle) {
   ROCKSDB_NAMESPACE::PerfContext* perf_context =
       reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
   return perf_context->get_cpu_nanos;
