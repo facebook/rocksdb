@@ -745,8 +745,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         return;
       } else {
-        // In this case recovery_error_ is more serious or not retryable
-        // The auto recovery stops.
+        // In this case: 1) recovery_error_ is more serious or not retryable
+        // 2) other error happens. The auto recovery stops.
         recovery_in_prog_ = false;
         if (bg_error_stats_ != nullptr) {
           RecordInHistogram(bg_error_stats_.get(),
