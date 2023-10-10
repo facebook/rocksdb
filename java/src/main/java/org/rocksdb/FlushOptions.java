@@ -10,15 +10,11 @@ package org.rocksdb;
  * {@link org.rocksdb.RocksDB}.
  */
 public class FlushOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct a new instance of FlushOptions.
    */
   public FlushOptions(){
-    super(newFlushOptions());
+    super(newFlushOptionsInance());
   }
 
   /**
@@ -77,7 +73,10 @@ public class FlushOptions extends RocksObject {
     assert(isOwningHandle());
     return allowWriteStall(nativeHandle_);
   }
-
+  private static long newFlushOptionsInance() {
+    RocksDB.loadLibrary();
+    return newFlushOptions();
+  }
   private static native long newFlushOptions();
   @Override protected final native void disposeInternal(final long handle);
 

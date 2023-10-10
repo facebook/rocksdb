@@ -31,11 +31,6 @@ public class RocksDB extends RocksObject {
 
   private static final AtomicReference<LibraryState> libraryLoaded =
       new AtomicReference<>(LibraryState.NOT_LOADED);
-
-  static {
-    RocksDB.loadLibrary();
-  }
-
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
@@ -175,6 +170,7 @@ public class RocksDB extends RocksObject {
    * @see Options#setCreateIfMissing(boolean)
    */
   public static RocksDB open(final String path) throws RocksDBException {
+    RocksDB.loadLibrary();
     final Options options = new Options();
     options.setCreateIfMissing(true);
     return open(options, path);
@@ -330,6 +326,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final String path)
       throws RocksDBException {
+    RocksDB.loadLibrary();
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     final Options options = new Options();
