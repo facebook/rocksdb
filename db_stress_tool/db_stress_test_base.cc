@@ -112,6 +112,11 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
 
   std::shared_ptr<SecondaryCache> secondary_cache;
   if (!FLAGS_secondary_cache_uri.empty()) {
+    assert(!strstr(FLAGS_secondary_cache_uri.c_str(),
+                   "compressed_secondary_cache") ||
+           (FLAGS_compressed_secondary_cache_size == 0 &&
+            FLAGS_compressed_secondary_cache_ratio == 0.0 &&
+            !StartsWith(FLAGS_cache_type, "tiered_")));
     Status s = SecondaryCache::CreateFromString(
         config_options, FLAGS_secondary_cache_uri, &secondary_cache);
     if (secondary_cache == nullptr) {
@@ -125,36 +130,81 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
           secondary_cache, static_cast<uint32_t>(FLAGS_seed),
           FLAGS_secondary_cache_fault_one_in);
     }
+  } else if (FLAGS_compressed_secondary_cache_size > 0) {
+    if (StartsWith(FLAGS_cache_type, "tiered_")) {
+      fprintf(stderr,
+              "Cannot specify both compressed_secondary_cache_size and %s\n",
+              FLAGS_cache_type.c_str());
+      exit(1);
+    }
+    CompressedSecondaryCacheOptions opts;
+    opts.capacity = FLAGS_compressed_secondary_cache_size;
+    secondary_cache = NewCompressedSecondaryCache(opts);
+    if (secondary_cache == nullptr) {
+      fprintf(stderr, "Failed to allocate compressed secondary cache\n");
+      exit(1);
+    }
+    compressed_secondary_cache = secondary_cache;
   }
 
-  if (FLAGS_cache_type == "clock_cache") {
+  std::string cache_type = FLAGS_cache_type;
+  size_t cache_size = FLAGS_cache_size;
+  bool tiered = false;
+  if (StartsWith(cache_type, "tiered_")) {
+    tiered = true;
+    cache_type.erase(0, strlen("tiered_"));
+  }
+  if (FLAGS_use_write_buffer_manager) {
+    cache_size += FLAGS_db_write_buffer_size;
+  }
+  if (cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
-  } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+  } else if (EndsWith(cache_type, "hyper_clock_cache")) {
     size_t estimated_entry_charge;
-    if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
-        FLAGS_cache_type == "hyper_clock_cache") {
+    if (cache_type == "fixed_hyper_clock_cache" ||
+        cache_type == "hyper_clock_cache") {
       estimated_entry_charge = FLAGS_block_size;
-    } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+    } else if (cache_type == "auto_hyper_clock_cache") {
       estimated_entry_charge = 0;
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);
     }
-    HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
+    HyperClockCacheOptions opts(cache_size, estimated_entry_charge,
                                 num_shard_bits);
     opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
-    return opts.MakeSharedCache();
-  } else if (FLAGS_cache_type == "lru_cache") {
+    if (tiered) {
+      TieredCacheOptions tiered_opts;
+      tiered_opts.cache_opts = &opts;
+      tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+      tiered_opts.total_capacity = cache_size;
+      tiered_opts.compressed_secondary_ratio = 0.5;
+      block_cache = NewTieredCache(tiered_opts);
+    } else {
+      opts.secondary_cache = std::move(secondary_cache);
+      block_cache = opts.MakeSharedCache();
+    }
+  } else if (EndsWith(cache_type, "lru_cache")) {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
-    opts.secondary_cache = std::move(secondary_cache);
-    return NewLRUCache(opts);
+    if (tiered) {
+      TieredCacheOptions tiered_opts;
+      tiered_opts.cache_opts = &opts;
+      tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+      tiered_opts.total_capacity = cache_size;
+      tiered_opts.compressed_secondary_ratio = 0.5;
+      block_cache = NewTieredCache(tiered_opts);
+    } else {
+      opts.secondary_cache = std::move(secondary_cache);
+      block_cache = NewLRUCache(opts);
+    }
   } else {
     fprintf(stderr, "Cache type not supported.");
     exit(1);
   }
+  return block_cache;
 }
 
 std::vector<std::string> StressTest::GetBlobCompressionTags() {
@@ -3153,6 +3203,10 @@ void InitializeOptionsFromFlags(
       FLAGS_max_write_buffer_size_to_maintain;
   options.memtable_prefix_bloom_size_ratio =
       FLAGS_memtable_prefix_bloom_size_ratio;
+  if (FLAGS_use_write_buffer_manager) {
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
+  }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
   options.disable_auto_compactions = FLAGS_disable_auto_compactions;
   options.max_background_compactions = FLAGS_max_background_compactions;
