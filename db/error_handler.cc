@@ -638,16 +638,23 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "ErrorHandler: Call StartRecoverFromRetryableBGIOError to resume\n");
+  // Needs to be set in the same lock hold as setting BG error, otherwise
+  // intervening writes could see a BG error without a recovery and bail out.
+  recovery_in_prog_ = true;
+
   if (recovery_thread_) {
+    // release()ing while still under mutex ensures only one thread can execute
+    // the join().
+    port::Thread* old_recovery_thread = recovery_thread_.release();
     // In this case, if recovery_in_prog_ is false, current thread should
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
-    recovery_thread_->join();
+    old_recovery_thread->join();
     db_mutex_->Lock();
+    delete old_recovery_thread;
   }
 
-  recovery_in_prog_ = true;
   TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
