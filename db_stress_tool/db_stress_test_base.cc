@@ -1883,8 +1883,7 @@ Status StressTest::TestBackupRestore(
     }
   }
   if (!s.ok()) {
-    fprintf(stderr, "Failure in %s with: %s\n", from.c_str(),
-            s.ToString().c_str());
+    s = Status::CopyAppendMessage(s, /*delim=*/" from: ", /*msg=*/from);
   }
   return s;
 }
@@ -1957,7 +1956,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   Status s = Checkpoint::Create(db_, &checkpoint);
   if (s.ok()) {
     s = checkpoint->CreateCheckpoint(checkpoint_dir);
-    if (!s.ok()) {
+    if (!s.ok() && (!s.IsIOError() || !std::strstr(s.getState(), "injected"))) {
       fprintf(stderr, "Fail to create checkpoint to %s\n",
               checkpoint_dir.c_str());
       std::vector<std::string> files;
@@ -2043,10 +2042,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     checkpoint_db = nullptr;
   }
 
-  if (!s.ok()) {
-    fprintf(stderr, "A checkpoint operation failed with: %s\n",
-            s.ToString().c_str());
-  } else {
+  if (s.ok()) {
     DestroyDB(checkpoint_dir, tmp_opts);
   }
   return s;
