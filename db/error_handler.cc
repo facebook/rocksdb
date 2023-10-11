@@ -638,16 +638,22 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "ErrorHandler: Call StartRecoverFromRetryableBGIOError to resume\n");
+  // Needs to be set in the same lock hold as setting BG error, otherwise
+  // intervening writes could see a BG error without a recovery and bail out.
+  recovery_in_prog_ = true;
+
   if (recovery_thread_) {
+    // Ensure only one thread can execute the join().
+    std::unique_ptr<port::Thread> old_recovery_thread(
+        std::move(recovery_thread_));
     // In this case, if recovery_in_prog_ is false, current thread should
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
-    recovery_thread_->join();
+    old_recovery_thread->join();
     db_mutex_->Lock();
   }
 
-  recovery_in_prog_ = true;
   TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
@@ -790,12 +796,15 @@ void ErrorHandler::EndAutoRecovery() {
   if (!end_recovery_) {
     end_recovery_ = true;
   }
-  cv_.SignalAll();
-  db_mutex_->Unlock();
   if (recovery_thread_) {
-    recovery_thread_->join();
+    // Ensure only one thread can execute the join().
+    std::unique_ptr<port::Thread> old_recovery_thread(
+        std::move(recovery_thread_));
+    db_mutex_->Unlock();
+    cv_.SignalAll();
+    old_recovery_thread->join();
+    db_mutex_->Lock();
   }
-  db_mutex_->Lock();
   return;
 }
 
