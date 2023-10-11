@@ -2473,6 +2473,9 @@ void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
 }
 }  // anonymous namespace
 
+// This test attempts to set up a race condition in a way that is no longer
+// possible, causing the test to hang. If DBImpl::options_mutex_ is removed
+// in the future, this test might become relevant again.
 TEST_P(ColumnFamilyTest, DISABLED_CreateAndDropRace) {
   const int kCfCount = 5;
   std::vector<ColumnFamilyOptions> cf_opts;
