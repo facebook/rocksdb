@@ -507,7 +507,6 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     return s;
   }
 
-  assert(old_sec_capacity >= pri_cache_res_->GetTotalMemoryUsed());
   size_t old_sec_reserved =
       old_sec_capacity - pri_cache_res_->GetTotalMemoryUsed();
   // Calculate the new secondary cache reservation
@@ -527,7 +526,6 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     //    cache utilization (increase in capacity - increase in share of cache
     //    reservation)
     // 3. Increase secondary cache capacity
-    assert(sec_reserved > old_sec_reserved || sec_reserved == 0);
     s = secondary_cache_->Deflate(sec_reserved - old_sec_reserved);
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(
@@ -544,7 +542,6 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     //    reservations)
     // 3. Inflate the secondary cache to give it back the reduction in its
     //    share of cache reservations
-    assert(old_sec_reserved > sec_reserved || sec_reserved == 0);
     s = secondary_cache_->SetCapacity(sec_capacity);
     if (s.ok()) {
       s = pri_cache_res_->UpdateCacheReservation(

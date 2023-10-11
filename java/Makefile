@@ -51,6 +51,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.Options\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PersistentCache\
+	org.rocksdb.PerfContext\
+	org.rocksdb.PerfLevel\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\
@@ -161,6 +163,8 @@ JAVA_TESTS = \
 	org.rocksdb.OptimisticTransactionOptionsTest\
 	org.rocksdb.OptionsUtilTest\
 	org.rocksdb.OptionsTest\
+	org.rocksdb.PerfLevelTest \
+	org.rocksdb.PerfContextTest \
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\

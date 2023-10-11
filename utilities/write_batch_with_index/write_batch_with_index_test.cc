@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <map>
@@ -2248,6 +2247,8 @@ TEST_F(WBWIOverwriteTest, TestBadMergeOperator) {
 }
 
 TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
+  ASSERT_OK(OpenDB());
+
   ColumnFamilyHandleImplDummy cf2(2,
                                   test::BytewiseComparatorWithU64TsWrapper());
 
@@ -2263,10 +2264,9 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
                   .IsInvalidArgument());
   {
     std::string value;
-    ASSERT_TRUE(batch_
-                    ->GetFromBatchAndDB(
-                        /*db=*/nullptr, ReadOptions(), &cf2, "key", &value)
-                    .IsInvalidArgument());
+    ASSERT_TRUE(
+        batch_->GetFromBatchAndDB(db_, ReadOptions(), &cf2, "key", &value)
+            .IsInvalidArgument());
   }
   {
     constexpr size_t num_keys = 2;
@@ -2275,8 +2275,8 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
         {PinnableSlice(), PinnableSlice()}};
     std::array<Status, num_keys> statuses{{Status(), Status()}};
     constexpr bool sorted_input = false;
-    batch_->MultiGetFromBatchAndDB(/*db=*/nullptr, ReadOptions(), &cf2,
-                                   num_keys, keys.data(), pinnable_vals.data(),
+    batch_->MultiGetFromBatchAndDB(db_, ReadOptions(), &cf2, num_keys,
+                                   keys.data(), pinnable_vals.data(),
                                    statuses.data(), sorted_input);
     for (const auto& s : statuses) {
       ASSERT_TRUE(s.IsInvalidArgument());
@@ -2406,4 +2406,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

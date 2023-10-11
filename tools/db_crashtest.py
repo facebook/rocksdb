@@ -43,7 +43,7 @@ default_params = {
         [random.randint(0, 19), random.lognormvariate(2.3, 1.3)]
     ),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
-    "cache_size": 8388608,
+    "cache_size": lambda: random.choice([8388608, 33554432]),
     "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
@@ -126,7 +126,9 @@ default_params = {
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
         ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
-         "auto_hyper_clock_cache"]
+         "auto_hyper_clock_cache", "tiered_lru_cache",
+         "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
+         "tiered_auto_hyper_clock_cache"]
     ),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
@@ -163,6 +165,7 @@ default_params = {
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
+    "use_write_buffer_manager": lambda: random.randint(0,1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
@@ -179,7 +182,7 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
-    "write_fault_one_in": 0,
+    "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -191,6 +194,7 @@ default_params = {
     ),
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in": lambda: random.choice([0, 0, 32]),
+    "compressed_secondary_cache_size": lambda: random.choice([8388608, 16777216]),
     "prepopulate_block_cache": lambda: random.choice([0, 1]),
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
@@ -202,7 +206,8 @@ default_params = {
     "secondary_cache_uri": lambda: random.choice(
         [
             "",
-            "compressed_secondary_cache://capacity=8388608",
+            "",
+            "",
             "compressed_secondary_cache://capacity=8388608;enable_custom_split_merge=true",
         ]
     ),
@@ -375,10 +380,6 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # Small write buffer size with more frequent flush has a higher chance
-    # of hitting write error. DB may be stopped if memtable fills up during
-    # auto resume.
-    "write_fault_one_in": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     # Snapshots are used heavily in this test mode, while they are incompatible
     # with compaction filter.
@@ -681,6 +682,22 @@ def finalize_and_sanitize(src_params):
     if dest_params["write_fault_one_in"] > 0:
         # background work may be disabled while DB is resuming after some error
         dest_params["max_write_buffer_number"] = max(dest_params["max_write_buffer_number"], 10)
+    if dest_params["secondary_cache_uri"].find("compressed_secondary_cache") >= 0:
+        dest_params["compressed_secondary_cache_size"] = 0
+        dest_params["compressed_secondary_cache_ratio"] = 0.0
+    if dest_params["cache_type"].find("tiered_") >= 0:
+        if dest_params["compressed_secondary_cache_size"] > 0:
+            dest_params["compressed_secondary_cache_ratio"] = \
+                    float(dest_params["compressed_secondary_cache_size"]/ \
+                    (dest_params["cache_size"] + dest_params["compressed_secondary_cache_size"]))
+            dest_params["compressed_secondary_cache_size"] = 0
+        else:
+            dest_params["compressed_secondary_cache_ratio"] = 0.0
+            dest_params["cache_type"] = dest_params["cache_type"].replace("tiered_", "")
+    if dest_params["use_write_buffer_manager"]:
+        if (dest_params["cache_size"] <= 0
+            or dest_params["db_write_buffer_size"] <= 0):
+            dest_params["use_write_buffer_manager"] = 0
     return dest_params
 
 

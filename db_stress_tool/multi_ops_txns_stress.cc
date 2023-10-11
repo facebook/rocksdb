@@ -1104,8 +1104,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
         oss << "Cannot decode primary index entry " << it->key().ToString(true)
-            << "=>" << it->value().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+            << "=>" << it->value().ToString(true) << ". Status is "
+            << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1125,8 +1126,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       std::string value;
       s = db_->Get(ropts, sk, &value);
       if (!s.ok()) {
-        oss << "Cannot find secondary index entry " << sk.ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+        oss << "Cannot find secondary index entry " << sk.ToString(true)
+            << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1153,8 +1155,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
         oss << "Cannot decode secondary index entry "
-            << it->key().ToString(true) << "=>" << it->value().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+            << it->key().ToString(true) << "=>" << it->value().ToString(true)
+            << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1168,7 +1171,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       if (!s.ok()) {
         oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
             << s.ToString() << ". sk " << it->key().ToString(true);
-        VerificationAbort(thread->shared, oss.str(), s);
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1176,8 +1179,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       s = std::get<0>(result);
       if (!s.ok()) {
         oss << "Error decoding primary index value "
-            << Slice(value).ToString(true) << ". " << s.ToString();
-        VerificationAbort(thread->shared, oss.str(), s);
+            << Slice(value).ToString(true) << ". Status is " << s.ToString();
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1187,7 +1190,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
             << Slice(value).ToString(true) << " (a=" << record.a_value()
             << ", c=" << c_in_primary << "), sk: " << it->key().ToString(true)
             << " (c=" << record.c_value() << ")";
-        VerificationAbort(thread->shared, oss.str(), s);
+        VerificationAbort(thread->shared, oss.str());
         assert(false);
         return;
       }
@@ -1198,7 +1201,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     oss << "Pk/sk mismatch: primary index has " << primary_index_entries_count
         << " entries. Secondary index has " << secondary_index_entries_count
         << " entries.";
-    VerificationAbort(thread->shared, oss.str(), Status::OK());
+    VerificationAbort(thread->shared, oss.str());
     assert(false);
     return;
   }

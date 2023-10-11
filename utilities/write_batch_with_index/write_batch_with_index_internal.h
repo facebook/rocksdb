@@ -20,9 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class MergeContext;
 class WBWIIteratorImpl;
-class WriteBatchWithIndexInternal;
 struct Options;
 struct ImmutableOptions;
 
@@ -63,16 +61,17 @@ class BaseDeltaIterator : public Iterator {
   bool DeltaValid() const;
   void UpdateCurrent();
 
-  std::unique_ptr<WriteBatchWithIndexInternal> wbwii_;
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
   mutable Status status_;
+  ColumnFamilyHandle* column_family_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
   const Slice* iterate_upper_bound_;
-  mutable PinnableSlice merge_result_;
+  MergeContext merge_context_;
+  mutable std::string merge_result_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
@@ -297,14 +296,15 @@ class WriteBatchWithIndexInternal {
   static const Comparator* GetUserComparator(const WriteBatchWithIndex& wbwi,
                                              uint32_t cf_id);
 
-  // For GetFromBatchAndDB or similar
-  explicit WriteBatchWithIndexInternal(DB* db,
-                                       ColumnFamilyHandle* column_family);
-  // For GetFromBatchAndDB or similar
-  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
-  // For GetFromBatch or similar
-  explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
-                                       ColumnFamilyHandle* column_family);
+  static Status MergeKeyWithNoBaseValue(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        const MergeContext& context,
+                                        std::string* result);
+
+  static Status MergeKeyWithPlainBaseValue(ColumnFamilyHandle* column_family,
+                                           const Slice& key, const Slice& value,
+                                           const MergeContext& context,
+                                           std::string* result);
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -314,44 +314,10 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key, std::string* value,
-                                        Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, s);
-  }
-  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key,
-                                        MergeContext* merge_context,
-                                        std::string* value, Status* s);
-
-  // Merge with no base value
-  Status MergeKey(const Slice& key, const MergeContext& context,
-                  std::string* result) const;
-  Status MergeKey(const Slice& key, std::string* result) const {
-    return MergeKey(key, merge_context_, result);
-  }
-
-  // Merge with plain base value
-  Status MergeKey(const Slice& key, const Slice& value,
-                  const MergeContext& context, std::string* result) const;
-  Status MergeKey(const Slice& key, const Slice& value,
-                  std::string* result) const {
-    return MergeKey(key, value, merge_context_, result);
-  }
-
-  size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
-  MergeContext* GetMergeContext() { return &merge_context_; }
-  Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
-
- private:
-  const ImmutableOptions& GetCFOptions() const;
-  std::tuple<Logger*, Statistics*, SystemClock*> GetStatsLoggerAndClock(
-      const ImmutableOptions& cf_opts) const;
-
-  DB* db_;
-  const DBOptions* db_options_;
-  ColumnFamilyHandle* column_family_;
-  MergeContext merge_context_;
+  static WBWIIteratorImpl::Result GetFromBatch(
+      WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+      const Slice& key, MergeContext* merge_context, std::string* value,
+      Status* s);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

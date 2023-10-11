@@ -20,9 +20,6 @@ public class Options extends RocksObject
     MutableDBOptionsInterface<Options>,
     ColumnFamilyOptionsInterface<Options>,
     MutableColumnFamilyOptionsInterface<Options> {
-  static {
-    RocksDB.loadLibrary();
-  }
 
   /**
    * Converts the input properties into a Options-style formatted string
@@ -50,7 +47,7 @@ public class Options extends RocksObject
    * an {@code rocksdb::Options} in the c++ side.
    */
   public Options() {
-    super(newOptions());
+    super(newOptionsInstance());
     env_ = Env.getDefault();
   }
 
@@ -2129,6 +2126,10 @@ public class Options extends RocksObject
   // END options for blobs (integrated BlobDB)
   //
 
+  private static long newOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newOptions();
+  }
   private static native long newOptions();
   private static native long newOptions(long dbOptHandle, long cfOptHandle);
   private static native long copyOptions(long handle);
