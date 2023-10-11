@@ -3381,8 +3381,8 @@ void DBImpl::MultiGetEntity(
            key_grouped_column_families[i].second.size());
     for (size_t j = 0; j < results[i].num_column_families(); ++j) {
       // Adding the same key slice for different CFs
-      keys.push_back(key_grouped_column_families[i].first);
-      column_families.push_back(key_grouped_column_families[i].second[j]);
+      keys.emplace_back(key_grouped_column_families[i].first);
+      column_families.emplace_back(key_grouped_column_families[i].second[j]);
       ++total_count;
     }
   }
