@@ -796,12 +796,15 @@ void ErrorHandler::EndAutoRecovery() {
   if (!end_recovery_) {
     end_recovery_ = true;
   }
-  cv_.SignalAll();
-  db_mutex_->Unlock();
   if (recovery_thread_) {
-    recovery_thread_->join();
+    // Ensure only one thread can execute the join().
+    std::unique_ptr<port::Thread> old_recovery_thread(
+        std::move(recovery_thread_));
+    db_mutex_->Unlock();
+    cv_.SignalAll();
+    old_recovery_thread->join();
+    db_mutex_->Lock();
   }
-  db_mutex_->Lock();
   return;
 }
 
