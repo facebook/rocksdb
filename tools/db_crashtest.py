@@ -157,7 +157,7 @@ default_params = {
         [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
     # Sync mode might make test runs slower so running it in a smaller chance
-    "sync": 0,
+    "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
     "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
     "compaction_readahead_size" : lambda : random.choice(
@@ -182,7 +182,7 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
-    "write_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
