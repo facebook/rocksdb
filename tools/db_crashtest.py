@@ -182,7 +182,7 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
-    "write_fault_one_in": 0,
+    "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -380,10 +380,6 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # Small write buffer size with more frequent flush has a higher chance
-    # of hitting write error. DB may be stopped if memtable fills up during
-    # auto resume.
-    "write_fault_one_in": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     # Snapshots are used heavily in this test mode, while they are incompatible
     # with compaction filter.
