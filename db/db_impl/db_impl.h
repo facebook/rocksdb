@@ -242,6 +242,10 @@ class DBImpl : public DB {
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableWideColumns* columns) override;
+  void GetEntity(const ReadOptions& options, const Slice& key,
+                 size_t num_column_families,
+                 ColumnFamilyHandle** column_families,
+                 PinnableWideColumns* columns, Status* statuses) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,

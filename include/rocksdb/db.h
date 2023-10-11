@@ -602,6 +602,21 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  // Returns wide-column entities from multiple column families for a single
+  // key. The input is a key and column families by which wide-column entities
+  // will be grouped. columns[i] will be the corresponding wide column output
+  // for ith column family in column_families (where 0 <= i <
+  // num_column_families). Likewise, statuses[i] will be the corresponding
+  // status retrieving wide columns for ith column family.
+  virtual void GetEntity(const ReadOptions& /* options */,
+                         const Slice& /* key */, size_t num_column_families,
+                         ColumnFamilyHandle** /* column_families */,
+                         PinnableWideColumns* /* columns */, Status* statuses) {
+    for (size_t i = 0; i < num_column_families; ++i) {
+      statuses[i] = Status::NotSupported("GetEntity not supported");
+    }
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be

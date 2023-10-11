@@ -2057,6 +2057,34 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   return GetImpl(read_options, key, get_impl_options);
 }
 
+void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
+                       size_t num_column_families,
+                       ColumnFamilyHandle** column_families,
+                       PinnableWideColumns* columns, Status* statuses) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    for (size_t i = 0; i < num_column_families; ++i) {
+      statuses[i] = Status::InvalidArgument(
+          "Cannot call GetEntity with `ReadOptions::io_activity` != "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+    }
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+  std::vector<Slice> keys;
+  for (size_t i = 0; i < num_column_families; ++i) {
+    // Adding the same key slice for different CFs
+    keys.emplace_back(key);
+  }
+  columns->Reset();
+  MultiGetCommon(read_options, num_column_families, column_families,
+                 keys.data(),
+                 /* values */ nullptr, columns,
+                 /* timestamps */ nullptr, statuses, /* sorted_input */ false);
+}
+
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
   // If both thresholds are reached, a function returning merge operands as
   // `PinnableSlice`s should reference the `SuperVersion` to avoid large and/or
