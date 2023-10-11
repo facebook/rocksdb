@@ -1547,8 +1547,8 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jobject,
   auto s = db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
                    key.slice(), &value);
 
-  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
-                                                   jval_off, jval_len);
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillByteArray(env, s, value, jval,
+                                                       jval_off, jval_len);
 }
 
 /*
@@ -1577,8 +1577,8 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jobject,
   auto s =
       db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(), &value);
 
-  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
-                                                   jval_off, jval_len);
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillByteArray(env, s, value, jval,
+                                                       jval_off, jval_len);
 }
 
 /*
@@ -1602,8 +1602,8 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jobject,
       db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
               db->DefaultColumnFamily(), key.slice(), &value);
 
-  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
-                                                   jval_off, jval_len);
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillByteArray(env, s, value, jval,
+                                                       jval_off, jval_len);
 }
 
 /*
@@ -1631,8 +1631,8 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
       db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
               cf_handle, key.slice(), &value);
 
-  return ROCKSDB_NAMESPACE::GetJNIValue::fillValue(env, s, value, jval,
-                                                   jval_off, jval_len);
+  return ROCKSDB_NAMESPACE::GetJNIValue::fillByteArray(env, s, value, jval,
+                                                       jval_off, jval_len);
 }
 
 /**
@@ -1785,7 +1785,7 @@ void Java_org_rocksdb_RocksDB_multiGet__JJ_3J_3Ljava_nio_ByteBuffer_2_3I_3I_3Lja
                  values.data(), statuses.data(),
                  /* sorted_input */ false);
   }
-  ROCKSDB_NAMESPACE::MultiGetJNIValues::fillValuesStatusObjects(
+  ROCKSDB_NAMESPACE::MultiGetJNIValues::fillByteBuffersAndStatusObjects(
       env, values, statuses, jvalues, jvalues_sizes, jstatus_objects);
 }
 

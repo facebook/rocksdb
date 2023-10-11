@@ -47,9 +47,10 @@ bool GetJNIKey::fromByteBuffer(JNIEnv* env, jobject jkey, jint jkey_off,
   return true;
 }
 
-jint GetJNIValue::fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                            ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value,
-                            jbyteArray jval, jint jval_off, jint jval_len) {
+jint GetJNIValue::fillByteArray(
+    JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+    ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value, jbyteArray jval,
+    jint jval_off, jint jval_len) {
   if (s.IsNotFound()) {
     return kNotFound;
   } else if (!s.ok()) {
@@ -104,6 +105,7 @@ jint GetJNIValue::fillByteBuffer(
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env,
         "Invalid value argument (argument is not a valid direct ByteBuffer)");
+    pinnable_value.Reset();
     return kArgumentError;
   }
 
@@ -112,6 +114,7 @@ jint GetJNIValue::fillByteBuffer(
         env,
         "Invalid value argument. Capacity is less than requested region "
         "(offset + length).");
+    pinnable_value.Reset();
     return kArgumentError;
   }
 
@@ -124,15 +127,17 @@ jint GetJNIValue::fillByteBuffer(
   return pinnable_value_len;
 }
 
-jbyteArray GetJNIValue::byteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                                  ROCKSDB_NAMESPACE::PinnableSlice& value) {
+jbyteArray GetJNIValue::byteArray(
+    JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+    ROCKSDB_NAMESPACE::PinnableSlice& pinnable_value) {
   if (s.IsNotFound()) {
     return nullptr;
   }
 
   if (s.ok()) {
-    jbyteArray jret_value = ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, value);
-    value.Reset();
+    jbyteArray jret_value =
+        ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
+    pinnable_value.Reset();
     if (jret_value == nullptr) {
       // exception occurred
       return nullptr;
@@ -313,7 +318,7 @@ MultiGetJNIValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(
     std::vector<ROCKSDB_NAMESPACE::Status>& s);
 
 template <class TValue>
-void MultiGetJNIValues::fillValuesStatusObjects(
+void MultiGetJNIValues::fillByteBuffersAndStatusObjects(
     JNIEnv* env, std::vector<TValue>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s, jobjectArray jvalues,
     jintArray jvalue_sizes, jobjectArray jstatuses) {
@@ -365,8 +370,8 @@ void MultiGetJNIValues::fillValuesStatusObjects(
                          value_size.data());
 }
 
-template void
-MultiGetJNIValues::fillValuesStatusObjects<ROCKSDB_NAMESPACE::PinnableSlice>(
+template void MultiGetJNIValues::fillByteBuffersAndStatusObjects<
+    ROCKSDB_NAMESPACE::PinnableSlice>(
     JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::PinnableSlice>& values,
     std::vector<ROCKSDB_NAMESPACE::Status>& s, jobjectArray jvalues,
     jintArray jvalue_sizes, jobjectArray jstatuses);

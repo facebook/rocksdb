@@ -144,9 +144,9 @@ class GetJNIValue {
    * @param jval_len length of byte array into which to copy
    * @return jint length copied, or a -ve status code
    */
-  static jint fillValue(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
-                        ROCKSDB_NAMESPACE::PinnableSlice& value,
-                        jbyteArray jval, jint jval_off, jint jval_len);
+  static jint fillByteArray(JNIEnv* env, ROCKSDB_NAMESPACE::Status& s,
+                            ROCKSDB_NAMESPACE::PinnableSlice& value,
+                            jbyteArray jval, jint jval_off, jint jval_len);
 
   /**
    * @brief fill an existing direct ByteBuffer from the value in a pinnable
@@ -199,11 +199,9 @@ class MultiGetJNIValues {
    * @param jstatuses the status for every individual key/value get
    */
   template <class TValue>
-  static void fillValuesStatusObjects(JNIEnv*, std::vector<TValue>&,
-                                      std::vector<ROCKSDB_NAMESPACE::Status>&,
-                                      jobjectArray jvalues,
-                                      jintArray jvalue_sizes,
-                                      jobjectArray jstatuses);
+  static void fillByteBuffersAndStatusObjects(
+      JNIEnv*, std::vector<TValue>&, std::vector<ROCKSDB_NAMESPACE::Status>&,
+      jobjectArray jvalues, jintArray jvalue_sizes, jobjectArray jstatuses);
 };
 
 /**
