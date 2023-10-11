@@ -33,9 +33,13 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
     bool& kept_in_sec_cache) {
   assert(helper);
+  // This is a minor optimization. Its ok to skip it in TSAN in order to
+  // avoid a false positive.
+#ifndef __SANITIZE_THREAD__
   if (disable_cache_) {
     return nullptr;
   }
+#endif
 
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   kept_in_sec_cache = false;
