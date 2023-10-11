@@ -643,16 +643,15 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   recovery_in_prog_ = true;
 
   if (recovery_thread_) {
-    // release()ing while still under mutex ensures only one thread can execute
-    // the join().
-    port::Thread* old_recovery_thread = recovery_thread_.release();
+    // Ensure only one thread can execute the join().
+    std::unique_ptr<port::Thread> old_recovery_thread(
+        std::move(recovery_thread_));
     // In this case, if recovery_in_prog_ is false, current thread should
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
     old_recovery_thread->join();
     db_mutex_->Lock();
-    delete old_recovery_thread;
   }
 
   TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
