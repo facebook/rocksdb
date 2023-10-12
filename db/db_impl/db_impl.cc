@@ -4114,7 +4114,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->ioptions()->allow_ingest_behind) {
-          cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+          cfd->current()->storage_info()->UpdateOldestSnapshot(
+              oldest_snapshot, /*allow_ingest_behind=*/false);
           if (!cfd->current()
                    ->storage_info()
                    ->BottommostFilesMarkedForCompaction()
