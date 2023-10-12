@@ -412,15 +412,9 @@ class DBImpl : public DB {
                                    ApplyReplicationLogRecordInfo* info,
                                    unsigned flags) override;
 
-  // Calculate epoch number on follower
-  Status InferEpochNumber(VersionEdit* e, ColumnFamilyData* cfd,
-                          ApplyReplicationLogRecordInfo* info, 
-                          bool reset_next_epoch_number);
-
   // Check that replicated epoch number of newly flushed files >= cfd's next
   // epoch number.
-  // TODO: make `VersionEdit` const
-  Status CheckNextEpochNumberConsistency(VersionEdit& e, ColumnFamilyData* cfd);
+  Status CheckNextEpochNumberConsistency(const VersionEdit& e, ColumnFamilyData* cfd);
   Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const override;
   Status GetPersistedReplicationSequence(std::string* out) override;

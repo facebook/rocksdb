@@ -455,11 +455,6 @@ size_t ReplicationTest::catchUpFollower(
   DB::ApplyReplicationLogRecordInfo info;
   size_t ret = 0;
   unsigned flags = DB::AR_EVICT_OBSOLETE_FILES;
-  flags |= DB::AR_RESET_IF_EPOCH_MISMATCH;
-  if (replicate_epoch_number_) {
-    flags |= DB::AR_REPLICATE_EPOCH_NUM;
-    flags |= DB::AR_CONSISTENCY_CHECK_ON_EPOCH_REPLICATION;
-  }
   for (; followerSequence_ < (int)log_records_.size(); ++followerSequence_) {
     if (num_records && ret >= *num_records) {
       break;
@@ -1139,19 +1134,7 @@ TEST_F(ReplicationTest, EvictObsoleteFiles) {
       static_cast_with_check<DBImpl>(follower)->TEST_table_cache()->GetUsage());
 }
 
-class ReplicationTestWithParam : public ReplicationTest,
-                                 public testing::WithParamInterface<std::pair<bool, bool>> {
- public:
-  ReplicationTestWithParam()
-    : ReplicationTest() {}
-
-  void SetUp() override {
-    std::tie(replicate_epoch_number_, consistency_check_on_epoch_replication) =
-        GetParam();
-  }
-};
-
-TEST_P(ReplicationTestWithParam, Stress) {
+TEST_F(ReplicationTest, Stress) {
   std::string val;
   auto leader = openLeader();
   openFollower();
@@ -1231,15 +1214,6 @@ TEST_P(ReplicationTestWithParam, Stress) {
   verifyEqual();
   verifyNextEpochNumber();
 }
-
-INSTANTIATE_TEST_CASE_P(ReplicationTest, ReplicationTestWithParam,
-                        ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
-                            // don't replicate epoch
-                            {false, true},
-                            // replicate epoch but no consistency check
-                            {true, false},
-                            // replicate epoch and do consistency check
-                            {true, true}}));
 
 TEST_F(ReplicationTest, DeleteRange) {
   auto leader = openLeader();

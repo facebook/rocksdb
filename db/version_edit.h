@@ -504,7 +504,6 @@ class VersionEdit {
   // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
-  NewFiles& GetNewFiles() { return new_files_; }
 
   // Retrieve all the compact cursors
   using CompactCursors = std::vector<std::pair<int, InternalKey>>;

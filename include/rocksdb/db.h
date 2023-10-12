@@ -1305,9 +1305,6 @@ class DB {
     // families that were deleted as a result of ApplyReplicationLogRecord()
     // call, if any.
     std::vector<uint32_t> deleted_column_families;
-
-    // record number of mismatched epoch number found
-    uint64_t mismatched_epoch_num{0};
   };
   // ApplyReplicationLogRecord() applies the replication record provided by the
   // leader's ReplicationLogListener. Info contains some useful information
@@ -1326,22 +1323,6 @@ class DB {
   // REQUIRES: info needs to be provided, can't be nullptr.
   enum ApplyReplicationLogRecordFlags : unsigned {
     AR_EVICT_OBSOLETE_FILES = 1U << 0,
-    // If set, replicate epoch number instead of calculating the number when
-    // applying `kManifestWrite`
-    AR_REPLICATE_EPOCH_NUM = 1U << 1,
-    // If set, rewind/advance `next_epoch_number` if mismatches found.
-    // Rocksdb doesn't track `next_epoch_number` in manifest file. When db is
-    // reopened, it calculates the `next_epoch_number` based on max epoch number
-    // of existing live files. So it's possible for the `next_epoch_number` to
-    // go backwards. Following two cases are possible:
-    // 1. leader reopens db, causing `next_epoch_number` on leader to go
-    // backwards. So follower needs to rewind it.
-    // 2. follower reopens db, causing `next_epoch_number` on follower to go
-    // backwards. So follower needs to advance it
-    AR_RESET_IF_EPOCH_MISMATCH = 1U << 2,
-
-    // Check the consistency of epoch number during replication
-    AR_CONSISTENCY_CHECK_ON_EPOCH_REPLICATION = 1U << 3
   };
   using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
   virtual Status ApplyReplicationLogRecord(ReplicationLogRecord record,
