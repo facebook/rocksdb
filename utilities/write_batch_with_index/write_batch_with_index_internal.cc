@@ -149,36 +149,6 @@ Slice BaseDeltaIterator::key() const {
                           : delta_iterator_->Entry().key;
 }
 
-Slice BaseDeltaIterator::value() const {
-  if (current_at_base_) {
-    return base_iterator_->value();
-  } else {
-    WriteEntry delta_entry = delta_iterator_->Entry();
-    if (merge_context_.GetNumOperands() == 0) {
-      return delta_entry.value;
-    } else if (delta_entry.type == kDeleteRecord ||
-               delta_entry.type == kSingleDeleteRecord) {
-      status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-          column_family_, delta_entry.key, merge_context_, &merge_result_);
-    } else if (delta_entry.type == kPutRecord) {
-      status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
-          column_family_, delta_entry.key, delta_entry.value, merge_context_,
-          &merge_result_);
-    } else if (delta_entry.type == kMergeRecord) {
-      if (equal_keys_) {
-        status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
-            column_family_, delta_entry.key, base_iterator_->value(),
-            merge_context_, &merge_result_);
-      } else {
-        status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-            column_family_, delta_entry.key, merge_context_, &merge_result_);
-      }
-    }
-
-    return merge_result_;
-  }
-}
-
 Slice BaseDeltaIterator::timestamp() const {
   return current_at_base_ ? base_iterator_->timestamp() : Slice();
 }
@@ -279,10 +249,64 @@ void BaseDeltaIterator::AdvanceBase() {
 
 bool BaseDeltaIterator::BaseValid() const { return base_iterator_->Valid(); }
 bool BaseDeltaIterator::DeltaValid() const { return delta_iterator_->Valid(); }
+
+void BaseDeltaIterator::ResetValue() { value_.clear(); }
+
+void BaseDeltaIterator::SetValueFromBase() {
+  assert(current_at_base_);
+  assert(BaseValid());
+  assert(value_.empty());
+
+  value_ = base_iterator_->value();
+}
+
+void BaseDeltaIterator::SetValueFromDelta() {
+  assert(!current_at_base_);
+  assert(DeltaValid());
+  assert(value_.empty());
+
+  WriteEntry delta_entry = delta_iterator_->Entry();
+
+  if (merge_context_.GetNumOperands() == 0) {
+    value_ = delta_entry.value;
+
+    return;
+  }
+
+  if (delta_entry.type == kDeleteRecord ||
+      delta_entry.type == kSingleDeleteRecord) {
+    status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+        column_family_, delta_entry.key, merge_context_, &merge_result_);
+  } else if (delta_entry.type == kPutRecord) {
+    status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+        column_family_, delta_entry.key, delta_entry.value, merge_context_,
+        &merge_result_);
+  } else if (delta_entry.type == kMergeRecord) {
+    if (equal_keys_) {
+      status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+          column_family_, delta_entry.key, base_iterator_->value(),
+          merge_context_, &merge_result_);
+    } else {
+      status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+          column_family_, delta_entry.key, merge_context_, &merge_result_);
+    }
+  } else {
+    status_ = Status::NotSupported("Unsupported entry type for merge");
+  }
+
+  if (!status_.ok()) {
+    return;
+  }
+
+  value_ = merge_result_;
+}
+
 void BaseDeltaIterator::UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
   status_ = Status::OK();
+  ResetValue();
+
   while (true) {
     auto delta_result = WBWIIteratorImpl::kNotFound;
     WriteEntry delta_entry;
@@ -321,11 +345,13 @@ void BaseDeltaIterator::UpdateCurrent() {
         AdvanceDelta();
       } else {
         current_at_base_ = false;
+        SetValueFromDelta();
         return;
       }
     } else if (!DeltaValid()) {
       // Delta has finished.
       current_at_base_ = true;
+      SetValueFromBase();
       return;
     } else {
       int compare =
@@ -339,6 +365,7 @@ void BaseDeltaIterator::UpdateCurrent() {
         if (delta_result != WBWIIteratorImpl::kDeleted ||
             merge_context_.GetNumOperands() > 0) {
           current_at_base_ = false;
+          SetValueFromDelta();
           return;
         }
         // Delta is less advanced and is delete.
@@ -348,6 +375,7 @@ void BaseDeltaIterator::UpdateCurrent() {
         }
       } else {
         current_at_base_ = true;
+        SetValueFromBase();
         return;
       }
     }
@@ -458,10 +486,10 @@ WBWIIteratorImpl::Result WBWIIteratorImpl::FindLatestUpdate(
 }
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
-                                                  WriteType* type, Slice* Key,
+                                                  WriteType* type, Slice* key,
                                                   Slice* value, Slice* blob,
                                                   Slice* xid) const {
-  if (type == nullptr || Key == nullptr || value == nullptr ||
+  if (type == nullptr || key == nullptr || value == nullptr ||
       blob == nullptr || xid == nullptr) {
     return Status::InvalidArgument("Output parameters cannot be null");
   }
@@ -477,7 +505,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
   uint32_t column_family;
-  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
+  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, key, value,
                                       blob, xid);
   if (!s.ok()) {
     return s;
