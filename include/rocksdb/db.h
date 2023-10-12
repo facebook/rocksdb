@@ -149,11 +149,6 @@ struct GetMergeOperandsOptions {
 using TablePropertiesCollection =
     std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
-// A pair of key and lists of column families. Input for MultiGetEntity() that
-// returns list of GroupedPinnableWideColumns.
-using KeyGroupedColumnFamilies =
-    std::pair<const Slice, std::vector<ColumnFamilyHandle*>>;
-
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
@@ -882,24 +877,23 @@ class DB {
   }
 
   // Batched MultiGet-like API that returns wide-column entities grouped
-  // by column families for each key. The input is a list of pairs in which keys
-  // are paired with lists of column families (KeyGroupedColumnFamilies). For
-  // any given key_grouped_column_families[i] (where 0 <= i < num_keys),
-  // results[i] will contain GroupedPinnableWideColumns for the ith key which is
-  // in key_grouped_column_families[i].first. Each GroupedPinnableWideColumns
-  // will contain lists of Statuses and PinnableWideColumns, such that
-  // statuses[j] and columns_array[j] will be the corresponding output for the
-  // jth column family for the ith key (0 <= j < num_column_families). The
-  // num_column_families for ith key is equivalent to
-  // key_grouped_column_families[i].second.size().
+  // by column families for each key. The input is a list of keys and
+  // GroupedPinnableWideColumns (which will be filled in as output) For any
+  // given keys[i] (where 0 <= i < num_keys), results[i] will contain
+  // GroupedPinnableWideColumns for the ith key. Each GroupedPinnableWideColumns
+  // will contain ColumnFamilyHandle pointers and lists of Statuses and
+  // PinnableWideColumns, such that statuses[j] and columns_array[j] will be the
+  // corresponding output for the jth column family for the ith key (0 <= j <
+  // num_column_families).
   //
   // Note that it is the caller's responsibility to ensure that
-  // "KeyGroupedColumnFamilies" and "GroupedPinnableWideColumns" have the same
-  // "num_keys" number of objects
-  virtual void MultiGetEntity(
-      const ReadOptions& /* options */, size_t num_keys,
-      const KeyGroupedColumnFamilies* /* key_grouped_column_families */,
-      GroupedPinnableWideColumns* results) {
+  // "keys" and "results" have the same "num_keys" number of objects. Also the
+  // caller needs to make sure that inside each GroupedPinnableWideColumns,
+  // there are num_column_families number of valid pointers for
+  // ColumnFamilyHandle.
+  virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
+                              const Slice* /* keys */,
+                              GroupedPinnableWideColumns* results) {
     for (size_t i = 0; i < num_keys; ++i) {
       results[i].SetStatusForAllColumnFamilies(
           Status::NotSupported("MultiGetEntity not supported"));

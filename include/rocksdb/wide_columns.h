@@ -17,6 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class ColumnFamilyHandle;
+
 // Class representing a wide column, which is defined as a pair of column name
 // and column value.
 class WideColumn {
@@ -239,13 +241,16 @@ inline PinnableWideColumns::PinnableWideColumns(PinnableWideColumns&& p) {
 class GroupedPinnableWideColumns {
  public:
   const size_t& num_column_families() const { return num_column_families_; }
+  ColumnFamilyHandle** column_families() const { return column_families_; }
   const std::vector<Status>& statuses() const { return statuses_; }
   const std::vector<PinnableWideColumns>& columns_array() const {
     return columns_array_;
   }
 
-  explicit GroupedPinnableWideColumns(const size_t& num_column_families)
+  explicit GroupedPinnableWideColumns(const size_t& num_column_families,
+                                      ColumnFamilyHandle** column_families)
       : num_column_families_(num_column_families),
+        column_families_(column_families),
         statuses_(num_column_families),
         columns_array_(num_column_families) {}
 
@@ -257,13 +262,14 @@ class GroupedPinnableWideColumns {
 
  private:
   const size_t num_column_families_;
+  ColumnFamilyHandle** column_families_;
   std::vector<Status> statuses_;
   std::vector<PinnableWideColumns> columns_array_;
 };
 
 inline void GroupedPinnableWideColumns::AddColumnsArray(
     PinnableWideColumns&& columns) {
-  columns_array_.emplace_back(std::move(columns));
+  columns_array_.emplace_back(columns);
 }
 inline void GroupedPinnableWideColumns::AddStatus(Status&& status) {
   statuses_.emplace_back(status);

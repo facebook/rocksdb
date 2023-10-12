@@ -305,18 +305,19 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
                            second_key, second_cold_columns));
 
   constexpr size_t num_keys = 2;
-  const std::vector<ColumnFamilyHandle*> all_cfs = handles_;
-  const std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
+  std::array<Slice, num_keys> keys = {first_key, second_key};
+  std::vector<ColumnFamilyHandle*> all_cfs = handles_;
+  std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
       {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
-  const std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
+  std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
       {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
   {
     // Check for invalid argument
     ReadOptions read_options;
     read_options.io_activity = Env::IOActivity::kGetEntity;
     std::vector<GroupedPinnableWideColumns> results{
-        GroupedPinnableWideColumns(all_cfs.size()),
-        GroupedPinnableWideColumns(all_cfs.size())};
+        GroupedPinnableWideColumns(all_cfs.size(), all_cfs.data()),
+        GroupedPinnableWideColumns(all_cfs.size(), all_cfs.data())};
     db_->MultiGetEntity(read_options, num_keys, nullptr, results.data());
     std::for_each(results.begin(), results.end(),
                   [](const GroupedPinnableWideColumns& result) {
@@ -329,18 +330,13 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
   {
     // Case 1. Get first key from default cf and hot_cf and second key from
     // hot_cf and cold_cf
-    std::array<KeyGroupedColumnFamilies, num_keys> key_grouped_column_families =
-        {std::pair{first_key, default_and_hot_cfs},
-         std::pair{second_key, hot_and_cold_cfs}};
-    auto first_key_result =
-        GroupedPinnableWideColumns(default_and_hot_cfs.size());
-    auto second_key_result =
-        GroupedPinnableWideColumns(hot_and_cold_cfs.size());
+    auto first_key_result = GroupedPinnableWideColumns(
+        default_and_hot_cfs.size(), default_and_hot_cfs.data());
+    auto second_key_result = GroupedPinnableWideColumns(
+        hot_and_cold_cfs.size(), hot_and_cold_cfs.data());
     std::vector<GroupedPinnableWideColumns> results{first_key_result,
                                                     second_key_result};
-
-    db_->MultiGetEntity(ReadOptions(), num_keys,
-                        key_grouped_column_families.data(), results.data());
+    db_->MultiGetEntity(ReadOptions(), num_keys, keys.data(), results.data());
     // We expect to get values for all keys and CFs
     std::for_each(results.begin(), results.end(),
                   [](const GroupedPinnableWideColumns& result) {
@@ -362,15 +358,14 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
   {
     // Case 2. Get first key and second key from all cfs. For the second key, we
     // don't expect to get columns from default cf.
-    std::array<KeyGroupedColumnFamilies, num_keys> key_grouped_column_families =
-        {std::pair{first_key, all_cfs}, std::pair{second_key, all_cfs}};
-    auto first_key_result = GroupedPinnableWideColumns(all_cfs.size());
-    auto second_key_result = GroupedPinnableWideColumns(all_cfs.size());
 
+    auto first_key_result =
+        GroupedPinnableWideColumns(all_cfs.size(), all_cfs.data());
+    auto second_key_result =
+        GroupedPinnableWideColumns(all_cfs.size(), all_cfs.data());
     std::vector<GroupedPinnableWideColumns> results{first_key_result,
                                                     second_key_result};
-    db_->MultiGetEntity(ReadOptions(), num_keys,
-                        key_grouped_column_families.data(), results.data());
+    db_->MultiGetEntity(ReadOptions(), num_keys, keys.data(), results.data());
     // verify first key
     auto first_key_statuses = results[0].statuses();
     ASSERT_EQ(3, first_key_statuses.size());

@@ -3342,10 +3342,9 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                  /* timestamps */ nullptr, statuses, sorted_input);
 }
 
-void DBImpl::MultiGetEntity(
-    const ReadOptions& _read_options, size_t num_keys,
-    const KeyGroupedColumnFamilies* key_grouped_column_families,
-    GroupedPinnableWideColumns* results) {
+void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
+                            const Slice* keys,
+                            GroupedPinnableWideColumns* results) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
     Status s = Status::InvalidArgument(
@@ -3361,26 +3360,23 @@ void DBImpl::MultiGetEntity(
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
 
-  results->Reset();
-
-  std::vector<ColumnFamilyHandle*> column_families;
-  std::vector<Slice> keys;
+  std::vector<ColumnFamilyHandle*> all_column_families;
+  std::vector<Slice> all_keys;
   size_t total_count = 0;
 
   for (size_t i = 0; i < num_keys; ++i) {
-    assert(results[i].num_column_families() ==
-           key_grouped_column_families[i].second.size());
     for (size_t j = 0; j < results[i].num_column_families(); ++j) {
       // Adding the same key slice for different CFs
-      keys.emplace_back(key_grouped_column_families[i].first);
-      column_families.emplace_back(key_grouped_column_families[i].second[j]);
+      all_keys.emplace_back(keys[i]);
+      all_column_families.emplace_back(results[i].column_families()[j]);
       ++total_count;
     }
   }
   std::vector<Status> statuses(total_count);
   std::vector<PinnableWideColumns> columns(total_count);
   // TODO - sort the keys by column_families and set sorted_input = true
-  MultiGetCommon(read_options, total_count, column_families.data(), keys.data(),
+  MultiGetCommon(read_options, total_count, all_column_families.data(),
+                 all_keys.data(),
                  /* values */ nullptr, columns.data(),
                  /* timestamps */ nullptr, statuses.data(),
                  /* sorted_input */ false);
