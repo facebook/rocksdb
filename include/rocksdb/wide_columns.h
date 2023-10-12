@@ -231,7 +231,7 @@ class PinnableWideColumnsBundle {
   }
 
   explicit PinnableWideColumnsBundle(ColumnFamilyHandle* column_family)
-      : column_family_(column_family) {}
+      : column_family_(column_family), status_(Status::OK()) {}
 
   void SetStatus(const Status& status);
   void SetPinnableWideColumns(PinnableWideColumns&& pinnable_wide_columns);
@@ -253,6 +253,7 @@ inline void PinnableWideColumnsBundle::SetPinnableWideColumns(
 }
 
 inline void PinnableWideColumnsBundle::Reset() {
+  status_ = Status::OK();
   pinnable_wide_columns_.Reset();
 }
 
