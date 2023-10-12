@@ -220,8 +220,9 @@ inline bool operator!=(const PinnableWideColumns& lhs,
   return !(lhs == rhs);
 }
 
-// TODO - find me a better name!
-class PinnableWideColumnsChunk {
+// PinnableWideColumns bundled with ColumnFamilyHandle and Status for the query.
+// Used for the results of wide-column queries grouped by Column Families
+class PinnableWideColumnsBundle {
  public:
   ColumnFamilyHandle* column_family() const { return column_family_; }
   const Status& status() const { return status_; }
@@ -229,7 +230,7 @@ class PinnableWideColumnsChunk {
     return pinnable_wide_columns_;
   }
 
-  explicit PinnableWideColumnsChunk(ColumnFamilyHandle* column_family)
+  explicit PinnableWideColumnsBundle(ColumnFamilyHandle* column_family)
       : column_family_(column_family) {}
 
   void SetStatus(const Status& status);
@@ -243,19 +244,19 @@ class PinnableWideColumnsChunk {
   PinnableWideColumns pinnable_wide_columns_;
 };
 
-inline void PinnableWideColumnsChunk::SetStatus(const Status& status) {
+inline void PinnableWideColumnsBundle::SetStatus(const Status& status) {
   status_ = status;
 }
-inline void PinnableWideColumnsChunk::SetPinnableWideColumns(
+inline void PinnableWideColumnsBundle::SetPinnableWideColumns(
     PinnableWideColumns&& pinnable_wide_columns) {
   pinnable_wide_columns_ = std::move(pinnable_wide_columns);
 }
 
-inline void PinnableWideColumnsChunk::Reset() {
+inline void PinnableWideColumnsBundle::Reset() {
   pinnable_wide_columns_.Reset();
 }
 
-// A collection of PinnableWideColumnsChunks.
-using PinnableWideColumnsCollection = std::vector<PinnableWideColumnsChunk>;
+// A collection of PinnableWideColumnsBundles.
+using PinnableWideColumnsCollection = std::vector<PinnableWideColumnsBundle>;
 
 }  // namespace ROCKSDB_NAMESPACE

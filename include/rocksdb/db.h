@@ -867,9 +867,9 @@ class DB {
   // PinnableWideColumnsCollection (which will be filled in as output) For any
   // given keys[i] (where 0 <= i < num_keys), results[i] will contain
   // PinnableWideColumnsCollection for the ith key.
-  // PinnableWideColumnsCollection is a vector of PinnableWideColumnsChunk. Each
-  // PinnableWideColumnsChunk will contain a ColumnFamilyHandle pointer, status
-  // and PinnableWideColumns.
+  // PinnableWideColumnsCollection is a vector of PinnableWideColumnsBundle.
+  // Each PinnableWideColumnsBundle will contain a ColumnFamilyHandle pointer,
+  // status and PinnableWideColumns.
   //
   // Note that it is the caller's responsibility to ensure that
   // "keys" and "results" have the same "num_keys" number of objects.
