@@ -2289,12 +2289,12 @@ class DBImpl : public DB {
   void MultiGetCommon(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
-                      PinnableWideColumns** columns, std::string* timestamps,
+                      PinnableWideColumns* columns, std::string* timestamps,
                       Status* statuses, bool sorted_input);
 
   void MultiGetCommon(const ReadOptions& options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, PinnableWideColumns** columns,
+                      PinnableSlice* values, PinnableWideColumns* columns,
                       std::string* timestamps, Status* statuses,
                       bool sorted_input);
 

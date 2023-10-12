@@ -121,6 +121,7 @@ class PinnableWideColumns {
 
   PinnableWideColumns() = default;
   PinnableWideColumns(const PinnableWideColumns& p);
+  PinnableWideColumns(PinnableWideColumns&& p);
 
  private:
   void CopyValue(const Slice& value);
@@ -227,6 +228,11 @@ inline PinnableWideColumns::PinnableWideColumns(const PinnableWideColumns& p)
   CopyValue(p.value_);
 }
 
+inline PinnableWideColumns::PinnableWideColumns(PinnableWideColumns&& p) {
+  MoveValue(std::move(p.value_));
+  columns_ = std::move(p.columns_);
+}
+
 // List of PinnableWideColumns grouped by column families. statuses[i] should
 // match the status of getting columns_array[i] when GetEntity() or
 // MultiGetEntity() was called (where 0 <= i < num_column_families_)
@@ -237,17 +243,14 @@ class GroupedPinnableWideColumns {
   const std::vector<PinnableWideColumns>& columns_array() const {
     return columns_array_;
   }
-  PinnableWideColumns* columns_ref(const size_t& column_family_index) {
-    assert(column_family_index < num_column_families_);
-    return &columns_array_[column_family_index];
-  }
 
   explicit GroupedPinnableWideColumns(const size_t& num_column_families)
       : num_column_families_(num_column_families),
         statuses_(num_column_families),
         columns_array_(num_column_families) {}
 
-  void SetStatus(const size_t& column_family_index, Status&& status);
+  void AddColumnsArray(PinnableWideColumns&& columns);
+  void AddStatus(Status&& status);
   void SetStatusForAllColumnFamilies(const Status& status);
 
   void Reset();
@@ -258,9 +261,12 @@ class GroupedPinnableWideColumns {
   std::vector<PinnableWideColumns> columns_array_;
 };
 
-inline void GroupedPinnableWideColumns::SetStatus(
-    const size_t& column_family_index, Status&& status) {
-  statuses_[column_family_index] = status;
+inline void GroupedPinnableWideColumns::AddColumnsArray(
+    PinnableWideColumns&& columns) {
+  columns_array_.emplace_back(std::move(columns));
+}
+inline void GroupedPinnableWideColumns::AddStatus(Status&& status) {
+  statuses_.emplace_back(status);
 }
 inline void GroupedPinnableWideColumns::SetStatusForAllColumnFamilies(
     const Status& status) {
@@ -268,8 +274,8 @@ inline void GroupedPinnableWideColumns::SetStatusForAllColumnFamilies(
 }
 
 inline void GroupedPinnableWideColumns::Reset() {
-  std::for_each(columns_array_.begin(), columns_array_.end(),
-                [](PinnableWideColumns& columns) { columns.Reset(); });
+  statuses_.clear();
+  columns_array_.clear();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
