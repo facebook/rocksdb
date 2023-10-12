@@ -5,8 +5,11 @@
 
 #include "cache/secondary_cache_adapter.h"
 
+#include <atomic>
+
 #include "cache/tiered_secondary_cache.h"
 #include "monitoring/perf_context_imp.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -100,7 +103,8 @@ CacheWithSecondaryAdapter::CacheWithSecondaryAdapter(
     // secondary cache is freed from the reservation.
     s = pri_cache_res_->UpdateCacheReservation(sec_capacity);
     assert(s.ok());
-    sec_cache_res_ratio_ = (double)sec_capacity / target_->GetCapacity();
+    sec_cache_res_ratio_.store((double)sec_capacity / target_->GetCapacity(),
+                               std::memory_order_relaxed);
   }
 }
 
@@ -233,7 +237,8 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
                                          CompressionType type) {
   Status s = target_->Insert(key, value, helper, charge, handle, priority);
   if (s.ok() && value == nullptr && distribute_cache_res_) {
-    size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
+    size_t sec_charge = static_cast<size_t>(
+        charge * (sec_cache_res_ratio_.load(std::memory_order_relaxed)));
     s = secondary_cache_->Deflate(sec_charge);
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/false);
@@ -282,7 +287,10 @@ bool CacheWithSecondaryAdapter::Release(Handle* handle,
     ObjectPtr v = target_->Value(handle);
     if (v == nullptr && distribute_cache_res_) {
       size_t charge = target_->GetCharge(handle);
-      size_t sec_charge = static_cast<size_t>(charge * (sec_cache_res_ratio_));
+      size_t sec_charge = static_cast<size_t>(
+          charge * (sec_cache_res_ratio_.load(std::memory_order_relaxed)));
+      TEST_SYNC_POINT("CacheWithSecondaryAdapter::Release:ChargeSecCache1");
+      TEST_SYNC_POINT("CacheWithSecondaryAdapter::Release:ChargeSecCache2");
       Status s = secondary_cache_->Inflate(sec_charge);
       assert(s.ok());
       s = pri_cache_res_->UpdateCacheReservation(sec_charge, /*increase=*/true);
@@ -433,7 +441,9 @@ const char* CacheWithSecondaryAdapter::Name() const {
 // where the new capacity < total cache reservations.
 void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
   size_t sec_capacity = static_cast<size_t>(
-      capacity * (distribute_cache_res_ ? sec_cache_res_ratio_ : 0.0));
+      capacity * (distribute_cache_res_
+                      ? sec_cache_res_ratio_.load(std::memory_order_relaxed)
+                      : 0.0));
   size_t old_sec_capacity = 0;
 
   if (distribute_cache_res_) {
@@ -493,7 +503,8 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
 // in the future.
 Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     double compressed_secondary_ratio) {
-  if (!distribute_cache_res_ || sec_cache_res_ratio_ == 0.0) {
+  if (!distribute_cache_res_ ||
+      sec_cache_res_ratio_.load(std::memory_order_relaxed) == 0.0) {
     return Status::NotSupported();
   }
 
@@ -507,13 +518,33 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     return s;
   }
 
-  size_t old_sec_reserved =
-      old_sec_capacity - pri_cache_res_->GetTotalMemoryUsed();
+  TEST_SYNC_POINT(
+      "CacheWithSecondaryAdapter::UpdateCacheReservationRatio:Begin");
+
+  // There's a possible race condition here. Since the read of pri_cache_res_
+  // memory used (secondary cache usage charged to primary cache), and the
+  // change to sec_cache_res_ratio_ are not guarded by a mutex, its possible
+  // that an Insert/Release in another thread might decrease/increase the
+  // pri_cache_res_ reservation by the wrong amount. This should not be a
+  // problem because updating the sec/pri ratio is a rare operation, and
+  // the worst that can happen is we may over/under charge the secondary
+  // cache usage by a little bit. But we do need to protect against
+  // underflow of old_sec_reserved.
+  // TODO: Make the accounting more accurate by tracking the total memory
+  // reservation on the primary cache. This will also allow us to remove
+  // the restriction of not being able to change the sec/pri ratio from
+  // 0.0 to higher.
+  size_t sec_charge_to_pri = pri_cache_res_->GetTotalMemoryUsed();
+  size_t old_sec_reserved = (old_sec_capacity > sec_charge_to_pri)
+                                ? (old_sec_capacity - sec_charge_to_pri)
+                                : 0;
   // Calculate the new secondary cache reservation
   size_t sec_reserved = static_cast<size_t>(
       old_sec_reserved *
-      (double)(compressed_secondary_ratio / sec_cache_res_ratio_));
-  sec_cache_res_ratio_ = compressed_secondary_ratio;
+      (double)(compressed_secondary_ratio /
+               sec_cache_res_ratio_.load(std::memory_order_relaxed)));
+  sec_cache_res_ratio_.store(compressed_secondary_ratio,
+                             std::memory_order_relaxed);
   if (sec_capacity > old_sec_capacity) {
     // We're increasing the ratio, thus ending up with a larger secondary
     // cache and a smaller usable primary cache capacity. Similar to
@@ -553,6 +584,7 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     }
   }
 
+  TEST_SYNC_POINT("CacheWithSecondaryAdapter::UpdateCacheReservationRatio:End");
 #ifndef NDEBUG
   // As mentioned in the function comments, we may accumulate some erros when
   // the ratio is changed. We set a flag here which disables some assertions
