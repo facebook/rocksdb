@@ -80,7 +80,7 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   std::shared_ptr<ConcurrentCacheReservationManager> pri_cache_res_;
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
-  double sec_cache_res_ratio_;
+  std::atomic<double> sec_cache_res_ratio_;
   port::Mutex mutex_;
 #ifndef NDEBUG
   bool ratio_changed_ = false;
