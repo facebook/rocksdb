@@ -232,7 +232,7 @@ class PinnableWideColumnsChunk {
   explicit PinnableWideColumnsChunk(ColumnFamilyHandle* column_family)
       : column_family_(column_family) {}
 
-  void SetStatus(Status&& status);
+  void SetStatus(const Status& status);
   void SetPinnableWideColumns(PinnableWideColumns&& pinnable_wide_columns);
 
   void Reset();
@@ -243,7 +243,7 @@ class PinnableWideColumnsChunk {
   PinnableWideColumns pinnable_wide_columns_;
 };
 
-inline void PinnableWideColumnsChunk::SetStatus(Status&& status) {
+inline void PinnableWideColumnsChunk::SetStatus(const Status& status) {
   status_ = status;
 }
 inline void PinnableWideColumnsChunk::SetPinnableWideColumns(
