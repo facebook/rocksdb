@@ -2124,8 +2124,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
-    persist_options_status = impl->WriteOptionsFile(
-        false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
+    persist_options_status =
+        impl->WriteOptionsFile(true /*db_mutex_already_held*/);
     *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->DeleteObsoleteFiles();
