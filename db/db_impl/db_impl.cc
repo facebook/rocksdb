@@ -3312,8 +3312,8 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
   MultiGetCommon(read_options, num_keys, column_families, keys,
-                 /* values */ nullptr, results,
-                 /* timestamps */ nullptr, statuses, sorted_input);
+                 /* values */ nullptr, results, /* timestamps */ nullptr,
+                 statuses, sorted_input);
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
@@ -3337,8 +3337,8 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
   MultiGetCommon(read_options, column_family, num_keys, keys,
-                 /* values */ nullptr, results,
-                 /* timestamps */ nullptr, statuses, sorted_input);
+                 /* values */ nullptr, results, /* timestamps */ nullptr,
+                 statuses, sorted_input);
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,

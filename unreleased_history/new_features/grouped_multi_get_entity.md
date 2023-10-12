@@ -1,1 +1,1 @@
-Add a new MultiGetEntity() which leverages column families for AttributeGroup support. The new API allows users to query wide columns grouped by column families in GroupedPinnableWideColumns for multiple keys and their associated column families in KeyGroupedColumnFamilies.
+Add a new MultiGetEntity() which leverages column families for AttributeGroup support. The new API allows users to query wide columns grouped by column families. See PinnableWideColumnsBundle and PinnableWideColumnsCollection for details.
