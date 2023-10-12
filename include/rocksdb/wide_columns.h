@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <ostream>
 #include <tuple>
 #include <utility>
@@ -121,10 +120,6 @@ class PinnableWideColumns {
 
   void Reset();
 
-  PinnableWideColumns() = default;
-  PinnableWideColumns(const PinnableWideColumns& p);
-  PinnableWideColumns(PinnableWideColumns&& p);
-
  private:
   void CopyValue(const Slice& value);
   void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
@@ -225,16 +220,6 @@ inline bool operator!=(const PinnableWideColumns& lhs,
   return !(lhs == rhs);
 }
 
-inline PinnableWideColumns::PinnableWideColumns(const PinnableWideColumns& p)
-    : columns_(p.columns_) {
-  CopyValue(p.value_);
-}
-
-inline PinnableWideColumns::PinnableWideColumns(PinnableWideColumns&& p) {
-  MoveValue(std::move(p.value_));
-  columns_ = std::move(p.columns_);
-}
-
 // List of PinnableWideColumns grouped by column families. statuses[i] should
 // match the status of getting columns_array[i] when GetEntity() or
 // MultiGetEntity() was called (where 0 <= i < num_column_families_)
@@ -269,7 +254,7 @@ class GroupedPinnableWideColumns {
 
 inline void GroupedPinnableWideColumns::AddColumnsArray(
     PinnableWideColumns&& columns) {
-  columns_array_.emplace_back(columns);
+  columns_array_.emplace_back(std::move(columns));
 }
 inline void GroupedPinnableWideColumns::AddStatus(Status&& status) {
   statuses_.emplace_back(status);
