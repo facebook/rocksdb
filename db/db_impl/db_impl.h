@@ -313,7 +313,7 @@ class DBImpl : public DB {
                       bool sorted_input) override;
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       const Slice* keys,
-                      GroupedPinnableWideColumns* results) override;
+                      PinnableWideColumnsCollection* results) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,

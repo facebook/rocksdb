@@ -13,7 +13,6 @@
 #include <alloca.h>
 #endif
 
-#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <map>
@@ -3344,14 +3343,17 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             const Slice* keys,
-                            GroupedPinnableWideColumns* results) {
+                            PinnableWideColumnsCollection* results) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGetEntity with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
     for (size_t i = 0; i < num_keys; ++i) {
-      results[i].SetStatusForAllColumnFamilies(s);
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(
+            Status::InvalidArgument("Can only call MultiGetEntity with "
+                                    "`ReadOptions::io_activity` is "
+                                    "`Env::IOActivity::kUnknown` or "
+                                    "`Env::IOActivity::kMultiGetEntity`"));
+      }
     }
     return;
   }
@@ -3365,10 +3367,10 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
   size_t total_count = 0;
 
   for (size_t i = 0; i < num_keys; ++i) {
-    for (size_t j = 0; j < results[i].num_column_families(); ++j) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
       // Adding the same key slice for different CFs
       all_keys.emplace_back(keys[i]);
-      all_column_families.emplace_back(results[i].column_families()[j]);
+      all_column_families.emplace_back(results[i][j].column_family());
       ++total_count;
     }
   }
@@ -3384,10 +3386,10 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
   // Set results
   size_t index = 0;
   for (size_t i = 0; i < num_keys; ++i) {
-    results[i].Reset();
-    for (size_t j = 0; j < results[i].num_column_families(); ++j) {
-      results[i].AddStatus(std::move(statuses[index]));
-      results[i].AddColumnsArray(std::move(columns[index]));
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      results[i][j].Reset();
+      results[i][j].SetStatus(std::move(statuses[index]));
+      results[i][j].SetPinnableWideColumns(std::move(columns[index]));
       index++;
     }
   }

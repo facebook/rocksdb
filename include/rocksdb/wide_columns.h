@@ -220,53 +220,42 @@ inline bool operator!=(const PinnableWideColumns& lhs,
   return !(lhs == rhs);
 }
 
-// List of PinnableWideColumns grouped by column families. statuses[i] should
-// match the status of getting columns_array[i] when GetEntity() or
-// MultiGetEntity() was called (where 0 <= i < num_column_families_)
-class GroupedPinnableWideColumns {
+// TODO - find me a better name!
+class PinnableWideColumnsChunk {
  public:
-  const size_t& num_column_families() const { return num_column_families_; }
-  ColumnFamilyHandle** column_families() const { return column_families_; }
-  const std::vector<Status>& statuses() const { return statuses_; }
-  const std::vector<PinnableWideColumns>& columns_array() const {
-    return columns_array_;
+  ColumnFamilyHandle* column_family() const { return column_family_; }
+  const Status& status() const { return status_; }
+  const PinnableWideColumns& pinnable_wide_columns() const {
+    return pinnable_wide_columns_;
   }
 
-  explicit GroupedPinnableWideColumns(const size_t& num_column_families,
-                                      ColumnFamilyHandle** column_families)
-      : num_column_families_(num_column_families),
-        column_families_(column_families),
-        statuses_(num_column_families),
-        columns_array_(num_column_families) {}
+  explicit PinnableWideColumnsChunk(ColumnFamilyHandle* column_family)
+      : column_family_(column_family) {}
 
-  void AddColumnsArray(PinnableWideColumns&& columns);
-  void AddStatus(Status&& status);
-  void SetStatusForAllColumnFamilies(const Status& status);
+  void SetStatus(Status&& status);
+  void SetPinnableWideColumns(PinnableWideColumns&& pinnable_wide_columns);
 
   void Reset();
 
  private:
-  const size_t num_column_families_;
-  ColumnFamilyHandle** column_families_;
-  std::vector<Status> statuses_;
-  std::vector<PinnableWideColumns> columns_array_;
+  ColumnFamilyHandle* column_family_;
+  Status status_;
+  PinnableWideColumns pinnable_wide_columns_;
 };
 
-inline void GroupedPinnableWideColumns::AddColumnsArray(
-    PinnableWideColumns&& columns) {
-  columns_array_.emplace_back(std::move(columns));
+inline void PinnableWideColumnsChunk::SetStatus(Status&& status) {
+  status_ = status;
 }
-inline void GroupedPinnableWideColumns::AddStatus(Status&& status) {
-  statuses_.emplace_back(status);
-}
-inline void GroupedPinnableWideColumns::SetStatusForAllColumnFamilies(
-    const Status& status) {
-  statuses_.assign(num_column_families_, status);
+inline void PinnableWideColumnsChunk::SetPinnableWideColumns(
+    PinnableWideColumns&& pinnable_wide_columns) {
+  pinnable_wide_columns_ = std::move(pinnable_wide_columns);
 }
 
-inline void GroupedPinnableWideColumns::Reset() {
-  statuses_.clear();
-  columns_array_.clear();
+inline void PinnableWideColumnsChunk::Reset() {
+  pinnable_wide_columns_.Reset();
 }
+
+// A collection of PinnableWideColumnsChunks.
+using PinnableWideColumnsCollection = std::vector<PinnableWideColumnsChunk>;
 
 }  // namespace ROCKSDB_NAMESPACE

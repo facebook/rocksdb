@@ -602,20 +602,6 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
-  // Returns wide-column entities grouped by column families for a single key.
-  // The input is a key and column families by which wide-column entities will
-  // be grouped. GroupedPinnableWideColumns will contain list of Statuses and
-  // PinnableWideColumns such that statuses[i] and columns_array[i] will be the
-  // corresponding output for ith column family in column_families (where 0 <= i
-  // < result->num_column_families())
-  virtual void GetEntity(const ReadOptions& /* options */,
-                         const Slice& /* key */,
-                         ColumnFamilyHandle** /* column_families */,
-                         GroupedPinnableWideColumns* result) {
-    result->SetStatusForAllColumnFamilies(
-        Status::NotSupported("GetEntity not supported"));
-  }
-
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be
@@ -878,25 +864,23 @@ class DB {
 
   // Batched MultiGet-like API that returns wide-column entities grouped
   // by column families for each key. The input is a list of keys and
-  // GroupedPinnableWideColumns (which will be filled in as output) For any
+  // PinnableWideColumnsCollection (which will be filled in as output) For any
   // given keys[i] (where 0 <= i < num_keys), results[i] will contain
-  // GroupedPinnableWideColumns for the ith key. Each GroupedPinnableWideColumns
-  // will contain ColumnFamilyHandle pointers and lists of Statuses and
-  // PinnableWideColumns, such that statuses[j] and columns_array[j] will be the
-  // corresponding output for the jth column family for the ith key (0 <= j <
-  // num_column_families).
+  // PinnableWideColumnsCollection for the ith key.
+  // PinnableWideColumnsCollection is a vector of PinnableWideColumnsChunk. Each
+  // PinnableWideColumnsChunk will contain a ColumnFamilyHandle pointer, status
+  // and PinnableWideColumns.
   //
   // Note that it is the caller's responsibility to ensure that
-  // "keys" and "results" have the same "num_keys" number of objects. Also the
-  // caller needs to make sure that inside each GroupedPinnableWideColumns,
-  // there are num_column_families number of valid pointers for
-  // ColumnFamilyHandle.
+  // "keys" and "results" have the same "num_keys" number of objects.
   virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
                               const Slice* /* keys */,
-                              GroupedPinnableWideColumns* results) {
+                              PinnableWideColumnsCollection* results) {
     for (size_t i = 0; i < num_keys; ++i) {
-      results[i].SetStatusForAllColumnFamilies(
-          Status::NotSupported("MultiGetEntity not supported"));
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(
+            Status::NotSupported("MultiGetEntity not supported"));
+      }
     }
   }
 
