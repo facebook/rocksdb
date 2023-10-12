@@ -240,10 +240,10 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
-      !FLAGS_disable_wal) {
+  if (FLAGS_best_efforts_recovery &&
+      !(FLAGS_skip_verifydb && FLAGS_disable_wal)) {
     fprintf(stderr,
-            "With best-efforts recovery, either skip_verifydb or disable_wal "
+            "With best-efforts recovery, skip_verifydb and disable_wal "
             "should be set to true.\n");
     exit(1);
   }

@@ -160,12 +160,12 @@ default_params = {
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
     "bytes_per_sync": lambda: random.choice([0, 262144]),
     "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
-    "compaction_readahead_size" : lambda : random.choice(
+    "compaction_readahead_size": lambda: random.choice(
         [0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
-    "use_write_buffer_manager": lambda: random.randint(0,1),
+    "use_write_buffer_manager": lambda: random.randint(0, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
@@ -221,7 +221,9 @@ default_params = {
     "preserve_internal_time_seconds": lambda: random.choice([0, 60, 3600, 36000]),
     "memtable_max_range_deletions": lambda: random.choice([0] * 6 + [100, 1000]),
     # 0 (disable) is the default and more commonly used value.
-    "bottommost_file_compaction_delay": lambda: random.choice([0, 0, 0, 600, 3600, 86400]),
+    "bottommost_file_compaction_delay": lambda: random.choice(
+        [0, 0, 0, 600, 3600, 86400]
+    ),
     "auto_readahead_size" : lambda: random.choice([0, 1]),
 }
 
@@ -423,6 +425,8 @@ best_efforts_recovery_params = {
     "atomic_flush": 0,
     "disable_wal": 1,
     "column_families": 1,
+    "skip_verifydb": 1,
+    "verify_db_one_in": 0
 }
 
 blob_params = {
@@ -664,6 +668,8 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
+        dest_params["skip_verifydb"] = 1
+        dest_params["verify_db_one_in"] = 0
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
@@ -774,7 +780,7 @@ def gen_cmd(params, unknown_params):
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
-                "skip_tmpdir_check"
+                "skip_tmpdir_check",
             }
             and v is not None
         ]
