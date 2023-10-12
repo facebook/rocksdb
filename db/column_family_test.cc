@@ -2473,7 +2473,10 @@ void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
 }
 }  // anonymous namespace
 
-TEST_P(ColumnFamilyTest, CreateAndDropRace) {
+// This test attempts to set up a race condition in a way that is no longer
+// possible, causing the test to hang. If DBImpl::options_mutex_ is removed
+// in the future, this test might become relevant again.
+TEST_P(ColumnFamilyTest, DISABLED_CreateAndDropRace) {
   const int kCfCount = 5;
   std::vector<ColumnFamilyOptions> cf_opts;
   std::vector<Comparator*> comparators;
@@ -2530,6 +2533,53 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
       delete comparator;
     }
   }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(ColumnFamilyTest, CreateAndDropPeriodicRace) {
+  // This is a mini-stress test looking for inconsistency between the set of
+  // CFs in the DB, particularly whether any use preserve_internal_time_seconds,
+  // and whether that is accurately reflected in the periodic task setup.
+  constexpr size_t kNumThreads = 12;
+  std::vector<std::thread> threads;
+  bool last_cf_on = Random::GetTLSInstance()->OneIn(2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RegisterRecordSeqnoTimeWorker:BeforePeriodicTaskType",
+      [&](void* /*arg*/) { std::this_thread::yield(); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_EQ(column_family_options_.preserve_internal_time_seconds, 0U);
+  ColumnFamilyOptions other_opts = column_family_options_;
+  ColumnFamilyOptions last_opts = column_family_options_;
+  (last_cf_on ? last_opts : other_opts).preserve_internal_time_seconds =
+      1000000;
+  Open();
+
+  for (size_t i = 0; i < kNumThreads; i++) {
+    threads.emplace_back([this, &other_opts, i]() {
+      ColumnFamilyHandle* cfh;
+      ASSERT_OK(db_->CreateColumnFamily(other_opts, std::to_string(i), &cfh));
+      ASSERT_OK(db_->DropColumnFamily(cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+    });
+  }
+
+  ColumnFamilyHandle* last_cfh;
+  ASSERT_OK(db_->CreateColumnFamily(last_opts, "last", &last_cfh));
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kRecordSeqnoTime);
+  ASSERT_EQ(last_cf_on, task_enabled);
+
+  ASSERT_OK(db_->DropColumnFamily(last_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(last_cfh));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();

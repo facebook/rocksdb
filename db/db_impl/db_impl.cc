@@ -817,6 +817,10 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 }
 
 Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
+  if (!from_db_open) {
+    options_mutex_.AssertHeld();
+  }
+
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
   bool mapping_was_empty = false;
@@ -840,11 +844,6 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
     }
     mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
-  // FIXME: because we released the db mutex, there's a race here where
-  // if e.g. I create or drop two column families in parallel, I might end up
-  // with the periodic task scheduler in the wrong state. We don't want to
-  // just keep holding the mutex, however, because of global timer and mutex
-  // in PeriodicTaskScheduler.
 
   uint64_t seqno_time_cadence = 0;
   if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
@@ -854,6 +853,9 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
                           SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
                          SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::RegisterRecordSeqnoTimeWorker:BeforePeriodicTaskType", nullptr);
 
   Status s;
   if (seqno_time_cadence == 0) {
@@ -918,6 +920,7 @@ Status DBImpl::CancelPeriodicTaskScheduler() {
 
 // esitmate the total size of stats_history_
 size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
+  stats_history_mutex_.AssertHeld();
   size_t size_total =
       sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
@@ -1208,6 +1211,7 @@ Status DBImpl::SetOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  InstrumentedMutexLock ol(&options_mutex_);
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
@@ -1266,6 +1270,7 @@ Status DBImpl::SetDBOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  InstrumentedMutexLock ol(&options_mutex_);
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
@@ -3362,6 +3367,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
   if (s.ok()) {
     s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
@@ -3374,6 +3380,7 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<std::string>& column_family_names,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   handles->clear();
   size_t num_cf = column_family_names.size();
   Status s;
@@ -3397,6 +3404,7 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   handles->clear();
   size_t num_cf = column_families.size();
   Status s;
@@ -3423,6 +3431,7 @@ Status DBImpl::CreateColumnFamilies(
 Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
+  options_mutex_.AssertHeld();
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   Status s;
@@ -3514,6 +3523,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   assert(column_family != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
     s = WriteOptionsFile(true /*need_mutex_lock*/,
@@ -3524,6 +3534,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s;
   bool success_once = false;
   for (auto* handle : column_families) {
@@ -5164,6 +5175,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
 
 Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
                                 bool need_enter_write_thread) {
+  options_mutex_.AssertHeld();
+
   WriteThread::Writer w;
   if (need_mutex_lock) {
     mutex_.Lock();
