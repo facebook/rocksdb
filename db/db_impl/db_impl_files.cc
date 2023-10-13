@@ -100,6 +100,12 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
+int DBImpl::EnableFileDeletionsWithLock(int count) {
+  mutex_.AssertHeld();
+  disable_delete_obsolete_files_ -= count;
+  return disable_delete_obsolete_files_;
+}
+
 bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }

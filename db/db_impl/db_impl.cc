@@ -354,7 +354,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
-  bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
     IOStatus io_s = versions_->io_status();
     if (io_s.IsIOError()) {
@@ -363,7 +362,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       // clean-up phase MANIFEST writing. We must have also disabled file
       // deletions.
       assert(!versions_->descriptor_log_);
-      assert(file_deletion_disabled);
+      assert(!IsFileDeletionsEnabled());
       // Since we are trying to recover from MANIFEST write error, we need to
       // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
       // Therefore, force writing a dummy version edit because we do not know
@@ -406,32 +405,36 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
+  std::optional<int> remain_counter;
+  if (s.ok()) {
+    assert(versions_->io_status().ok());
+    int disable_file_deletion_count =
+        error_handler_.GetAndResetDisableFileDeletionCount();
+    if (disable_file_deletion_count) {
+      // If we reach here, we should re-enable file deletions if it was disabled
+      // during previous error handling.
+      remain_counter = EnableFileDeletionsWithLock(disable_file_deletion_count);
+    }
+  }
+
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
   mutex_.Unlock();
-
+  if (remain_counter.has_value()) {
+    if (remain_counter.value() == 0) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
+    } else {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "File Deletions Enable, but not really enabled. Counter: %d",
+          remain_counter.value());
+    }
+  }
   job_context.manifest_file_number = 1;
   if (job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(job_context);
   }
   job_context.Clean();
-
-  if (s.ok()) {
-    assert(versions_->io_status().ok());
-    // If we reach here, we should re-enable file deletions if it was disabled
-    // during previous error handling.
-    if (file_deletion_disabled) {
-      // Always return ok
-      s = EnableFileDeletions(/*force=*/true);
-      if (!s.ok()) {
-        ROCKS_LOG_INFO(
-            immutable_db_options_.info_log,
-            "DB resume requested but could not enable file deletions [%s]",
-            s.ToString().c_str());
-        assert(false);
-      }
-    }
-  }
 
   mutex_.Lock();
   if (s.ok()) {

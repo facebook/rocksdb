@@ -401,6 +401,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
     // Always returns ok
     ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
+    disable_file_deletion_count_.fetch_add(1);
   }
 
   Status new_bg_io_err = bg_io_err;

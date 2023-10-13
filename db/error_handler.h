@@ -80,6 +80,10 @@ class ErrorHandler {
 
   void EndAutoRecovery();
 
+  int GetAndResetDisableFileDeletionCount() {
+    return disable_file_deletion_count_.exchange(0);
+  };
+
  private:
   DBImpl* db_;
   const ImmutableDBOptions& db_options_;
@@ -107,6 +111,10 @@ class ErrorHandler {
 
   // The pointer of DB statistics.
   std::shared_ptr<Statistics> bg_error_stats_;
+
+  // The number of times this error handler called DisableFileDeletionsWithLock
+  // to disable file deletions.
+  std::atomic<int> disable_file_deletion_count_;
 
   const Status& HandleKnownErrors(const Status& bg_err,
                                   BackgroundErrorReason reason);
