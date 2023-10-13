@@ -236,7 +236,7 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
-TEST_F(DBWideBasicTest, GetEntityGrouped) {
+TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"hot_cf", "cold_cf"}, options);
 
@@ -260,6 +260,7 @@ TEST_F(DBWideBasicTest, GetEntityGrouped) {
   WideColumns second_cold_columns{
       {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
 
+  // TODO - update this to use the multi-attribute-group PutEntity when ready
   ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[DEFAULT_CF_HANDLE_INDEX],
                            first_key, first_default_columns));
   ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
@@ -271,80 +272,82 @@ TEST_F(DBWideBasicTest, GetEntityGrouped) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[COLD_CF_HANDLE_INDEX],
                            second_key, second_cold_columns));
 
+  std::vector<ColumnFamilyHandle*> all_cfs = handles_;
+  std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
+      {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
+  std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
+      {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
+  auto create_result =
+      [](const std::vector<ColumnFamilyHandle*>& column_families)
+      -> PinnableAttributeGroups {
+    PinnableAttributeGroups result;
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      result.emplace_back(column_families[i]);
+    }
+    return result;
+  };
+
   {
     // Case 1. Get first key from default cf and hot_cf and second key from
     // hot_cf and cold_cf
     constexpr size_t num_column_families = 2;
-    std::array<PinnableWideColumns, num_column_families> first_key_columns;
-    std::array<PinnableWideColumns, num_column_families> second_key_columns;
-    std::array<Status, num_column_families> statuses;
-
-    std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
-        {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
-    std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
-        {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
+    PinnableAttributeGroups first_key_result =
+        create_result(default_and_hot_cfs);
+    PinnableAttributeGroups second_key_result = create_result(hot_and_cold_cfs);
 
     // GetEntity for first_key
-    db_->GetEntity(ReadOptions(), first_key, num_column_families,
-                   default_and_hot_cfs.data(), &first_key_columns[0],
-                   &statuses[0]);
+    db_->GetEntity(ReadOptions(), first_key, first_key_result);
+    ASSERT_EQ(num_column_families, first_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
-      ASSERT_OK(statuses[i]);
+      ASSERT_OK(first_key_result[i].status());
     }
     // verify values for first key (default cf and hot cf)
-    ASSERT_EQ(num_column_families, first_key_columns.size());
-    ASSERT_EQ(first_default_columns, first_key_columns[0].columns());
-    ASSERT_EQ(first_hot_columns, first_key_columns[1].columns());
+    ASSERT_EQ(first_default_columns, first_key_result[0].columns());
+    ASSERT_EQ(first_hot_columns, first_key_result[1].columns());
 
     // GetEntity for second_key
-    db_->GetEntity(ReadOptions(), second_key, num_column_families,
-                   hot_and_cold_cfs.data(), &second_key_columns[0],
-                   &statuses[0]);
+    db_->GetEntity(ReadOptions(), second_key, second_key_result);
+    ASSERT_EQ(num_column_families, second_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
-      ASSERT_OK(statuses[i]);
+      ASSERT_OK(second_key_result[i].status());
     }
     // verify values for second key (hot cf and cold cf)
-    ASSERT_EQ(num_column_families, second_key_columns.size());
-    ASSERT_EQ(second_hot_columns, second_key_columns[0].columns());
-    ASSERT_EQ(second_cold_columns, second_key_columns[1].columns());
+    ASSERT_EQ(second_hot_columns, second_key_result[0].columns());
+    ASSERT_EQ(second_cold_columns, second_key_result[1].columns());
   }
   {
     // Case 2. Get first key and second key from all cfs. For the second key, we
     // don't expect to get columns from default cf.
     constexpr size_t num_column_families = 3;
-    std::array<PinnableWideColumns, num_column_families> first_key_columns;
-    std::array<PinnableWideColumns, num_column_families> second_key_columns;
-    std::array<Status, num_column_families> statuses;
-
-    std::vector<ColumnFamilyHandle*> all_cfs = handles_;
+    PinnableAttributeGroups first_key_result = create_result(all_cfs);
+    PinnableAttributeGroups second_key_result = create_result(all_cfs);
 
     // GetEntity for first_key
-    db_->GetEntity(ReadOptions(), first_key, num_column_families,
-                   all_cfs.data(), &first_key_columns[0], &statuses[0]);
+    db_->GetEntity(ReadOptions(), first_key, first_key_result);
+    ASSERT_EQ(num_column_families, first_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
-      ASSERT_OK(statuses[i]);
+      ASSERT_OK(first_key_result[i].status());
     }
     // verify values for first key
-    ASSERT_EQ(num_column_families, first_key_columns.size());
-    ASSERT_EQ(first_default_columns, first_key_columns[0].columns());
-    ASSERT_EQ(first_hot_columns, first_key_columns[1].columns());
-    ASSERT_EQ(first_cold_columns, first_key_columns[2].columns());
+    ASSERT_EQ(first_default_columns, first_key_result[0].columns());
+    ASSERT_EQ(first_hot_columns, first_key_result[1].columns());
+    ASSERT_EQ(first_cold_columns, first_key_result[2].columns());
 
     // GetEntity for second_key
-    db_->GetEntity(ReadOptions(), second_key, num_column_families,
-                   all_cfs.data(), &second_key_columns[0], &statuses[0]);
+    db_->GetEntity(ReadOptions(), second_key, second_key_result);
+    ASSERT_EQ(num_column_families, second_key_result.size());
     // key does not exist in default cf
-    ASSERT_NOK(statuses[0]);
-    ASSERT_TRUE(statuses[0].IsNotFound());
+    ASSERT_NOK(second_key_result[0].status());
+    ASSERT_TRUE(second_key_result[0].status().IsNotFound());
 
     // verify values for second key (hot cf and cold cf)
-    ASSERT_OK(statuses[1]);
-    ASSERT_OK(statuses[2]);
-    ASSERT_EQ(second_hot_columns, second_key_columns[1].columns());
-    ASSERT_EQ(second_cold_columns, second_key_columns[2].columns());
+    ASSERT_OK(second_key_result[1].status());
+    ASSERT_OK(second_key_result[2].status());
+    ASSERT_EQ(second_hot_columns, second_key_result[1].columns());
+    ASSERT_EQ(second_cold_columns, second_key_result[2].columns());
   }
 }
 

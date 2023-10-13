@@ -2058,31 +2058,47 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
 }
 
 void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
-                       size_t num_column_families,
-                       ColumnFamilyHandle** column_families,
-                       PinnableWideColumns* columns, Status* statuses) {
+                       PinnableAttributeGroups& result) {
+  if (result.size() == 0) {
+    result.emplace_back(Status::InvalidArgument(
+        "Cannot call GetEntity with empty PinnableWideColumnsCollection"));
+    return;
+  }
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
-    for (size_t i = 0; i < num_column_families; ++i) {
-      statuses[i] = Status::InvalidArgument(
+    for (size_t i = 0; i < result.size(); ++i) {
+      result[i].SetStatus(Status::InvalidArgument(
           "Cannot call GetEntity with `ReadOptions::io_activity` != "
-          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`"));
     }
+    return;
   }
+  const size_t num_column_families = result.size();
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGetEntity;
   }
   std::vector<Slice> keys;
+  std::vector<ColumnFamilyHandle*> column_families;
   for (size_t i = 0; i < num_column_families; ++i) {
     // Adding the same key slice for different CFs
     keys.emplace_back(key);
+    column_families.emplace_back(result[i].column_family());
   }
-  columns->Reset();
-  MultiGetCommon(read_options, num_column_families, column_families,
-                 keys.data(),
-                 /* values */ nullptr, columns,
-                 /* timestamps */ nullptr, statuses, /* sorted_input */ false);
+  std::vector<PinnableWideColumns> columns(num_column_families);
+  std::vector<Status> statuses(num_column_families);
+  MultiGetCommon(
+      read_options, num_column_families, column_families.data(), keys.data(),
+      /* values */ nullptr, columns.data(),
+      /* timestamps */ nullptr, statuses.data(), /* sorted_input */ false);
+  // Set results
+  size_t index = 0;
+  for (size_t i = 0; i < num_column_families; ++i) {
+    result[i].Reset();
+    result[i].SetStatus(statuses[index]);
+    result[i].SetColumns(std::move(columns[index]));
+    ++index;
+  }
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {

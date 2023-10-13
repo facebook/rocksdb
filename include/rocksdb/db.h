@@ -602,18 +602,21 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
-  // Returns wide-column entities from multiple column families for a single
-  // key. The input is a key and column families by which wide-column entities
-  // will be grouped. columns[i] will be the corresponding wide column output
-  // for ith column family in column_families (where 0 <= i <
-  // num_column_families). Likewise, statuses[i] will be the corresponding
-  // status retrieving wide columns for ith column family.
+  // Returns logically grouped wide-column entities per column family (a.k.a.
+  // attribute groups) for a single key. PinnableAttributeGroups is a vector of
+  // PinnableAttributeGroup. Each PinnableAttributeGroup will have
+  // ColumnFamilyHandle*, Status and PinnableWideColumns as output.
   virtual void GetEntity(const ReadOptions& /* options */,
-                         const Slice& /* key */, size_t num_column_families,
-                         ColumnFamilyHandle** /* column_families */,
-                         PinnableWideColumns* /* columns */, Status* statuses) {
-    for (size_t i = 0; i < num_column_families; ++i) {
-      statuses[i] = Status::NotSupported("GetEntity not supported");
+                         const Slice& /* key */,
+                         PinnableAttributeGroups& result) {
+    Status s = Status::NotSupported("GetEntity not supported");
+    if (result.size() == 0) {
+      result.emplace_back(s);
+      return;
+    } else {
+      for (size_t i = 0; i < result.size(); ++i) {
+        result[i].SetStatus(s);
+      }
     }
   }
 
