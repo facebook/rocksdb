@@ -573,7 +573,7 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
 
-    if(ts.size() == get_context->TimestampSize()) {
+    if (ts.size() == get_context->TimestampSize()) {
       ikey.SetTimestamp(ts);
     }
 

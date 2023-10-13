@@ -168,10 +168,8 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
         GetBasicHelper(), charge, untyped_handle, priority);
   }
 
-  inline Status Insert(const Slice& key, TValuePtr value, 
-                       const Slice& ts,
-                       size_t charge,
-                       TypedHandle** handle = nullptr,
+  inline Status Insert(const Slice& key, TValuePtr value, const Slice& ts,
+                       size_t charge, TypedHandle** handle = nullptr,
                        Priority priority = Priority::LOW) {
     auto untyped_handle = reinterpret_cast<Handle**>(handle);
     return this->cache_->InsertWithTimestamp(

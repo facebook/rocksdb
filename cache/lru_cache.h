@@ -305,9 +305,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
                 LRUHandle** handle, Cache::Priority priority);
 
   Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
-                const Slice& ts,
-                const Cache::CacheItemHelper* helper, size_t charge,
-                LRUHandle** handle, Cache::Priority priority);
+                const Slice& ts, const Cache::CacheItemHelper* helper,
+                size_t charge, LRUHandle** handle, Cache::Priority priority);
 
   LRUHandle* CreateStandalone(const Slice& key, uint32_t hash,
                               Cache::ObjectPtr obj,
@@ -380,7 +379,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
 
   LRUHandle* CreateHandle(const Slice& key, uint32_t hash,
                           Cache::ObjectPtr value,
-                          const Cache::CacheItemHelper* helper, size_t charge, const Slice& ts = Slice());
+                          const Cache::CacheItemHelper* helper, size_t charge,
+                          const Slice& ts = Slice());
 
   // Initialized before use.
   size_t capacity_;
