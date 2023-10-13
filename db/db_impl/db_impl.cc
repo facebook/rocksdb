@@ -2061,7 +2061,7 @@ void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
                        PinnableAttributeGroups& result) {
   if (result.size() == 0) {
     result.emplace_back(Status::InvalidArgument(
-        "Cannot call GetEntity with empty PinnableWideColumnsCollection"));
+        "Cannot call GetEntity with empty PinnableAttributeGroups"));
     return;
   }
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
