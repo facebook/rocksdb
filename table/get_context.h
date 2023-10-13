@@ -149,6 +149,8 @@ class GetContext {
 
   bool NeedTimestamp() { return timestamp_ != nullptr; }
 
+  size_t TimestampSize() { return ucmp_->timestamp_size(); }
+
   void SetTimestampFromRangeTombstone(const Slice& timestamp) {
     assert(timestamp_);
     timestamp_->assign(timestamp.data(), timestamp.size());
@@ -249,6 +251,7 @@ class GetContext {
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
                          Cleanable* value_pinner = nullptr,
-                         SequenceNumber seq_no = kMaxSequenceNumber);
+                         SequenceNumber seq_no = kMaxSequenceNumber,
+                         const Slice& ts = Slice());
 
 }  // namespace ROCKSDB_NAMESPACE

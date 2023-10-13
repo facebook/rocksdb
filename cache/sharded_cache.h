@@ -183,6 +183,20 @@ class ShardedCache : public ShardedCacheBase {
                                  priority);
   }
 
+  Status InsertWithTimestamp(
+      const Slice& key, ObjectPtr obj, const Slice& ts,
+      const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW,
+      const Slice& /*compressed_value*/ = Slice(),
+      CompressionType /*type*/ = CompressionType::kNoCompression) override {
+    assert(helper);
+    HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
+    auto h_out = reinterpret_cast<HandleImpl**>(handle);
+    return GetShard(hash).Insert(key, hash, obj, ts, helper, charge, h_out,
+                                 priority);
+  }
+
   Handle* CreateStandalone(const Slice& key, ObjectPtr obj,
                            const CacheItemHelper* helper, size_t charge,
                            bool allow_uncharged) override {
