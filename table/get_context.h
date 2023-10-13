@@ -151,6 +151,8 @@ class GetContext {
 
   size_t TimestampSize() { return ucmp_->timestamp_size(); }
 
+  Slice Timestamp() { return Slice(*timestamp_); }
+
   void SetTimestampFromRangeTombstone(const Slice& timestamp) {
     assert(timestamp_);
     timestamp_->assign(timestamp.data(), timestamp.size());
