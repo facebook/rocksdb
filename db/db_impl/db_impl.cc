@@ -13,7 +13,6 @@
 #include <alloca.h>
 #endif
 
-#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <map>
@@ -273,8 +272,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
                                    [this]() { this->FlushInfoLog(); });
   periodic_task_functions_.emplace(
-      PeriodicTaskType::kRecordSeqnoTime,
-      [this]() { this->RecordSeqnoToTimeMapping(); });
+      PeriodicTaskType::kRecordSeqnoTime, [this]() {
+        this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      });
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -815,42 +815,84 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker() {
-  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
-  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
+  if (!from_db_open) {
+    options_mutex_.AssertHeld();
+  }
+
+  uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
+  uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
+  bool mapping_was_empty = false;
   {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       // preserve time is the max of 2 options.
-      uint64_t preserve_time_duration =
+      uint64_t preserve_seconds =
           std::max(cfd->ioptions()->preserve_internal_time_seconds,
                    cfd->ioptions()->preclude_last_level_data_seconds);
-      if (!cfd->IsDropped() && preserve_time_duration > 0) {
-        min_time_duration = std::min(preserve_time_duration, min_time_duration);
-        max_time_duration = std::max(preserve_time_duration, max_time_duration);
+      if (!cfd->IsDropped() && preserve_seconds > 0) {
+        min_preserve_seconds = std::min(preserve_seconds, min_preserve_seconds);
+        max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
       }
     }
-    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
+    if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
       seqno_to_time_mapping_.Resize(0, 0);
     } else {
-      seqno_to_time_mapping_.Resize(min_time_duration, max_time_duration);
+      seqno_to_time_mapping_.Resize(min_preserve_seconds, max_preserve_seconds);
     }
+    mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
 
   uint64_t seqno_time_cadence = 0;
-  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+  if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
     // round up to 1 when the time_duration is smaller than
     // kMaxSeqnoTimePairsPerCF
-    seqno_time_cadence =
-        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
-        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+    seqno_time_cadence = (min_preserve_seconds +
+                          SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+                         SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::RegisterRecordSeqnoTimeWorker:BeforePeriodicTaskType", nullptr);
 
   Status s;
   if (seqno_time_cadence == 0) {
     s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
   } else {
+    // Before registering the periodic task, we need to be sure to fulfill two
+    // promises:
+    // 1) Any DB created with preserve/preclude options set from the beginning
+    // will get pre-allocated seqnos with pre-populated time mappings back to
+    // the times we are interested in. (This will enable future import of data
+    // while preserving rough write time. We can only do this reliably from
+    // DB::Open, as otherwise there could be a race between CreateColumnFamily
+    // and the first Write to the DB, and seqno-to-time mappings need to be
+    // monotonic.
+    // 2) In any DB, any data written after setting preserve/preclude options
+    // must have a reasonable time estimate (so that we can accurately place
+    // the data), which means at least one entry in seqno_to_time_mapping_.
+    if (from_db_open && GetLatestSequenceNumber() == 0) {
+      // Pre-allocate seqnos and pre-populate historical mapping
+      assert(mapping_was_empty);
+
+      // We can simply modify these, before writes are allowed
+      constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
+      versions_->SetLastAllocatedSequence(kMax);
+      versions_->SetLastPublishedSequence(kMax);
+      versions_->SetLastSequence(kMax);
+      // Pre-populate mappings for reserved sequence numbers.
+      RecordSeqnoToTimeMapping(max_preserve_seconds);
+    } else if (mapping_was_empty) {
+      // To ensure there is at least one mapping, we need a non-zero sequence
+      // number. Outside of DB::Open, we have to be careful.
+      versions_->EnsureNonZeroSequence();
+      assert(GetLatestSequenceNumber() > 0);
+
+      // Ensure at least one mapping (or log a warning)
+      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+    }
+
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
@@ -877,6 +919,7 @@ Status DBImpl::CancelPeriodicTaskScheduler() {
 
 // esitmate the total size of stats_history_
 size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
+  stats_history_mutex_.AssertHeld();
   size_t size_total =
       sizeof(std::map<uint64_t, std::map<std::string, uint64_t>>);
   if (stats_history_.size() == 0) return size_total;
@@ -1167,6 +1210,7 @@ Status DBImpl::SetOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  InstrumentedMutexLock ol(&options_mutex_);
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
@@ -1225,6 +1269,7 @@ Status DBImpl::SetDBOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  InstrumentedMutexLock ol(&options_mutex_);
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
@@ -3296,14 +3341,87 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                  statuses, sorted_input);
 }
 
+void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
+                            const Slice* keys,
+                            PinnableAttributeGroups* results) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(s);
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> all_keys;
+  size_t total_count = 0;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      // Adding the same key slice for different CFs
+      all_keys.emplace_back(keys[i]);
+      column_families.emplace_back(results[i][j].column_family());
+      ++total_count;
+    }
+  }
+  std::vector<Status> statuses(total_count);
+  std::vector<PinnableWideColumns> columns(total_count);
+  MultiGetCommon(read_options, total_count, column_families.data(),
+                 all_keys.data(),
+                 /* values */ nullptr, columns.data(),
+                 /* timestamps */ nullptr, statuses.data(),
+                 /* sorted_input */ false);
+
+  // Set results
+  size_t index = 0;
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      results[i][j].Reset();
+      results[i][j].SetStatus(std::move(statuses[index]));
+      results[i][j].SetColumns(std::move(columns[index]));
+      ++index;
+    }
+  }
+}
+
+Status DBImpl::WrapUpCreateColumnFamilies(
+    const std::vector<const ColumnFamilyOptions*>& cf_options) {
+  // NOTE: this function is skipped for create_missing_column_families and
+  // DB::Open, so new functionality here might need to go into Open also.
+  bool register_worker = false;
+  for (auto* opts_ptr : cf_options) {
+    if (opts_ptr->preserve_internal_time_seconds > 0 ||
+        opts_ptr->preclude_last_level_data_seconds > 0) {
+      register_worker = true;
+      break;
+    }
+  }
+  // Attempt both follow-up actions even if one fails
+  Status s = WriteOptionsFile(true /*need_mutex_lock*/,
+                              true /*need_enter_write_thread*/);
+  if (register_worker) {
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false));
+  }
+  return s;
+}
+
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
   if (s.ok()) {
-    s = WriteOptionsFile(true /*need_mutex_lock*/,
-                         true /*need_enter_write_thread*/);
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3313,6 +3431,7 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<std::string>& column_family_names,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   handles->clear();
   size_t num_cf = column_family_names.size();
   Status s;
@@ -3327,11 +3446,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies({&cf_options}));
   }
   return s;
 }
@@ -3340,10 +3455,13 @@ Status DBImpl::CreateColumnFamilies(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   handles->clear();
   size_t num_cf = column_families.size();
   Status s;
   bool success_once = false;
+  std::vector<const ColumnFamilyOptions*> cf_opts;
+  cf_opts.reserve(num_cf);
   for (size_t i = 0; i < num_cf; i++) {
     ColumnFamilyHandle* handle;
     s = CreateColumnFamilyImpl(column_families[i].options,
@@ -3353,13 +3471,10 @@ Status DBImpl::CreateColumnFamilies(
     }
     handles->push_back(handle);
     success_once = true;
+    cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
-    }
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(cf_opts));
   }
   return s;
 }
@@ -3367,6 +3482,7 @@ Status DBImpl::CreateColumnFamilies(
 Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
+  options_mutex_.AssertHeld();
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
   Status s;
@@ -3447,10 +3563,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
-  if (cf_options.preserve_internal_time_seconds > 0 ||
-      cf_options.preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
-  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
@@ -3462,6 +3574,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   assert(column_family != nullptr);
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
     s = WriteOptionsFile(true /*need_mutex_lock*/,
@@ -3472,6 +3585,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::DropColumnFamilies(
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  InstrumentedMutexLock ol(&options_mutex_);
   Status s;
   bool success_once = false;
   for (auto* handle : column_families) {
@@ -3544,7 +3658,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   if (cfd->ioptions()->preserve_internal_time_seconds > 0 ||
       cfd->ioptions()->preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
+    s = RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false);
   }
 
   if (s.ok()) {
@@ -4051,7 +4165,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->ioptions()->allow_ingest_behind) {
-          cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+          cfd->current()->storage_info()->UpdateOldestSnapshot(
+              oldest_snapshot, /*allow_ingest_behind=*/false);
           if (!cfd->current()
                    ->storage_info()
                    ->BottommostFilesMarkedForCompaction()
@@ -5112,6 +5227,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
 
 Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
                                 bool need_enter_write_thread) {
+  options_mutex_.AssertHeld();
+
   WriteThread::Writer w;
   if (need_mutex_lock) {
     mutex_.Lock();
@@ -6372,21 +6489,51 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 
-void DBImpl::RecordSeqnoToTimeMapping() {
+void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // TECHNICALITY: Sample last sequence number *before* time, as prescribed
-  // for SeqnoToTimeMapping
+  // for SeqnoToTimeMapping. We don't know how long it has been since the last
+  // sequence number was written, so we at least have a one-sided bound by
+  // sampling in this order.
   SequenceNumber seqno = GetLatestSequenceNumber();
-  // Get time first then sequence number, so the actual time of seqno is <=
-  // unix_time recorded
-  int64_t unix_time = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+  int64_t unix_time_signed = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
       .PermitUncheckedError();  // Ignore error
+  uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);
-    appended = seqno_to_time_mapping_.Append(seqno, unix_time);
+    if (populate_historical_seconds > 0) {
+      if (seqno > 1 && unix_time > populate_historical_seconds) {
+        // seqno=0 is reserved
+        SequenceNumber from_seqno = 1;
+        appended = seqno_to_time_mapping_.PrePopulate(
+            from_seqno, seqno, unix_time - populate_historical_seconds,
+            unix_time);
+      } else {
+        // One of these will fail
+        assert(seqno > 1);
+        assert(unix_time > populate_historical_seconds);
+      }
+    } else {
+      assert(seqno > 0);
+      appended = seqno_to_time_mapping_.Append(seqno, unix_time);
+    }
   }
-  if (!appended) {
+  if (populate_historical_seconds > 0) {
+    if (appended) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Pre-populated sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    } else {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Failed to pre-populate sequence number to time entries: [1,%" PRIu64
+          "] -> [%" PRIu64 ",%" PRIu64 "]",
+          seqno, unix_time - populate_historical_seconds, unix_time);
+    }
+  } else if (!appended) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Failed to insert sequence number to time entry: %" PRIu64
                    " -> %" PRIu64,

@@ -485,7 +485,8 @@ struct DBOptions {
   // Default: false
   bool create_if_missing = false;
 
-  // If true, missing column families will be automatically created.
+  // If true, missing column families will be automatically created on
+  // DB::Open().
   // Default: false
   bool create_missing_column_families = false;
 
@@ -1751,8 +1752,12 @@ struct ReadOptions {
 
   // *** END options only relevant to iterators or scans ***
 
-  // ** For RocksDB internal use only **
+  // *** BEGIN options for RocksDB internal use only ***
+
+  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);

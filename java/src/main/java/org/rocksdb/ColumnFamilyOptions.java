@@ -18,9 +18,6 @@ import java.util.*;
 public class ColumnFamilyOptions extends RocksObject
     implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
     MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
 
   /**
    * Construct ColumnFamilyOptions.
@@ -29,7 +26,7 @@ public class ColumnFamilyOptions extends RocksObject
    * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
-    super(newColumnFamilyOptions());
+    super(newColumnFamilyOptionsInstance());
   }
 
   /**
@@ -600,6 +597,10 @@ public class ColumnFamilyOptions extends RocksObject
     setTableFactory(nativeHandle_, tableFormatConfig.newTableFactoryHandle());
     this.tableFormatConfig_ = tableFormatConfig;
     return this;
+  }
+
+  void setFetchedTableFormatConfig(final TableFormatConfig tableFormatConfig) {
+    this.tableFormatConfig_ = tableFormatConfig;
   }
 
   @Override
@@ -1333,6 +1334,10 @@ public class ColumnFamilyOptions extends RocksObject
       final long cfgHandle, String optString);
   private static native long getColumnFamilyOptionsFromProps(final String optString);
 
+  private static long newColumnFamilyOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newColumnFamilyOptions();
+  }
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);
   private static native long newColumnFamilyOptionsFromOptions(
@@ -1511,7 +1516,6 @@ public class ColumnFamilyOptions extends RocksObject
       final long nativeHandle_, final long compactionThreadLimiterHandle);
   private native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private native int memtableMaxRangeDeletions(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);

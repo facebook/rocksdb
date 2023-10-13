@@ -31,11 +31,6 @@ public class RocksDB extends RocksObject {
 
   private static final AtomicReference<LibraryState> libraryLoaded =
       new AtomicReference<>(LibraryState.NOT_LOADED);
-
-  static {
-    RocksDB.loadLibrary();
-  }
-
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
@@ -175,6 +170,7 @@ public class RocksDB extends RocksObject {
    * @see Options#setCreateIfMissing(boolean)
    */
   public static RocksDB open(final String path) throws RocksDBException {
+    RocksDB.loadLibrary();
     final Options options = new Options();
     options.setCreateIfMissing(true);
     return open(options, path);
@@ -330,6 +326,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final String path)
       throws RocksDBException {
+    RocksDB.loadLibrary();
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     final Options options = new Options();
@@ -3434,6 +3431,40 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Set performance level for rocksdb performance measurement.
+   * @param level
+   * @throws IllegalArgumentException for UNINITIALIZED and OUT_OF_BOUNDS values
+   *    as they can't be used for settings.
+   */
+  public void setPerfLevel(final PerfLevel level) {
+    if (level == PerfLevel.UNINITIALIZED) {
+      throw new IllegalArgumentException("Unable to set UNINITIALIZED level");
+    } else if (level == PerfLevel.OUT_OF_BOUNDS) {
+      throw new IllegalArgumentException("Unable to set OUT_OF_BOUNDS level");
+    } else {
+      setPerfLevel(level.getValue());
+    }
+  }
+
+  /**
+   * Return current performance level measurement settings.
+   * @return
+   */
+  public PerfLevel getPerfLevel() {
+    byte level = getPerfLevelNative();
+    return PerfLevel.getPerfLevel(level);
+  }
+
+  /**
+   * Return perf context bound to this thread.
+   * @return
+   */
+  public PerfContext getPerfContext() {
+    long native_handle = getPerfContextNative();
+    return new PerfContext(native_handle);
+  }
+
+  /**
    * Get the options for the column family handle
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -4573,6 +4604,11 @@ public class RocksDB extends RocksObject {
   private native void setDBOptions(final long handle,
       final String[] keys, final String[] values) throws RocksDBException;
   private native String getDBOptions(final long handle);
+  private native void setPerfLevel(final byte level);
+  private native byte getPerfLevelNative();
+
+  private native long getPerfContextNative();
+
   private native String[] compactFiles(final long handle,
       final long compactionOptionsHandle,
       final long columnFamilyHandle,

@@ -1,0 +1,1 @@
+Introduce AttributeGroup by adding the first AttributeGroup support API, MultiGetEntity(). Through the use of Column Families, AttributeGroup enables users to logically group wide-column entities. More APIs to support AttributeGroup will come soon, including GetEntity, PutEntity, and others.

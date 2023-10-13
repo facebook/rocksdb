@@ -1748,4 +1748,20 @@ const Comparator* GetColumnFamilyUserComparator(
   return nullptr;
 }
 
+const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family) {
+  assert(column_family);
+
+  ColumnFamilyHandleImpl* const handle =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(handle);
+
+  const ColumnFamilyData* const cfd = handle->cfd();
+  assert(cfd);
+
+  const ImmutableOptions* ioptions = cfd->ioptions();
+  assert(ioptions);
+
+  return *ioptions;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

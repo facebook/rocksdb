@@ -109,9 +109,9 @@ class Mutex {
 
   bool TryLock();
 
-  // this will assert if the mutex is not locked
-  // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+  // This will fail assertion if the mutex is not locked.
+  // It does NOT verify that mutex is held by a calling thread.
+  void AssertHeld() const;
 
   // Also implement std Lockable
   inline void lock() { Lock(); }
@@ -139,7 +139,7 @@ class RWMutex {
   void WriteLock();
   void ReadUnlock();
   void WriteUnlock();
-  void AssertHeld() {}
+  void AssertHeld() const {}
 
  private:
   pthread_rwlock_t mu_;  // the underlying platform mutex

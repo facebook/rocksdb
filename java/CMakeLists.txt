@@ -48,6 +48,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/persistent_cache.cc
+        rocksjni/jni_perf_context.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -151,6 +152,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Experimental.java
   src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
   src/main/java/org/rocksdb/Filter.java
+  src/main/java/org/rocksdb/FilterPolicyType.java
   src/main/java/org/rocksdb/FileOperationInfo.java
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java
@@ -193,6 +195,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptionString.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
+  src/main/java/org/rocksdb/PerfContext.java
+  src/main/java/org/rocksdb/PerfLevel.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java

@@ -116,6 +116,11 @@ class SeqnoToTimeMapping {
                               uint64_t max_capacity = 0)
       : max_time_duration_(max_time_duration), max_capacity_(max_capacity) {}
 
+  // Both seqno range and time range are inclusive. ... TODO
+  //
+  bool PrePopulate(SequenceNumber from_seqno, SequenceNumber to_seqno,
+                   uint64_t from_time, uint64_t to_time);
+
   // Append a new entry to the list. The new entry should be newer than the
   // existing ones. It maintains the internal sorted status.
   bool Append(SequenceNumber seqno, uint64_t time);
