@@ -950,7 +950,7 @@ IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       // Close() will be called in the destructor of the object returned by
       // this factory. Adding an inner scope so that the destructor is called
       // before checking fileCloseStatus.
-      auto ioStreamFactory = [=, &fileCloseStatus]() -> Aws::IOStream* {
+      auto ioStreamFactory = [this, destination, &fileCloseStatus]() -> Aws::IOStream* {
         FileOptions foptions;
         foptions.use_direct_writes =
             cfs_->GetCloudFileSystemOptions().use_direct_io_for_cloud_download;

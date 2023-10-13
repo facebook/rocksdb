@@ -2715,6 +2715,7 @@ Status Version::ProcessBatch(
     MultiGetRange file_range = fp.CurrentFileRange();
     TableCache::TypedHandle* table_handle = nullptr;
     bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+		    			read_options,
                                         fp.IsHitFileLastInLevel());
     bool skip_range_deletions = false;
     if (!skip_filters) {
