@@ -220,44 +220,42 @@ inline bool operator!=(const PinnableWideColumns& lhs,
   return !(lhs == rhs);
 }
 
-// PinnableWideColumns bundled with ColumnFamilyHandle and Status for the query.
-// Used for the results of wide-column queries grouped by Column Families
-class PinnableWideColumnsBundle {
+// Class representing attribute group. Attribute group is a logical grouping of
+// wide-column entities by leveraging Column Families. Wide-columns returned
+// from the query are pinnable.
+class PinnableAttributeGroup {
  public:
   ColumnFamilyHandle* column_family() const { return column_family_; }
   const Status& status() const { return status_; }
-  const PinnableWideColumns& pinnable_wide_columns() const {
-    return pinnable_wide_columns_;
-  }
+  const WideColumns& columns() const { return columns_.columns(); }
 
-  explicit PinnableWideColumnsBundle(ColumnFamilyHandle* column_family)
+  explicit PinnableAttributeGroup(ColumnFamilyHandle* column_family)
       : column_family_(column_family), status_(Status::OK()) {}
 
   void SetStatus(const Status& status);
-  void SetPinnableWideColumns(PinnableWideColumns&& pinnable_wide_columns);
+  void SetColumns(PinnableWideColumns&& columns);
 
   void Reset();
 
  private:
   ColumnFamilyHandle* column_family_;
   Status status_;
-  PinnableWideColumns pinnable_wide_columns_;
+  PinnableWideColumns columns_;
 };
 
-inline void PinnableWideColumnsBundle::SetStatus(const Status& status) {
+inline void PinnableAttributeGroup::SetStatus(const Status& status) {
   status_ = status;
 }
-inline void PinnableWideColumnsBundle::SetPinnableWideColumns(
-    PinnableWideColumns&& pinnable_wide_columns) {
-  pinnable_wide_columns_ = std::move(pinnable_wide_columns);
+inline void PinnableAttributeGroup::SetColumns(PinnableWideColumns&& columns) {
+  columns_ = std::move(columns);
 }
 
-inline void PinnableWideColumnsBundle::Reset() {
+inline void PinnableAttributeGroup::Reset() {
   SetStatus(Status::OK());
-  pinnable_wide_columns_.Reset();
+  columns_.Reset();
 }
 
-// A collection of PinnableWideColumnsBundles.
-using PinnableWideColumnsCollection = std::vector<PinnableWideColumnsBundle>;
+// A collection of Attribute Groups.
+using PinnableAttributeGroups = std::vector<PinnableAttributeGroup>;
 
 }  // namespace ROCKSDB_NAMESPACE

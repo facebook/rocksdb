@@ -3343,7 +3343,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             const Slice* keys,
-                            PinnableWideColumnsCollection* results) {
+                            PinnableAttributeGroups* results) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
     Status s = Status::InvalidArgument(
@@ -3361,7 +3361,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
 
-  std::vector<ColumnFamilyHandle*> all_column_families;
+  std::vector<ColumnFamilyHandle*> column_families;
   std::vector<Slice> all_keys;
   size_t total_count = 0;
 
@@ -3369,14 +3369,13 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
     for (size_t j = 0; j < results[i].size(); ++j) {
       // Adding the same key slice for different CFs
       all_keys.emplace_back(keys[i]);
-      all_column_families.emplace_back(results[i][j].column_family());
+      column_families.emplace_back(results[i][j].column_family());
       ++total_count;
     }
   }
   std::vector<Status> statuses(total_count);
   std::vector<PinnableWideColumns> columns(total_count);
-  // TODO - sort the keys by column_families and set sorted_input = true
-  MultiGetCommon(read_options, total_count, all_column_families.data(),
+  MultiGetCommon(read_options, total_count, column_families.data(),
                  all_keys.data(),
                  /* values */ nullptr, columns.data(),
                  /* timestamps */ nullptr, statuses.data(),
@@ -3388,7 +3387,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
     for (size_t j = 0; j < results[i].size(); ++j) {
       results[i][j].Reset();
       results[i][j].SetStatus(std::move(statuses[index]));
-      results[i][j].SetPinnableWideColumns(std::move(columns[index]));
+      results[i][j].SetColumns(std::move(columns[index]));
       ++index;
     }
   }

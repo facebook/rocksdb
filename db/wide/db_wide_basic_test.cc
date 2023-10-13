@@ -270,7 +270,7 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntity) {
   ASSERT_EQ(results[1].columns(), second_columns);
 }
 
-TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
+TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"hot_cf", "cold_cf"}, options);
 
@@ -293,6 +293,7 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
   WideColumns second_cold_columns{
       {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
 
+  // TODO - update this to use the multi-attribute-group PutEntity when ready
   ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[DEFAULT_CF_HANDLE_INDEX],
                            first_key, first_default_columns));
   ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
@@ -311,26 +312,24 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
       {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
   std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
       {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
-  auto add_column_families_to_result =
-      [&](PinnableWideColumnsCollection& collection,
-          const std::vector<ColumnFamilyHandle*>& column_families) {
-        for (size_t i = 0; i < column_families.size(); ++i) {
-          collection.emplace_back(column_families[i]);
-        }
-      };
+  auto create_result =
+      [](const std::vector<ColumnFamilyHandle*>& column_families)
+      -> PinnableAttributeGroups {
+    PinnableAttributeGroups result;
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      result.emplace_back(column_families[i]);
+    }
+    return result;
+  };
   {
     // Check for invalid argument
     ReadOptions read_options;
     read_options.io_activity = Env::IOActivity::kGetEntity;
-    std::vector<PinnableWideColumnsCollection> results;
+    std::vector<PinnableAttributeGroups> results;
     for (size_t i = 0; i < num_keys; ++i) {
-      PinnableWideColumnsCollection result;
-      for (size_t j = 0; j < all_cfs.size(); ++j) {
-        result.emplace_back(all_cfs[j]);
-      }
-      results.emplace_back(std::move(result));
+      results.emplace_back(create_result(all_cfs));
     }
-    db_->MultiGetEntity(read_options, num_keys, nullptr, results.data());
+    db_->MultiGetEntity(read_options, num_keys, keys.data(), results.data());
     for (size_t i = 0; i < num_keys; ++i) {
       for (size_t j = 0; j < all_cfs.size(); ++j) {
         ASSERT_NOK(results[i][j].status());
@@ -341,13 +340,10 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
   {
     // Case 1. Get first key from default cf and hot_cf and second key from
     // hot_cf and cold_cf
-    std::vector<PinnableWideColumnsCollection> results;
-    PinnableWideColumnsCollection first_key_result;
-    PinnableWideColumnsCollection second_key_result;
-
-    add_column_families_to_result(first_key_result, default_and_hot_cfs);
-    add_column_families_to_result(second_key_result, hot_and_cold_cfs);
-
+    std::vector<PinnableAttributeGroups> results;
+    PinnableAttributeGroups first_key_result =
+        create_result(default_and_hot_cfs);
+    PinnableAttributeGroups second_key_result = create_result(hot_and_cold_cfs);
     results.emplace_back(std::move(first_key_result));
     results.emplace_back(std::move(second_key_result));
 
@@ -361,28 +357,20 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
     }
     // verify values for first key (default cf and hot cf)
     ASSERT_EQ(2, results[0].size());
-    ASSERT_EQ(first_default_columns,
-              results[0][0].pinnable_wide_columns().columns());
-    ASSERT_EQ(first_hot_columns,
-              results[0][1].pinnable_wide_columns().columns());
+    ASSERT_EQ(first_default_columns, results[0][0].columns());
+    ASSERT_EQ(first_hot_columns, results[0][1].columns());
 
     // verify values for second key (hot cf and cold cf)
     ASSERT_EQ(2, results[1].size());
-    ASSERT_EQ(second_hot_columns,
-              results[1][0].pinnable_wide_columns().columns());
-    ASSERT_EQ(second_cold_columns,
-              results[1][1].pinnable_wide_columns().columns());
+    ASSERT_EQ(second_hot_columns, results[1][0].columns());
+    ASSERT_EQ(second_cold_columns, results[1][1].columns());
   }
   {
     // Case 2. Get first key and second key from all cfs. For the second key, we
     // don't expect to get columns from default cf.
-    std::vector<PinnableWideColumnsCollection> results;
-    PinnableWideColumnsCollection first_key_result;
-    PinnableWideColumnsCollection second_key_result;
-
-    add_column_families_to_result(first_key_result, all_cfs);
-    add_column_families_to_result(second_key_result, all_cfs);
-
+    std::vector<PinnableAttributeGroups> results;
+    PinnableAttributeGroups first_key_result = create_result(all_cfs);
+    PinnableAttributeGroups second_key_result = create_result(all_cfs);
     results.emplace_back(std::move(first_key_result));
     results.emplace_back(std::move(second_key_result));
 
@@ -392,26 +380,21 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
       ASSERT_OK(results[0][i].status());
     }
     ASSERT_EQ(3, results[0].size());
-    ASSERT_EQ(first_default_columns,
-              results[0][0].pinnable_wide_columns().columns());
-    ASSERT_EQ(first_hot_columns,
-              results[0][1].pinnable_wide_columns().columns());
-    ASSERT_EQ(first_cold_columns,
-              results[0][2].pinnable_wide_columns().columns());
+    ASSERT_EQ(first_default_columns, results[0][0].columns());
+    ASSERT_EQ(first_hot_columns, results[0][1].columns());
+    ASSERT_EQ(first_cold_columns, results[0][2].columns());
 
     // verify second key
     // key does not exist in default cf
     ASSERT_NOK(results[1][0].status());
     ASSERT_TRUE(results[1][0].status().IsNotFound());
-    ASSERT_TRUE(results[1][0].pinnable_wide_columns().columns().empty());
+    ASSERT_TRUE(results[1][0].columns().empty());
 
     // key exists in hot_cf and cold_cf
     ASSERT_OK(results[1][1].status());
-    ASSERT_EQ(second_hot_columns,
-              results[1][1].pinnable_wide_columns().columns());
+    ASSERT_EQ(second_hot_columns, results[1][1].columns());
     ASSERT_OK(results[1][2].status());
-    ASSERT_EQ(second_cold_columns,
-              results[1][2].pinnable_wide_columns().columns());
+    ASSERT_EQ(second_cold_columns, results[1][2].columns());
   }
 }
 
