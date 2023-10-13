@@ -3346,13 +3346,12 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                             PinnableWideColumnsCollection* results) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
     for (size_t i = 0; i < num_keys; ++i) {
       for (size_t j = 0; j < results[i].size(); ++j) {
-        results[i][j].SetStatus(
-            Status::InvalidArgument("Can only call MultiGetEntity with "
-                                    "`ReadOptions::io_activity` is "
-                                    "`Env::IOActivity::kUnknown` or "
-                                    "`Env::IOActivity::kMultiGetEntity`"));
+        results[i][j].SetStatus(s);
       }
     }
     return;
@@ -3390,7 +3389,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
       results[i][j].Reset();
       results[i][j].SetStatus(std::move(statuses[index]));
       results[i][j].SetPinnableWideColumns(std::move(columns[index]));
-      index++;
+      ++index;
     }
   }
 }

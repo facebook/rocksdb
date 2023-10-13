@@ -313,7 +313,7 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
       {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
   auto add_column_families_to_result =
       [&](PinnableWideColumnsCollection& collection,
-          const std::vector<ColumnFamilyHandle*> column_families) {
+          const std::vector<ColumnFamilyHandle*>& column_families) {
         for (size_t i = 0; i < column_families.size(); ++i) {
           collection.emplace_back(column_families[i]);
         }
@@ -355,7 +355,7 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityGrouped) {
     ASSERT_EQ(2, results.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_keys; ++i) {
-      for (size_t j = 0; j < all_cfs.size(); ++j) {
+      for (size_t j = 0; j < 2; ++j) {
         ASSERT_OK(results[i][j].status());
       }
     }

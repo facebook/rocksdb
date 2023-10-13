@@ -864,15 +864,16 @@ class DB {
 
   // Batched MultiGet-like API that returns wide-column entities grouped
   // by column families for each key. The input is a list of keys and
-  // PinnableWideColumnsCollection (which will be filled in as output) For any
-  // given keys[i] (where 0 <= i < num_keys), results[i] will contain
-  // PinnableWideColumnsCollection for the ith key.
-  // PinnableWideColumnsCollection is a vector of PinnableWideColumnsBundle.
-  // Each PinnableWideColumnsBundle will contain a ColumnFamilyHandle pointer,
-  // status and PinnableWideColumns.
+  // PinnableWideColumnsCollections. For any given keys[i] (where 0 <= i <
+  // num_keys), results[i] will contain result for the ith key. Each result will
+  // be returned as PinnableWideColumnsCollection. PinnableWideColumnsCollection
+  // is a vector of PinnableWideColumnsBundle. Each PinnableWideColumnsBundle
+  // will contain a ColumnFamilyHandle pointer, status and PinnableWideColumns.
   //
   // Note that it is the caller's responsibility to ensure that
-  // "keys" and "results" have the same "num_keys" number of objects.
+  // "keys" and "results" have the same "num_keys" number of objects. Also
+  // PinnableWideColumnsBundle needs to have ColumnFamilyHandle pointer set
+  // properly to get the corresponding wide columns from the column family.
   virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
                               const Slice* /* keys */,
                               PinnableWideColumnsCollection* results) {

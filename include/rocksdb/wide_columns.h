@@ -253,7 +253,7 @@ inline void PinnableWideColumnsBundle::SetPinnableWideColumns(
 }
 
 inline void PinnableWideColumnsBundle::Reset() {
-  status_ = Status::OK();
+  SetStatus(Status::OK());
   pinnable_wide_columns_.Reset();
 }
 
