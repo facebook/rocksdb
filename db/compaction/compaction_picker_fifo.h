@@ -56,5 +56,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       LogBuffer* log_buffer);
+
+  void UpdateCompactionStats(Compaction* c);
 };
 }  // namespace ROCKSDB_NAMESPACE

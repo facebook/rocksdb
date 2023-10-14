@@ -518,6 +518,11 @@ enum Tickers : uint32_t {
   // ReadOptions.auto_readahead_size is set.
   READAHEAD_TRIMMED,
 
+  // Number of FIFO compactions that drop files based on different reasons
+  FIFO_DROP_FILE_MAX_SIZE,
+  FIFO_DROP_FILE_TTL,
+  FIFO_DROP_FILE_CHANGE_TEMERATURE,
+
   TICKER_ENUM_MAX
 };
 

@@ -17,6 +17,9 @@
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/status.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -443,7 +446,30 @@ Compaction* FIFOCompactionPicker::PickCompaction(
         cf_name, mutable_cf_options, mutable_db_options, vstorage, log_buffer);
   }
   RegisterCompaction(c);
+  UpdateCompactionStats(c);
   return c;
+}
+
+void FIFOCompactionPicker::UpdateCompactionStats(Compaction* c) {
+  if (c == nullptr || ioptions_.statistics == nullptr) {
+    return;
+  }
+
+  CompactionReason reason = c->compaction_reason();
+  Statistics* statistics = ioptions_.statistics.get();
+  switch (reason) {
+    case CompactionReason::kFIFOMaxSize:
+      RecordTick(statistics, FIFO_DROP_FILE_MAX_SIZE);
+      break;
+    case CompactionReason::kFIFOTtl:
+      RecordTick(statistics, FIFO_DROP_FILE_TTL);
+      break;
+    case CompactionReason::kChangeTemperature:
+      RecordTick(statistics, FIFO_DROP_FILE_CHANGE_TEMERATURE);
+      break;
+    default:
+      break;
+  }
 }
 
 Compaction* FIFOCompactionPicker::CompactRange(
