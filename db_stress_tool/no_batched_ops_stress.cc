@@ -1563,9 +1563,11 @@ class NonBatchedOpsStressTest : public StressTest {
                                   {sst_filename}, IngestExternalFileOptions());
     }
     if (!s.ok()) {
-      fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
       if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
+      } else {
+        fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
       }
     } else {
       for (size_t i = 0; i < pending_expected_values.size(); ++i) {
