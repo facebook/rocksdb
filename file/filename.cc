@@ -444,7 +444,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   }
 
   // The default Close() could return "NotSupported" and we bypass it
-  // if it is not impelmented. Detailed explanations can be found in
+  // if it is not implemented. Detailed explanations can be found in
   // db/db_impl/db_impl.h
   if (s.ok()) {
     Status temp_s = dir_obj->Close(IOOptions(), nullptr);
