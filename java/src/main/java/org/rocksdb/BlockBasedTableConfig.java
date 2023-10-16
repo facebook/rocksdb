@@ -87,11 +87,13 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.enableIndexCompression = enableIndexCompression;
     this.blockAlign = blockAlign;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
+    try (
     Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
-        filterPolicyHandle, filterPolicyConfigValue);
-    if (filterPolicy != null) {
-      filterPolicy.disOwnNativeHandle();
-      this.setFilterPolicy(filterPolicy);
+        filterPolicyHandle, filterPolicyConfigValue)) {
+      if (filterPolicy != null) {
+        filterPolicy.disOwnNativeHandle();
+        this.setFilterPolicy(filterPolicy);
+      }
     }
   }
 

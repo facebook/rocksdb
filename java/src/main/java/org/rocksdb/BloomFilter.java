@@ -85,14 +85,14 @@ public class BloomFilter extends Filter {
     this(bitsPerKey);
   }
 
+  @SuppressWarnings("PMD.")
   @Override
   public boolean equals(Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    BloomFilter that = (BloomFilter) o;
-    return bitsPerKey == that.bitsPerKey;
+    return bitsPerKey == ((BloomFilter) o).bitsPerKey;
   }
 
   @Override

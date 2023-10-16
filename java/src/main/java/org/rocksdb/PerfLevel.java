@@ -39,7 +39,7 @@ public enum PerfLevel {
    */
   @Deprecated OUT_OF_BOUNDS((byte) 6);
 
-  private PerfLevel(byte _value) {
+  PerfLevel(byte _value) {
     this._value = _value;
   }
 
