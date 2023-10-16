@@ -28,6 +28,21 @@ public final class KVUtils {
   }
 
   /**
+   * Get a byte array from a string.
+   *
+   * Assumes UTF-8 encoding
+   *
+   * @param string the string
+   *
+   * @return the bytes.
+   */
+  public static void writeToByteBuffer(final ByteBuffer buf, final String string) {
+    buf.clear();
+    buf.put(string.getBytes(UTF_8));
+    buf.flip();
+  }
+
+  /**
    * Get a string from a byte array.
    *
    * Assumes UTF-8 encoding

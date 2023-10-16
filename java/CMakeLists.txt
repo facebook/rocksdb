@@ -293,6 +293,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/util/DirectByteBufferAddress.java
 )
 
 include(FindJava)

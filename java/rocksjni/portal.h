@@ -2394,6 +2394,28 @@ class JniUtil {
     op(key_slice, value_slice);
   }
 
+  static void kv_op_direct_addr(JNIEnv* env, jlong jkey_addr, jint jkey_len,
+                                jlong jval_addr, jint jval_len,
+                                ROCKSDB_NAMESPACE::Slice& key_slice,
+                                ROCKSDB_NAMESPACE::Slice& value_slice) {
+    char* key = reinterpret_cast<char*>(jkey_addr);
+    if (key == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env,
+                                                       "Invalid key argument");
+      return;
+    }
+
+    char* value = reinterpret_cast<char*>(jval_addr);
+    if (value == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Invalid value argument");
+      return;
+    }
+
+    key_slice = ROCKSDB_NAMESPACE::Slice(key, jkey_len);
+    value_slice = ROCKSDB_NAMESPACE::Slice(value, jval_len);
+  }
+
   /*
    * Helper for operations on a key and value
    * for example WriteBatch->Delete
@@ -2417,6 +2439,18 @@ class JniUtil {
     ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
     return op(key_slice);
+  }
+
+  static void k_op_direct_addr(JNIEnv* env, jlong jkey_addr, jint jkey_len,
+                               ROCKSDB_NAMESPACE::Slice& key_slice) {
+    char* key = reinterpret_cast<char*>(jkey_addr);
+    if (key == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env,
+                                                       "Invalid key argument");
+      return;
+    }
+
+    key_slice = ROCKSDB_NAMESPACE::Slice(key, jkey_len);
   }
 
   template <class T>

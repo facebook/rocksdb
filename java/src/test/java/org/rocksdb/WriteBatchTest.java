@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.CapturingWriteBatchHandler;
 import org.rocksdb.util.CapturingWriteBatchHandler.Event;
+import org.rocksdb.util.DirectByteBufferAddress;
 import org.rocksdb.util.WriteBatchGetter;
 
 /**
@@ -103,6 +104,34 @@ public class WriteBatchTest {
       batch.delete(key);
       assertThat(key.position()).isEqualTo(3);
       assertThat(key.limit()).isEqualTo(3);
+
+      batch.put("baz".getBytes("US-ASCII"), "boo".getBytes("US-ASCII"));
+
+      WriteBatchTestInternalHelper.setSequence(batch, 100);
+      assertThat(WriteBatchTestInternalHelper.sequence(batch)).isNotNull().isEqualTo(100);
+      assertThat(batch.count()).isEqualTo(3);
+      assertThat(new String(getContents(batch), "US-ASCII"))
+          .isEqualTo("Put(baz, boo)@102"
+              + "Delete(box)@101"
+              + "Put(foo, bar)@100");
+    }
+  }
+
+  @Test
+  public void addrPutDelete() throws UnsupportedEncodingException, RocksDBException {
+    try (WriteBatch batch = new WriteBatch()) {
+      ByteBuffer key = ByteBuffer.allocateDirect(16);
+      ByteBuffer value = ByteBuffer.allocateDirect(16);
+      key.put("foo".getBytes("US-ASCII")).flip();
+      value.put("bar".getBytes("US-ASCII")).flip();
+
+      batch.put(DirectByteBufferAddress.getAddress(key), key.remaining(),
+          DirectByteBufferAddress.getAddress(value), value.remaining());
+
+      key.clear();
+      key.put("box".getBytes("US-ASCII")).flip();
+
+      batch.delete(DirectByteBufferAddress.getAddress(key), key.remaining());
 
       batch.put("baz".getBytes("US-ASCII"), "boo".getBytes("US-ASCII"));
 

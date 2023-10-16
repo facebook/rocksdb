@@ -8,6 +8,9 @@ package org.rocksdb.jmh;
 
 import static org.rocksdb.util.KVUtils.ba;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.PooledByteBufAllocator;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -49,6 +52,9 @@ public class GetBenchmarks {
   private ByteBuffer valueBuf;
   private byte[] keyArr;
   private byte[] valueArr;
+
+  private ByteBuf nettyKeyBuf;
+  private ByteBuf nettyValueBuf;
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -110,6 +116,9 @@ public class GetBenchmarks {
     keyBuf.flip();
     valueBuf.put(valueArr);
     valueBuf.flip();
+
+    nettyKeyBuf = PooledByteBufAllocator.DEFAULT.directBuffer();
+    nettyValueBuf = PooledByteBufAllocator.DEFAULT.directBuffer();
   }
 
   @TearDown(Level.Trial)
@@ -121,6 +130,9 @@ public class GetBenchmarks {
     options.close();
     readOptions.close();
     FileUtils.delete(dbDir);
+
+    nettyKeyBuf.release();
+    nettyValueBuf.release();
   }
 
   private ColumnFamilyHandle getColumnFamily() {
@@ -184,6 +196,22 @@ public class GetBenchmarks {
     return keyBuf;
   }
 
+  private ByteBuf getNettyKeyBuf() {
+    final int MAX_LEN = 9; // key100000
+    final int keyIdx = next();
+
+    nettyKeyBuf.clear();
+
+    final String keyStr = "key" + keyIdx;
+    ByteBufUtil.writeAscii(nettyKeyBuf, keyStr);
+
+    for (int i = keyStr.length(); i < MAX_LEN; ++i) {
+      nettyKeyBuf.writeByte((byte) 0x30);
+    }
+
+    return nettyKeyBuf;
+  }
+
   private byte[] getValueArr() {
     return valueArr;
   }
@@ -211,5 +239,13 @@ public class GetBenchmarks {
     //    valueBuf.get(ret);
     //    System.out.println(str(ret));
     //    valueBuf.flip();
+  }
+
+  @Benchmark
+  public void preallocatedMemoryAddr() throws RocksDBException {
+    ByteBuf k = getNettyKeyBuf();
+    ByteBuf v = nettyValueBuf;
+    int res = db.get(getColumnFamily(), readOptions, k.memoryAddress(), k.readableBytes(),
+        v.memoryAddress(), v.writableBytes());
   }
 }

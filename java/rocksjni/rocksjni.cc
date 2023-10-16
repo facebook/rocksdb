@@ -709,6 +709,74 @@ void Java_org_rocksdb_RocksDB_putDirect(
                                            jval, jval_off, jval_len);
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    putAddr
+ * Signature: (JJJIJIJ)V
+ */
+void Java_org_rocksdb_RocksDB_putAddr__JJJIJIJ(JNIEnv* env, jobject /*jdb*/,
+                                               jlong jdb_handle,
+                                               jlong jwrite_options_handle,
+                                               jlong jkey_addr, jint jkey_len,
+                                               jlong jval_addr, jint jval_len,
+                                               jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  ROCKSDB_NAMESPACE::Slice key_slice;
+  ROCKSDB_NAMESPACE::Slice value_slice;
+
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
+
+  ROCKSDB_NAMESPACE::Status s;
+  if (cf_handle == nullptr) {
+    s = db->Put(*write_options, key_slice, value_slice);
+  } else {
+    s = db->Put(*write_options, cf_handle, key_slice, value_slice);
+  }
+  if (s.ok()) {
+    return;
+  }
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    putAddr
+ * Signature: (JJIJIJ)V
+ */
+void Java_org_rocksdb_RocksDB_putAddr__JJIJIJ(JNIEnv* env, jobject /*jdb*/,
+                                              jlong jdb_handle, jlong jkey_addr,
+                                              jint jkey_len, jlong jval_addr,
+                                              jint jval_len, jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
+      ROCKSDB_NAMESPACE::WriteOptions();
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  ROCKSDB_NAMESPACE::Slice key_slice;
+  ROCKSDB_NAMESPACE::Slice value_slice;
+
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
+
+  ROCKSDB_NAMESPACE::Status s;
+  if (cf_handle == nullptr) {
+    s = db->Put(default_write_options, key_slice, value_slice);
+  } else {
+    s = db->Put(default_write_options, cf_handle, key_slice, value_slice);
+  }
+  if (s.ok()) {
+    return;
+  }
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Delete()
 
@@ -1098,6 +1166,54 @@ jint rocksdb_get_helper_direct(
   return pinnable_value_len;
 }
 
+jint rocksdb_get_helper_addr(
+    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
+    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
+    jlong jkey_addr, jint jkey_len, jlong jval_addr, jint jval_len,
+    bool* has_exception) {
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+
+  ROCKSDB_NAMESPACE::Slice key_slice((const char*)jkey_addr, jkey_len);
+
+  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
+  ROCKSDB_NAMESPACE::Status s;
+  if (column_family_handle != nullptr) {
+    s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
+  } else {
+    // backwards compatibility
+    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
+                &pinnable_value);
+  }
+
+  if (s.IsNotFound()) {
+    *has_exception = false;
+    return kNotFound;
+  } else if (!s.ok()) {
+    *has_exception = true;
+    // Here since we are throwing a Java exception from c++ side.
+    // As a result, c++ does not know calling this function will in fact
+    // throwing an exception.  As a result, the execution flow will
+    // not stop here, and codes after this throw will still be
+    // executed.
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+
+    // Return a dummy const value to avoid compilation error, although
+    // java side might not have a chance to get the return value :)
+    return kStatusError;
+  }
+
+  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
+  const jint length = std::min(jval_len, pinnable_value_len);
+
+  memcpy((char*)jval_addr, pinnable_value.data(), length);
+  pinnable_value.Reset();
+
+  *has_exception = false;
+  return pinnable_value_len;
+}
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    deleteRange
@@ -1187,6 +1303,28 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
       env, db_handle,
       ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt, cf_handle,
       jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getAddr
+ * Signature: (JJJIJIJ)I
+ */
+jint Java_org_rocksdb_RocksDB_getAddr(JNIEnv* env, jobject /*jdb*/,
+                                      jlong jdb_handle, jlong jropt_handle,
+                                      jlong jkey_addr, jint jkey_len,
+                                      jlong jval_addr, jint jval_len,
+                                      jlong jcf_handle) {
+  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* ro_opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  bool has_exception = false;
+  return rocksdb_get_helper_addr(
+      env, db_handle,
+      ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt, cf_handle,
+      jkey_addr, jkey_len, jval_addr, jval_len, &has_exception);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1362,6 +1500,37 @@ void Java_org_rocksdb_RocksDB_deleteDirect(JNIEnv* env, jobject /*jdb*/,
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(remove, env, jkey, jkey_offset,
                                           jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteAddr
+ * Signature: (JJJIJ)V
+ */
+void Java_org_rocksdb_RocksDB_deleteAddr(JNIEnv* env, jobject /*jdb*/,
+                                         jlong jdb_handle, jlong jwrite_options,
+                                         jlong jkey_addr, jint jkey_len,
+                                         jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  ROCKSDB_NAMESPACE::Slice key_slice;
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env, jkey_addr, jkey_len,
+                                               key_slice);
+
+  ROCKSDB_NAMESPACE::Status s;
+  if (cf_handle == nullptr) {
+    s = db->Delete(*write_options, key_slice);
+  } else {
+    s = db->Delete(*write_options, cf_handle, key_slice);
+  }
+  if (s.ok()) {
+    return;
+  }
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 //////////////////////////////////////////////////////////////////////////////

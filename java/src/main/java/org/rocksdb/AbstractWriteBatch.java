@@ -53,6 +53,12 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
+  public void put(final long keyAddr, final int keyLen, final long valueAddr, final int valueLen)
+      throws RocksDBException {
+    putAddr(nativeHandle_, keyAddr, keyLen, valueAddr, valueLen, 0);
+  }
+
+  @Override
   public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
       final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
@@ -77,6 +83,11 @@ public abstract class AbstractWriteBatch extends RocksObject
   public void delete(final ByteBuffer key) throws RocksDBException {
     deleteDirect(nativeHandle_, key, key.position(), key.remaining(), 0);
     key.position(key.limit());
+  }
+
+  @Override
+  public void delete(final long keyAddr, final int keyLen) throws RocksDBException {
+    deleteAddr(nativeHandle_, keyAddr, keyLen, 0);
   }
 
   @Override
@@ -158,6 +169,9 @@ public abstract class AbstractWriteBatch extends RocksObject
       final int keyLength, final ByteBuffer value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
 
+  abstract void putAddr(final long handle, final long keyAddr, final int keyLength,
+      final long valueAddr, final int valueLength, final long cfHandle) throws RocksDBException;
+
   abstract void merge(final long handle, final byte[] key, final int keyLen,
       final byte[] value, final int valueLen) throws RocksDBException;
 
@@ -179,6 +193,9 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   abstract void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
+
+  abstract void deleteAddr(final long handle, final long keyAddr, final int keyLength,
+      final long cfHandle) throws RocksDBException;
 
   abstract void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen) throws RocksDBException;

@@ -228,6 +228,33 @@ void Java_org_rocksdb_WriteBatch_putDirect(JNIEnv* env, jobject /*jobj*/,
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    putAddr
+ * Signature: (JJIJIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_putAddr(JNIEnv* env, jobject /*jobj*/,
+                                         jlong jwb_handle, jlong jkey_addr,
+                                         jint jkey_len, jlong jval_addr,
+                                         jint jval_len, jlong jcf_handle) {
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  ROCKSDB_NAMESPACE::Slice key_slice;
+  ROCKSDB_NAMESPACE::Slice value_slice;
+
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_addr(
+      env, jkey_addr, jkey_len, jval_addr, jval_len, key_slice, value_slice);
+
+  if (cf_handle == nullptr) {
+    wb->Put(key_slice, value_slice);
+  } else {
+    wb->Put(cf_handle, key_slice, value_slice);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    merge
  * Signature: (J[BI[BI)V
  */
@@ -385,6 +412,30 @@ void Java_org_rocksdb_WriteBatch_deleteDirect(JNIEnv* env, jobject /*jobj*/,
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(remove, env, jkey, jkey_offset,
                                           jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    deleteAddr
+ * Signature: (JJIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_deleteAddr(JNIEnv* env, jobject /*jobj*/,
+                                            jlong jwb_handle, jlong jkey_addr,
+                                            jint jkey_len, jlong jcf_handle) {
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  ROCKSDB_NAMESPACE::Slice key_slice;
+
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_addr(env, jkey_addr, jkey_len,
+                                               key_slice);
+
+  if (cf_handle == nullptr) {
+    wb->Delete(key_slice);
+  } else {
+    wb->Delete(cf_handle, key_slice);
+  }
 }
 
 /*

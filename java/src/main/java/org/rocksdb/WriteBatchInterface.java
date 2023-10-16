@@ -58,6 +58,19 @@ public interface WriteBatchInterface {
      * <p>Store the mapping "key-&gt;value" within given column
      * family.</p>
      *
+     * @param keyAddr the direct memory address of the key
+     * @param keyLen the length of the key
+     * @param valueAddr the direct memory address of the value
+     * @param valueLen the length of the value
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    void put(final long keyAddr, final int keyLen, final long valueAddr, final int valueLen)
+        throws RocksDBException;
+
+    /**
+     * <p>Store the mapping "key-&gt;value" within given column
+     * family.</p>
+     *
      * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
      *     instance
      * @param key the specified key to be inserted. It is using position and limit.
@@ -119,6 +132,16 @@ public interface WriteBatchInterface {
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void delete(final ByteBuffer key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param keyAddr the direct memory address of the key
+     * @param keyLen the length of the key
+     *
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    void delete(final long keyAddr, final int keyLen) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
