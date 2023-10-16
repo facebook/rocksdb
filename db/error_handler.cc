@@ -396,12 +396,13 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
 
-  if (BackgroundErrorReason::kManifestWrite == reason ||
-      BackgroundErrorReason::kManifestWriteNoWAL == reason) {
+  if (!recovery_disabled_file_deletion_ &&
+      (BackgroundErrorReason::kManifestWrite == reason ||
+       BackgroundErrorReason::kManifestWriteNoWAL == reason)) {
     // Always returns ok
     ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
-    disable_file_deletion_count_.fetch_add(1);
+    recovery_disabled_file_deletion_ = true;
   }
 
   Status new_bg_io_err = bg_io_err;
@@ -561,6 +562,18 @@ Status ErrorHandler::ClearBGError() {
     recovery_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
+    if (recovery_disabled_file_deletion_) {
+      recovery_disabled_file_deletion_ = false;
+      int remain_counter = db_->EnableFileDeletionsWithLock();
+      if (remain_counter == 0) {
+        ROCKS_LOG_INFO(db_options_.info_log, "File Deletions Enabled");
+      } else {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "File Deletions Enable, but not really enabled. Counter: %d",
+            remain_counter);
+      }
+    }
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
                                            bg_error_, db_mutex_);
   }

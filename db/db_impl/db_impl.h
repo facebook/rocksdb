@@ -2373,9 +2373,9 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  // Decrease `disable_delete_obsolete_files_` by count while holding lock and
-  // return its remaning value.
-  int EnableFileDeletionsWithLock(int count);
+  // Safely decrease `disable_delete_obsolete_files_` by one while holding lock
+  // and return its remaning value.
+  int EnableFileDeletionsWithLock();
 
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);

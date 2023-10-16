@@ -405,38 +405,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
-  std::optional<int> remain_counter;
-  if (s.ok()) {
-    assert(versions_->io_status().ok());
-    int disable_file_deletion_count =
-        error_handler_.GetAndResetDisableFileDeletionCount();
-    if (disable_file_deletion_count) {
-      // If we reach here, we should re-enable file deletions if it was disabled
-      // during previous error handling.
-      remain_counter = EnableFileDeletionsWithLock(disable_file_deletion_count);
-    }
-  }
-
-  JobContext job_context(0);
-  FindObsoleteFiles(&job_context, true);
-  mutex_.Unlock();
-  if (remain_counter.has_value()) {
-    if (remain_counter.value() == 0) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
-    } else {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "File Deletions Enable, but not really enabled. Counter: %d",
-          remain_counter.value());
-    }
-  }
-  job_context.manifest_file_number = 1;
-  if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
-  }
-  job_context.Clean();
-
-  mutex_.Lock();
   if (s.ok()) {
     // This will notify and unblock threads waiting for error recovery to
     // finish. Those previouly waiting threads can now proceed, which may
@@ -449,6 +417,15 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
 
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  mutex_.Unlock();
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   } else {
@@ -456,6 +433,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
                    s.ToString().c_str());
   }
 
+  mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
