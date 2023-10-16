@@ -46,7 +46,7 @@ class BaseDeltaIterator : public Iterator {
   void Next() override;
   void Prev() override;
   Slice key() const override;
-  Slice value() const override;
+  Slice value() const override { return value_; }
   Slice timestamp() const override;
   Status status() const override;
   void Invalidate(Status s);
@@ -58,18 +58,22 @@ class BaseDeltaIterator : public Iterator {
   void AdvanceBase();
   bool BaseValid() const;
   bool DeltaValid() const;
+  void ResetValue();
+  void SetValueFromBase();
+  void SetValueFromDelta();
   void UpdateCurrent();
 
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
-  mutable Status status_;
+  Status status_;
   ColumnFamilyHandle* column_family_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
   MergeContext merge_context_;
-  mutable std::string merge_result_;
+  std::string merge_result_;
+  Slice value_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.

@@ -1312,6 +1312,27 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
 }
 
+TEST_P(CompressedSecCacheTestWithTiered,
+       DynamicUpdateWithReservationUnderflow) {
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CacheWithSecondaryAdapter::Release:ChargeSecCache1",
+        "CacheWithSecondaryAdapter::UpdateCacheReservationRatio:Begin"},
+       {"CacheWithSecondaryAdapter::UpdateCacheReservationRatio:End",
+        "CacheWithSecondaryAdapter::Release:ChargeSecCache2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread reserve_release_thread([&]() {
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(50), Status::OK());
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(0), Status::OK());
+  });
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.01));
+  reserve_release_thread.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.3));
+}
+
 INSTANTIATE_TEST_CASE_P(
     CompressedSecCacheTests, CompressedSecCacheTestWithTiered,
     ::testing::Values(

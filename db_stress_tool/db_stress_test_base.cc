@@ -1882,7 +1882,7 @@ Status StressTest::TestBackupRestore(
       from = "Destroy restore dir";
     }
   }
-  if (!s.ok()) {
+  if (!s.ok() && (!s.IsIOError() || !std::strstr(s.getState(), "injected"))) {
     fprintf(stderr, "Failure in %s with: %s\n", from.c_str(),
             s.ToString().c_str());
   }
@@ -1958,17 +1958,19 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (s.ok()) {
     s = checkpoint->CreateCheckpoint(checkpoint_dir);
     if (!s.ok()) {
-      fprintf(stderr, "Fail to create checkpoint to %s\n",
-              checkpoint_dir.c_str());
-      std::vector<std::string> files;
-      Status my_s = db_stress_env->GetChildren(checkpoint_dir, &files);
-      if (my_s.ok()) {
-        for (const auto& f : files) {
-          fprintf(stderr, " %s\n", f.c_str());
+      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        fprintf(stderr, "Fail to create checkpoint to %s\n",
+                checkpoint_dir.c_str());
+        std::vector<std::string> files;
+        Status my_s = db_stress_env->GetChildren(checkpoint_dir, &files);
+        if (my_s.ok()) {
+          for (const auto& f : files) {
+            fprintf(stderr, " %s\n", f.c_str());
+          }
+        } else {
+          fprintf(stderr, "Fail to get files under the directory to %s\n",
+                  my_s.ToString().c_str());
         }
-      } else {
-        fprintf(stderr, "Fail to get files under the directory to %s\n",
-                my_s.ToString().c_str());
       }
     }
   }
@@ -2044,8 +2046,10 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   }
 
   if (!s.ok()) {
-    fprintf(stderr, "A checkpoint operation failed with: %s\n",
-            s.ToString().c_str());
+    if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+      fprintf(stderr, "A checkpoint operation failed with: %s\n",
+              s.ToString().c_str());
+    }
   } else {
     DestroyDB(checkpoint_dir, tmp_opts);
   }

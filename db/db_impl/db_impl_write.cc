@@ -403,17 +403,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   IOStatus io_s;
   Status pre_release_cb_status;
   if (status.ok()) {
-    // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-    // grabs but does not seem thread-safe.
-    if (tracer_) {
-      InstrumentedMutexLock lock(&trace_mutex_);
-      if (tracer_ && tracer_->IsWriteOrderPreserved()) {
-        for (auto* writer : write_group) {
-          // TODO: maybe handle the tracing status?
-          tracer_->Write(writer->batch).PermitUncheckedError();
-        }
-      }
-    }
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
     // 2. Puts are not okay if inplace_update_support
@@ -443,6 +432,20 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
         if (writer->pre_release_callback) {
           pre_release_callback_cnt++;
+        }
+      }
+    }
+    // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+    // grabs but does not seem thread-safe.
+    if (tracer_) {
+      InstrumentedMutexLock lock(&trace_mutex_);
+      if (tracer_ && tracer_->IsWriteOrderPreserved()) {
+        for (auto* writer : write_group) {
+          if (writer->CallbackFailed()) {
+            continue;
+          }
+          // TODO: maybe handle the tracing status?
+          tracer_->Write(writer->batch).PermitUncheckedError();
         }
       }
     }

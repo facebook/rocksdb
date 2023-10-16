@@ -2099,8 +2099,8 @@ void AutoHyperClockTable::StartInsert(InsertState& state) {
 // and a larger limit is used to break cycles should they occur in production.
 #define CHECK_TOO_MANY_ITERATIONS(i) \
   {                                  \
-    assert(i < 0x2000);              \
-    if (UNLIKELY(i >= 0x8000)) {     \
+    assert(i < 512);                 \
+    if (UNLIKELY(i >= 4096)) {       \
       std::terminate();              \
     }                                \
   }
@@ -3228,7 +3228,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     // Follow the next and check for full key match, home match, or neither
     h = &arr[GetNextFromNextWithShift(next_with_shift)];
     bool full_match_or_unknown = false;
-    if (MatchAndRef(&hashed_key, *h, home_shift, home,
+    if (MatchAndRef(&hashed_key, *h, shift, effective_home,
                     &full_match_or_unknown)) {
       // Got a read ref on next (h).
       //
@@ -3253,13 +3253,13 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
       // ownership of one for eviction. In rare cases, we might
       // double-clock-update some entries (ok as long as it's rare).
 
-      // With new usable read ref, can release old one if applicable
-      if (read_ref_on_chain) {
-        // Pretend we never took the reference.
-        Unref(*read_ref_on_chain);
-      }
       if (full_match_or_unknown) {
         // Full match.
+        // Release old read ref on chain if applicable
+        if (read_ref_on_chain) {
+          // Pretend we never took the reference.
+          Unref(*read_ref_on_chain);
+        }
         // Update the hit bit
         if (eviction_callback_) {
           h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
@@ -3267,8 +3267,26 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
         }
         // All done.
         return h;
+      } else if (UNLIKELY(shift != home_shift) &&
+                 home != BottomNBits(h->hashed_key[1], home_shift)) {
+        // This chain is in a Grow operation and we've landed on an entry
+        // that belongs to the wrong destination chain. We can keep going, but
+        // there's a chance we'll need to backtrack back *before* this entry,
+        // if the Grow finishes before this Lookup. We cannot save this entry
+        // for backtracking because it might soon or already be on the wrong
+        // chain.
+        // NOTE: if we simply backtrack rather than continuing, we would
+        // be in a wait loop (not allowed in Lookup!) until the other thread
+        // finishes its Grow.
+        Unref(*h);
       } else {
-        // Correct home location, so we are on the right chain
+        // Correct home location, so we are on the right chain.
+        // With new usable read ref, can release old one (if applicable).
+        if (read_ref_on_chain) {
+          // Pretend we never took the reference.
+          Unref(*read_ref_on_chain);
+        }
+        // And keep the new one.
         read_ref_on_chain = h;
       }
     } else {

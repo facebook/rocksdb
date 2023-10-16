@@ -311,6 +311,9 @@ class DBImpl : public DB {
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableWideColumns* results, Status* statuses,
                       bool sorted_input) override;
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      const Slice* keys,
+                      PinnableAttributeGroups* results) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
@@ -1864,7 +1867,8 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals);
+  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals,
+                          bool error_recovery_in_prog);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -2379,9 +2383,19 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  // Guards changes to DB and CF options to ensure consistency between
+  // * In-memory options objects
+  // * Settings in effect
+  // * Options file contents
+  // while allowing the DB mutex to be released during slow operations like
+  // persisting options file or modifying global periodic task timer.
+  // Always acquired *before* DB mutex when this one is applicable.
+  InstrumentedMutex options_mutex_;
+
+  // Guards reads and writes to in-memory stats_history_.
   InstrumentedMutex stats_history_mutex_;
-  // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
+
+  // In addition to mutex_, log_write_mutex_ protects writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.

@@ -2540,7 +2540,6 @@ public class Options extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);

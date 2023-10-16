@@ -152,6 +152,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Experimental.java
   src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
   src/main/java/org/rocksdb/Filter.java
+  src/main/java/org/rocksdb/FilterPolicyType.java
   src/main/java/org/rocksdb/FileOperationInfo.java
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java

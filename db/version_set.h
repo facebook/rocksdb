@@ -228,7 +228,7 @@ class VersionStorageInfo {
   // eligible for compaction.
   //
   // REQUIRES: DB mutex held
-  void ComputeBottommostFilesMarkedForCompaction();
+  void ComputeBottommostFilesMarkedForCompaction(bool allow_ingest_behind);
 
   // This computes files_marked_for_forced_blob_gc_ and is called by
   // ComputeCompactionScore()
@@ -236,14 +236,16 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
-      double blob_garbage_collection_force_threshold);
+      double blob_garbage_collection_force_threshold,
+      bool enable_blob_garbage_collection);
 
   bool level0_non_overlapping() const { return level0_non_overlapping_; }
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
   // REQUIRES: DB mutex held
-  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum);
+  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum,
+                            bool allow_ingest_behind);
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
