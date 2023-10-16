@@ -1397,11 +1397,9 @@ class DBImpl : public DB {
     std::unordered_set<std::string> files_to_delete_;
   };
 
-  // Except in DB::Open(), WriteOptionsFile can only be called when:
-  // Persist options to options file.
-  // If need_mutex_lock = false, the method will lock DB mutex.
-  // If need_enter_write_thread = false, the method will enter write thread.
-  Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
+  // Persist options to options file. Must be holding options_mutex_.
+  // Will lock DB mutex if !db_mutex_already_held.
+  Status WriteOptionsFile(bool db_mutex_already_held);
 
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
