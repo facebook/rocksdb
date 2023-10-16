@@ -251,22 +251,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // ahead is enabled to tune readahead_size.
   struct BlockHandleInfo {
     void SetFirstInternalKey(const Slice& key) {
+      if (key.empty()) {
+        return;
+      }
       size_t size = key.size();
-      buf_ = new char[size];
-      memcpy(buf_, key.data(), size);
-      first_internal_key_ = Slice(buf_, size);
-    }
-
-    void ReleasFirsteInternalKey() {
-      delete[] buf_;
-      buf_ = nullptr;
+      buf_ = std::unique_ptr<char[]>(new char[size]);
+      memcpy(buf_.get(), key.data(), size);
+      first_internal_key_ = Slice(buf_.get(), size);
     }
 
     BlockHandle handle_;
     bool is_cache_hit_ = false;
     CachableEntry<Block> cachable_entry_;
     Slice first_internal_key_;
-    char* buf_ = nullptr;
+    std::unique_ptr<char[]> buf_;
   };
 
   bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
@@ -391,12 +389,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                 : false);
   }
 
-  void ClearBlockHandles() {
-    for (auto& handle_info : block_handles_) {
-      handle_info.ReleasFirsteInternalKey();
-    }
-    block_handles_.clear();
-  }
+  void ClearBlockHandles() { block_handles_.clear(); }
 
   // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
   // accurate prev_block_offset_.

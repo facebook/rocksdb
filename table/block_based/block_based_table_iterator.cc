@@ -541,7 +541,6 @@ void BlockBasedTableIterator::FindBlockForward() {
     if (DoesContainBlockHandles()) {
       // Advance and point to that next Block handle to make that block handle
       // current.
-      block_handles_.front().ReleasFirsteInternalKey();
       block_handles_.pop_front();
     }
 
