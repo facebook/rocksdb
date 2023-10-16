@@ -391,7 +391,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                 : false);
   }
 
-  void ClearBlockHandles() { block_handles_.clear(); }
+  void ClearBlockHandles() {
+    for (auto& handle_info : block_handles_) {
+      handle_info.ReleasFirsteInternalKey();
+    }
+    block_handles_.clear();
+  }
 
   // Reset prev_block_offset_. If index_iter_ has moved ahead, it won't get
   // accurate prev_block_offset_.
