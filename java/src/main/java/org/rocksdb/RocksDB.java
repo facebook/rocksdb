@@ -4316,11 +4316,10 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily,
-      final List<byte[]> ranges, final boolean includeEnd)
-      throws RocksDBException {
+  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily, final List<byte[]> ranges,
+      final boolean includeEnd) throws RocksDBException {
     if (ranges.isEmpty()) {
-      return;
+       return;
     }
     if ((ranges.size() % 2) != 0) {
       throw new IllegalArgumentException("Ranges size needs to be multiple of 2 "

@@ -15,10 +15,9 @@ import java.util.*;
  * As a descendant of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
-public class ColumnFamilyOptions extends RocksObject
-    implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
-    MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
-
+public class ColumnFamilyOptions
+    extends RocksObject implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
+                                   MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
   /**
    * Construct ColumnFamilyOptions.
    * <p>
