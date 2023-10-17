@@ -47,11 +47,13 @@ class LRUCacheTest : public testing::Test {
                 double low_pri_pool_ratio = 1.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
+    mutex_.~DMutex();
+    new (&mutex_) DMutex(use_adaptive_mutex);
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
-                               high_pri_pool_ratio, low_pri_pool_ratio,
-                               use_adaptive_mutex, kDontChargeCacheMetadata,
+                               high_pri_pool_ratio, low_pri_pool_ratio, mutex_,
+                               kDontChargeCacheMetadata,
                                /*max_upper_hash_bits=*/24,
                                /*allocator*/ nullptr, &eviction_callback_);
   }
@@ -145,6 +147,7 @@ class LRUCacheTest : public testing::Test {
   }
 
  private:
+  DMutex mutex_;
   LRUCacheShard* cache_ = nullptr;
   Cache::EvictionCallback eviction_callback_;
 };

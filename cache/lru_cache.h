@@ -268,8 +268,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // alive in Cache.
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
-                bool use_adaptive_mutex,
-                CacheMetadataChargePolicy metadata_charge_policy,
+                DMutex& mutex, CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits, MemoryAllocator* allocator,
                 const Cache::EvictionCallback* eviction_callback);
 
@@ -434,7 +433,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable DMutex mutex_;
+  DMutex& mutex_;
 
   // A reference to Cache::eviction_callback_
   const Cache::EvictionCallback& eviction_callback_;
@@ -456,6 +455,8 @@ class LRUCache
   size_t TEST_GetLRUSize();
   // Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
+
+  std::unique_ptr<CacheAlignedWrapper<DMutex>[]> shard_mutexes_;
 };
 
 }  // namespace lru_cache

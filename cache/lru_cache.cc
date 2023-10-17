@@ -116,7 +116,7 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
-                             double low_pri_pool_ratio, bool use_adaptive_mutex,
+                             double low_pri_pool_ratio, DMutex& mutex,
                              CacheMetadataChargePolicy metadata_charge_policy,
                              int max_upper_hash_bits,
                              MemoryAllocator* allocator,
@@ -133,7 +133,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
       table_(max_upper_hash_bits, allocator),
       usage_(0),
       lru_usage_(0),
-      mutex_(use_adaptive_mutex),
+      mutex_(mutex),
       eviction_callback_(*eviction_callback) {
   // Make empty circular linked list.
   lru_.next = &lru_;
@@ -649,12 +649,14 @@ void LRUCacheShard::AppendPrintableOptions(std::string& str) const {
 }
 
 LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
+  shard_mutexes_.reset(new CacheAlignedWrapper<DMutex>[shard_mask_ + 1]);
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = memory_allocator();
   InitShards([&](LRUCacheShard* cs) {
+    size_t i = cs - &GetShard(0);  // XXX: hack
     new (cs) LRUCacheShard(per_shard, opts.strict_capacity_limit,
                            opts.high_pri_pool_ratio, opts.low_pri_pool_ratio,
-                           opts.use_adaptive_mutex, opts.metadata_charge_policy,
+                           shard_mutexes_[i].obj_, opts.metadata_charge_policy,
                            /* max_upper_hash_bits */ 32 - opts.num_shard_bits,
                            alloc, &eviction_callback_);
   });
