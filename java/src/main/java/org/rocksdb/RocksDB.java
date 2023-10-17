@@ -31,6 +31,14 @@ public class RocksDB extends RocksObject {
 
   private static final AtomicReference<LibraryState> libraryLoaded =
       new AtomicReference<>(LibraryState.NOT_LOADED);
+
+  static {
+    RocksDB.loadLibrary();
+  }
+
+  static final String PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD =
+      "Performance optimization for a very specific workload";
+
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
@@ -40,6 +48,7 @@ public class RocksDB extends RocksObject {
    * java.io.tmpdir, however, you can override this temporary location by
    * setting the environment variable ROCKSDB_SHAREDLIB_DIR.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   public static void loadLibrary() {
     if (libraryLoaded.get() == LibraryState.LOADED) {
       return;
@@ -89,6 +98,7 @@ public class RocksDB extends RocksObject {
    * @param paths a list of strings where each describes a directory
    *     of a library.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   public static void loadLibrary(final List<String> paths) {
     if (libraryLoaded.get() == LibraryState.LOADED) {
       return;
@@ -171,9 +181,10 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB open(final String path) throws RocksDBException {
     RocksDB.loadLibrary();
-    final Options options = new Options();
-    options.setCreateIfMissing(true);
-    return open(options, path);
+    try (Options options = new Options()) {
+      options.setCreateIfMissing(true);
+      return open(options, path);
+    }
   }
 
   /**
@@ -209,8 +220,9 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    final DBOptions options = new DBOptions();
-    return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
+    try (DBOptions options = new DBOptions()) {
+      return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
+    }
   }
 
   /**
@@ -303,7 +315,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -329,8 +342,9 @@ public class RocksDB extends RocksObject {
     RocksDB.loadLibrary();
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    final Options options = new Options();
-    return openReadOnly(options, path);
+    try (Options options = new Options()) {
+      return openReadOnly(options, path);
+    }
   }
 
   /**
@@ -405,8 +419,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    final DBOptions options = new DBOptions();
-    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
+    try (DBOptions options = new DBOptions()) {
+      return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
+    }
   }
 
   /**
@@ -484,7 +499,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -580,7 +596,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -603,7 +620,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error occurs whilst closing.
    */
   public void closeE() throws RocksDBException {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -628,9 +646,11 @@ public class RocksDB extends RocksObject {
    * <p>
    * See also {@link #close()}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -706,7 +726,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); // NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -739,7 +759,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); // NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -783,7 +803,7 @@ public class RocksDB extends RocksObject {
    */
   public void destroyColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
     for (int i = 0; i < ownedColumnFamilyHandles.size(); ++i) {
-      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i);
+      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i); // NOPMD
       if (ownedHandle.equals(columnFamilyHandle)) {
         columnFamilyHandle.close();
         ownedColumnFamilyHandles.remove(i);
@@ -1273,7 +1293,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  @Experimental("Performance optimization for a very specific workload")
+  @Experimental(PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD)
   public void singleDelete(final byte[] key) throws RocksDBException {
     singleDelete(nativeHandle_, key, key.length);
   }
@@ -1300,9 +1320,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
+  @Experimental(PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD)
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
     singleDelete(nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -1331,9 +1351,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
+  @Experimental(PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD)
+  public void singleDelete(final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
     singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
 
@@ -1362,9 +1381,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
+  @Experimental(PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD)
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] key) throws RocksDBException {
     singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -2131,7 +2150,7 @@ public class RocksDB extends RocksObject {
    */
   public List<byte[]> multiGetAsList(final List<byte[]> keys)
       throws RocksDBException {
-    assert(keys.size() != 0);
+    assert (!keys.isEmpty());
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
     final int[] keyOffsets = new int[keysArray.length];
@@ -2167,7 +2186,7 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException,
       IllegalArgumentException {
-    assert(keys.size() != 0);
+    assert (!keys.isEmpty());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandleList.size()) {
@@ -2204,7 +2223,7 @@ public class RocksDB extends RocksObject {
    */
   public List<byte[]> multiGetAsList(final ReadOptions opt,
       final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
+    assert (!keys.isEmpty());
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
     final int[] keyOffsets = new int[keysArray.length];
@@ -2240,7 +2259,7 @@ public class RocksDB extends RocksObject {
   public List<byte[]> multiGetAsList(final ReadOptions opt,
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
+    assert (!keys.isEmpty());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size()!=columnFamilyHandleList.size()){
@@ -2277,10 +2296,11 @@ public class RocksDB extends RocksObject {
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
-    final ReadOptions readOptions = new ReadOptions();
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
-    columnFamilyHandleList.add(getDefaultColumnFamily());
-    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    try (ReadOptions readOptions = new ReadOptions()) {
+      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
+      columnFamilyHandleList.add(getDefaultColumnFamily());
+      return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    }
   }
 
   /**
@@ -2320,8 +2340,9 @@ public class RocksDB extends RocksObject {
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
-    final ReadOptions readOptions = new ReadOptions();
-    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    try (ReadOptions readOptions = new ReadOptions()) {
+      return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    }
   }
 
   /**
@@ -2344,7 +2365,7 @@ public class RocksDB extends RocksObject {
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
-    assert (keys.size() != 0);
+    assert (!keys.isEmpty());
 
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -3769,7 +3790,7 @@ public class RocksDB extends RocksObject {
    */
   public void flush(final FlushOptions flushOptions)
       throws RocksDBException {
-    flush(flushOptions, (List<ColumnFamilyHandle>) null);
+    flush(flushOptions, Collections.singletonList(getDefaultColumnFamily()));
   }
 
   /**
@@ -4295,10 +4316,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily,
-      final List<byte[]> ranges, final boolean includeEnd)
-      throws RocksDBException {
-    if (ranges.size() == 0) {
+  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily, final List<byte[]> ranges,
+      final boolean includeEnd) throws RocksDBException {
+    if (ranges.isEmpty()) {
       return;
     }
     if ((ranges.size() % 2) != 0) {
@@ -4330,7 +4350,7 @@ public class RocksDB extends RocksObject {
   private /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksObject> objectList) {
     if (objectList == null) {
-      return null;
+      return new long[0];
     }
     final int len = objectList.size();
     final long[] handleList = new long[len];
@@ -4340,6 +4360,7 @@ public class RocksDB extends RocksObject {
     return handleList;
   }
 
+  @SuppressWarnings({"PMD.ForLoopVariableCount", "PMD.AvoidReassigningLoopVariables"})
   private static long[] toRangeSliceHandles(final List<Range> ranges) {
     final long[] rangeSliceHandles = new long[ranges.size() * 2];
     for (int i = 0, j = 0; i < ranges.size(); i++) {
@@ -4358,12 +4379,6 @@ public class RocksDB extends RocksObject {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
       throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
-  }
-
-  private static int computeCapacityHint(final int estimatedNumberOfItems) {
-    // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
-    // limit. We add +1 for a buffer.
-    return (int)Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   // native methods
@@ -4711,12 +4726,10 @@ public class RocksDB extends RocksObject {
       return getMajor() + "." + getMinor() + "." + getPatch();
     }
 
-    private static Version fromEncodedVersion(int encodedVersion) {
+    private static Version fromEncodedVersion(final int encodedVersion) {
       final byte patch = (byte) (encodedVersion & 0xff);
-      encodedVersion >>= 8;
-      final byte minor = (byte) (encodedVersion & 0xff);
-      encodedVersion >>= 8;
-      final byte major = (byte) (encodedVersion & 0xff);
+      final byte minor = (byte) (encodedVersion >> 8 & 0xff);
+      final byte major = (byte) (encodedVersion >> 16 & 0xff);
 
       return new Version(major, minor, patch);
     }

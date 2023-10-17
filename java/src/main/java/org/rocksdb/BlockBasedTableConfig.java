@@ -11,7 +11,7 @@ package org.rocksdb;
  */
 // TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
-
+  @SuppressWarnings("PMD.NullAssignment")
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;
@@ -87,11 +87,12 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.enableIndexCompression = enableIndexCompression;
     this.blockAlign = blockAlign;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
-    Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
-        filterPolicyHandle, filterPolicyConfigValue);
-    if (filterPolicy != null) {
-      filterPolicy.disOwnNativeHandle();
-      this.setFilterPolicy(filterPolicy);
+    try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
+             filterPolicyHandle, filterPolicyConfigValue)) {
+      if (filterPolicy != null) {
+        filterPolicy.disOwnNativeHandle();
+        this.setFilterPolicy(filterPolicy);
+      }
     }
   }
 

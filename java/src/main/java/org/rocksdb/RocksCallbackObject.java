@@ -39,7 +39,7 @@ public abstract class RocksCallbackObject extends
   static /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksCallbackObject> objectList) {
     if (objectList == null) {
-      return null;
+      return new long[0];
     }
     final int len = objectList.size();
     final long[] handleList = new long[len];

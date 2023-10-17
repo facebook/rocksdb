@@ -267,6 +267,8 @@ JAVADOC_CMD := javadoc
 endif
 endif
 
+MAVEN_CMD := mvn
+
 # Look for the Java version (1.6->6, 1.7->7, 1.8->8, 11.0->11, 13.0->13, 15.0->15 etc..)
 JAVAC_VERSION := $(shell $(JAVAC_CMD) -version 2>&1)
 JAVAC_MAJOR_VERSION := $(word 2,$(subst ., ,$(JAVAC_VERSION)))
@@ -455,3 +457,6 @@ run_plugin_test:
 db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
+
+pmd:
+	$(MAVEN_CMD) pmd:pmd pmd:cpd pmd:check

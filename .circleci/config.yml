@@ -105,6 +105,15 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  post-pmd-steps:
+    steps:
+      - store_artifacts:
+          path: /home/circleci/project/java/target/pmd.xml
+          when: on_fail
+      - store_artifacts:
+          path: /home/circleci/project/java/target/site
+          when: on_fail
+
   upgrade-cmake:
     steps:
       - run:
@@ -126,6 +135,13 @@ commands:
           name: Install gflags on macos
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
+
+  install-maven:
+    steps:
+      - run:
+          name: Install maven
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y maven
 
   setup-folly:
     steps:
@@ -589,6 +605,27 @@ jobs:
           command: make V=1 J=8 -j8 jtest
       - post-steps
 
+  build-linux-java-pmd:
+    machine: 
+      image: ubuntu-2004:202111-02
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    steps:
+      - install-maven
+      - pre-steps
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "PMD RocksDBJava"
+          command: make V=1 J=8 -j8 jpmd
+      - post-pmd-steps
+
   build-linux-java-static:
     executor: linux-docker
     resource_class: large
@@ -853,6 +890,7 @@ workflows:
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
+      - build-linux-java-pmd
   jobs-macos:
     jobs:
       - build-macos

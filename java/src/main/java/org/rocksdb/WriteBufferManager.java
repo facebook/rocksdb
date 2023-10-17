@@ -9,7 +9,6 @@ package org.rocksdb;
  * Java wrapper over native write_buffer_manager class
  */
 public class WriteBufferManager extends RocksObject {
-
   /**
    * Construct a new instance of WriteBufferManager.
    * <p>

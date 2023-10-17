@@ -80,18 +80,19 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param IGNORED_useBlockBasedMode obsolete, ignored parameter
    */
+  @SuppressWarnings("PMD.UnusedFormalParameter")
   public BloomFilter(final double bitsPerKey, final boolean IGNORED_useBlockBasedMode) {
     this(bitsPerKey);
   }
 
+  @SuppressWarnings("PMD.")
   @Override
   public boolean equals(Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    BloomFilter that = (BloomFilter) o;
-    return bitsPerKey == that.bitsPerKey;
+    return bitsPerKey == ((BloomFilter) o).bitsPerKey;
   }
 
   @Override
