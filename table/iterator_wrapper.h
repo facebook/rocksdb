@@ -53,6 +53,8 @@ class IteratorWrapperBase {
   void DeleteIter(bool is_arena_mode) {
     if (iter_) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+      // If this assertion fails, it is likely that you did not check
+      // iterator status after Valid() returns false.
       assert(status_checked_after_invalid_);
 #endif
       if (!is_arena_mode) {
