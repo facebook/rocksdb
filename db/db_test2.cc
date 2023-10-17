@@ -1805,6 +1805,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
       ASSERT_EQ(key_value_written[key], value);
       key_value_written.erase(key);
     }
+    ASSERT_OK(db_iter->status());
     ASSERT_EQ(0, key_value_written.size());
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ASSERT_EQ(std::string(s.getState()),
@@ -3801,6 +3802,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
     count++;
   }
   ASSERT_TRUE(!it->Valid());
+  ASSERT_OK(it->status());
   ASSERT_EQ(2, count);
   delete it;
 
@@ -7588,6 +7590,7 @@ TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
       ASSERT_EQ(std::to_string(cnt), it->key());
       ASSERT_EQ(expected_v, it->value());
     }
+    EXPECT_OK(it->status());
     ASSERT_EQ(expected_count, cnt);
   };
 

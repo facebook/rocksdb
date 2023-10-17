@@ -206,6 +206,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
     ASSERT_TRUE(iterator->key() == iterator->value());
   }
+  ASSERT_OK(iterator->status());
   delete iterator;
   ASSERT_OK(Flush());
   ASSERT_OK(Delete("sol"));
@@ -219,6 +220,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
     ASSERT_TRUE(iterator->key() == iterator->value());
   }
+  ASSERT_OK(iterator->status());
   delete iterator;
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -280,6 +282,7 @@ int countkeys(Iterator* iter) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     count++;
   }
+  EXPECT_OK(iter->status());
   return count;
 }
 

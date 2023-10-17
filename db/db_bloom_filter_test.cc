@@ -1905,6 +1905,7 @@ TEST_F(DBBloomFilterTest, PrefixExtractorWithFilter2) {
   for (iter->Seek("zzzzz_AAAA"); iter->Valid(); iter->Next()) {
     iter_res.emplace_back(iter->value().ToString());
   }
+  ASSERT_OK(iter->status());
 
   std::vector<std::string> expected_res = {"val1", "val2", "val3", "val4"};
   ASSERT_EQ(iter_res, expected_res);
