@@ -9062,9 +9062,10 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
   ASSERT_EQ(2, total_cold);
 
   ASSERT_GT(
-      options.statistics->getTickerCount(FIFO_DROP_FILE_CHANGE_TEMERATURE), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_DROP_FILE_MAX_SIZE), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_DROP_FILE_TTL), 0);
+      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
+      0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
 
   Destroy(options);
 }

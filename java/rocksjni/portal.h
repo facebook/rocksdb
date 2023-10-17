@@ -5165,11 +5165,11 @@ class TickerTypeJni {
         return -0x3C;
       case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
         return -0x3D;
-      case ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_MAX_SIZE:
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS:
         return -0x3E;
-      case ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_TTL:
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS:
         return -0x3F;
-      case ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_CHANGE_TEMERATURE:
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS:
         return -0x40;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
@@ -5537,11 +5537,11 @@ class TickerTypeJni {
       case -0x3D:
         return ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED;
       case -0x3E:
-        return ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_MAX_SIZE;
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS;
       case -0x3F:
-        return ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_TTL;
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS;
       case -0x40:
-        return ROCKSDB_NAMESPACE::Tickers::FIFO_DROP_FILE_CHANGE_TEMERATURE;
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

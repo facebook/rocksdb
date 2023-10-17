@@ -459,13 +459,13 @@ void FIFOCompactionPicker::UpdateCompactionStats(Compaction* c) {
   Statistics* statistics = ioptions_.statistics.get();
   switch (reason) {
     case CompactionReason::kFIFOMaxSize:
-      RecordTick(statistics, FIFO_DROP_FILE_MAX_SIZE);
+      RecordTick(statistics, FIFO_MAX_SIZE_COMPACTIONS);
       break;
     case CompactionReason::kFIFOTtl:
-      RecordTick(statistics, FIFO_DROP_FILE_TTL);
+      RecordTick(statistics, FIFO_TTL_COMPACTIONS);
       break;
     case CompactionReason::kChangeTemperature:
-      RecordTick(statistics, FIFO_DROP_FILE_CHANGE_TEMERATURE);
+      RecordTick(statistics, FIFO_CHANGE_TEMPERATURE_COMPACTIONS);
       break;
     default:
       break;

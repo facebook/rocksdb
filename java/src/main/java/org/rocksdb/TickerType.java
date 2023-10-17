@@ -766,11 +766,11 @@ public enum TickerType {
 
     READAHEAD_TRIMMED((byte) -0x3D),
 
-    FIFO_DROP_FILE_MAX_SIZE((byte) -0x3E),
+    FIFO_MAX_SIZE_COMPACTIONS((byte) -0x3E),
 
-    FIFO_DROP_FILE_TTL((byte) -0x3F),
+    FIFO_TTL_COMPACTIONS((byte) -0x3F),
 
-    FIFO_DROP_FILE_CHANGE_TEMERATURE((byte) -0x40),
+    FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x40),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
