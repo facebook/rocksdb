@@ -231,7 +231,6 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   }
 };
 
-// EXPERIMENTAL
 // Comparator with 64-bit integer timestamp.
 // We did not performance test this yet.
 template <typename TComparator>
