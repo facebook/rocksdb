@@ -53,9 +53,15 @@ class IteratorWrapperBase {
   void DeleteIter(bool is_arena_mode) {
     if (iter_) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
-      // If this assertion fails, it is likely that you did not check
-      // iterator status after Valid() returns false.
-      assert(status_checked_after_invalid_);
+      if (!status_checked_after_invalid_) {
+        // If this assertion fails, it is likely that you did not check
+        // iterator status after Valid() returns false.
+        fprintf(stderr,
+                "Failed to check status after Valid() returned false from this "
+                "iterator.\n");
+        port::PrintStack();
+        std::abort();
+      }
 #endif
       if (!is_arena_mode) {
         delete iter_;
