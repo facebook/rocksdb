@@ -42,7 +42,8 @@ class ErrorHandler {
         recovery_in_prog_(false),
         soft_error_no_bg_work_(false),
         is_db_stopped_(false),
-        bg_error_stats_(db_options.statistics) {
+        bg_error_stats_(db_options.statistics),
+        recovery_disabled_file_deletion_(false) {
     // Clear the checked flag for uninitialized errors
     bg_error_.PermitUncheckedError();
     recovery_error_.PermitUncheckedError();
@@ -107,6 +108,10 @@ class ErrorHandler {
 
   // The pointer of DB statistics.
   std::shared_ptr<Statistics> bg_error_stats_;
+
+  // Tracks whether the recovery has disabled file deletion. This boolean flag
+  // is updated while holding db mutex.
+  bool recovery_disabled_file_deletion_;
 
   const Status& HandleKnownErrors(const Status& bg_err,
                                   BackgroundErrorReason reason);
