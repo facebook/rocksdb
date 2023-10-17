@@ -197,6 +197,8 @@ class DBImpl : public DB {
   Status PutEntity(const WriteOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
+  Status PutEntity(const WriteOptions& options, const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
 
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,

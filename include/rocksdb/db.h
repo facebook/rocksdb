@@ -435,6 +435,10 @@ class DB {
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns);
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const WriteOptions& options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
