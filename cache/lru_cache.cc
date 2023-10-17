@@ -20,6 +20,14 @@
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 
+#ifdef __SSE4_2__
+#ifdef _WIN32
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
 
@@ -43,7 +51,24 @@ LRUHandleTable::~LRUHandleTable() {
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
-  return *FindPointer(key, hash);
+  LRUHandle** ptr = FindPointer(key, hash);
+  LRUHandle* result = *ptr;
+#ifdef __SSE4_2__  // More than enough to guarantee rdtsc instruction
+  // Use sampling to heuristically bump popular entries to the front of the
+  // list.
+  constexpr int kSampleMatchBits = 10;
+  if (result != nullptr &&
+      UNLIKELY((hash >> (32 - kSampleMatchBits)) ==
+               (_rdtsc() & ((uint32_t{1} << kSampleMatchBits) - 1)))) {
+    // Remove
+    *ptr = result->next_hash;
+    // Re-add
+    LRUHandle** head = &list_[hash >> (32 - length_bits_)];
+    result->next_hash = *head;
+    *head = result;
+  }
+#endif
+  return result;
 }
 
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
