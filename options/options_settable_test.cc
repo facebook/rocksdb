@@ -157,8 +157,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   // GetBlockBasedTableOptionsFromString().
   bbto = new (bbto_ptr) BlockBasedTableOptions();
   FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoExcluded);
-  // This option is not setable:
-  bbto->use_delta_encoding = true;
 
   char* new_bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
   BlockBasedTableOptions* new_bbto =
@@ -191,6 +189,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "metadata_block_size=1024;"
       "partition_filters=false;"
       "optimize_filters_for_memory=true;"
+      "use_delta_encoding=true;"
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
       "construct_corruption=false;"

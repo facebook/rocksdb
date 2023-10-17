@@ -308,9 +308,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        // TODO "use_delta_encoding" has not been persisted -
-        // this may have been an omission, but changing this now might be a
-        // breaker
+        {"use_delta_encoding",
+         {offsetof(struct BlockBasedTableOptions, use_delta_encoding),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"filter_policy",
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),
