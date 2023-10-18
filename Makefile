@@ -994,7 +994,7 @@ endif
 
 .PHONY: check_0
 check_0:
-	printf '%s\n' ''						\
+	@printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{ \
@@ -1016,7 +1016,7 @@ valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.
 .PHONY: valgrind_check_0
 valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
-	printf '%s\n' ''						\
+	@printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{								\
