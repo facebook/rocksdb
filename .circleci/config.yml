@@ -78,6 +78,11 @@ commands:
           shell: powershell.exe
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
+      - run:
+          name: "Test RocksJava"
+          command: |
+            cd build\java
+            & $Env:CTEST_BIN -C Debug -j 16
   pre-steps-macos:
       steps:
         - pre-steps
@@ -566,6 +571,7 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
@@ -581,6 +587,7 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
