@@ -3,11 +3,19 @@ package org.rocksdb.util;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Locale;
 
 public class Environment {
-  private static String OS = System.getProperty("os.name").toLowerCase();
-  private static String ARCH = System.getProperty("os.arch").toLowerCase();
+  @SuppressWarnings("FieldMayBeFinal")
+  private static String OS = System.getProperty("os.name").toLowerCase(Locale.getDefault());
+  @SuppressWarnings("FieldMayBeFinal")
+  private static String ARCH = System.getProperty("os.arch").toLowerCase(Locale.getDefault());
+  @SuppressWarnings("FieldMayBeFinal")
   private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
+
+  private static final String LIBC_MUSL_PREFIX = "libc.musl";
+
+  private static final String SPARCV9 = "sparcv9";
 
   /**
    * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static
@@ -70,6 +78,7 @@ public class Environment {
    *
    * @return true if the environment has a musl libc, false otherwise.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   static boolean initIsMuslLibc() {
     // consider explicit user setting from environment first
     if ("true".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
@@ -114,7 +123,7 @@ public class Environment {
         return false;
       }
       for (final File f : libFiles) {
-        if (f.getName().startsWith("libc.musl")) {
+        if (f.getName().startsWith(LIBC_MUSL_PREFIX)) {
           return true;
         }
       }
@@ -132,7 +141,7 @@ public class Environment {
   }
 
   public static boolean is64Bit() {
-    if (ARCH.indexOf("sparcv9") >= 0) {
+    if (ARCH.contains(SPARCV9)) {
       return true;
     }
     return (ARCH.indexOf("64") > 0);

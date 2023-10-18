@@ -700,6 +700,10 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["compressed_secondary_cache_ratio"] = 0.0
             dest_params["cache_type"] = dest_params["cache_type"].replace("tiered_", "")
+    else:
+        if dest_params["secondary_cache_uri"]:
+            dest_params["compressed_secondary_cache_size"] = 0
+            dest_params["compressed_secondary_cache_ratio"] = 0.0
     if dest_params["use_write_buffer_manager"]:
         if (dest_params["cache_size"] <= 0
             or dest_params["db_write_buffer_size"] <= 0):

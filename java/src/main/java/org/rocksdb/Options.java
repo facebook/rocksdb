@@ -16,11 +16,8 @@ import java.util.*;
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class Options extends RocksObject
-    implements DBOptionsInterface<Options>,
-    MutableDBOptionsInterface<Options>,
-    ColumnFamilyOptionsInterface<Options>,
-    MutableColumnFamilyOptionsInterface<Options> {
-
+    implements DBOptionsInterface<Options>, MutableDBOptionsInterface<Options>,
+               ColumnFamilyOptionsInterface<Options>, MutableColumnFamilyOptionsInterface<Options> {
   /**
    * Converts the input properties into a Options-style formatted string
    * @param properties   The set of properties to convert

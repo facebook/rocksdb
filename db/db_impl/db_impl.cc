@@ -354,7 +354,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
-  bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
     IOStatus io_s = versions_->io_status();
     if (io_s.IsIOError()) {
@@ -363,7 +362,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       // clean-up phase MANIFEST writing. We must have also disabled file
       // deletions.
       assert(!versions_->descriptor_log_);
-      assert(file_deletion_disabled);
+      assert(!IsFileDeletionsEnabled());
       // Since we are trying to recover from MANIFEST write error, we need to
       // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
       // Therefore, force writing a dummy version edit because we do not know
@@ -406,34 +405,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
-  JobContext job_context(0);
-  FindObsoleteFiles(&job_context, true);
-  mutex_.Unlock();
-
-  job_context.manifest_file_number = 1;
-  if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
-  }
-  job_context.Clean();
-
-  if (s.ok()) {
-    assert(versions_->io_status().ok());
-    // If we reach here, we should re-enable file deletions if it was disabled
-    // during previous error handling.
-    if (file_deletion_disabled) {
-      // Always return ok
-      s = EnableFileDeletions(/*force=*/true);
-      if (!s.ok()) {
-        ROCKS_LOG_INFO(
-            immutable_db_options_.info_log,
-            "DB resume requested but could not enable file deletions [%s]",
-            s.ToString().c_str());
-        assert(false);
-      }
-    }
-  }
-
-  mutex_.Lock();
   if (s.ok()) {
     // This will notify and unblock threads waiting for error recovery to
     // finish. Those previouly waiting threads can now proceed, which may
@@ -446,6 +417,15 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
 
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  mutex_.Unlock();
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   } else {
@@ -453,6 +433,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
                    s.ToString().c_str());
   }
 
+  mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -1230,8 +1211,7 @@ Status DBImpl::SetOptions(
       // thread.
       InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
 
-      persist_options_status = WriteOptionsFile(
-          false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+      persist_options_status = WriteOptionsFile(true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
     }
   }
@@ -1273,7 +1253,8 @@ Status DBImpl::SetDBOptions(
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
-  bool wal_changed = false;
+  bool wal_size_option_changed = false;
+  bool wal_other_option_changed = false;
   WriteContext write_context;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -1374,8 +1355,10 @@ Status DBImpl::SetDBOptions(
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
                                           ? TableCache::kInfiniteCapacity
                                           : new_options.max_open_files - 10);
-      wal_changed = mutable_db_options_.wal_bytes_per_sync !=
-                    new_options.wal_bytes_per_sync;
+      wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
+                                 new_options.wal_bytes_per_sync;
+      wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
+                                new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
@@ -1386,19 +1369,21 @@ Status DBImpl::SetDBOptions(
           file_options_for_compaction_, immutable_db_options_);
       file_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
-      WriteThread::Writer w;
-      write_thread_.EnterUnbatched(&w, &mutex_);
-      if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
-        Status purge_wal_status = SwitchWAL(&write_context);
-        if (!purge_wal_status.ok()) {
-          ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                         "Unable to purge WAL files in SetDBOptions() -- %s",
-                         purge_wal_status.ToString().c_str());
+      if (wal_other_option_changed || wal_size_option_changed) {
+        WriteThread::Writer w;
+        write_thread_.EnterUnbatched(&w, &mutex_);
+        if (wal_other_option_changed ||
+            total_log_size_ > GetMaxTotalWalSize()) {
+          Status purge_wal_status = SwitchWAL(&write_context);
+          if (!purge_wal_status.ok()) {
+            ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                           "Unable to purge WAL files in SetDBOptions() -- %s",
+                           purge_wal_status.ToString().c_str());
+          }
         }
+        write_thread_.ExitUnbatched(&w);
       }
-      persist_options_status = WriteOptionsFile(
-          false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
-      write_thread_.ExitUnbatched(&w);
+      persist_options_status = WriteOptionsFile(true /*db_mutex_already_held*/);
     } else {
       // To get here, we must have had invalid options and will not attempt to
       // persist the options, which means the status is "OK/Uninitialized.
@@ -3406,8 +3391,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
     }
   }
   // Attempt both follow-up actions even if one fails
-  Status s = WriteOptionsFile(true /*need_mutex_lock*/,
-                              true /*need_enter_write_thread*/);
+  Status s = WriteOptionsFile(false /*db_mutex_already_held*/);
   if (register_worker) {
     s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false));
   }
@@ -3577,8 +3561,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
-    s = WriteOptionsFile(true /*need_mutex_lock*/,
-                         true /*need_enter_write_thread*/);
+    s = WriteOptionsFile(false /*db_mutex_already_held*/);
   }
   return s;
 }
@@ -3596,8 +3579,8 @@ Status DBImpl::DropColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+    Status persist_options_status =
+        WriteOptionsFile(false /*db_mutex_already_held*/);
     if (s.ok() && !persist_options_status.ok()) {
       s = persist_options_status;
     }
@@ -5225,18 +5208,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   return result;
 }
 
-Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
-                                bool need_enter_write_thread) {
+Status DBImpl::WriteOptionsFile(bool db_mutex_already_held) {
   options_mutex_.AssertHeld();
 
-  WriteThread::Writer w;
-  if (need_mutex_lock) {
-    mutex_.Lock();
-  } else {
+  if (db_mutex_already_held) {
     mutex_.AssertHeld();
-  }
-  if (need_enter_write_thread) {
-    write_thread_.EnterUnbatched(&w, &mutex_);
+  } else {
+    mutex_.Lock();
   }
 
   std::vector<std::string> cf_names;
@@ -5251,10 +5229,10 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
     cf_opts.push_back(cfd->GetLatestCFOptions());
   }
 
-  // Unlock during expensive operations.  New writes cannot get here
-  // because the single write thread ensures all new writes get queued.
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+
+  // Unlock during expensive operations.
   mutex_.Unlock();
 
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
@@ -5279,22 +5257,22 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
     }
   }
 
-  // restore lock
-  if (!need_mutex_lock) {
-    mutex_.Lock();
-  }
-  if (need_enter_write_thread) {
-    write_thread_.ExitUnbatched(&w);
-  }
   if (!s.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Unnable to persist options -- %s", s.ToString().c_str());
     if (immutable_db_options_.fail_if_options_file_error) {
-      return Status::IOError("Unable to persist options.",
-                             s.ToString().c_str());
+      s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+    } else {
+      // Ignore error
+      s = Status::OK();
     }
   }
-  return Status::OK();
+
+  // Restore lock if appropriate
+  if (db_mutex_already_held) {
+    mutex_.Lock();
+  }
+  return s;
 }
 
 namespace {
