@@ -2623,6 +2623,7 @@ TEST_P(ExternalSSTFileTest,
       "AfterRead");
   ingest_thread.join();
   for (auto* iter : iters) {
+    ASSERT_OK(iter->status());
     delete iter;
   }
   iters.clear();
