@@ -1257,6 +1257,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         if (sequence == *next_sequence) {
           stop_replay_for_corruption = false;
         }
+        if (sequence > kMaxSequenceNumber) {
+          stop_replay_for_corruption = true;
+          corrupted_wal_number = wal_number;
+          if (corrupted_wal_found != nullptr) {
+            *corrupted_wal_found = true;
+          }
+        }
         if (stop_replay_for_corruption) {
           logFileDropped();
           break;
