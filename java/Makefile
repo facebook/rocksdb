@@ -142,6 +142,7 @@ JAVA_TESTS = \
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
+	org.rocksdb.KeyExistsTest \
 	org.rocksdb.KeyMayExistTest\
 	org.rocksdb.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
