@@ -446,30 +446,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
         cf_name, mutable_cf_options, mutable_db_options, vstorage, log_buffer);
   }
   RegisterCompaction(c);
-  UpdateCompactionStats(c);
   return c;
-}
-
-void FIFOCompactionPicker::UpdateCompactionStats(Compaction* c) {
-  if (c == nullptr || ioptions_.statistics == nullptr) {
-    return;
-  }
-
-  CompactionReason reason = c->compaction_reason();
-  Statistics* statistics = ioptions_.statistics.get();
-  switch (reason) {
-    case CompactionReason::kFIFOMaxSize:
-      RecordTick(statistics, FIFO_MAX_SIZE_COMPACTIONS);
-      break;
-    case CompactionReason::kFIFOTtl:
-      RecordTick(statistics, FIFO_TTL_COMPACTIONS);
-      break;
-    case CompactionReason::kChangeTemperature:
-      RecordTick(statistics, FIFO_CHANGE_TEMPERATURE_COMPACTIONS);
-      break;
-    default:
-      break;
-  }
 }
 
 Compaction* FIFOCompactionPicker::CompactRange(

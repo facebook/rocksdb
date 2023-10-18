@@ -9007,7 +9007,6 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
   options.max_open_files = -1;
   options.level0_file_num_compaction_trigger = 2;
   options.create_if_missing = true;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   CompactionOptionsFIFO fifo_options;
   fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
   fifo_options.max_table_files_size = 100000000;
@@ -9060,12 +9059,6 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
   ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
   ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
   ASSERT_EQ(2, total_cold);
-
-  ASSERT_GT(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
 
   Destroy(options);
 }

@@ -770,8 +770,6 @@ public enum TickerType {
 
     FIFO_TTL_COMPACTIONS((byte) -0x3F),
 
-    FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x40),
-
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

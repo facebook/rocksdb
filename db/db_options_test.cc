@@ -994,9 +994,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
 
   // Set ttl to 1 minute. So all files should get deleted.
@@ -1007,9 +1004,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   ASSERT_GT(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
   ASSERT_OK(options.statistics->Reset());
 
@@ -1037,9 +1031,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
 
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
@@ -1052,9 +1043,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 
   ASSERT_GT(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
   ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
   ASSERT_OK(options.statistics->Reset());
 
@@ -1082,13 +1070,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
-  ASSERT_OK(options.statistics->Reset());
-
   // Set allow_compaction to true. So number of files should be between 1 and 5.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo", "{allow_compaction=true;}"}}));
@@ -1098,13 +1079,6 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(NumTableFilesAtLevel(0), 1);
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
-
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
-  ASSERT_EQ(
-      options.statistics->getTickerCount(FIFO_CHANGE_TEMPERATURE_COMPACTIONS),
-      0);
-  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
-  ASSERT_OK(options.statistics->Reset());
 
   // Test dynamically setting `file_temperature_age_thresholds`
   ASSERT_TRUE(

@@ -1,1 +1,1 @@
-Added new tickers `rocksdb.fifo.{max.size|ttl|change.temperature}.compactions` to count FIFO compactions that drop files for different reasons
+Added new tickers `rocksdb.fifo.{max.size|ttl}.compactions` to count FIFO compactions that drop files for different reasons

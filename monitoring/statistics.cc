@@ -261,8 +261,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {READAHEAD_TRIMMED, "rocksdb.readahead.trimmed"},
     {FIFO_MAX_SIZE_COMPACTIONS, "rocksdb.fifo.max.size.compactions"},
     {FIFO_TTL_COMPACTIONS, "rocksdb.fifo.ttl.compactions"},
-    {FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
-     "rocksdb.fifo.change.temperature.compactions"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

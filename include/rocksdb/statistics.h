@@ -521,7 +521,6 @@ enum Tickers : uint32_t {
   // Number of FIFO compactions that drop files based on different reasons
   FIFO_MAX_SIZE_COMPACTIONS,
   FIFO_TTL_COMPACTIONS,
-  FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
 
   TICKER_ENUM_MAX
 };
