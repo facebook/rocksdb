@@ -281,8 +281,10 @@ struct TestHandler : public WriteBatch::Handler {
   Status PutEntityCF(uint32_t column_family_id, const Slice& key,
                      const Slice& entity) override {
     std::ostringstream oss;
-    WideColumnsHelper::DumpSliceAsWideColumns(entity, oss, false);
-
+    Status s = WideColumnsHelper::DumpSliceAsWideColumns(entity, oss, false);
+    if (!s.ok()) {
+      return s;
+    }
     if (column_family_id == 0) {
       seen += "PutEntity(" + key.ToString() + ", " + oss.str().c_str() + ")";
     } else {
