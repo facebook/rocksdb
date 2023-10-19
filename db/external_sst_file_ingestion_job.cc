@@ -793,7 +793,20 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    auto largest = iter->key();
+    if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+      // Not Support SeekToLast , have to iter all key
+      // mostly would happen in PlainTable
+      iter->SeekToFirst();
+
+      for (; iter->Valid(); iter->Next()) {
+        if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
+          largest = iter->key();
+        }
+      }
+    }
+
+    pik_status = ParseInternalKey(largest, &key, allow_data_in_errors);
     if (!pik_status.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pik_status.getState());

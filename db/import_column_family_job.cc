@@ -367,7 +367,19 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
     if (iter->Valid()) {
       file_to_import->smallest_internal_key.DecodeFrom(iter->key());
       iter->SeekToLast();
-      file_to_import->largest_internal_key.DecodeFrom(iter->key());
+      auto largest = iter->key();
+      if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+        // Not Support SeekToLast , have to iter all key
+        // mostly would happen in PlainTable
+        iter->SeekToFirst();
+
+        for (; iter->Valid(); iter->Next()) {
+          if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
+            largest = iter->key();
+          }
+        }
+      }
+      file_to_import->largest_internal_key.DecodeFrom(largest);
       bound_set = true;
     }
 
