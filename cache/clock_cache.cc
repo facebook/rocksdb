@@ -2022,14 +2022,13 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   // Grow to ensure length_info_ (published GetTableSize()) is fully up to
   // date. Probe for first unused slot to ensure we see the whole structure.
   size_t used_end = GetTableSize();
-  size_t max_end = occupancy_limit_.load();
   while (used_end < array_.Count() &&
          array_[used_end].head_next_with_shift.load() !=
              HandleImpl::kUnusedMarker) {
     used_end++;
   }
 #ifndef NDEBUG
-  for (size_t i = used_end; i < max_end; i++) {
+  for (size_t i = used_end; i < array_.Count(); i++) {
     assert(array_[i].head_next_with_shift.load() == 0);
     assert(array_[i].chain_next_with_shift.load() == 0);
     assert(array_[i].meta.load() == 0);
