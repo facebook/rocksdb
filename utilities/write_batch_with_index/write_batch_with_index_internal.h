@@ -271,7 +271,7 @@ class WBWIIteratorImpl : public WBWIIterator {
   }
 
   void SeekForPrev(const Slice& key) override {
-    if (AfterUpperBound(&key)) {  // cap to prevent out of bound
+    if (AtOrAfterUpperBound(&key)) {  // cap to prevent out of bound
       SeekToLast();
       return;
     }
@@ -345,7 +345,7 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   bool TestOutOfBound() const {
     const Slice& curKey = Entry().key;
-    return AfterUpperBound(&curKey) || BeforeLowerBound(&curKey);
+    return AtOrAfterUpperBound(&curKey) || BeforeLowerBound(&curKey);
   }
 
   bool ValidRegardlessOfBoundLimit() const {
@@ -357,7 +357,7 @@ class WBWIIteratorImpl : public WBWIIterator {
            iter_entry->column_family == column_family_id_;
   }
 
-  bool AfterUpperBound(const Slice* k) const {
+  bool AtOrAfterUpperBound(const Slice* k) const {
     if (iterate_upper_bound_ == nullptr) {
       return false;
     }
