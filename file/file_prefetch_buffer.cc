@@ -938,8 +938,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
       roundup_end2 = Roundup(rounddown_start2 + prefetch_size, alignment);
       uint64_t roundup_len2 = roundup_end2 - rounddown_start2;
 
-      assert(roundup_len2 >= alignment);
-
       CalculateOffsetAndLen(alignment, rounddown_start2, roundup_len2, second,
                             false, chunk_len2);
       assert(chunk_len2 == 0);

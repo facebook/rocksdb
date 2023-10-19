@@ -250,11 +250,21 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // BlockHandleInfo is used to store the info needed when block cache lookup
   // ahead is enabled to tune readahead_size.
   struct BlockHandleInfo {
-    BlockHandleInfo() {}
+    void SetFirstInternalKey(const Slice& key) {
+      if (key.empty()) {
+        return;
+      }
+      size_t size = key.size();
+      buf_ = std::unique_ptr<char[]>(new char[size]);
+      memcpy(buf_.get(), key.data(), size);
+      first_internal_key_ = Slice(buf_.get(), size);
+    }
 
-    IndexValue index_val_;
+    BlockHandle handle_;
     bool is_cache_hit_ = false;
     CachableEntry<Block> cachable_entry_;
+    Slice first_internal_key_;
+    std::unique_ptr<char[]> buf_;
   };
 
   bool IsIndexAtCurr() const { return is_index_at_curr_block_; }

@@ -2228,6 +2228,7 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
       data.push_back(
           std::make_pair(iter->key().ToString(), iter->value().ToString()));
     }
+    EXPECT_OK(iter->status());
     delete iter;
     return data;
   };
