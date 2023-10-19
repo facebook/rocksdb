@@ -52,7 +52,7 @@ class SnapshotImpl : public Snapshot {
 };
 
 // RocksDB-Cloud contribution begin
-class SuperVersion;
+struct SuperVersion;
 class ColumnFamilyData;
 class SuperSnapshotImpl : public SnapshotImpl {
  public:
