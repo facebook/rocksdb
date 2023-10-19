@@ -3704,6 +3704,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
+    if (status.ok() && io_s.ok()) {
+      UpdateDeletionCompactionStats(c);
+    }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
@@ -4080,6 +4083,27 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
     return false;
   }
   return false;
+}
+
+void DBImpl::UpdateDeletionCompactionStats(
+    const std::unique_ptr<Compaction>& c) {
+  if (c == nullptr) {
+    return;
+  }
+
+  CompactionReason reason = c->compaction_reason();
+
+  switch (reason) {
+    case CompactionReason::kFIFOMaxSize:
+      RecordTick(stats_, FIFO_MAX_SIZE_COMPACTIONS);
+      break;
+    case CompactionReason::kFIFOTtl:
+      RecordTick(stats_, FIFO_TTL_COMPACTIONS);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 void DBImpl::BuildCompactionJobInfo(
