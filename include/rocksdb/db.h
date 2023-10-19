@@ -848,6 +848,23 @@ class DB {
   // not support snapshot (eg: inplace_update_support enabled).
   virtual const Snapshot* GetSnapshot() = 0;
 
+  // RocksDB-Cloud contribution begin
+  // SuperSnapshot is a combination of a snapshot and a super-version. They
+  // fulfill the same goal as snapshots, i.e. provide a consistent view of the
+  // database. However, unlike snapshots, they also pin the current
+  // super-version (memtable, immutable memtable list and file LSM tree). In
+  // that way they are similar to iterators, which also pin the current
+  // super-version for the duration of their lifetime.
+  // Each super-snapshot is tied to a column family and the column family in the
+  // read request has to match with the column family of the snapshot.
+  //
+  // Just like the regular snapshot, the caller must call ReleaseSnapshot() when
+  // it's done with the snapshot, and before closing the database.
+  virtual Status GetSuperSnapshots(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<const Snapshot*>* snapshots) = 0;
+  // RocksDB-Cloud contribution end
+
   // Release a previously acquired snapshot.  The caller must not
   // use "snapshot" after this call.
   virtual void ReleaseSnapshot(const Snapshot* snapshot) = 0;

@@ -3196,6 +3196,12 @@ class ModelDB : public DB {
     return snapshot;
   }
 
+  virtual Status GetSuperSnapshots(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<const Snapshot*>* snapshots) {
+    return Status::NotSupported("");
+  }
+
   void ReleaseSnapshot(const Snapshot* snapshot) override {
     delete reinterpret_cast<const ModelSnapshot*>(snapshot);
   }

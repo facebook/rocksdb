@@ -245,6 +245,14 @@ class StackableDB : public DB {
 
   virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
+  // RocksDB-Cloud contribution begin
+  Status GetSuperSnapshots(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<const Snapshot*>* snapshots) override {
+    return db_->GetSuperSnapshots(column_families, snapshots);
+  }
+  // RocksDB-Cloud contribution end
+
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override {
     return db_->ReleaseSnapshot(snapshot);
   }

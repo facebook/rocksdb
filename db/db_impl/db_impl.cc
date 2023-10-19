@@ -2332,6 +2332,16 @@ InternalIterator* DBImpl::NewInternalIterator(
                                      !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
+
+  // Code related to super_snapshot in this function was contributed by
+  // RocksDB-Cloud
+  auto super_snapshot =
+      dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+  // Tricky: it's possible for NewInternalIterator to be passed super snapshot,
+  // but the super version given doesn't match the super snapshot. This is true
+  // for code paths that don't support super snapshot yet.
+  auto super_snapshot_owns_super_version =
+      super_snapshot ? super_snapshot->sv() == super_version : false;
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
@@ -2341,14 +2351,19 @@ InternalIterator* DBImpl::NewInternalIterator(
     }
     internal_iter = merge_iter_builder.Finish(
         read_options.ignore_range_deletions ? nullptr : db_iter);
-    SuperVersionHandle* cleanup = new SuperVersionHandle(
-        this, &mutex_, super_version,
-        read_options.background_purge_on_iterator_cleanup ||
-            immutable_db_options_.avoid_unnecessary_blocking_io);
-    internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup, nullptr);
+    // Do not clean up the super version if super snapshot owns it
+    if (!super_snapshot_owns_super_version) {
+      SuperVersionHandle* cleanup = new SuperVersionHandle(
+          this, &mutex_, super_version,
+          read_options.background_purge_on_iterator_cleanup ||
+              immutable_db_options_.avoid_unnecessary_blocking_io);
+      internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup,
+                                     nullptr);
+    }
 
     return internal_iter;
-  } else {
+  } else if (!super_snapshot_owns_super_version) {
+    // Do not clean up the super version if super snapshot owns it
     CleanupSuperVersion(super_version);
   }
   return NewErrorInternalIterator<Slice>(s, arena);
@@ -2487,8 +2502,20 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   }
 
+  // RocksDB-Cloud contribution begin
+  auto super_snapshot =
+      dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+  if (super_snapshot && cfd->GetID() != super_snapshot->cfd()->GetID()) {
+    std::ostringstream oss;
+    oss << "SuperSnapshot column family " << super_snapshot->cfd()->GetName()
+        << " doesn't match provided column family " << cfd->GetName();
+    return Status::InvalidArgument(oss.str());
+  }
+
   // Acquire SuperVersion
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  SuperVersion* sv =
+      super_snapshot ? super_snapshot->sv() : GetAndRefSuperVersion(cfd);
+  // RocksDB-Cloud contribution end
 
   TEST_SYNC_POINT("DBImpl::GetImpl:1");
   TEST_SYNC_POINT("DBImpl::GetImpl:2");
@@ -2612,7 +2639,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         RecordTick(stats_, MEMTABLE_HIT);
       }
     }
-    if (!done && !s.ok() && !s.IsMergeInProgress()) {
+    // RocksDB-Cloud contribution begin
+    if (!super_snapshot && !done && !s.ok() && !s.IsMergeInProgress()) {
+      // RocksDB-Cloud contribution end
       ReturnAndCleanupSuperVersion(cfd, sv);
       return s;
     }
@@ -2715,7 +2744,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
-    ReturnAndCleanupSuperVersion(cfd, sv);
+    // RocksDB-Cloud contribution begin
+    if (!super_snapshot) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
+    }
+    // RocksDB-Cloud contribution end
 
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
@@ -2743,6 +2776,11 @@ std::vector<Status> DBImpl::MultiGet(
   assert(column_family.size() == num_keys);
   std::vector<Status> stat_list(num_keys);
 
+  // RocksDB-Cloud contribution begin
+  auto super_snapshot =
+      dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+  // RocksDB-Cloud contribution end
+
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
@@ -2758,6 +2796,18 @@ std::vector<Status> DBImpl::MultiGet(
         should_fail = true;
       }
     }
+    // RocksDB-Cloud contribution begin
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family[i]);
+    auto cfd = cfh->cfd();
+    if (super_snapshot && cfd->GetID() != super_snapshot->cfd()->GetID()) {
+      std::ostringstream oss;
+      oss << "[MultiGet] SuperSnapshot column family "
+          << super_snapshot->cfd()->GetName()
+          << " doesn't match provided column family " << cfd->GetName();
+      stat_list[i] = Status::InvalidArgument(oss.str());
+      should_fail = true;
+    }
+    // RocksDB-Cloud contribution end
   }
 
   if (should_fail) {
@@ -2914,12 +2964,18 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_GUARD(get_post_process_time);
   autovector<SuperVersion*> superversions_to_delete;
 
-  for (auto mgd_iter : multiget_cf_data) {
-    auto mgd = mgd_iter.second;
-    if (!unref_only) {
-      ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
-    } else {
-      mgd.cfd->GetSuperVersion()->Unref();
+  // Only cleanup the super versions if we don't have super snapshot, which
+  // brought its own superversion.
+  // RocksDB-Cloud contribution begin
+  if (!dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
+  // RocksDB-Cloud contribution end
+    for (auto mgd_iter : multiget_cf_data) {
+      auto mgd = mgd_iter.second;
+      if (!unref_only) {
+        ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
+      } else {
+        mgd.cfd->GetSuperVersion()->Unref();
+      }
     }
   }
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
@@ -2947,7 +3003,12 @@ bool DBImpl::MultiCFSnapshot(
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
-    node->super_version = GetAndRefSuperVersion(node->cfd);
+    // RocksDB-Cloud contribution begin
+    auto super_snapshot =
+        dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+    node->super_version = super_snapshot ? super_snapshot->sv()
+                                         : GetAndRefSuperVersion(node->cfd);
+    // RocksDB-Cloud contribution end
     if (read_options.snapshot != nullptr) {
       // Note: In WritePrepared txns this is not necessary but not harmful
       // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
@@ -2976,6 +3037,10 @@ bool DBImpl::MultiCFSnapshot(
       *snapshot = GetLastPublishedSequence();
     }
   } else {
+    // RocksDB-Cloud contribution begin
+    // MultiGet across column families is not supported with super snapshot
+    assert(!dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot));
+    // RocksDB-Cloud contribution end
     // If we end up with the same issue of memtable geting sealed during 2
     // consecutive retries, it means the write rate is very high. In that case
     // its probably ok to take the mutex on the 3rd try so we can succeed for
@@ -3069,6 +3134,15 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   if (num_keys == 0) {
     return;
   }
+
+  // RocksDB-Cloud contribution begin
+  if (dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported(
+          "MultiGet with timestamps does not support super snapshot");
+    }
+  }
+  // RocksDB-Cloud contribution end
 
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
@@ -3770,6 +3844,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     result = nullptr;
 
 #else
+    if (dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
+      return NewErrorIterator(Status::NotSupported(
+          "Tailing iterator not supported with super snapshot"));
+    }
+
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
@@ -3780,6 +3859,19 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         this, cfd);
 #endif
   } else {
+    // RocksDB-Cloud contribution begin
+    auto super_snapshot =
+        dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+    if (super_snapshot && cfd->GetID() != super_snapshot->cfd()->GetID()) {
+      std::ostringstream oss;
+      oss << "SuperSnapshot column family " << super_snapshot->cfd()->GetName()
+          << " doesn't match provided column family " << cfd->GetName();
+      // We do a check here instead of in NewIteratorImpl because
+      // NewIteratorImpl returns ArenaWrappedDBIter, which ErrorIterator does
+      // not subclass
+      return NewErrorIterator(Status::InvalidArgument(oss.str()));
+    }
+    // RocksDB-Cloud contribution end
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
@@ -3798,7 +3890,14 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ReadCallback* read_callback,
                                             bool expose_blob_index,
                                             bool allow_refresh) {
-  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  // RocksDB-Cloud contribution begin
+  auto super_snapshot =
+      dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+
+  // Acquire SuperVersion
+  SuperVersion* sv = super_snapshot ? super_snapshot->sv()
+                                    : cfd->GetReferencedSuperVersion(this);
+  // RocksDB-Cloud contribution end
 
   TEST_SYNC_POINT("DBImpl::NewIterator:1");
   TEST_SYNC_POINT("DBImpl::NewIterator:2");
@@ -3913,6 +4012,10 @@ Status DBImpl::NewIterators(
     return Status::InvalidArgument(
         "Tailing iterator not supported in RocksDB lite");
 #else
+    if (dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
+      return Status::NotSupported(
+          "Tailing iterator not supported with super snapshot");
+    }
     for (auto cfh : column_families) {
       auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
@@ -3936,6 +4039,18 @@ Status DBImpl::NewIterators(
       auto* cfd =
           static_cast_with_check<ColumnFamilyHandleImpl>(column_families[i])
               ->cfd();
+      // RocksDB-Cloud contribution begin
+      auto super_snapshot =
+          dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot);
+      if (super_snapshot && cfd->GetID() != super_snapshot->cfd()->GetID()) {
+        std::ostringstream oss;
+        oss << "SuperSnapshot column family " << super_snapshot->cfd()->GetName()
+            << " doesn't match provided column family " << cfd->GetName();
+        // We do a check here instead of in NewIteratorImpl because
+        // NewIteratorImpl returns ArenaWrappedDBIter, which ErrorIterator does
+        // not subclass
+        return Status::InvalidArgument(oss.str());
+      }
       iterators->push_back(
           NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
@@ -3953,6 +4068,40 @@ SequenceNumber DBImpl::GetIteratorSequenceNumber(Iterator* it) {
 }
 
 const Snapshot* DBImpl::GetSnapshot() { return GetSnapshotImpl(false); }
+
+// RocksDB-Cloud contribution begin
+Status DBImpl::GetSuperSnapshots(
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<const Snapshot*>* snapshots) {
+#ifndef ROCKSDB_USE_RTTI
+  return Status::InvalidArgument(
+      "GetSuperSnapshots only supported in RocksDB compiled with USE_RTTI=1");
+#endif
+  if (!is_snapshot_supported_) {
+    return Status::InvalidArgument("Snapshot not supported");
+  }
+
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+
+  auto snapshot_seq = GetLastPublishedSequence();
+
+  snapshots->reserve(column_families.size());
+
+  for (auto& cf : column_families) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+    auto cfd = cfh->cfd();
+    auto sv = cfd->GetReferencedSuperVersion(this);
+    auto ss = new SuperSnapshotImpl(cfd, sv);
+    snapshots_.New(ss, snapshot_seq, unix_time,
+                   /*is_write_conflict_boundary=*/false);
+    snapshots->push_back(ss);
+  }
+
+  return Status::OK();
+}
+// RocksDB-Cloud contribution end
 
 #ifndef ROCKSDB_LITE
 const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
@@ -4159,6 +4308,12 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     // inplace_update_support enabled.
     return;
   }
+  // RocksDB-Cloud contribution begin
+  if (auto ss = dynamic_cast<const SuperSnapshotImpl*>(s)) {
+    CleanupSuperVersion(ss->sv());
+  }
+  // RocksDB-Cloud contribution end
+
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
     InstrumentedMutexLock l(&mutex_);

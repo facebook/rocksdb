@@ -345,6 +345,11 @@ class DBImpl : public DB {
   SequenceNumber GetIteratorSequenceNumber(Iterator* it) override;
 
   virtual const Snapshot* GetSnapshot() override;
+  // RocksDB-Cloud contribution begin
+  Status GetSuperSnapshots(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<const Snapshot*>* snapshots) override;
+  // RocksDB-Cloud contribution end
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then

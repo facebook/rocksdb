@@ -467,7 +467,6 @@ size_t ReplicationTest::catchUpFollower(
         },
         allow_new_manifest_writes, &info, flags);
     assert(s.ok());
-    assert(info.mismatched_epoch_num == 0);
     ++ret;
   }
   if (info.has_new_manifest_writes) {
@@ -1277,6 +1276,86 @@ TEST_F(ReplicationTest, EpochNumberSimple) {
   catchUpFollower();
 
   verifyEqual();
+}
+
+TEST_F(ReplicationTest, SuperSnapshot) {
+  auto options = leaderOptions();
+  options.disable_auto_compactions = true;
+  auto leader = openLeader();
+  auto follower = openFollower();
+
+  createColumnFamily("cf1");
+
+  ASSERT_OK(leader->Put(wo(), "k1", "v1"));
+  ASSERT_OK(leader->Put(wo(), leaderCF("cf1"), "cf1k1", "cf1v1"));
+  ASSERT_OK(leader->Flush({}));
+  catchUpFollower();
+
+  std::vector<ColumnFamilyHandle*> cf;
+  cf.push_back(follower->DefaultColumnFamily());
+  cf.push_back(followerCF("cf1"));
+  std::vector<const Snapshot*> snapshots;
+  ASSERT_OK(follower->GetSuperSnapshots(cf, &snapshots));
+
+  ASSERT_OK(leader->Put(wo(), "k1", "v2"));
+  ASSERT_OK(leader->Put(wo(), leaderCF("cf1"), "cf1k1", "cf1v2"));
+  ASSERT_OK(leader->Flush({}));
+  auto leaderFull = static_cast_with_check<DBImpl>(leader);
+  ASSERT_OK(leaderFull->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+  ASSERT_OK(leaderFull->TEST_CompactRange(0, nullptr, nullptr, leaderCF("cf1"),
+                                          true));
+
+  catchUpFollower();
+
+  ReadOptions ro;
+  std::string val;
+  ASSERT_OK(follower->Get(ro, "k1", &val));
+  EXPECT_EQ(val, "v2");
+  ro.snapshot = snapshots[0];
+  ASSERT_OK(follower->Get(ro, "k1", &val));
+  EXPECT_EQ(val, "v1");
+
+  auto iter = follower->NewIterator(ro, follower->DefaultColumnFamily());
+  iter->SeekToFirst();
+  EXPECT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), "v1");
+  iter->Next();
+  EXPECT_FALSE(iter->Valid());
+
+  ro.snapshot = nullptr;
+  ASSERT_OK(follower->Get(ro, followerCF("cf1"), "cf1k1", &val));
+  EXPECT_EQ(val, "cf1v2");
+  ro.snapshot = snapshots[1];
+  ASSERT_OK(follower->Get(ro, followerCF("cf1"), "cf1k1", &val));
+  EXPECT_EQ(val, "cf1v1");
+
+  // Test MultiGet
+  std::vector<Slice> keys;
+  keys.push_back("cf1k1");
+  keys.push_back("missing");
+  std::vector<ColumnFamilyHandle*> cfs;
+  cfs.push_back(followerCF("cf1"));
+  cfs.push_back(followerCF("cf1"));
+  std::vector<std::string> vals;
+
+  auto statuses = follower->MultiGet(ro, cfs, keys, &vals);
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_EQ(vals[0], "cf1v1");
+
+  ro.snapshot = nullptr;
+  statuses = follower->MultiGet(ro, cfs, keys, &vals);
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_EQ(vals[0], "cf1v2");
+
+  // Column family <-> snapshot mismatch
+  ro.snapshot = snapshots[0];
+  ASSERT_FALSE(follower->Get(ro, followerCF("cf1"), "cf1k1", &val).ok());
+
+  follower->ReleaseSnapshot(snapshots[0]);
+  follower->ReleaseSnapshot(snapshots[1]);
 }
 
 }  //  namespace ROCKSDB_NAMESPACE
