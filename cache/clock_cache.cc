@@ -1790,6 +1790,8 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
   }
 }
 
+// Assumes a chain rewrite lock prevents concurrent modification of
+// these chain pointers
 void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
                           size_t& frontier, uint64_t stop_before_or_new_tail,
                           int old_shift, int new_shift) {
@@ -1805,7 +1807,6 @@ void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
     if (next_with_shift == stop_before_or_new_tail) {
       // Stopping at entry with pointer matching "stop before"
       assert(!HandleImpl::IsEnd(next_with_shift));
-      // We need to keep a reference to it also to keep it stable.
       return;
     }
     if (HandleImpl::IsEnd(next_with_shift)) {
@@ -1817,8 +1818,7 @@ void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
       frontier = SIZE_MAX;
       return;
     }
-    // Next is another entry to process, so upgrade and unref and advance
-    // frontier
+    // Next is another entry to process, so upgrade and advance frontier
     arr[frontier].chain_next_with_shift.fetch_add(1U,
                                                   std::memory_order_acq_rel);
     assert(GetShiftFromNextWithShift(next_with_shift + 1) == new_shift);
@@ -2015,14 +2015,28 @@ AutoHyperClockTable::AutoHyperClockTable(
 }
 
 AutoHyperClockTable::~AutoHyperClockTable() {
-  // Assumes there are no references or active operations on any slot/element
-  // in the table.
-  size_t end = GetTableSize();
+  // As usual, destructor assumes there are no references or active operations
+  // on any slot/element in the table.
+
+  // It's possible that there were not enough Insert() after final concurrent
+  // Grow to ensure length_info_ (published GetTableSize()) is fully up to
+  // date. Probe for first unused slot to ensure we see the whole structure.
+  size_t used_end = GetTableSize();
+  while (used_end < array_.Count() &&
+         array_[used_end].head_next_with_shift.load() !=
+             HandleImpl::kUnusedMarker) {
+    used_end++;
+  }
 #ifndef NDEBUG
-  std::vector<bool> was_populated(end);
-  std::vector<bool> was_pointed_to(end);
+  for (size_t i = used_end; i < array_.Count(); i++) {
+    assert(array_[i].head_next_with_shift.load() == 0);
+    assert(array_[i].chain_next_with_shift.load() == 0);
+    assert(array_[i].meta.load() == 0);
+  }
+  std::vector<bool> was_populated(used_end);
+  std::vector<bool> was_pointed_to(used_end);
 #endif
-  for (size_t i = 0; i < end; i++) {
+  for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
     switch (h.meta >> ClockHandle::kStateShift) {
       case ClockHandle::kStateEmpty:
@@ -2061,7 +2075,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   // This check is not perfect, but should detect most reasonable cases
   // of abandonned or floating entries, etc.  (A floating cycle would not
   // be reported as bad.)
-  for (size_t i = 0; i < end; i++) {
+  for (size_t i = 0; i < used_end; i++) {
     if (was_populated[i]) {
       assert(was_pointed_to[i]);
     } else {
@@ -2070,8 +2084,9 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   }
 #endif
 
+  // Metadata charging only follows the published table size
   assert(usage_.load() == 0 ||
-         usage_.load() == size_t{GetTableSize()} * sizeof(HandleImpl));
+         usage_.load() == GetTableSize() * sizeof(HandleImpl));
   assert(occupancy_ == 0);
 }
 
@@ -2099,7 +2114,7 @@ void AutoHyperClockTable::StartInsert(InsertState& state) {
 // and a larger limit is used to break cycles should they occur in production.
 #define CHECK_TOO_MANY_ITERATIONS(i) \
   {                                  \
-    assert(i < 512);                 \
+    assert(i < 768);                 \
     if (UNLIKELY(i >= 4096)) {       \
       std::terminate();              \
     }                                \
@@ -2160,12 +2175,19 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
     bool own = array_[grow_home].head_next_with_shift.compare_exchange_strong(
         expected_zero, empty_head, std::memory_order_acq_rel);
     if (own) {
+      assert(array_[grow_home].meta.load(std::memory_order_acquire) == 0);
       break;
     } else {
       // Taken by another thread. Try next slot.
       assert(expected_zero != 0);
     }
   }
+#ifdef COERCE_CONTEXT_SWITCH
+  // This is useful in reproducing concurrency issues in Grow()
+  while (Random::GetTLSInstance()->OneIn(2)) {
+    std::this_thread::yield();
+  }
+#endif
   // Basically, to implement https://en.wikipedia.org/wiki/Linear_hashing
   // entries that belong in a new chain starting at grow_home will be
   // split off from the chain starting at old_home, which is computed here.
@@ -2518,7 +2540,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
   // BHome --------------------New------------> [A1] -Old-> ...
   // And we need to upgrade as much as we can on the "first" chain
   // (the one eventually pointing to the other's frontier). This will
-  // also finish off any case in which one of the targer chains will be empty.
+  // also finish off any case in which one of the target chains will be empty.
   if (chain_frontier_first >= 0) {
     size_t& first_frontier = chain_frontier_first == 0
                                  ? /*&*/ zero_chain_frontier
@@ -2638,7 +2660,9 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
   int home_shift = GetShiftFromNextWithShift(next_with_shift);
   (void)home;
   (void)home_shift;
-  HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+  size_t next = GetNextFromNextWithShift(next_with_shift);
+  assert(next < array_.Count());
+  HandleImpl* h = &arr[next];
   HandleImpl* prev_to_keep = nullptr;
 #ifndef NDEBUG
   uint64_t prev_to_keep_next_with_shift = 0;
@@ -2669,8 +2693,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
           // Entries for eviction become purgeable
           purgeable = true;
           assert((h->meta.load(std::memory_order_acquire) >>
-                  ClockHandle::kStateShift) &
-                 ClockHandle::kStateOccupiedBit);
+                  ClockHandle::kStateShift) == ClockHandle::kStateConstruction);
         }
       } else {
         (void)op_data;
@@ -2682,8 +2705,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
 
     if (purgeable) {
       assert((h->meta.load(std::memory_order_acquire) >>
-              ClockHandle::kStateShift) &
-             ClockHandle::kStateOccupiedBit);
+              ClockHandle::kStateShift) == ClockHandle::kStateConstruction);
       pending_purge = true;
     } else if (pending_purge) {
       if (prev_to_keep) {
@@ -2703,9 +2725,12 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         // Can simply restart (GetNewHead() already updated from CAS failure).
         next_with_shift = rewrite_lock.GetNewHead();
         assert(!HandleImpl::IsEnd(next_with_shift));
-        h = &arr[GetNextFromNextWithShift(next_with_shift)];
+        next = GetNextFromNextWithShift(next_with_shift);
+        assert(next < array_.Count());
+        h = &arr[next];
         pending_purge = false;
         assert(prev_to_keep == nullptr);
+        assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
         continue;
       }
       pending_purge = false;
@@ -2733,7 +2758,9 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
     if (HandleImpl::IsEnd(next_with_shift)) {
       h = nullptr;
     } else {
-      h = &arr[GetNextFromNextWithShift(next_with_shift)];
+      next = GetNextFromNextWithShift(next_with_shift);
+      assert(next < array_.Count());
+      h = &arr[next];
       assert(h != prev_to_keep);
     }
   }
@@ -3237,21 +3264,8 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
       // reinserted it into the same chain, causing us to cycle back in the
       // same chain and potentially see some entries again if we keep walking.
       // Newly-inserted entries are inserted before older ones, so we are at
-      // least guaranteed not to miss anything.
-      // * For kIsLookup, this is ok, as it's just a transient, slight hiccup
-      // in performance.
-      // * For kIsRemove, we are careful in overwriting the next pointer. The
-      // replacement value comes from the next pointer on an entry that we
-      // exclusively own. If that entry is still connected to the chain, its
-      // next must be valid for the chain. If it's not still connected to the
-      // chain (e.g. to unblock another thread Grow op), we will either not
-      // find the entry to remove on the chain or the CAS attempt to replace
-      // the appropriate next will fail, in which case we'll try again to find
-      // the removal target on the chain.
-      // * For kIsClockUpdateChain, we essentially have a special case of
-      // kIsRemove, as we only need to remove entries where we have taken
-      // ownership of one for eviction. In rare cases, we might
-      // double-clock-update some entries (ok as long as it's rare).
+      // least guaranteed not to miss anything. Here in Lookup, it's just a
+      // transient, slight hiccup in performance.
 
       if (full_match_or_unknown) {
         // Full match.
