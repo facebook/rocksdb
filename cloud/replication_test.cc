@@ -1315,13 +1315,15 @@ TEST_F(ReplicationTest, SuperSnapshot) {
   ASSERT_OK(follower->Get(ro, "k1", &val));
   EXPECT_EQ(val, "v1");
 
-  auto iter = follower->NewIterator(ro, follower->DefaultColumnFamily());
+  auto iter = std::unique_ptr<rocksdb::Iterator>(
+      follower->NewIterator(ro, follower->DefaultColumnFamily()));
   iter->SeekToFirst();
   EXPECT_TRUE(iter->Valid());
   EXPECT_EQ(iter->key(), "k1");
   EXPECT_EQ(iter->value(), "v1");
   iter->Next();
   EXPECT_FALSE(iter->Valid());
+  iter.reset();
 
   ro.snapshot = nullptr;
   ASSERT_OK(follower->Get(ro, followerCF("cf1"), "cf1k1", &val));
@@ -1339,19 +1341,33 @@ TEST_F(ReplicationTest, SuperSnapshot) {
   cfs.push_back(followerCF("cf1"));
   std::vector<std::string> vals;
 
+  // Multiget on cf1, snapshot
+  ro.snapshot = snapshots[1];
   auto statuses = follower->MultiGet(ro, cfs, keys, &vals);
   ASSERT_OK(statuses[0]);
   ASSERT_TRUE(statuses[1].IsNotFound());
   ASSERT_EQ(vals[0], "cf1v1");
 
+  // Multiget on cf1, no snapshot
   ro.snapshot = nullptr;
   statuses = follower->MultiGet(ro, cfs, keys, &vals);
   ASSERT_OK(statuses[0]);
   ASSERT_TRUE(statuses[1].IsNotFound());
   ASSERT_EQ(vals[0], "cf1v2");
 
-  // Column family <-> snapshot mismatch
+  // Multiget on default column family, snapshot, pinnable values
   ro.snapshot = snapshots[0];
+  keys[0] = "k1";
+  std::vector<PinnableSlice> pinnableValues;
+  pinnableValues.resize(2);
+  follower->MultiGet(ro, follower->DefaultColumnFamily(), 2,
+                                keys.data(), pinnableValues.data(), statuses.data(), true);
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_EQ(pinnableValues[0], "v1");
+  pinnableValues.clear();
+
+  // Column family <-> snapshot mismatch
   ASSERT_FALSE(follower->Get(ro, followerCF("cf1"), "cf1k1", &val).ok());
 
   follower->ReleaseSnapshot(snapshots[0]);

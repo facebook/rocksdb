@@ -3139,8 +3139,9 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   if (dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported(
-          "MultiGet with timestamps does not support super snapshot");
+          "This variant of MultiGet does not yet support super snapshots");
     }
+    return;
   }
   // RocksDB-Cloud contribution end
 
@@ -3400,8 +3401,12 @@ void DBImpl::MultiGetWithCallback(
                           multiget_cf_data[0].super_version, consistent_seqnum,
                           read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
-  ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
-                               multiget_cf_data[0].super_version);
+  // RocksDB-Cloud contribution begin
+  if (!dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
+    ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
+                                 multiget_cf_data[0].super_version);
+  }
+  // RocksDB-Cloud contribution end
 }
 
 // The actual implementation of batched MultiGet. Parameters -
@@ -3844,10 +3849,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     result = nullptr;
 
 #else
+    // RocksDB-Cloud contribution begin
     if (dynamic_cast<const SuperSnapshotImpl*>(read_options.snapshot)) {
       return NewErrorIterator(Status::NotSupported(
           "Tailing iterator not supported with super snapshot"));
     }
+    // RocksDB-Cloud contribution end
 
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
@@ -4077,6 +4084,8 @@ Status DBImpl::GetSuperSnapshots(
   return Status::InvalidArgument(
       "GetSuperSnapshots only supported in RocksDB compiled with USE_RTTI=1");
 #endif
+  InstrumentedMutexLock l(&mutex_);
+
   if (!is_snapshot_supported_) {
     return Status::InvalidArgument("Snapshot not supported");
   }
@@ -4092,7 +4101,8 @@ Status DBImpl::GetSuperSnapshots(
   for (auto& cf : column_families) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
     auto cfd = cfh->cfd();
-    auto sv = cfd->GetReferencedSuperVersion(this);
+    auto sv = cfd->GetSuperVersion();
+    sv->Ref();
     auto ss = new SuperSnapshotImpl(cfd, sv);
     snapshots_.New(ss, snapshot_seq, unix_time,
                    /*is_write_conflict_boundary=*/false);
