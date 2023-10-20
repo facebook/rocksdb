@@ -98,7 +98,9 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
     return s;
   }
 
-  RecordTick(stats_, PREFETCH_BYTES, read_len);
+  if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+    RecordTick(stats_, PREFETCH_BYTES, read_len);
+  }
   // Update the buffer offset and size.
   bufs_[index].offset_ = rounddown_start;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());

@@ -697,14 +697,15 @@ struct BlockBasedTable::Rep {
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
       uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
       uint64_t upper_bound_offset,
-      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb)
-      const {
+      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb,
+      FilePrefetchBufferUsage usage) const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_size, max_readahead_size,
         !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
         implicit_auto_readahead, num_file_reads,
         num_file_reads_for_auto_readahead, upper_bound_offset,
-        ioptions.fs.get(), ioptions.clock, ioptions.stats, readaheadsize_cb));
+        ioptions.fs.get(), ioptions.clock, ioptions.stats, readaheadsize_cb,
+        usage));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
@@ -712,13 +713,13 @@ struct BlockBasedTable::Rep {
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
       uint64_t num_file_reads, uint64_t num_file_reads_for_auto_readahead,
       uint64_t upper_bound_offset,
-      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb)
-      const {
+      const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb,
+      FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
                                implicit_auto_readahead, num_file_reads,
                                num_file_reads_for_auto_readahead,
-                               upper_bound_offset, readaheadsize_cb);
+                               upper_bound_offset, readaheadsize_cb, usage);
     }
   }
 
