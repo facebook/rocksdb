@@ -317,6 +317,11 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkNoop() handler not defined.");
     }
 
+    virtual Status MarkReserveSeqno(uint32_t /*count*/) {
+      // Default to same handling as a no-op
+      return MarkNoop(false);
+    }
+
     virtual Status MarkRollback(const Slice& /*xid*/) {
       return Status::InvalidArgument(
           "MarkRollbackPrepare() handler not defined.");

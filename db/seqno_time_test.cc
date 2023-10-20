@@ -987,6 +987,13 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
   // Oldest tracking time maps to first pre-allocated seqno
   ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - kPreserveSecs), 1);
 
+  // Even after no writes and DB re-open without tracking options, sequence
+  // numbers should not go backward into those that were pre-allocated.
+  // (Future work: persist the mapping)
+  ReopenWithColumnFamilies({"default", "one"},
+                           List({base_options, base_options}));
+  ASSERT_EQ(latest_seqno, db_->GetLatestSequenceNumber());
+
   Close();
 }
 

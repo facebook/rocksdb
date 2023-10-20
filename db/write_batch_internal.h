@@ -131,6 +131,8 @@ class WriteBatchInternal {
 
   static Status InsertNoop(WriteBatch* batch);
 
+  static Status InsertReserveSeqno(WriteBatch* b, uint32_t count);
+
   // Return the number of entries in the batch.
   static uint32_t Count(const WriteBatch* batch);
 

@@ -38,7 +38,8 @@ static std::unordered_map<std::string, ValueType> value_type_string_map = {
     {"TypeCommitXIDAndTimestamp", ValueType::kTypeCommitXIDAndTimestamp},
     {"TypeWideColumnEntity", ValueType::kTypeWideColumnEntity},
     {"TypeColumnFamilyWideColumnEntity",
-     ValueType::kTypeColumnFamilyWideColumnEntity}};
+     ValueType::kTypeColumnFamilyWideColumnEntity},
+    {"TypeReserveSeqno", ValueType::kTypeReserveSeqno}};
 
 std::string KeyVersion::GetTypeName() const {
   std::string type_name;
@@ -115,4 +116,3 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

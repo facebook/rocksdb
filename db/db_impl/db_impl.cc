@@ -859,19 +859,35 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
 
       // We can simply modify these, before writes are allowed
       constexpr uint64_t kMax = SeqnoToTimeMapping::kMaxSeqnoTimePairsPerSST;
-      versions_->SetLastAllocatedSequence(kMax);
-      versions_->SetLastPublishedSequence(kMax);
-      versions_->SetLastSequence(kMax);
-      // Pre-populate mappings for reserved sequence numbers.
-      RecordSeqnoToTimeMapping(max_preserve_seconds);
+      // Reserve sequence numbers with a special write batch. This ensures
+      // through usual mechanisms that re-opening the DB, event without
+      // preserve/preclude options, will not go backward in sequence numbers
+      // if the usual mechanisms are successful (e.g. WAL replay).
+      WriteBatch b;
+      s = WriteBatchInternal::InsertReserveSeqno(&b, kMax);
+      if (s.ok()) {
+        s = Write({}, &b);
+      }
+      if (s.ok()) {
+        assert(GetLatestSequenceNumber() >= kMax);
+        // Pre-populate mappings for reserved sequence numbers.
+        RecordSeqnoToTimeMapping(max_preserve_seconds);
+      }
     } else if (mapping_was_empty) {
       // To ensure there is at least one mapping, we need a non-zero sequence
-      // number. Outside of DB::Open, we have to be careful.
-      versions_->EnsureNonZeroSequence();
-      assert(GetLatestSequenceNumber() > 0);
-
-      // Ensure at least one mapping (or log a warning)
-      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      // number. Use a special write batch if needed.
+      if (GetLatestSequenceNumber() == 0) {
+        WriteBatch b;
+        s = WriteBatchInternal::InsertReserveSeqno(&b, 1);
+        if (s.ok()) {
+          s = Write({}, &b);
+        }
+      }
+      if (s.ok()) {
+        assert(GetLatestSequenceNumber() >= 1);
+        // Ensure at least one mapping (or log a warning)
+        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      }
     }
 
     s = periodic_task_scheduler_.Register(

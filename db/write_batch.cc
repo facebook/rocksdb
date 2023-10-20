@@ -32,6 +32,7 @@
 //    kTypeWideColumnEntity varstring varstring
 //    kTypeColumnFamilyWideColumnEntity varint32 varstring varstring
 //    kTypeNoop
+//    kTypeReserveSeqno varint32
 // varstring :=
 //    len: varint32
 //    data: uint8[len]
@@ -467,6 +468,12 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch PutEntity");
       }
       break;
+    case kTypeReserveSeqno:
+      // Re-use column_family variable for count
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch ReserveSeqno");
+      }
+      break;
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -704,6 +711,15 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
           ++found;
         }
         break;
+      case kTypeReserveSeqno: {
+        auto count = column_family;
+        s = handler->MarkReserveSeqno(count);
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          found += count;
+        }
+        break;
+      }
       default:
         return Status::Corruption("unknown WriteBatch tag");
     }
@@ -1018,6 +1034,13 @@ Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
   b->rep_.push_back(static_cast<char>(kTypeNoop));
+  return Status::OK();
+}
+
+Status WriteBatchInternal::InsertReserveSeqno(WriteBatch* b, uint32_t count) {
+  b->rep_.push_back(static_cast<char>(kTypeReserveSeqno));
+  PutVarint32(&b->rep_, count);
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + count);
   return Status::OK();
 }
 
@@ -1721,6 +1744,7 @@ Status WriteBatch::VerifyChecksum() const {
       case kTypeBeginUnprepareXID:
       case kTypeDeletionWithTimestamp:
       case kTypeCommitXIDAndTimestamp:
+      case kTypeReserveSeqno:
         checksum_protected = false;
         break;
       case kTypeColumnFamilyWideColumnEntity:
@@ -2740,6 +2764,14 @@ class MemTableInserter : public WriteBatch::Handler {
       const bool batch_boundry = true;
       MaybeAdvanceSeq(batch_boundry);
     }
+    return Status::OK();
+  }
+
+  Status MarkReserveSeqno(uint32_t count) override {
+    if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
+    }
+    sequence_ += count;
     return Status::OK();
   }
 
