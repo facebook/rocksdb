@@ -21,17 +21,16 @@ namespace ROCKSDB_NAMESPACE {
 BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
                                      Iterator* base_iterator,
                                      WBWIIteratorImpl* delta_iterator,
-                                     const Comparator* comparator,
-                                     const ReadOptions* read_options)
+                                     const Comparator* comparator)
     : forward_(true),
       current_at_base_(true),
       equal_keys_(false),
       status_(Status::OK()),
       base_iterator_(base_iterator),
       delta_iterator_(delta_iterator),
-      comparator_(comparator),
-      iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
-                                        : nullptr) {
+      comparator_(comparator) {
+  assert(base_iterator_);
+  assert(delta_iterator_);
   assert(comparator_);
   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
@@ -303,14 +302,6 @@ void BaseDeltaIterator::UpdateCurrent() {
       if (!DeltaValid()) {
         // Finished
         return;
-      }
-      if (iterate_upper_bound_) {
-        if (comparator_->CompareWithoutTimestamp(
-                delta_entry.key, /*a_has_ts=*/false, *iterate_upper_bound_,
-                /*b_has_ts=*/false) >= 0) {
-          // out of upper bound -> finished.
-          return;
-        }
       }
       if (delta_result == WBWIIteratorImpl::kDeleted &&
           wbwii_->GetNumOperands() == 0) {
