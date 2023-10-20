@@ -689,6 +689,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 // Automatic recover from Retryable BG IO error. Must be called after db
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
+  assert(recovery_in_prog_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart2");
   InstrumentedMutexLock l(db_mutex_);
