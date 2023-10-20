@@ -8,6 +8,7 @@ package org.rocksdb;
 /**
  * The full set of metadata associated with each SST file.
  */
+@SuppressWarnings("PMD.MissingStaticMethodInNonInstantiatableClass")
 public class LiveFileMetaData extends SstFileMetaData {
   private final byte[] columnFamilyName;
   private final int level;
@@ -40,6 +41,7 @@ public class LiveFileMetaData extends SstFileMetaData {
    *
    * @return the name of the column family
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public byte[] columnFamilyName() {
     return columnFamilyName;
   }

@@ -525,6 +525,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                          "value" + std::to_string(i), write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
 
     // SeekToFirst()/SeekToLast() with lower/upper bounds.
@@ -544,6 +545,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
         CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
 
       for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
@@ -551,6 +553,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
         CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
                            "value" + std::to_string(i), write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -733,6 +736,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
       ASSERT_EQ(it->value(), value_from_get);
       ASSERT_EQ(Timestamp(1, 0), timestamp);
     }
+    ASSERT_OK(it->status());
 
     // verify MultiGet()
     constexpr uint64_t step = 2;
@@ -1065,6 +1069,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
                        write_timestamps[i - 1]);
       }
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
   }
@@ -1143,6 +1148,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound) {
                        write_timestamps[1]);
       }
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
   }
@@ -1173,6 +1179,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound) {
       CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
                      write_timestamp);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(kMaxKey + 1, count);
   }
   Close();
@@ -1278,6 +1285,7 @@ TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound_Reseek) {
       CheckIterEntry(it.get(), "a", kTypeValue, "v" + std::to_string(4 + i),
                      Timestamp(4 + i, 0));
     }
+    ASSERT_OK(it->status());
   }
 
   Close();
@@ -3145,6 +3153,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
                          "value" + std::to_string(i), write_ts_list[i]);
       iter->Next();
       ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
 
       // Seek to kMinKey
       iter->Seek(Key1(kMinKey));
@@ -3152,6 +3161,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
                          "value" + std::to_string(i), write_ts_list[i]);
       iter->Prev();
       ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
     }
     const std::vector<uint64_t> targets = {kMinKey, kMinKey + 0x10,
                                            kMinKey + 0x100, kMaxKey};
@@ -3190,6 +3200,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
           ++expected_key;
           it->Next();
         }
+        ASSERT_OK(it->status());
         ASSERT_EQ(expected_ub - targets[j] + 1, count);
 
         count = 0;
@@ -3208,6 +3219,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
           --expected_key;
           it->Prev();
         }
+        ASSERT_OK(it->status());
         ASSERT_EQ(targets[j] - std::max(expected_lb, kMinKey) + 1, count);
       }
     }
@@ -3313,6 +3325,7 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
       ASSERT_EQ(Key1(key), iter->key());
       ASSERT_EQ("value1" + std::to_string(key), iter->value());
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ((kMaxKey - kMinKey + 1) / 2, count);
   }
   Close();
@@ -3932,6 +3945,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
         ++expected;
       }
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNum, expected);
 
     expected = kNum / 2;
@@ -3939,6 +3953,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
       ASSERT_EQ(Key1(expected), iter->key());
       ++expected;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNum, expected);
 
     expected = kRangeBegin - 1;
@@ -3946,6 +3961,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
       ASSERT_EQ(Key1(expected), iter->key());
       --expected;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(-1, expected);
 
     read_ts = Timestamp(0, 0);
@@ -4227,6 +4243,7 @@ TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
         ASSERT_EQ(value, it->value());
         ASSERT_EQ(write_ts_strs[i], it->timestamp());
       }
+      EXPECT_OK(it->status());
       ASSERT_EQ(kNumOfUniqKeys, key_int_val);
 
       key_int_val = kNumOfUniqKeys - 1;
@@ -4238,6 +4255,7 @@ TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
         ASSERT_EQ(value, it->value());
         ASSERT_EQ(write_ts_strs[i], it->timestamp());
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(std::numeric_limits<size_t>::max(), key_int_val);
 
       value_suffix = value_suffix + "." + std::to_string(i + 1);

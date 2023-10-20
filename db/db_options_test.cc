@@ -19,6 +19,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -741,6 +742,55 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   Close();
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSecRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and the behavior in effect for the DB, after the last
+  // modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"stats_dump_period_sec", i % 2 ? "100" : "0"}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool stats_dump_set = dbfull()->GetDBOptions().stats_dump_period_sec > 0;
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kDumpStats);
+
+  ASSERT_EQ(stats_dump_set, task_enabled);
+}
+
+TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and what is persisted in the options file, after the
+  // last modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetOptions({{"ttl", std::to_string(i * 100)}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  auto setting_in_mem = dbfull()->GetOptions().ttl;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  DBOptions db_options;
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
+  ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
+}
+
 TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
@@ -909,6 +959,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
@@ -942,12 +993,19 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+
   // Set ttl to 1 minute. So all files should get deleted.
   ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
@@ -972,6 +1030,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo", "{max_table_files_size=12288;}"}}));
@@ -980,6 +1041,10 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
@@ -1037,6 +1102,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 TEST_F(DBOptionsTest, OffPeakTimes) {
   Options options;
   options.create_if_missing = true;
+  Random rnd(test::RandomSeed());
 
   auto verify_invalid = [&]() {
     Status s = DBImpl::TEST_ValidateOptions(options);
@@ -1052,6 +1118,8 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   std::vector<std::string> invalid_cases = {
       "06:30-",
       "-23:30",  // Both need to be set
+      "00:00-00:00",
+      "06:30-06:30"  //  Start time cannot be the same as end time
       "12:30 PM-23:30",
       "12:01AM-11:00PM",  // Invalid format
       "01:99-22:00",      // Invalid value for minutes
@@ -1069,11 +1137,11 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   };
 
   std::vector<std::string> valid_cases = {
-      "",             // Not enabled. Valid case
-      "00:00-00:00",  // Valid. Entire 24 hours are offpeak.
-      "06:30-11:30", "06:30-23:30", "13:30-14:30",
-      "00:00-23:59",  // This doesn't cover entire 24 hours. There's 1 minute
-                      // gap from 11:59:00PM to midnight
+      "",  // Not enabled. Valid case
+      "06:30-11:30",
+      "06:30-23:30",
+      "13:30-14:30",
+      "00:00-23:59",  // Entire Day
       "23:30-01:15",  // From 11:30PM to 1:15AM next day. Valid case.
       "1:0000000000000-2:000000000042",  // Weird, but we can parse the int.
   };
@@ -1091,7 +1159,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
                                    int now_utc_minute, int now_utc_second = 0) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     // Add some extra random days to current time
-    Random rnd(301);
     int days = rnd.Uniform(100);
     mock_clock->SetCurrentTime(days * 86400 + now_utc_hour * 3600 +
                                now_utc_minute * 60 + now_utc_second);
@@ -1119,12 +1186,13 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   verify_is_now_offpeak(true, 4, 30);
   verify_is_now_offpeak(false, 4, 31);
 
-  // There's one minute gap from 11:59PM to midnight
+  // Entire day offpeak
   options.daily_offpeak_time_utc = "00:00-23:59";
   verify_is_now_offpeak(true, 0, 0);
   verify_is_now_offpeak(true, 12, 00);
   verify_is_now_offpeak(true, 23, 59);
-  verify_is_now_offpeak(false, 23, 59, 1);
+  verify_is_now_offpeak(true, 23, 59, 1);
+  verify_is_now_offpeak(true, 23, 59, 59);
 
   // Open the db and test by Get/SetDBOptions
   options.daily_offpeak_time_utc = "";
@@ -1149,7 +1217,6 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
   auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
   // Add some extra random days to current time
-  Random rnd(301);
   int days = rnd.Uniform(100);
   mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
   options.env = mock_env.get();
@@ -1179,10 +1246,47 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
   ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
                   .IsNowOffPeak(mock_clock.get()));
 
-  // Sleep for one more second. It's no longer off-peak
-  mock_clock->MockSleepForSeconds(1);
+  // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
+  mock_clock->MockSleepForSeconds(60);
   ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
                    .IsNowOffPeak(mock_clock.get()));
+  Close();
+
+  // Entire day offpeak
+  options.daily_offpeak_time_utc = "00:00-23:59";
+  DestroyAndReopen(options);
+  // It doesn't matter what time it is. It should be just offpeak.
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 3 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 20 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(20 * 3600);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 59 minutes. It's still off-peak
+  mock_clock->MockSleepForSeconds(59 * 60);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 59 seconds. It's still off-peak
+  mock_clock->MockSleepForSeconds(59);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+
+  // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
+  // Another second for sanity check
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
+                  .IsNowOffPeak(mock_clock.get()));
 
   Close();
 }

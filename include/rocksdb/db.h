@@ -362,6 +362,10 @@ class DB {
 
   // Create a column_family and return the handle of column family
   // through the argument handle.
+  // NOTE: creating many column families one-by-one is not recommended because
+  // of quadratic overheads, such as writing a full OPTIONS file for all CFs
+  // after each new CF creation. Use CreateColumnFamilies(), or DB::Open() with
+  // create_missing_column_families=true.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
@@ -855,6 +859,34 @@ class DB {
                               bool /* sorted_input */ = false) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // Batched MultiGet-like API that returns attribute groups.
+  // An "attribute group" refers to a logical grouping of wide-column entities
+  // within RocksDB. These attribute groups are implemented using column
+  // families. Attribute group allows users to group wide-columns based on
+  // various criteria, such as similar access patterns or data types
+  //
+  // The input is a list of keys and PinnableAttributeGroups. For any given
+  // keys[i] (where 0 <= i < num_keys), results[i] will contain result for the
+  // ith key. Each result will be returned as PinnableAttributeGroups.
+  // PinnableAttributeGroups is a vector of PinnableAttributeGroup. Each
+  // PinnableAttributeGroup will contain a ColumnFamilyHandle pointer, Status
+  // and PinnableWideColumns.
+  //
+  // Note that it is the caller's responsibility to ensure that
+  // "keys" and "results" have the same "num_keys" number of objects. Also
+  // PinnableAttributeGroup needs to have ColumnFamilyHandle pointer set
+  // properly to get the corresponding wide columns from the column family.
+  virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
+                              const Slice* /* keys */,
+                              PinnableAttributeGroups* results) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(
+            Status::NotSupported("MultiGetEntity not supported"));
+      }
     }
   }
 

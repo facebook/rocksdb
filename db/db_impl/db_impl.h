@@ -311,6 +311,9 @@ class DBImpl : public DB {
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableWideColumns* results, Status* statuses,
                       bool sorted_input) override;
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      const Slice* keys,
+                      PinnableAttributeGroups* results) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
@@ -1212,8 +1215,11 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping
-  void RecordSeqnoToTimeMapping();
+  // record current sequence number to time mapping. If
+  // populate_historical_seconds > 0 then pre-populate all the
+  // sequence numbers from [1, last] to map to [now minus
+  // populate_historical_seconds, now].
+  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1391,11 +1397,9 @@ class DBImpl : public DB {
     std::unordered_set<std::string> files_to_delete_;
   };
 
-  // Except in DB::Open(), WriteOptionsFile can only be called when:
-  // Persist options to options file.
-  // If need_mutex_lock = false, the method will lock DB mutex.
-  // If need_enter_write_thread = false, the method will enter write thread.
-  Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
+  // Persist options to options file. Must be holding options_mutex_.
+  // Will lock DB mutex if !db_mutex_already_held.
+  Status WriteOptionsFile(bool db_mutex_already_held);
 
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
@@ -1823,9 +1827,14 @@ class DBImpl : public DB {
 
   const Status CreateArchivalDirectory();
 
+  // Create a column family, without some of the follow-up work yet
   Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                 const std::string& cf_name,
                                 ColumnFamilyHandle** handle);
+
+  // Follow-up work to user creating a column family or (families)
+  Status WrapUpCreateColumnFamilies(
+      const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
 
@@ -1856,7 +1865,8 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals);
+  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals,
+                          bool error_recovery_in_prog);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -1950,6 +1960,8 @@ class DBImpl : public DB {
       const FlushOptions& options, FlushReason flush_reason,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
+
+  Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
@@ -2099,6 +2111,12 @@ class DBImpl : public DB {
 #endif /* !NDEBUG */
   };
 
+  // In case of atomic flush, generates a `FlushRequest` for the latest atomic
+  // cuts for these `cfds`. Atomic cuts are recorded in
+  // `AssignAtomicFlushSeq()`. For each entry in `cfds`, all CFDs sharing the
+  // same latest atomic cut must also be present.
+  //
+  // REQUIRES: mutex held
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
 
@@ -2150,7 +2168,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker();
+  Status RegisterRecordSeqnoTimeWorker(bool from_db_open);
 
   void PrintStatistics();
 
@@ -2230,6 +2248,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
@@ -2355,6 +2374,10 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
+  // Safely decrease `disable_delete_obsolete_files_` by one while holding lock
+  // and return its remaning value.
+  int EnableFileDeletionsWithLock();
+
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);
 
@@ -2363,9 +2386,19 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // In addition to mutex_, log_write_mutex_ protected writes to stats_history_
+  // Guards changes to DB and CF options to ensure consistency between
+  // * In-memory options objects
+  // * Settings in effect
+  // * Options file contents
+  // while allowing the DB mutex to be released during slow operations like
+  // persisting options file or modifying global periodic task timer.
+  // Always acquired *before* DB mutex when this one is applicable.
+  InstrumentedMutex options_mutex_;
+
+  // Guards reads and writes to in-memory stats_history_.
   InstrumentedMutex stats_history_mutex_;
-  // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
+
+  // In addition to mutex_, log_write_mutex_ protects writes to logs_ and
   // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.

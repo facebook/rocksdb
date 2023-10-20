@@ -389,6 +389,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   while (iter->Valid()) {
     iter->Next();
   }
+  ASSERT_OK(iter->status());
   delete iter;
   iter = nullptr;
 }

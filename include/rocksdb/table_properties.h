@@ -219,9 +219,20 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id = ROCKSDB_NAMESPACE::
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
-  // Timestamp of the latest key. 0 means unknown.
-  // TODO(sagar0): Should be changed to latest_key_time ... but don't know the
-  // full implications of backward compatibility. Hence retaining for now.
+
+  // Oldest ancester time. 0 means unknown.
+  //
+  // For flush output file, oldest ancestor time is the oldest key time in the
+  // file.  If the oldest key time is not available, flush time is used.
+  //
+  // For compaction output file, oldest ancestor time is the oldest
+  // among all the oldest key time of its input files, since the file could be
+  // the compaction output from other SST files, which could in turn be outputs
+  // for compact older SST files. If that's not available, creation time of this
+  // compaction output file is used.
+  //
+  // TODO(sagar0): Should be changed to oldest_ancester_time ... but don't know
+  // the full implications of backward compatibility. Hence retaining for now.
   uint64_t creation_time = 0;
 
   // Timestamp of the earliest key. 0 means unknown.

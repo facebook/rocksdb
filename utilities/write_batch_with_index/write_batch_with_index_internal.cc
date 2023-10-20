@@ -7,7 +7,6 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
@@ -27,13 +26,15 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
       current_at_base_(true),
       equal_keys_(false),
       status_(Status::OK()),
+      column_family_(column_family),
       base_iterator_(base_iterator),
       delta_iterator_(delta_iterator),
       comparator_(comparator),
       iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
                                         : nullptr) {
+  assert(base_iterator_);
+  assert(delta_iterator_);
   assert(comparator_);
-  wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
 
 bool BaseDeltaIterator::Valid() const {
@@ -148,32 +149,6 @@ Slice BaseDeltaIterator::key() const {
                           : delta_iterator_->Entry().key;
 }
 
-Slice BaseDeltaIterator::value() const {
-  if (current_at_base_) {
-    return base_iterator_->value();
-  } else {
-    WriteEntry delta_entry = delta_iterator_->Entry();
-    if (wbwii_->GetNumOperands() == 0) {
-      return delta_entry.value;
-    } else if (delta_entry.type == kDeleteRecord ||
-               delta_entry.type == kSingleDeleteRecord) {
-      status_ = wbwii_->MergeKey(delta_entry.key, merge_result_.GetSelf());
-    } else if (delta_entry.type == kPutRecord) {
-      status_ = wbwii_->MergeKey(delta_entry.key, delta_entry.value,
-                                 merge_result_.GetSelf());
-    } else if (delta_entry.type == kMergeRecord) {
-      if (equal_keys_) {
-        status_ = wbwii_->MergeKey(delta_entry.key, base_iterator_->value(),
-                                   merge_result_.GetSelf());
-      } else {
-        status_ = wbwii_->MergeKey(delta_entry.key, merge_result_.GetSelf());
-      }
-    }
-    merge_result_.PinSelf();
-    return merge_result_;
-  }
-}
-
 Slice BaseDeltaIterator::timestamp() const {
   return current_at_base_ ? base_iterator_->timestamp() : Slice();
 }
@@ -274,17 +249,70 @@ void BaseDeltaIterator::AdvanceBase() {
 
 bool BaseDeltaIterator::BaseValid() const { return base_iterator_->Valid(); }
 bool BaseDeltaIterator::DeltaValid() const { return delta_iterator_->Valid(); }
+
+void BaseDeltaIterator::ResetValue() { value_.clear(); }
+
+void BaseDeltaIterator::SetValueFromBase() {
+  assert(current_at_base_);
+  assert(BaseValid());
+  assert(value_.empty());
+
+  value_ = base_iterator_->value();
+}
+
+void BaseDeltaIterator::SetValueFromDelta() {
+  assert(!current_at_base_);
+  assert(DeltaValid());
+  assert(value_.empty());
+
+  WriteEntry delta_entry = delta_iterator_->Entry();
+
+  if (merge_context_.GetNumOperands() == 0) {
+    value_ = delta_entry.value;
+
+    return;
+  }
+
+  if (delta_entry.type == kDeleteRecord ||
+      delta_entry.type == kSingleDeleteRecord) {
+    status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+        column_family_, delta_entry.key, merge_context_, &merge_result_);
+  } else if (delta_entry.type == kPutRecord) {
+    status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+        column_family_, delta_entry.key, delta_entry.value, merge_context_,
+        &merge_result_);
+  } else if (delta_entry.type == kMergeRecord) {
+    if (equal_keys_) {
+      status_ = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+          column_family_, delta_entry.key, base_iterator_->value(),
+          merge_context_, &merge_result_);
+    } else {
+      status_ = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+          column_family_, delta_entry.key, merge_context_, &merge_result_);
+    }
+  } else {
+    status_ = Status::NotSupported("Unsupported entry type for merge");
+  }
+
+  if (!status_.ok()) {
+    return;
+  }
+
+  value_ = merge_result_;
+}
+
 void BaseDeltaIterator::UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
   status_ = Status::OK();
+  ResetValue();
+
   while (true) {
     auto delta_result = WBWIIteratorImpl::kNotFound;
     WriteEntry delta_entry;
     if (DeltaValid()) {
       assert(delta_iterator_->status().ok());
-      delta_result =
-          delta_iterator_->FindLatestUpdate(wbwii_->GetMergeContext());
+      delta_result = delta_iterator_->FindLatestUpdate(&merge_context_);
       delta_entry = delta_iterator_->Entry();
     } else if (!delta_iterator_->status().ok()) {
       // Expose the error status and stop.
@@ -313,15 +341,17 @@ void BaseDeltaIterator::UpdateCurrent() {
         }
       }
       if (delta_result == WBWIIteratorImpl::kDeleted &&
-          wbwii_->GetNumOperands() == 0) {
+          merge_context_.GetNumOperands() == 0) {
         AdvanceDelta();
       } else {
         current_at_base_ = false;
+        SetValueFromDelta();
         return;
       }
     } else if (!DeltaValid()) {
       // Delta has finished.
       current_at_base_ = true;
+      SetValueFromBase();
       return;
     } else {
       int compare =
@@ -333,8 +363,9 @@ void BaseDeltaIterator::UpdateCurrent() {
           equal_keys_ = true;
         }
         if (delta_result != WBWIIteratorImpl::kDeleted ||
-            wbwii_->GetNumOperands() > 0) {
+            merge_context_.GetNumOperands() > 0) {
           current_at_base_ = false;
+          SetValueFromDelta();
           return;
         }
         // Delta is less advanced and is delete.
@@ -344,6 +375,7 @@ void BaseDeltaIterator::UpdateCurrent() {
         }
       } else {
         current_at_base_ = true;
+        SetValueFromBase();
         return;
       }
     }
@@ -454,10 +486,10 @@ WBWIIteratorImpl::Result WBWIIteratorImpl::FindLatestUpdate(
 }
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
-                                                  WriteType* type, Slice* Key,
+                                                  WriteType* type, Slice* key,
                                                   Slice* value, Slice* blob,
                                                   Slice* xid) const {
-  if (type == nullptr || Key == nullptr || value == nullptr ||
+  if (type == nullptr || key == nullptr || value == nullptr ||
       blob == nullptr || xid == nullptr) {
     return Status::InvalidArgument("Output parameters cannot be null");
   }
@@ -473,7 +505,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
   uint32_t column_family;
-  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
+  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, key, value,
                                       blob, xid);
   if (!s.ok()) {
     return s;
@@ -631,116 +663,66 @@ bool WBWIIteratorImpl::MatchesKey(uint32_t cf_id, const Slice& key) {
   }
 }
 
-WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
-    ColumnFamilyHandle* column_family)
-    : db_(nullptr), db_options_(nullptr), column_family_(column_family) {}
-
-WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
-    DB* db, ColumnFamilyHandle* column_family)
-    : db_(db), db_options_(nullptr), column_family_(column_family) {
-  if (db_ != nullptr && column_family_ == nullptr) {
-    column_family_ = db_->DefaultColumnFamily();
-  }
-}
-
-WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
-    const DBOptions* db_options, ColumnFamilyHandle* column_family)
-    : db_(nullptr), db_options_(db_options), column_family_(column_family) {}
-
-const ImmutableOptions& WriteBatchWithIndexInternal::GetCFOptions() const {
-  const auto* cfh =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
-  assert(cfh);
-  assert(cfh->cfd());
-  assert(cfh->cfd()->ioptions());
-
-  return *cfh->cfd()->ioptions();
-}
-
-std::tuple<Logger*, Statistics*, SystemClock*>
-WriteBatchWithIndexInternal::GetStatsLoggerAndClock(
-    const ImmutableOptions& cf_opts) const {
-  if (db_) {
-    const auto& db_opts = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                              ->immutable_db_options();
-
-    return {db_opts.logger, db_opts.statistics.get(), db_opts.clock};
-  }
-
-  if (db_options_) {
-    assert(db_options_->env);
-
-    return {db_options_->info_log.get(), db_options_->statistics.get(),
-            db_options_->env->GetSystemClock().get()};
-  }
-
-  return {cf_opts.logger, cf_opts.stats, cf_opts.clock};
-}
-
-Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
-                                             const MergeContext& context,
-                                             std::string* result) const {
+Status WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const MergeContext& context, std::string* result) {
   // TODO: support wide columns in WBWI
 
-  if (!column_family_) {
-    return Status::InvalidArgument("Must provide a column_family");
+  if (!column_family) {
+    return Status::InvalidArgument("Must provide a column family");
   }
 
-  const auto& cf_opts = GetCFOptions();
+  const auto& ioptions = GetImmutableOptions(column_family);
 
-  const auto* merge_operator = cf_opts.merge_operator.get();
+  const auto* merge_operator = ioptions.merge_operator.get();
   if (!merge_operator) {
     return Status::InvalidArgument(
-        "Merge_operator must be set for column_family");
+        "Merge operator must be set for column family");
   }
-
-  auto [logger, statistics, clock] = GetStatsLoggerAndClock(cf_opts);
 
   // `op_failure_scope` (an output parameter) is not provided (set to
   // nullptr) since a failure must be propagated regardless of its value.
   return MergeHelper::TimedFullMerge(
       merge_operator, key, MergeHelper::kNoBaseValue, context.GetOperands(),
-      logger, statistics, clock, /* update_num_ops_stats */ false, result,
+      ioptions.logger, ioptions.stats, ioptions.clock,
+      /* update_num_ops_stats */ false, result,
       /* columns */ nullptr, /* op_failure_scope */ nullptr);
 }
 
-Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
-                                             const Slice& value,
-                                             const MergeContext& context,
-                                             std::string* result) const {
+Status WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
+    ColumnFamilyHandle* column_family, const Slice& key, const Slice& value,
+    const MergeContext& context, std::string* result) {
   // TODO: support wide columns in WBWI
 
-  if (!column_family_) {
-    return Status::InvalidArgument("Must provide a column_family");
+  if (!column_family) {
+    return Status::InvalidArgument("Must provide a column family");
   }
 
-  const auto& cf_opts = GetCFOptions();
+  const auto& ioptions = GetImmutableOptions(column_family);
 
-  const auto* merge_operator = cf_opts.merge_operator.get();
+  const auto* merge_operator = ioptions.merge_operator.get();
   if (!merge_operator) {
     return Status::InvalidArgument(
-        "Merge_operator must be set for column_family");
+        "Merge operator must be set for column family");
   }
-
-  auto [logger, statistics, clock] = GetStatsLoggerAndClock(cf_opts);
 
   // `op_failure_scope` (an output parameter) is not provided (set to
   // nullptr) since a failure must be propagated regardless of its value.
   return MergeHelper::TimedFullMerge(
       merge_operator, key, MergeHelper::kPlainBaseValue, value,
-      context.GetOperands(), logger, statistics, clock,
+      context.GetOperands(), ioptions.logger, ioptions.stats, ioptions.clock,
       /* update_num_ops_stats */ false, result,
       /* columns */ nullptr, /* op_failure_scope */ nullptr);
 }
 
 WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
-    WriteBatchWithIndex* batch, const Slice& key, MergeContext* context,
-    std::string* value, Status* s) {
+    WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+    const Slice& key, MergeContext* context, std::string* value, Status* s) {
   *s = Status::OK();
 
   std::unique_ptr<WBWIIteratorImpl> iter(
       static_cast_with_check<WBWIIteratorImpl>(
-          batch->NewIterator(column_family_)));
+          batch->NewIterator(column_family)));
 
   // Search the iterator for this key, and updates/merges to it.
   iter->Seek(key);
@@ -754,7 +736,8 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
   } else if (result == WBWIIteratorImpl::Result::kFound) {  // PUT
     Slice entry_value = iter->Entry().value;
     if (context->GetNumOperands() > 0) {
-      *s = MergeKey(key, entry_value, *context, value);
+      *s = MergeKeyWithPlainBaseValue(column_family, key, entry_value, *context,
+                                      value);
       if (!s->ok()) {
         result = WBWIIteratorImpl::Result::kError;
       }
@@ -763,7 +746,7 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
     }
   } else if (result == WBWIIteratorImpl::kDeleted) {
     if (context->GetNumOperands() > 0) {
-      *s = MergeKey(key, *context, value);
+      *s = MergeKeyWithNoBaseValue(column_family, key, *context, value);
       if (s->ok()) {
         result = WBWIIteratorImpl::Result::kFound;
       } else {

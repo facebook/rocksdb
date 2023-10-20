@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.List;
-
 /**
  * EventListener class contains a set of callback functions that will
  * be called when specific RocksDB event happens such as flush.  It can
@@ -16,14 +14,14 @@ import java.util.List;
  * Note that callback functions should not run for an extended period of
  * time before the function returns, otherwise RocksDB may be blocked.
  * For example, it is not suggested to do
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, java.util.List, int, int,
  * CompactionJobInfo)} (as it may run for a long while) or issue many of
  * {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])}
  * (as Put may be blocked in certain cases) in the same thread in the
  * EventListener callback.
  * <p>
  * However, doing
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, java.util.List, int, int,
  * CompactionJobInfo)} and {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])} in
  * another thread is considered safe.
  * <p>

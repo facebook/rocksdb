@@ -16,12 +16,7 @@ import java.util.*;
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class DBOptions extends RocksObject
-    implements DBOptionsInterface<DBOptions>,
-    MutableDBOptionsInterface<DBOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+    implements DBOptionsInterface<DBOptions>, MutableDBOptionsInterface<DBOptions> {
   /**
    * Construct DBOptions.
    * <p>
@@ -29,7 +24,7 @@ public class DBOptions extends RocksObject
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
   public DBOptions() {
-    super(newDBOptions());
+    super(newDBOptionsInstance());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     env_ = Env.getDefault();
   }
@@ -1253,7 +1248,12 @@ public class DBOptions extends RocksObject
   private static native long getDBOptionsFromProps(long cfgHandle, String optString);
   private static native long getDBOptionsFromProps(String optString);
 
+  private static long newDBOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newDBOptions();
+  }
   private static native long newDBOptions();
+
   private static native long copyDBOptions(final long handle);
   private static native long newDBOptionsFromOptions(final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);

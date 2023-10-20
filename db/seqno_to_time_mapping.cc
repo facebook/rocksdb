@@ -258,9 +258,30 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
   pairs_.emplace_back(seqno, time);
 
   if (pairs_.size() > max_capacity_) {
+    // FIXME: be smarter about how we erase to avoid data falling off the
+    // front prematurely.
     pairs_.pop_front();
   }
   return true;
+}
+
+bool SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
+                                     SequenceNumber to_seqno,
+                                     uint64_t from_time, uint64_t to_time) {
+  assert(Empty());
+  assert(from_seqno > 0);
+  assert(to_seqno > from_seqno);
+  assert(from_time > kUnknownTimeBeforeAll);
+  assert(to_time >= from_time);
+
+  // TODO: smartly limit this to max_capacity_ representative samples
+  for (auto i = from_seqno; i <= to_seqno; i++) {
+    uint64_t t = from_time + (to_time - from_time) * (i - from_seqno) /
+                                 (to_seqno - from_seqno);
+    pairs_.emplace_back(i, t);
+  }
+
+  return /*success*/ true;
 }
 
 bool SeqnoToTimeMapping::Resize(uint64_t min_time_duration,
@@ -271,6 +292,8 @@ bool SeqnoToTimeMapping::Resize(uint64_t min_time_duration,
     return false;
   } else if (new_max_capacity < pairs_.size()) {
     uint64_t delta = pairs_.size() - new_max_capacity;
+    // FIXME: be smarter about how we erase to avoid data falling off the
+    // front prematurely.
     pairs_.erase(pairs_.begin(), pairs_.begin() + delta);
   }
   max_capacity_ = new_max_capacity;

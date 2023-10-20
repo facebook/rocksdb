@@ -311,6 +311,7 @@ SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
 
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace ROCKSDB_NAMESPACE

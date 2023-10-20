@@ -766,6 +766,10 @@ public enum TickerType {
 
     READAHEAD_TRIMMED((byte) -0x3D),
 
+    FIFO_MAX_SIZE_COMPACTIONS((byte) -0x3E),
+
+    FIFO_TTL_COMPACTIONS((byte) -0x3F),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

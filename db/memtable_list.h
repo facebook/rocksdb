@@ -386,9 +386,19 @@ class MemTableList {
     return memlist.back()->GetID();
   }
 
-  uint64_t GetLatestMemTableID() const {
+  uint64_t GetLatestMemTableID(bool for_atomic_flush) const {
     auto& memlist = current_->memlist_;
     if (memlist.empty()) {
+      return 0;
+    }
+    if (for_atomic_flush) {
+      // Scan the memtable list from new to old
+      for (auto it = memlist.begin(); it != memlist.end(); ++it) {
+        MemTable* m = *it;
+        if (m->atomic_flush_seqno_ != kMaxSequenceNumber) {
+          return m->GetID();
+        }
+      }
       return 0;
     }
     return memlist.front()->GetID();

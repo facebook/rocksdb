@@ -127,6 +127,7 @@ TEST_F(DBTest, MockEnvTest) {
     iterator->Next();
   }
   ASSERT_TRUE(!iterator->Valid());
+  ASSERT_OK(iterator->status());
   delete iterator;
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
@@ -171,6 +172,7 @@ TEST_F(DBTest, MemEnvTest) {
     iterator->Next();
   }
   ASSERT_TRUE(!iterator->Valid());
+  ASSERT_OK(iterator->status());
   delete iterator;
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
@@ -2983,6 +2985,7 @@ TEST_F(DBTest, GroupCommitTest) {
       itr->Next();
     }
     ASSERT_TRUE(!itr->Valid());
+    ASSERT_OK(itr->status());
     delete itr;
 
     HistogramData hist_data;
@@ -3511,6 +3514,8 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  EXPECT_OK(miter->status());
+  EXPECT_OK(dbiter->status());
   (void)count;
   delete miter;
   delete dbiter;
@@ -6008,6 +6013,7 @@ TEST_F(DBTest, MergeTestTime) {
     ASSERT_OK(iter->status());
     ++count;
   }
+  ASSERT_OK(iter->status());
 
   ASSERT_EQ(1, count);
   ASSERT_EQ(4000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));

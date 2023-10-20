@@ -121,6 +121,11 @@ bool RunStressTestImpl(SharedState* shared) {
     shared->IncBgThreads();
   }
 
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
+    shared->IncBgThreads();
+  }
+
   std::vector<ThreadState*> threads(n);
   for (uint32_t i = 0; i < n; i++) {
     threads[i] = new ThreadState(i, shared);
@@ -136,6 +141,13 @@ bool RunStressTestImpl(SharedState* shared) {
   if (FLAGS_continuous_verification_interval > 0) {
     db_stress_env->StartThread(DbVerificationThread,
                                &continuous_verification_thread);
+  }
+
+  ThreadState compressed_cache_set_capacity_thread(0, shared);
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
+    db_stress_env->StartThread(CompressedCacheSetCapacityThread,
+                               &compressed_cache_set_capacity_thread);
   }
 
   // Each thread goes through the following states:
@@ -230,7 +242,9 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
+      FLAGS_continuous_verification_interval > 0 ||
+      FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
     MutexLock l(shared->GetMutex());
     shared->SetShouldStopBgThread();
     while (!shared->BgThreadsFinished()) {

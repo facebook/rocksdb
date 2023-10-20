@@ -15,13 +15,9 @@ import java.util.*;
  * As a descendant of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
-public class ColumnFamilyOptions extends RocksObject
-    implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
-    MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+public class ColumnFamilyOptions
+    extends RocksObject implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
+                                   MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
   /**
    * Construct ColumnFamilyOptions.
    * <p>
@@ -29,7 +25,7 @@ public class ColumnFamilyOptions extends RocksObject
    * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
-    super(newColumnFamilyOptions());
+    super(newColumnFamilyOptionsInstance());
   }
 
   /**
@@ -602,6 +598,10 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  void setFetchedTableFormatConfig(final TableFormatConfig tableFormatConfig) {
+    this.tableFormatConfig_ = tableFormatConfig;
+  }
+
   @Override
   public String tableFactoryName() {
     assert(isOwningHandle());
@@ -1012,6 +1012,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @return true iff blob files are currently enabled
    */
+  @Override
   public boolean enableBlobFiles() {
     return enableBlobFiles(nativeHandle_);
   }
@@ -1333,6 +1334,10 @@ public class ColumnFamilyOptions extends RocksObject
       final long cfgHandle, String optString);
   private static native long getColumnFamilyOptionsFromProps(final String optString);
 
+  private static long newColumnFamilyOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newColumnFamilyOptions();
+  }
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);
   private static native long newColumnFamilyOptionsFromOptions(
@@ -1511,7 +1516,6 @@ public class ColumnFamilyOptions extends RocksObject
       final long nativeHandle_, final long compactionThreadLimiterHandle);
   private native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private native int memtableMaxRangeDeletions(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);

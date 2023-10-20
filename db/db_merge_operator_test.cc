@@ -6,10 +6,12 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/snapshot.h"
+#include "rocksdb/utilities/debug.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -947,6 +949,98 @@ TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
   }
 
   VerifyDBFromMap(true_data);
+}
+
+TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.max_successive_merges = 1;
+  options.env = env_;
+  Reopen(options);
+
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+  constexpr char baz[] = "baz";
+  constexpr char qux[] = "qux";
+  constexpr char corge[] = "corge";
+
+  // No base value
+  {
+    constexpr char key[] = "key1";
+
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
+
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, bar);
+
+    // We expect the second Merge to be converted to a Put because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 2);
+    ASSERT_EQ(key_versions[0].type, kTypeValue);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+  }
+
+  // Plain base value
+  {
+    constexpr char key[] = "key2";
+
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, baz));
+
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, baz);
+
+    // We expect the second Merge to be converted to a Put because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 3);
+    ASSERT_EQ(key_versions[0].type, kTypeValue);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+    ASSERT_EQ(key_versions[2].type, kTypeValue);
+  }
+
+  // Wide-column base value
+  {
+    constexpr char key[] = "key3";
+    const WideColumns columns{{kDefaultWideColumnName, foo}, {bar, baz}};
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                             columns));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, qux));
+    ASSERT_OK(
+        db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, corge));
+
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    const WideColumns expected{{kDefaultWideColumnName, corge}, {bar, baz}};
+    ASSERT_EQ(result.columns(), expected);
+
+    // We expect the second Merge to be converted to a PutEntity because of
+    // max_successive_merges.
+    constexpr size_t max_key_versions = 8;
+    std::vector<KeyVersion> key_versions;
+    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+                                max_key_versions, &key_versions));
+    ASSERT_EQ(key_versions.size(), 3);
+    ASSERT_EQ(key_versions[0].type, kTypeWideColumnEntity);
+    ASSERT_EQ(key_versions[1].type, kTypeMerge);
+    ASSERT_EQ(key_versions[2].type, kTypeWideColumnEntity);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -261,6 +261,7 @@ TEST_P(PrefetchTest, Basic) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       num_keys++;
     }
+    ASSERT_OK(iter->status());
     (void)num_keys;
   }
 
@@ -715,6 +716,7 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
         iter->Seek(Key(key_count++));
         iter->Next();
       }
+      ASSERT_OK(iter->status());
 
       buff_prefetch_level_count[level] = buff_prefetch_count;
       if (support_prefetch && !use_direct_io) {
@@ -1071,6 +1073,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     do {
       iter->Seek(BuildKey(i));
       if (!iter->Valid()) {
+        ASSERT_OK(iter->status());
         break;
       }
       i = i + 100;
@@ -1090,6 +1093,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     }
+    ASSERT_OK(iter->status());
     if (support_prefetch && !use_direct_io) {
       ASSERT_EQ(fs->GetPrefetchCount(), 13);
       fs->ClearPrefetchCount();
@@ -1448,21 +1452,49 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
     ropts.iterate_upper_bound = ub_ptr;
     ropts.auto_readahead_size = true;
 
+    ReadOptions cmp_readopts = ropts;
+    cmp_readopts.auto_readahead_size = false;
+
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_readopts));
 
     Slice seek_key = Slice("my_key_bbb");
-    iter->Seek(seek_key);
-    ASSERT_TRUE(iter->Valid());
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
 
-    // Prev op should fail with auto tuning of readahead_size.
-    iter->Prev();
-    ASSERT_TRUE(iter->status().IsNotSupported());
-    ASSERT_FALSE(iter->Valid());
+      iter->Seek(seek_key);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
+
+    // Prev op should pass with auto tuning of readahead_size.
+    {
+      cmp_iter->Prev();
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Prev();
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
 
     // Reseek would follow as usual.
-    iter->Seek(seek_key);
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(iter->Valid());
+    {
+      cmp_iter->Seek(seek_key);
+      ASSERT_TRUE(cmp_iter->Valid());
+      ASSERT_OK(cmp_iter->status());
+
+      iter->Seek(seek_key);
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), cmp_iter->key());
+    }
   }
   Close();
 }
@@ -1549,6 +1581,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(num_keys, total_keys);
 
     // For index and data blocks.
@@ -1663,6 +1696,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(num_keys, total_keys);
 
     // For index and data blocks.
@@ -1813,6 +1847,7 @@ TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(num_keys, total_keys);
 
     // Check stats to make sure async prefetch is done.
@@ -1840,6 +1875,7 @@ TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(num_keys, total_keys);
 
     // Check stats to make sure async prefetch is done.
@@ -2436,6 +2472,7 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
           iter->Next();
           reseek_keys_with_tuning++;
         }
+        ASSERT_OK(iter->status());
 
         uint64_t readahead_trimmed =
             options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
@@ -2480,6 +2517,7 @@ TEST_P(PrefetchTest, IterReadAheadSizeWithUpperBound) {
           iter->Next();
           reseek_keys_without_tuning++;
         }
+        ASSERT_OK(iter->status());
 
         uint64_t readahead_trimmed =
             options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED);
@@ -2725,6 +2763,7 @@ TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
 
     if (read_async_called) {
       ASSERT_EQ(num_keys, total_keys);
@@ -3109,6 +3148,7 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
       ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_OK(iter->status());
 
     // End the tracing.
     ASSERT_OK(db_->EndIOTrace());
