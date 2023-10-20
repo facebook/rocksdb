@@ -490,7 +490,7 @@ class BlobDBImpl : public BlobDB {
 
   // Each call of DisableFileDeletions will increase disable_file_deletion_
   // by 1. EnableFileDeletions will either decrease the count by 1 or reset
-  // it to zeor, depending on the force flag.
+  // it to zero, depending on the force flag.
   //
   // REQUIRES: access with delete_file_mutex_ held.
   int disable_file_deletions_ = 0;

@@ -1650,7 +1650,17 @@ class DB {
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
 
-  // Allow compactions to delete obsolete files.
+  // Enable deleting obsolete files.
+  // Usually users should only need to call this if they have previously called
+  // `DisableFileDeletions`.
+  // File deletions disabling and enabling is not controlled by a binary flag,
+  // instead it's represented as a counter to allow different callers to
+  // independently disable file deletion. Disabling file deletion can be
+  // critical for operations like making a backup. So the counter implementation
+  // makes the file deletion disabled as long as there is one caller requesting
+  // so, and only when every caller agrees to re-enable file deletion, it will
+  // be enabled. So be careful when calling this function with force = true as
+  // explained below.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()
   // was called multiple times before.
@@ -1659,7 +1669,7 @@ class DB {
   // enabling the two methods to be called by two threads concurrently without
   // synchronization -- i.e., file deletions will be enabled only after both
   // threads call EnableFileDeletions()
-  virtual Status EnableFileDeletions(bool force = true) = 0;
+  virtual Status EnableFileDeletions(bool force) = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
