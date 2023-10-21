@@ -17,6 +17,9 @@
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/status.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {

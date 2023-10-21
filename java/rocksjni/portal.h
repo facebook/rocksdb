@@ -5165,6 +5165,10 @@ class TickerTypeJni {
         return -0x3C;
       case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
         return -0x3D;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS:
+        return -0x3E;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS:
+        return -0x3F;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5528,6 +5532,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
       case -0x3C:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
+      case -0x3D:
+        return ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED;
+      case -0x3E:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS;
+      case -0x3F:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
