@@ -796,10 +796,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
-  if (!from_db_open) {
-    options_mutex_.AssertHeld();
-  }
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool is_new_db) {
+  options_mutex_.AssertHeld();
 
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
@@ -853,7 +851,17 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
     // 2) In any DB, any data written after setting preserve/preclude options
     // must have a reasonable time estimate (so that we can accurately place
     // the data), which means at least one entry in seqno_to_time_mapping_.
-    if (from_db_open && GetLatestSequenceNumber() == 0) {
+    //
+    // FIXME: We don't currently guarantee that if the first column family with
+    // that setting is added or configured after initial DB::Open but before
+    // the first user Write. Fixing this causes complications with the crash
+    // test because if DB starts without preserve/preclude option, does some
+    // user writes but all those writes are lost in crash, then re-opens with
+    // preserve/preclude option, it sees seqno==1 which looks like one of the
+    // user writes was recovered, when actually it was not.
+    bool last_seqno_zero = GetLatestSequenceNumber() == 0;
+    assert(!is_new_db || last_seqno_zero);
+    if (is_new_db && last_seqno_zero) {
       // Pre-allocate seqnos and pre-populate historical mapping
       assert(mapping_was_empty);
 
@@ -862,16 +870,31 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
       versions_->SetLastAllocatedSequence(kMax);
       versions_->SetLastPublishedSequence(kMax);
       versions_->SetLastSequence(kMax);
+
+      // And record in manifest, to avoid going backwards in seqno on re-open
+      // (potentially with different options). Concurrency is simple because we
+      // are in DB::Open
+      {
+        InstrumentedMutexLock l(&mutex_);
+        VersionEdit edit;
+        edit.SetLastSequence(kMax);
+        s = versions_->LogAndApplyToDefaultColumnFamily(
+            {}, &edit, &mutex_, directories_.GetDbDir());
+        if (!s.ok() && versions_->io_status().IsIOError()) {
+          s = error_handler_.SetBGError(versions_->io_status(),
+                                        BackgroundErrorReason::kManifestWrite);
+        }
+      }
+
       // Pre-populate mappings for reserved sequence numbers.
       RecordSeqnoToTimeMapping(max_preserve_seconds);
     } else if (mapping_was_empty) {
-      // To ensure there is at least one mapping, we need a non-zero sequence
-      // number. Outside of DB::Open, we have to be careful.
-      versions_->EnsureNonZeroSequence();
-      assert(GetLatestSequenceNumber() > 0);
-
-      // Ensure at least one mapping (or log a warning)
-      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      if (!last_seqno_zero) {
+        // Ensure at least one mapping (or log a warning)
+        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      } else {
+        // FIXME (see limitation described above)
+      }
     }
 
     s = periodic_task_scheduler_.Register(
@@ -6493,7 +6516,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
         assert(unix_time > populate_historical_seconds);
       }
     } else {
-      assert(seqno > 0);
+      // FIXME: assert(seqno > 0);
       appended = seqno_to_time_mapping_.Append(seqno, unix_time);
     }
   }

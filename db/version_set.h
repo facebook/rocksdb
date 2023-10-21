@@ -1344,9 +1344,6 @@ class VersionSet {
     last_allocated_sequence_.store(s, std::memory_order_seq_cst);
   }
 
-  // Allocate a dummy sequence number as needed to ensure last is non-zero.
-  void EnsureNonZeroSequence();
-
   // Note: memory_order_release must be sufficient
   uint64_t FetchAddLastAllocatedSequence(uint64_t s) {
     return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
