@@ -74,7 +74,7 @@ static Env* GetTestFS() {
     const char* uri = getenv("TEST_FS_URI");
     if (uri != nullptr) {
       EXPECT_OK(
-          Env::CreateFromUri(ConfigOptions(), uri, "", &fs_env, &fs_env_guard));
+          Env::CreateFromUri(ConfigOptions(), "", uri, &fs_env, &fs_env_guard));
     }
   }
   EXPECT_NE(fs_env, nullptr);
