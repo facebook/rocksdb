@@ -98,6 +98,9 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
     return s;
   }
 
+  if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+    RecordTick(stats_, PREFETCH_BYTES, read_len);
+  }
   // Update the buffer offset and size.
   bufs_[index].offset_ = rounddown_start;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
@@ -653,6 +656,11 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       if (for_compaction) {
         s = Prefetch(opts, reader, offset, std::max(n, readahead_size_));
       } else {
+        if (IsOffsetInBuffer(offset, curr_)) {
+          RecordTick(stats_, PREFETCH_BYTES_USEFUL,
+                     bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize() -
+                         offset);
+        }
         if (implicit_auto_readahead_) {
           if (!IsEligibleForPrefetch(offset, n)) {
             // Ignore status as Prefetch is not called.
@@ -676,6 +684,9 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     } else {
       return false;
     }
+  } else if (!for_compaction) {
+    RecordTick(stats_, PREFETCH_HITS);
+    RecordTick(stats_, PREFETCH_BYTES_USEFUL, n);
   }
   UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
 

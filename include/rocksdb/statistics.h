@@ -522,6 +522,15 @@ enum Tickers : uint32_t {
   FIFO_MAX_SIZE_COMPACTIONS,
   FIFO_TTL_COMPACTIONS,
 
+  // Number of bytes prefetched during user initiated scan
+  PREFETCH_BYTES,
+
+  // Number of prefetched bytes that were actually useful
+  PREFETCH_BYTES_USEFUL,
+
+  // Number of FS reads avoided due to scan prefetching
+  PREFETCH_HITS,
+
   TICKER_ENUM_MAX
 };
 
