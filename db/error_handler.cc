@@ -671,8 +671,11 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
-    TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError:WaitingForOtherThread");
+    TEST_SYNC_POINT(
+        "StartRecoverFromRetryableBGIOError:BeforeWaitingForOtherThread");
     old_recovery_thread->join();
+    TEST_SYNC_POINT(
+        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread");
     db_mutex_->Lock();
   }
 
@@ -771,6 +774,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         if (soft_error_no_bg_work_) {
           soft_error_no_bg_work_ = false;
         }
+        TEST_SYNC_POINT(
+            "RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn");
         return;
       } else {
         // In this case: 1) recovery_error_ is more serious or not retryable

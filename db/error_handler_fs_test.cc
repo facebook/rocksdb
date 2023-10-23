@@ -1856,8 +1856,12 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
         "MultipleRecoveryThreads:1"},
        {"MultipleRecoveryThreads:2",
         "NotifyOnErrorRecoveryEnd:MutexUnlocked:2"},
-       {"StartRecoverFromRetryableBGIOError:WaitingForOtherThread",
-        "MultipleRecoveryThreads:3"}});
+       {"StartRecoverFromRetryableBGIOError:BeforeWaitingForOtherThread",
+        "MultipleRecoveryThreads:3"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
+        "MultipleRecoveryThreads:4"},
+       {"MultipleRecoveryThreads:5",
+        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   // First write with read fault injected and recovery will start
@@ -1874,23 +1878,33 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
   // released.
   TEST_SYNC_POINT("MultipleRecoveryThreads:1");
 
-  // Inject failure again to create second recovery
-  fault_fs_->SetFilesystemActive(false, error_msg);
   ROCKSDB_NAMESPACE::port::Thread second_write([&] {
     // Second write with read fault injected
+    fault_fs_->SetFilesystemActive(false, error_msg);
     ASSERT_OK(Put(Key(2), "val2", wo));
     Status s = Flush();
     ASSERT_NOK(s);
     ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-
     // Remove error injection so that second thread recovery can go through
     fault_fs_->SetFilesystemActive(true);
   });
+  // Lock is released by both threads
   TEST_SYNC_POINT("MultipleRecoveryThreads:3");
+  // First thread's recovery thread continues
   TEST_SYNC_POINT("MultipleRecoveryThreads:2");
+  // Wait for the first thread's recovery to be done
+  TEST_SYNC_POINT("MultipleRecoveryThreads:4");
+  // Second thread continues and starts recovery thread
+  TEST_SYNC_POINT("MultipleRecoveryThreads:5");
+  // Wait for the second thread's recovery to be done
+  // (listener->WaitForRecovery() not available due to race condition from
+  // thread 1)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
+        "MultipleRecoveryThreads:6"}});
+  TEST_SYNC_POINT("MultipleRecoveryThreads:6");
   second_write.join();
-  // Wait for second write to recover
-  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  SyncPoint::GetInstance()->DisableProcessing();
   Destroy(options);
 }
 
