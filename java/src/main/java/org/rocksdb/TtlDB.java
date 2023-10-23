@@ -154,6 +154,7 @@ public class TtlDB extends RocksDB {
    *
    * @throws RocksDBException if an error occurs whilst closing.
    */
+  @Override
   public void closeE() throws RocksDBException {
     if (owningHandle_.compareAndSet(true, false)) {
       try {
@@ -175,6 +176,7 @@ public class TtlDB extends RocksDB {
    * <p>
    * See also {@link #close()}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
     if (owningHandle_.compareAndSet(true, false)) {

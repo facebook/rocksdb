@@ -19,6 +19,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -741,6 +742,55 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   Close();
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSecRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and the behavior in effect for the DB, after the last
+  // modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"stats_dump_period_sec", i % 2 ? "100" : "0"}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool stats_dump_set = dbfull()->GetDBOptions().stats_dump_period_sec > 0;
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kDumpStats);
+
+  ASSERT_EQ(stats_dump_set, task_enabled);
+}
+
+TEST_F(DBOptionsTest, SetOptionsAndFileRace) {
+  // This is a mini-stress test looking for inconsistency between the reported
+  // state of the option and what is persisted in the options file, after the
+  // last modification to that option (indefinite inconsistency).
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 12; i++) {
+    threads.emplace_back([this, i]() {
+      ASSERT_OK(dbfull()->SetOptions({{"ttl", std::to_string(i * 100)}}));
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  auto setting_in_mem = dbfull()->GetOptions().ttl;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  DBOptions db_options;
+  ConfigOptions cfg;
+  cfg.env = env_;
+  ASSERT_OK(LoadLatestOptions(cfg, dbname_, &db_options, &cf_descs, nullptr));
+  ASSERT_EQ(cf_descs.size(), 1);
+  ASSERT_EQ(setting_in_mem, cf_descs[0].options.ttl);
+}
+
 TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
@@ -909,6 +959,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
@@ -942,12 +993,19 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+
   // Set ttl to 1 minute. So all files should get deleted.
   ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
@@ -972,6 +1030,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_fifo", "{max_table_files_size=12288;}"}}));
@@ -980,6 +1041,10 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  ASSERT_GT(options.statistics->getTickerCount(FIFO_MAX_SIZE_COMPACTIONS), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(FIFO_TTL_COMPACTIONS), 0);
+  ASSERT_OK(options.statistics->Reset());
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB

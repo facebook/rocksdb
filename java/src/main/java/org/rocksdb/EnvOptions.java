@@ -9,15 +9,11 @@ package org.rocksdb;
  * Options while opening a file to read/write
  */
 public class EnvOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct with default Options
    */
   public EnvOptions() {
-    super(newEnvOptions());
+    super(newEnvOptionsInstance());
   }
 
   /**
@@ -323,6 +319,10 @@ public class EnvOptions extends RocksObject {
     return rateLimiter;
   }
 
+  private static long newEnvOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newEnvOptions();
+  }
   private static native long newEnvOptions();
   private static native long newEnvOptions(final long dboptions_handle);
   @Override protected final native void disposeInternal(final long handle);

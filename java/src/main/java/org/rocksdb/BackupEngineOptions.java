@@ -228,10 +228,9 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
-  public BackupEngineOptions setBackupRateLimit(long backupRateLimit) {
+  public BackupEngineOptions setBackupRateLimit(final long backupRateLimit) {
     assert(isOwningHandle());
-    backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
-    setBackupRateLimit(nativeHandle_, backupRateLimit);
+    setBackupRateLimit(nativeHandle_, (backupRateLimit <= 0) ? 0 : backupRateLimit);
     return this;
   }
 
@@ -286,10 +285,9 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
-  public BackupEngineOptions setRestoreRateLimit(long restoreRateLimit) {
+  public BackupEngineOptions setRestoreRateLimit(final long restoreRateLimit) {
     assert(isOwningHandle());
-    restoreRateLimit = (restoreRateLimit <= 0) ? 0 : restoreRateLimit;
-    setRestoreRateLimit(nativeHandle_, restoreRateLimit);
+    setRestoreRateLimit(nativeHandle_, (restoreRateLimit <= 0) ? 0 : restoreRateLimit);
     return this;
   }
 

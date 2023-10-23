@@ -168,6 +168,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
@@ -203,6 +204,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD),
               num_blobs);
@@ -224,6 +226,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ASSERT_EQ(iter->value().ToString(), blobs[i]);
       ++i;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(i, num_blobs);
     ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
@@ -2123,6 +2126,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
                        /*key_is_internal*/ false);
       iter->Prev();
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iteration, then reverse to forward.
@@ -2169,6 +2173,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Next();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iterating multiple versions of the same key, get in this order:
@@ -2187,6 +2192,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Prev();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   int upper_bound_idx = num_blobs - 2;
@@ -2209,6 +2215,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Next();
       }
     }
+    ASSERT_OK(iter->status());
   }
 
   // Backward iteration with upper and lower bound.
@@ -2224,6 +2231,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
         iter->Prev();
       }
     }
+    ASSERT_OK(iter->status());
   }
 }
 

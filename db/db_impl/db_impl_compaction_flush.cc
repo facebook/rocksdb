@@ -113,7 +113,8 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
 }
 
 IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
-                                VersionEdit* synced_wals) {
+                                VersionEdit* synced_wals,
+                                bool error_recovery_in_prog) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   InstrumentedMutexLock l(&log_write_mutex_);
   autovector<log::Writer*, 1> logs_to_sync;
@@ -139,7 +140,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
-      if (error_handler_.IsRecoveryInProgress()) {
+      if (error_recovery_in_prog) {
         log->file()->reset_seen_error();
       }
       io_s = log->file()->Sync(immutable_db_options_.use_fsync);
@@ -148,7 +149,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
-        if (error_handler_.IsRecoveryInProgress()) {
+        if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }
         io_s = log->Close();
@@ -234,7 +235,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // releases and re-acquires the db mutex. In the meantime, the application
   // can still insert into the memtables and increase the db's sequence number.
   // The application can take a snapshot, hoping that the latest visible state
-  // to this snapshto is preserved. This is hard to guarantee since db mutex
+  // to this snapshot is preserved. This is hard to guarantee since db mutex
   // not held. This newly-created snapshot is not included in `snapshot_seqs`
   // and the flush job is unaware of its presence. Consequently, the flush job
   // may drop certain keys when generating the L0, causing incorrect data to be
@@ -262,8 +263,10 @@ Status DBImpl::FlushMemTableToOutputFile(
     // SyncClosedLogs() may unlock and re-lock the log_write_mutex multiple
     // times.
     VersionEdit synced_wals;
+    bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s =
+        SyncClosedLogs(job_context, &synced_wals, error_recovery_in_prog);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       const ReadOptions read_options(Env::IOActivity::kFlush);
@@ -547,8 +550,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     VersionEdit synced_wals;
+    bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s =
+        SyncClosedLogs(job_context, &synced_wals, error_recovery_in_prog);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       const ReadOptions read_options(Env::IOActivity::kFlush);
@@ -3699,6 +3704,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
+    if (status.ok() && io_s.ok()) {
+      UpdateDeletionCompactionStats(c);
+    }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
@@ -4075,6 +4083,27 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
     return false;
   }
   return false;
+}
+
+void DBImpl::UpdateDeletionCompactionStats(
+    const std::unique_ptr<Compaction>& c) {
+  if (c == nullptr) {
+    return;
+  }
+
+  CompactionReason reason = c->compaction_reason();
+
+  switch (reason) {
+    case CompactionReason::kFIFOMaxSize:
+      RecordTick(stats_, FIFO_MAX_SIZE_COMPACTIONS);
+      break;
+    case CompactionReason::kFIFOTtl:
+      RecordTick(stats_, FIFO_TTL_COMPACTIONS);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 void DBImpl::BuildCompactionJobInfo(

@@ -805,6 +805,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 6);
     read_options.snapshot = nullptr;
     std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
@@ -815,6 +816,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
       count++;
       iter1->Next();
     }
+    ASSERT_OK(iter1->status());
     // We have deleted 10 keys from 40 using the compaction filter
     //  Keys 6-9 before the snapshot and 100-105 after the snapshot
     ASSERT_EQ(count, 30);

@@ -37,6 +37,7 @@ class AbstractComparatorJniBridge {
    *
    * @return the result of the comparison
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private static int compareInternal(final AbstractComparator comparator, final ByteBuffer a,
       final int aLen, final ByteBuffer b, final int bLen) {
     if (aLen != -1) {
@@ -80,6 +81,7 @@ class AbstractComparatorJniBridge {
    * @return either {@code startLen} if the start key is unchanged, otherwise
    *     the new length of the start key
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private static int findShortestSeparatorInternal(final AbstractComparator comparator,
       final ByteBuffer start, final int startLen, final ByteBuffer limit, final int limitLen) {
     if (startLen != -1) {
@@ -108,6 +110,7 @@ class AbstractComparatorJniBridge {
    *
    * @return either keyLen if the key is unchanged, otherwise the new length of the key
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private static int findShortSuccessorInternal(
       final AbstractComparator comparator, final ByteBuffer key, final int keyLen) {
     if (keyLen != -1) {
