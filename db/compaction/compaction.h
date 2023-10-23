@@ -31,8 +31,19 @@ namespace ROCKSDB_NAMESPACE {
 // that key never appears in the database. We don't want adjacent sstables to
 // be considered overlapping if they are separated by the range tombstone
 // sentinel.
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b);
+int sstableKeyCompare(const Comparator* user_cmp, const Slice&, const Slice&);
+inline int sstableKeyCompare(const Comparator* user_cmp, const Slice& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a, b.Encode());
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const Slice& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b);
+}
+inline int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
+                             const InternalKey& b) {
+  return sstableKeyCompare(user_cmp, a.Encode(), b.Encode());
+}
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
                       const InternalKey& b);
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
@@ -203,9 +214,17 @@ class Compaction {
   void AddInputDeletions(VersionEdit* edit);
 
   // Returns true if the available information we have guarantees that
-  // the input "user_key" does not exist in any level beyond "output_level()".
+  // the input "user_key" does not exist in any level beyond `output_level()`.
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
+
+  // Returns true if the user key range [begin_key, end_key) does not exist
+  // in any level beyond `output_level()`.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
+  // begin_key and end_key should include timestamp if enabled.
+  bool KeyRangeNotExistsBeyondOutputLevel(
+      const Slice& begin_key, const Slice& end_key,
+      std::vector<size_t>* level_ptrs) const;
 
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
@@ -270,7 +289,14 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize() const;
 
-  void SetInputVersion(Version* input_version);
+  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
+  // status and fail the compaction if needed
+  // TODO(hx235): consider making this function part of the construction so we
+  // don't forget to call it
+  void FinalizeInputInfo(Version* input_version) {
+    SetInputVersion(input_version);
+    InitInputTableProperties().PermitUncheckedError();
+  }
 
   struct InputLevelSummaryBuffer {
     char buffer[128];
@@ -307,12 +333,20 @@ class Compaction {
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
 
-  TablePropertiesCollection GetOutputTableProperties() const {
-    return output_table_properties_;
+  const TablePropertiesCollection& GetInputTableProperties() const {
+    return input_table_properties_;
   }
 
-  void SetOutputTableProperties(TablePropertiesCollection tp) {
-    output_table_properties_ = std::move(tp);
+  // TODO(hx235): consider making this function symmetric to
+  // InitInputTableProperties()
+  void SetOutputTableProperties(
+      const std::string& file_name,
+      const std::shared_ptr<const TableProperties>& tp) {
+    output_table_properties_[file_name] = tp;
+  }
+
+  const TablePropertiesCollection& GetOutputTableProperties() const {
+    return output_table_properties_;
   }
 
   Slice GetSmallestUserKey() const { return smallest_user_key_; }
@@ -409,6 +443,10 @@ class Compaction {
                                       const int output_level);
 
  private:
+  void SetInputVersion(Version* input_version);
+
+  Status InitInputTableProperties();
+
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
 
@@ -499,7 +537,7 @@ class Compaction {
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
 
-  // table properties of output files
+  TablePropertiesCollection input_table_properties_;
   TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction

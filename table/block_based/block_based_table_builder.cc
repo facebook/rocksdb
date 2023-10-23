@@ -70,7 +70,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
-    PartitionedIndexBuilder* const p_index_builder) {
+    PartitionedIndexBuilder* const p_index_builder, size_t ts_sz,
+    const bool persist_user_defined_timestamps) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
 
@@ -95,7 +96,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size);
+          use_delta_encoding_for_index_values, p_index_builder, partition_size,
+          ts_sz, persist_user_defined_timestamps);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -136,8 +138,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -150,8 +152,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     // Sampling with a slow but high-compression algorithm
     if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -261,9 +263,25 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 
 struct BlockBasedTableBuilder::Rep {
   const ImmutableOptions ioptions;
-  const MutableCFOptions moptions;
+  // BEGIN from MutableCFOptions
+  std::shared_ptr<const SliceTransform> prefix_extractor;
+  // END from MutableCFOptions
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
+  // Size in bytes for the user-defined timestamps.
+  size_t ts_sz;
+  // When `ts_sz` > 0 and this flag is false, the user-defined timestamp in the
+  // user key will be stripped when creating the block based table. This
+  // stripping happens for all user keys, including the keys in data block,
+  // index block for data block, index block for index block (if index type is
+  // `kTwoLevelIndexSearch`), index for filter blocks (if using partitioned
+  // filters), the `first_internal_key` in `IndexValue`, the `end_key` for range
+  // deletion entries.
+  // As long as the user keys are sorted when added via `Add` API, their logic
+  // ordering won't change after timestamps are stripped. However, for each user
+  // key to be logically equivalent before and after timestamp is stripped, the
+  // user key should contain the minimum timestamp.
+  bool persist_user_defined_timestamps;
   WritableFileWriter* file;
   std::atomic<uint64_t> offset;
   size_t alignment;
@@ -345,6 +363,9 @@ struct BlockBasedTableBuilder::Rep {
   // all blocks after data blocks till the end of the SST file.
   uint64_t tail_size;
 
+  // See class Footer
+  uint32_t base_context_checksum;
+
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
 
@@ -373,6 +394,12 @@ struct BlockBasedTableBuilder::Rep {
     // to false, and this is ensured by io_status_mutex, so no special memory
     // order for io_status_ok is required.
     if (io_status_ok.load(std::memory_order_relaxed)) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
+      auto ios = CopyIOStatus();
+      ios.PermitUncheckedError();
+      // Assume no races in unit tests
+      assert(ios.ok());
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
       return IOStatus::OK();
     } else {
       return CopyIOStatus();
@@ -413,9 +440,12 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
       WritableFileWriter* f)
       : ioptions(tbo.ioptions),
-        moptions(tbo.moptions),
+        prefix_extractor(tbo.moptions.prefix_extractor),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
+        ts_sz(tbo.internal_comparator.user_comparator()->timestamp_size()),
+        persist_user_defined_timestamps(
+            tbo.ioptions.persist_user_defined_timestamps),
         file(f),
         offset(0),
         alignment(table_options.block_align
@@ -429,9 +459,15 @@ struct BlockBasedTableBuilder::Rep {
                            ->CanKeysWithDifferentByteContentsBeEqual()
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
-                   table_options.data_block_hash_table_util_ratio),
-        range_del_block(1 /* block_restart_interval */),
-        internal_prefix_transform(tbo.moptions.prefix_extractor.get()),
+                   table_options.data_block_hash_table_util_ratio, ts_sz,
+                   persist_user_defined_timestamps),
+        range_del_block(
+            1 /* block_restart_interval */, true /* use_delta_encoding */,
+            false /* use_value_delta_encoding */,
+            BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+            0.75 /* data_block_hash_table_util_ratio */, ts_sz,
+            persist_user_defined_timestamps),
+        internal_prefix_transform(prefix_extractor.get()),
         compression_type(tbo.compression_type),
         sample_for_compression(tbo.moptions.sample_for_compression),
         compressible_input_data_bytes(0),
@@ -452,7 +488,7 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        create_context(&table_options, ioptions.stats,
+        create_context(&table_options, &ioptions, ioptions.stats,
                        compression_type == kZSTD ||
                            compression_type == kZSTDNotFinalCompression,
                        tbo.moptions.block_protection_bytes_per_key,
@@ -489,20 +525,22 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
+    assert(compression_ctxs.size() >= compression_opts.parallel_threads);
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
-      compression_ctxs[i].reset(new CompressionContext(compression_type));
+      compression_ctxs[i].reset(
+          new CompressionContext(compression_type, compression_opts));
     }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options);
+          table_options, ts_sz, persist_user_defined_timestamps);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options));
+          table_options, ts_sz, persist_user_defined_timestamps));
     }
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
@@ -532,8 +570,9 @@ struct BlockBasedTableBuilder::Rep {
       }
 
       filter_builder.reset(CreateFilterBlockBuilder(
-          ioptions, moptions, filter_context,
-          use_delta_encoding_for_index_values, p_index_builder_));
+          ioptions, tbo.moptions, filter_context,
+          use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
+          persist_user_defined_timestamps));
     }
 
     assert(tbo.int_tbl_prop_collector_factories);
@@ -547,12 +586,11 @@ struct BlockBasedTableBuilder::Rep {
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
-            moptions.prefix_extractor != nullptr));
-    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
+            prefix_extractor != nullptr));
+    if (ts_sz > 0 && persist_user_defined_timestamps) {
       table_properties_collectors.emplace_back(
-          new TimestampTablePropertiesCollector(ucmp));
+          new TimestampTablePropertiesCollector(
+              tbo.internal_comparator.user_comparator()));
     }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
@@ -571,6 +609,17 @@ struct BlockBasedTableBuilder::Rep {
     props.db_host_id = ioptions.db_host_id;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
+    }
+
+    if (FormatVersionUsesContextChecksum(table_options.format_version)) {
+      // Must be non-zero and semi- or quasi-random
+      // TODO: ideally guaranteed different for related files (e.g. use file
+      // number and db_session, for benefit of SstFileWriter)
+      do {
+        base_context_checksum = Random::GetTLSInstance()->Next();
+      } while (UNLIKELY(base_context_checksum == 0));
+    } else {
+      base_context_checksum = 0;
     }
   }
 
@@ -910,7 +959,9 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     // behavior
     sanitized_table_options.format_version = 1;
   }
-
+  auto ucmp = tbo.internal_comparator.user_comparator();
+  assert(ucmp);
+  (void)ucmp;  // avoids unused variable error.
   rep_ = new Rep(sanitized_table_options, tbo, file);
 
   TEST_SYNC_POINT_CALLBACK(
@@ -994,9 +1045,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         r->pc_rep->curr_block_keys->PushBack(key);
       } else {
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
       }
     }
@@ -1017,6 +1067,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
                                       r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
+    // TODO(yuzhangyu): handle range deletion entries for UDT in memtable only.
     r->range_del_block.Add(key, value);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
@@ -1028,6 +1079,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
+  if (!r->persist_user_defined_timestamps) {
+    r->props.raw_key_size -= r->ts_sz;
+  }
   r->props.raw_value_size += value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
@@ -1093,6 +1147,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
     return;
   }
 
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
+      &r->compressed_output);
   WriteMaybeCompressedBlock(block_contents, type, handle, block_type,
                             &uncompressed_block_data);
   r->compressed_output.clear();
@@ -1255,7 +1312,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   bool is_data_block = block_type == BlockType::kData;
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
-  handle->set_offset(r->get_offset());
+  const uint64_t offset = r->get_offset();
+  handle->set_offset(offset);
   handle->set_size(block_contents.size());
   assert(status().ok());
   assert(io_status().ok());
@@ -1277,6 +1335,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
       r->table_options.checksum, block_contents.data(), block_contents.size(),
       /*last_byte*/ comp_type);
+  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
     Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
@@ -1367,9 +1426,7 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
     for (size_t i = 0; i < block_rep->keys->Size(); i++) {
       auto& key = (*block_rep->keys)[i];
       if (r->filter_builder != nullptr) {
-        size_t ts_sz =
-            r->internal_comparator.user_comparator()->timestamp_size();
-        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
       }
       r->index_builder->OnKeyAdded(key);
     }
@@ -1572,6 +1629,11 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       // The last index_block_handle will be for the partition index block
     }
   }
+  // If success and need to record in metaindex rather than footer...
+  if (!FormatVersionUsesIndexHandleInFooter(
+          rep_->table_options.format_version)) {
+    meta_index_builder->Add(kIndexBlockName, *index_block_handle);
+  }
 }
 
 void BlockBasedTableBuilder::WritePropertiesBlock(
@@ -1597,9 +1659,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.compression_options =
         CompressionOptionsToString(rep_->compression_opts);
     rep_->props.prefix_extractor_name =
-        rep_->moptions.prefix_extractor != nullptr
-            ? rep_->moptions.prefix_extractor->AsString()
-            : "nullptr";
+        rep_->prefix_extractor ? rep_->prefix_extractor->AsString() : "nullptr";
     std::string property_collectors_names = "[";
     for (size_t i = 0;
          i < rep_->ioptions.table_properties_collector_factories.size(); ++i) {
@@ -1643,6 +1703,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->compressible_input_data_bytes +
           rep_->uncompressible_input_data_bytes;
     }
+    rep_->props.user_defined_timestamps_persisted =
+        rep_->persist_user_defined_timestamps;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
@@ -1716,16 +1778,20 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
 
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
+  assert(ok());
   Rep* r = rep_;
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  assert(ok());
-
   FooterBuilder footer;
-  footer.Build(kBlockBasedTableMagicNumber, r->table_options.format_version,
-               r->get_offset(), r->table_options.checksum,
-               metaindex_block_handle, index_block_handle);
+  Status s = footer.Build(kBlockBasedTableMagicNumber,
+                          r->table_options.format_version, r->get_offset(),
+                          r->table_options.checksum, metaindex_block_handle,
+                          index_block_handle, r->base_context_checksum);
+  if (!s.ok()) {
+    r->SetStatus(s);
+    return;
+  }
   IOStatus ios = r->file->Append(footer.GetSlice());
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer.GetSlice().size());
@@ -1811,7 +1877,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     Block reader{BlockContents{data_block}};
     DataBlockIter* iter = reader.NewDataIterator(
-        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber);
+        r->internal_comparator.user_comparator(), kDisableGlobalSequenceNumber,
+        nullptr /* iter */, nullptr /* stats */,
+        false /*  block_contents_pinned */, r->persist_user_defined_timestamps);
 
     iter->SeekToFirst();
     assert(iter->Valid());
@@ -1857,9 +1925,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (r->filter_builder != nullptr) {
-          size_t ts_sz =
-              r->internal_comparator.user_comparator()->timestamp_size();
-          r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+          r->filter_builder->Add(
+              ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
         r->index_builder->OnKeyAdded(key);
       }
@@ -1939,10 +2006,14 @@ Status BlockBasedTableBuilder::Finish() {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  r->SetStatus(r->CopyIOStatus());
-  Status ret_status = r->CopyStatus();
-  assert(!ret_status.ok() || io_status().ok());
   r->tail_size = r->offset - r->props.tail_start_offset;
+
+  Status ret_status = r->CopyStatus();
+  IOStatus ios = r->GetIOStatus();
+  if (!ios.ok() && ret_status.ok()) {
+    // Let io_status supersede ok status (otherwise status takes precedennce)
+    ret_status = ios;
+  }
   return ret_status;
 }
 
@@ -1952,8 +2023,10 @@ void BlockBasedTableBuilder::Abandon() {
     StopParallelCompression();
   }
   rep_->state = Rep::State::kClosed;
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  // Avoid unnecessary lock acquisition
   rep_->CopyStatus().PermitUncheckedError();
   rep_->CopyIOStatus().PermitUncheckedError();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {

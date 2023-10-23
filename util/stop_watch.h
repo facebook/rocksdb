@@ -32,7 +32,7 @@ class StopWatch {
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
-                       statistics->get_stats_level() >=
+                       statistics->get_stats_level() >
                            StatsLevel::kExceptTimers &&
                        (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX ||
                         hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX)),

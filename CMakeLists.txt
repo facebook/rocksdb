@@ -254,7 +254,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
 
 set(PORTABLE 0 CACHE STRING "Minimum CPU arch to support, or 0 = current CPU, 1 = baseline CPU")
-if(PORTABLE STREQUAL 1)
+if(PORTABLE MATCHES "1|ON|YES|TRUE|Y")
   # Usually nothing to do; compiler default is typically the most general
   if(NOT MSVC)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
@@ -264,14 +264,7 @@ if(PORTABLE STREQUAL 1)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
-elseif(PORTABLE MATCHES [^0]+)
-  # Name of a CPU arch spec or feature set to require
-  if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
-  endif()
-else()
+elseif(PORTABLE MATCHES "0|OFF|NO|FALSE|N")
   if(MSVC)
     # NOTE: No auto-detection of current CPU, but instead assume some useful
     # level of optimization is supported
@@ -284,6 +277,13 @@ else()
     elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
+  endif()
+else()
+  # Name of a CPU arch spec or feature set to require
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:${PORTABLE}")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${PORTABLE}")
   endif()
 endif()
 
@@ -632,6 +632,7 @@ set(SOURCES
         cache/secondary_cache.cc
         cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
+        cache/tiered_secondary_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
         db/blob/blob_fetcher.cc
@@ -714,6 +715,7 @@ set(SOURCES
         db/wal_manager.cc
         db/wide/wide_column_serialization.cc
         db/wide/wide_columns.cc
+        db/wide/wide_columns_helper.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
@@ -1262,6 +1264,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
+        cache/tiered_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1357,6 +1360,7 @@ if(WITH_TESTS)
         db/wal_edit_test.cc
         db/wide/db_wide_basic_test.cc
         db/wide/wide_column_serialization_test.cc
+        db/wide/wide_columns_helper_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
@@ -1592,3 +1596,6 @@ option(WITH_BENCHMARK "build benchmark tests" OFF)
 if(WITH_BENCHMARK)
   add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)

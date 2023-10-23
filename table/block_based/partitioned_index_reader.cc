@@ -75,7 +75,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
@@ -94,7 +95,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()));
+            index_value_is_full(), false /* block_contents_pinned */,
+            user_defined_timestamps_persisted()));
 
     it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
@@ -140,7 +142,8 @@ Status PartitionIndexReader::CacheDependencies(
   index_block.GetValue()->NewIndexIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
-      index_has_first_key(), index_key_includes_seq(), index_value_is_full());
+      index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -162,17 +165,19 @@ Status PartitionIndexReader::CacheDependencies(
       handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled()) {
+  if (tail_prefetch_buffer == nullptr || !tail_prefetch_buffer->Enabled() ||
+      tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
-        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
+        0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/,
+        /*upper_bound_offset*/ 0, /*readaheadsize_cb*/ nullptr,
+        /*usage=*/FilePrefetchBufferUsage::kUnknown);
     IOOptions opts;
     {
       Status s = rep->file->PrepareIOOptions(ro, opts);
       if (s.ok()) {
         s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                      static_cast<size_t>(prefetch_len),
-                                      ro.rate_limiter_priority);
+                                      static_cast<size_t>(prefetch_len));
       }
       if (!s.ok()) {
         return s;
@@ -196,7 +201,7 @@ Status PartitionIndexReader::CacheDependencies(
         handle, UncompressionDict::GetEmptyDict(),
         /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
-        /*async_read=*/false);
+        /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
     if (!s.ok()) {
       return s;

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
@@ -17,6 +18,7 @@
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -26,6 +28,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
@@ -63,6 +66,9 @@ class ColumnFamilyTestBase : public testing::Test {
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
+  }
+
+  void SetUp() override {
     EXPECT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
@@ -1255,6 +1261,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1272,6 +1279,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1326,6 +1334,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
@@ -1342,6 +1351,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1424,13 +1434,14 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1441,6 +1452,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -1519,13 +1531,14 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.max_background_compactions = 3;
 
+  default_cf.level_compaction_dynamic_level_bytes = false;
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
   default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  ;
+
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1536,6 +1549,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 120000;
 
+  two.level_compaction_dynamic_level_bytes = false;
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
@@ -2157,13 +2171,57 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Close();
 }
 
+namespace {
+struct CountOptionsFilesFs : public FileSystemWrapper {
+  explicit CountOptionsFilesFs(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  const char* Name() const override { return "CountOptionsFilesFs"; }
+
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
+    if (f.find("OPTIONS-") != std::string::npos) {
+      options_files_created.fetch_add(1, std::memory_order_relaxed);
+    }
+    return FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
+  }
+
+  std::atomic<int> options_files_created{};
+};
+}  // namespace
+
 TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
-  Status s = TryOpen({"one", "two"});
-  ASSERT_TRUE(!s.ok());
-  db_options_.create_missing_column_families = true;
-  s = TryOpen({"default", "one", "two"});
-  ASSERT_TRUE(s.ok());
+  // Can't accidentally add CFs to an existing DB
+  Open();
   Close();
+  ASSERT_FALSE(db_options_.create_missing_column_families);
+  ASSERT_NOK(TryOpen({"one", "two"}));
+
+  // Nor accidentally create in a new DB
+  Destroy();
+  db_options_.create_if_missing = true;
+  ASSERT_NOK(TryOpen({"one", "two"}));
+
+  // Only with the option (new DB case)
+  db_options_.create_missing_column_families = true;
+  // Also setup to count number of options files created (see check below)
+  auto my_fs =
+      std::make_shared<CountOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto my_env = std::make_unique<CompositeEnvWrapper>(db_options_.env, my_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, my_env.get());
+
+  ASSERT_OK(TryOpen({"default", "one", "two"}));
+  Close();
+
+  // An older version would write an updated options file for each column
+  // family created under create_missing_column_families, which would be
+  // quadratic I/O in the number of column families.
+  ASSERT_EQ(my_fs->options_files_created.load(), 1);
+
+  // Add to existing DB case
+  ASSERT_OK(TryOpen({"default", "one", "two", "three", "four"}));
+  Close();
+  ASSERT_EQ(my_fs->options_files_created.load(), 2);
 }
 
 TEST_P(ColumnFamilyTest, SanitizeOptions) {
@@ -2415,7 +2473,10 @@ void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
 }
 }  // anonymous namespace
 
-TEST_P(ColumnFamilyTest, CreateAndDropRace) {
+// This test attempts to set up a race condition in a way that is no longer
+// possible, causing the test to hang. If DBImpl::options_mutex_ is removed
+// in the future, this test might become relevant again.
+TEST_P(ColumnFamilyTest, DISABLED_CreateAndDropRace) {
   const int kCfCount = 5;
   std::vector<ColumnFamilyOptions> cf_opts;
   std::vector<Comparator*> comparators;
@@ -2472,6 +2533,53 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
       delete comparator;
     }
   }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(ColumnFamilyTest, CreateAndDropPeriodicRace) {
+  // This is a mini-stress test looking for inconsistency between the set of
+  // CFs in the DB, particularly whether any use preserve_internal_time_seconds,
+  // and whether that is accurately reflected in the periodic task setup.
+  constexpr size_t kNumThreads = 12;
+  std::vector<std::thread> threads;
+  bool last_cf_on = Random::GetTLSInstance()->OneIn(2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RegisterRecordSeqnoTimeWorker:BeforePeriodicTaskType",
+      [&](void* /*arg*/) { std::this_thread::yield(); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_EQ(column_family_options_.preserve_internal_time_seconds, 0U);
+  ColumnFamilyOptions other_opts = column_family_options_;
+  ColumnFamilyOptions last_opts = column_family_options_;
+  (last_cf_on ? last_opts : other_opts).preserve_internal_time_seconds =
+      1000000;
+  Open();
+
+  for (size_t i = 0; i < kNumThreads; i++) {
+    threads.emplace_back([this, &other_opts, i]() {
+      ColumnFamilyHandle* cfh;
+      ASSERT_OK(db_->CreateColumnFamily(other_opts, std::to_string(i), &cfh));
+      ASSERT_OK(db_->DropColumnFamily(cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+    });
+  }
+
+  ColumnFamilyHandle* last_cfh;
+  ASSERT_OK(db_->CreateColumnFamily(last_opts, "last", &last_cfh));
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  bool task_enabled = dbfull()->TEST_GetPeriodicTaskScheduler().TEST_HasTask(
+      PeriodicTaskType::kRecordSeqnoTime);
+  ASSERT_EQ(last_cf_on, task_enabled);
+
+  ASSERT_OK(db_->DropColumnFamily(last_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(last_cfh));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -3370,6 +3478,205 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 
   cf_options.memtable_protection_bytes_per_key = 0;
   ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+}
+
+// Tests the flushing behavior of a column family to retain user-defined
+// timestamp when `persist_user_defined_timestamp` is false.
+class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
+ public:
+  ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
+
+  void SetUp() override {
+    db_options_.allow_concurrent_memtable_write = false;
+    column_family_options_.comparator =
+        test::BytewiseComparatorWithU64TsWrapper();
+    column_family_options_.persist_user_defined_timestamps = false;
+    ColumnFamilyTestBase::SetUp();
+  }
+
+  Status Put(int cf, const std::string& key, const std::string& ts,
+             const std::string& value) {
+    return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(ts),
+                    Slice(value));
+  }
+};
+
+class TestTsComparator : public Comparator {
+ public:
+  TestTsComparator() : Comparator(8 /*ts_sz*/) {}
+
+  int Compare(const ROCKSDB_NAMESPACE::Slice& /*a*/,
+              const ROCKSDB_NAMESPACE::Slice& /*b*/) const override {
+    return 0;
+  }
+  const char* Name() const override { return "TestTs"; }
+  void FindShortestSeparator(
+      std::string* /*start*/,
+      const ROCKSDB_NAMESPACE::Slice& /*limit*/) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
+TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
+  Open();
+  ColumnFamilyOptions cf_options;
+  cf_options.persist_user_defined_timestamps = false;
+  TestTsComparator test_comparator;
+  cf_options.comparator = &test_comparator;
+  ColumnFamilyHandle* handle;
+  // Not persisting user-defined timestamps feature only supports user-defined
+  // timestamps formatted as uint64_t.
+  ASSERT_TRUE(
+      db_->CreateColumnFamily(cf_options, "pikachu", &handle).IsNotSupported());
+
+  Destroy();
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with atomic flush.
+  db_options_.atomic_flush = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+
+  // Not persisting user-defined timestamps feature doesn't work in combination
+  // with concurrent memtable write.
+  db_options_.atomic_flush = false;
+  db_options_.allow_concurrent_memtable_write = true;
+  ASSERT_TRUE(TryOpen({"default"}).IsNotSupported());
+  Close();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  // No `full_history_ts_low` explicitly set by user, flush is continued
+  // without checking if its UDTs expired.
+  ASSERT_OK(Flush(0));
+
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 2);
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  std::string cutoff_ts;
+  PutFixed64(&cutoff_ts, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // All keys expired w.r.t the configured `full_history_ts_low`, flush continue
+  // without the need for a re-schedule.
+  ASSERT_OK(Flush(0));
+
+  // `full_history_ts_low` stays unchanged after flush.
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(1, reschedule_count);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Open();
+  std::string cutoff_ts;
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"max_write_buffer_number", "1"}}));
+  // Not all keys expired, but flush is continued without a re-schedule because
+  // of risk of write stall.
+  ASSERT_OK(Flush(0));
+
+  // After flush, `full_history_ts_low` should be automatically advanced to
+  // the effective cutoff timestamp: write_ts + 1
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+
+  cutoff_ts.clear();
+  PutFixed64(&cutoff_ts, 2);
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
+  std::string cutoff_ts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AfterRetainUDTReschedule:cb", [&](void* /*arg*/) {
+        // Increasing full_history_ts_low so all keys expired after the initial
+        // FlushRequest is rescheduled
+        cutoff_ts.clear();
+        PutFixed64(&cutoff_ts, 3);
+        ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto reschedule_count = *static_cast<int*>(arg);
+        ASSERT_EQ(2, reschedule_count);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Open();
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
+  PutFixed64(&cutoff_ts, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  // Not all keys expired, and there is no risk of write stall. Flush is
+  // rescheduled. The actual flush happens after `full_history_ts_low` is
+  // increased to mark all keys expired.
+  ASSERT_OK(Flush(0));
+
+  std::string effective_full_history_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+  // `full_history_ts_low` stays unchanged.
+  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "logging/logging.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
 #include "test_util/sync_point.h"
@@ -23,14 +24,13 @@ namespace ROCKSDB_NAMESPACE {
 const uint64_t kRangeTombstoneSentinel =
     PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 
-int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
-                      const InternalKey& b) {
-  auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
+int sstableKeyCompare(const Comparator* uc, const Slice& a, const Slice& b) {
+  auto c = uc->CompareWithoutTimestamp(ExtractUserKey(a), ExtractUserKey(b));
   if (c != 0) {
     return c;
   }
-  auto a_footer = ExtractInternalKeyFooter(a.Encode());
-  auto b_footer = ExtractInternalKeyFooter(b.Encode());
+  auto a_footer = ExtractInternalKeyFooter(a);
+  auto b_footer = ExtractInternalKeyFooter(b);
   if (a_footer == kRangeTombstoneSentinel) {
     if (b_footer != kRangeTombstoneSentinel) {
       return -1;
@@ -202,6 +202,38 @@ bool Compaction::IsFullCompaction(
     num_files_in_compaction += inputs[i].size();
   }
   return num_files_in_compaction == total_num_files;
+}
+
+Status Compaction::InitInputTableProperties() {
+  if (!input_table_properties_.empty()) {
+    return Status::OK();
+  }
+
+  Status s;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  assert(input_version_);
+  for (size_t i = 0; i < num_input_levels(); ++i) {
+    for (const FileMetaData* fmd : *(this->inputs(i))) {
+      std::shared_ptr<const TableProperties> tp;
+      std::string file_name =
+          TableFileName(immutable_options_.cf_paths, fmd->fd.GetNumber(),
+                        fmd->fd.GetPathId());
+      s = input_version_->GetTableProperties(read_options, &tp, fmd,
+                                             &file_name);
+      if (s.ok()) {
+        input_table_properties_[file_name] = tp;
+      } else {
+        ROCKS_LOG_ERROR(immutable_options_.info_log,
+                        "Unable to load table properties for file %" PRIu64
+                        " --- %s\n",
+                        fmd->fd.GetNumber(), s.ToString().c_str());
+        input_table_properties_.clear();
+        return s;
+      }
+    }
+  }
+
+  return s;
 }
 
 Compaction::Compaction(
@@ -486,25 +518,24 @@ bool Compaction::IsTrivialMove() const {
 
   // assert inputs_.size() == 1
 
-  std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
-
-  for (const auto& file : inputs_.front().files) {
-    std::vector<FileMetaData*> file_grand_parents;
-    if (output_level_ + 1 >= number_levels_) {
-      continue;
-    }
-    input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
-                                          &file->largest, &file_grand_parents);
-    const auto compaction_size =
-        file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
-    if (compaction_size > max_compaction_bytes_) {
-      return false;
-    }
-
-    if (partitioner.get() != nullptr) {
-      if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
-                                         file->largest.user_key())) {
+  if (output_level_ + 1 < number_levels_) {
+    std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
+    for (const auto& file : inputs_.front().files) {
+      std::vector<FileMetaData*> file_grand_parents;
+      input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
+                                            &file->largest,
+                                            &file_grand_parents);
+      const auto compaction_size =
+          file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
+      if (compaction_size > max_compaction_bytes_) {
         return false;
+      }
+
+      if (partitioner.get() != nullptr) {
+        if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
+                                           file->largest.user_key())) {
+          return false;
+        }
       }
     }
   }
@@ -562,6 +593,49 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   }
   return false;
 }
+
+bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
+    const Slice& begin_key, const Slice& end_key,
+    std::vector<size_t>* level_ptrs) const {
+  assert(input_version_ != nullptr);
+  assert(level_ptrs != nullptr);
+  assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
+  assert(cfd_->user_comparator()->CompareWithoutTimestamp(begin_key, end_key) <
+         0);
+  if (bottommost_level_) {
+    return true /* does not overlap */;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    const Comparator* user_cmp = cfd_->user_comparator();
+    for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
+      const std::vector<FileMetaData*>& files =
+          input_vstorage_->LevelFiles(lvl);
+      for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
+        auto* f = files[level_ptrs->at(lvl)];
+        // Advance until the first file with begin_key <= f->largest.user_key()
+        if (user_cmp->CompareWithoutTimestamp(begin_key,
+                                              f->largest.user_key()) > 0) {
+          continue;
+        }
+        // We know that the previous file prev_f, if exists, has
+        // prev_f->largest.user_key() < begin_key.
+        if (user_cmp->CompareWithoutTimestamp(end_key,
+                                              f->smallest.user_key()) <= 0) {
+          // not overlapping with this level
+          break;
+        } else {
+          // We have:
+          // - begin_key < end_key,
+          // - begin_key <= f->largest.user_key(), and
+          // - end_key > f->smallest.user_key()
+          return false /* overlap */;
+        }
+      }
+    }
+    return true /* does not overlap */;
+  }
+  return false /* overlaps */;
+};
 
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
@@ -704,8 +778,17 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
+  context.input_start_level = start_level_;
   context.column_family_id = cfd_->GetID();
   context.reason = TableFileCreationReason::kCompaction;
+  context.input_table_properties = GetInputTableProperties();
+  if (context.input_table_properties.empty()) {
+    ROCKS_LOG_WARN(
+        immutable_options_.info_log,
+        "Unable to set `input_table_properties` of `CompactionFilter::Context` "
+        "for compaction.");
+  }
+
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }

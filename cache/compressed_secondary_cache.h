@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <memory>
 
+#include "cache/cache_reservation_manager.h"
 #include "cache/lru_cache.h"
 #include "memory/memory_allocator_impl.h"
 #include "rocksdb/secondary_cache.h"
@@ -76,7 +77,11 @@ class CompressedSecondaryCache : public SecondaryCache {
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
-                const Cache::CacheItemHelper* helper) override;
+                const Cache::CacheItemHelper* helper,
+                bool force_insert) override;
+
+  Status InsertSaved(const Slice& key, const Slice& saved, CompressionType type,
+                     CacheTier source) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
@@ -93,7 +98,13 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   Status GetCapacity(size_t& capacity) override;
 
+  Status Deflate(size_t decrease) override;
+
+  Status Inflate(size_t increase) override;
+
   std::string GetPrintableOptions() const override;
+
+  size_t TEST_GetUsage() { return cache_->GetUsage(); }
 
  private:
   friend class CompressedSecondaryCacheTestBase;
@@ -122,11 +133,19 @@ class CompressedSecondaryCache : public SecondaryCache {
   CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
                                           size_t& charge);
 
+  bool MaybeInsertDummy(const Slice& key);
+
+  Status InsertInternal(const Slice& key, Cache::ObjectPtr value,
+                        const Cache::CacheItemHelper* helper,
+                        CompressionType type, CacheTier source);
+
   // TODO: clean up to use cleaner interfaces in typed_cache.h
   const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
   mutable port::Mutex capacity_mutex_;
+  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
+  bool disable_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

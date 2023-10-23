@@ -450,6 +450,7 @@ TEST_F(CorruptionTest, TableFile) {
 
 TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   SpecialEnv senv(base_env_);
   options.env = &senv;
   // Disable block cache as we are going to check checksum for
@@ -503,6 +504,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
 
 TEST_F(CorruptionTest, TableFileIndexData) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   // very big, we'll trigger flushes manually
   options.write_buffer_size = 100 * 1024 * 1024;
   Reopen(&options);
@@ -659,6 +661,7 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
 
 TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   Reopen(&options);
   Build(10);
@@ -680,6 +683,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
 
 TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
@@ -777,6 +781,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
 TEST_F(CorruptionTest, FileSystemStateCorrupted) {
   for (int iter = 0; iter < 2; ++iter) {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.env = env_.get();
     options.paranoid_checks = true;
     options.create_if_missing = true;
@@ -816,6 +821,7 @@ static const auto& corruption_modes = {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
@@ -844,6 +850,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -877,6 +884,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
@@ -913,6 +921,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
@@ -952,6 +961,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
@@ -988,6 +998,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
 
 TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.create_if_missing = true;
   options.allow_data_in_errors = true;
@@ -1017,6 +1028,7 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
 TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
@@ -1044,6 +1056,7 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
@@ -1097,6 +1110,7 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
 TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_.get();
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
@@ -1182,6 +1196,7 @@ INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.track_and_verify_wals_in_manifest =
       track_and_verify_wals_in_manifest_;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -1354,6 +1369,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
 TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   options.track_and_verify_wals_in_manifest =
       track_and_verify_wals_in_manifest_;
@@ -1551,6 +1567,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
   CloseDb();
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   options.avoid_flush_during_recovery = false;
   options.env = env_.get();

@@ -159,10 +159,10 @@ public class WBWIRocksIterator
      * no value
      */
     public DirectSlice getValue() {
-      if(!value.isOwningHandle()) {
-        return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
-      } else {
+      if (value.isOwningHandle()) {
         return value;
+      } else {
+        return null; // TODO(AR) migrate to JDK8 java.util.Optional#empty()
       }
     }
 
@@ -178,6 +178,7 @@ public class WBWIRocksIterator
       return (key == null) ? 0 : key.hashCode();
     }
 
+    @SuppressWarnings("PMD.CloseResource")
     @Override
     public boolean equals(final Object other) {
       if(other == null) {

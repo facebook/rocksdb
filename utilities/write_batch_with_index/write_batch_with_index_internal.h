@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-
 #include <limits>
 #include <string>
 #include <vector>
@@ -21,10 +20,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class MergeContext;
 class WBWIIteratorImpl;
-class WriteBatchWithIndexInternal;
 struct Options;
+struct ImmutableOptions;
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -36,8 +34,7 @@ class BaseDeltaIterator : public Iterator {
  public:
   BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
                     WBWIIteratorImpl* delta_iterator,
-                    const Comparator* comparator,
-                    const ReadOptions* read_options = nullptr);
+                    const Comparator* comparator);
 
   ~BaseDeltaIterator() override {}
 
@@ -49,7 +46,8 @@ class BaseDeltaIterator : public Iterator {
   void Next() override;
   void Prev() override;
   Slice key() const override;
-  Slice value() const override;
+  Slice value() const override { return value_; }
+  Slice timestamp() const override;
   Status status() const override;
   void Invalidate(Status s);
 
@@ -60,18 +58,22 @@ class BaseDeltaIterator : public Iterator {
   void AdvanceBase();
   bool BaseValid() const;
   bool DeltaValid() const;
+  void ResetValue();
+  void SetValueFromBase();
+  void SetValueFromDelta();
   void UpdateCurrent();
 
-  std::unique_ptr<WriteBatchWithIndexInternal> wbwii_;
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
-  mutable Status status_;
+  Status status_;
+  ColumnFamilyHandle* column_family_;
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIteratorImpl> delta_iterator_;
   const Comparator* comparator_;  // not owned
-  const Slice* iterate_upper_bound_;
-  mutable PinnableSlice merge_result_;
+  MergeContext merge_context_;
+  std::string merge_result_;
+  Slice value_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
@@ -196,59 +198,107 @@ class WBWIIteratorImpl : public WBWIIterator {
   WBWIIteratorImpl(uint32_t column_family_id,
                    WriteBatchEntrySkipList* skip_list,
                    const ReadableWriteBatch* write_batch,
-                   WriteBatchEntryComparator* comparator)
+                   WriteBatchEntryComparator* comparator,
+                   const Slice* iterate_lower_bound = nullptr,
+                   const Slice* iterate_upper_bound = nullptr)
       : column_family_id_(column_family_id),
         skip_list_iter_(skip_list),
         write_batch_(write_batch),
-        comparator_(comparator) {}
+        comparator_(comparator),
+        iterate_lower_bound_(iterate_lower_bound),
+        iterate_upper_bound_(iterate_upper_bound) {}
 
   ~WBWIIteratorImpl() override {}
 
   bool Valid() const override {
-    if (!skip_list_iter_.Valid()) {
-      return false;
-    }
-    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    return (iter_entry != nullptr &&
-            iter_entry->column_family == column_family_id_);
+    return !out_of_bound_ && ValidRegardlessOfBoundLimit();
   }
 
   void SeekToFirst() override {
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
-    skip_list_iter_.Seek(&search_entry);
+    if (iterate_lower_bound_ != nullptr) {
+      WriteBatchIndexEntry search_entry(
+          iterate_lower_bound_ /* search_key */, column_family_id_,
+          true /* is_forward_direction */, false /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
+    } else {
+      WriteBatchIndexEntry search_entry(
+          nullptr /* search_key */, column_family_id_,
+          true /* is_forward_direction */, true /* is_seek_to_first */);
+      skip_list_iter_.Seek(&search_entry);
+    }
+
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
   }
 
   void SeekToLast() override {
-    WriteBatchIndexEntry search_entry(
-        nullptr /* search_key */, column_family_id_ + 1,
-        true /* is_forward_direction */, true /* is_seek_to_first */);
+    WriteBatchIndexEntry search_entry =
+        (iterate_upper_bound_ != nullptr)
+            ? WriteBatchIndexEntry(
+                  iterate_upper_bound_ /* search_key */, column_family_id_,
+                  true /* is_forward_direction */, false /* is_seek_to_first */)
+            : WriteBatchIndexEntry(
+                  nullptr /* search_key */, column_family_id_ + 1,
+                  true /* is_forward_direction */, true /* is_seek_to_first */);
+
     skip_list_iter_.Seek(&search_entry);
     if (!skip_list_iter_.Valid()) {
       skip_list_iter_.SeekToLast();
     } else {
       skip_list_iter_.Prev();
     }
+
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
   }
 
   void Seek(const Slice& key) override {
+    if (BeforeLowerBound(&key)) {  // cap to prevent out of bound
+      SeekToFirst();
+      return;
+    }
+
     WriteBatchIndexEntry search_entry(&key, column_family_id_,
                                       true /* is_forward_direction */,
                                       false /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
+
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
   }
 
   void SeekForPrev(const Slice& key) override {
+    if (AtOrAfterUpperBound(&key)) {  // cap to prevent out of bound
+      SeekToLast();
+      return;
+    }
+
     WriteBatchIndexEntry search_entry(&key, column_family_id_,
                                       false /* is_forward_direction */,
                                       false /* is_seek_to_first */);
     skip_list_iter_.SeekForPrev(&search_entry);
+
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
   }
 
-  void Next() override { skip_list_iter_.Next(); }
+  void Next() override {
+    skip_list_iter_.Next();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
+  }
 
-  void Prev() override { skip_list_iter_.Prev(); }
+  void Prev() override {
+    skip_list_iter_.Prev();
+    if (ValidRegardlessOfBoundLimit()) {
+      out_of_bound_ = TestOutOfBound();
+    }
+  }
 
   WriteEntry Entry() const override;
 
@@ -289,6 +339,45 @@ class WBWIIteratorImpl : public WBWIIterator {
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
   const ReadableWriteBatch* write_batch_;
   WriteBatchEntryComparator* comparator_;
+  const Slice* iterate_lower_bound_;
+  const Slice* iterate_upper_bound_;
+  bool out_of_bound_ = false;
+
+  bool TestOutOfBound() const {
+    const Slice& curKey = Entry().key;
+    return AtOrAfterUpperBound(&curKey) || BeforeLowerBound(&curKey);
+  }
+
+  bool ValidRegardlessOfBoundLimit() const {
+    if (!skip_list_iter_.Valid()) {
+      return false;
+    }
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    return iter_entry != nullptr &&
+           iter_entry->column_family == column_family_id_;
+  }
+
+  bool AtOrAfterUpperBound(const Slice* k) const {
+    if (iterate_upper_bound_ == nullptr) {
+      return false;
+    }
+
+    return comparator_->GetComparator(column_family_id_)
+               ->CompareWithoutTimestamp(*k, /*a_has_ts=*/false,
+                                         *iterate_upper_bound_,
+                                         /*b_has_ts=*/false) >= 0;
+  }
+
+  bool BeforeLowerBound(const Slice* k) const {
+    if (iterate_lower_bound_ == nullptr) {
+      return false;
+    }
+
+    return comparator_->GetComparator(column_family_id_)
+               ->CompareWithoutTimestamp(*k, /*a_has_ts=*/false,
+                                         *iterate_lower_bound_,
+                                         /*b_has_ts=*/false) < 0;
+  }
 };
 
 class WriteBatchWithIndexInternal {
@@ -296,14 +385,15 @@ class WriteBatchWithIndexInternal {
   static const Comparator* GetUserComparator(const WriteBatchWithIndex& wbwi,
                                              uint32_t cf_id);
 
-  // For GetFromBatchAndDB or similar
-  explicit WriteBatchWithIndexInternal(DB* db,
-                                       ColumnFamilyHandle* column_family);
-  // For GetFromBatchAndDB or similar
-  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
-  // For GetFromBatch or similar
-  explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
-                                       ColumnFamilyHandle* column_family);
+  static Status MergeKeyWithNoBaseValue(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        const MergeContext& context,
+                                        std::string* result);
+
+  static Status MergeKeyWithPlainBaseValue(ColumnFamilyHandle* column_family,
+                                           const Slice& key, const Slice& value,
+                                           const MergeContext& context,
+                                           std::string* result);
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -313,30 +403,10 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key, std::string* value,
-                                        Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, s);
-  }
-  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key,
-                                        MergeContext* merge_context,
-                                        std::string* value, Status* s);
-  Status MergeKey(const Slice& key, const Slice* value,
-                  std::string* result) const {
-    return MergeKey(key, value, merge_context_, result);
-  }
-  Status MergeKey(const Slice& key, const Slice* value,
-                  const MergeContext& context, std::string* result) const;
-  size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
-  MergeContext* GetMergeContext() { return &merge_context_; }
-  Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }
-
- private:
-  DB* db_;
-  const DBOptions* db_options_;
-  ColumnFamilyHandle* column_family_;
-  MergeContext merge_context_;
+  static WBWIIteratorImpl::Result GetFromBatch(
+      WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
+      const Slice& key, MergeContext* merge_context, std::string* value,
+      Status* s);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

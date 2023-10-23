@@ -70,6 +70,11 @@ class CompactionPickerTestBase : public testing::Test {
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     ioptions_.cf_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
+    // When the default value of this option is true, universal compaction
+    // tests can encounter assertion failure since SanitizeOption() is
+    // not run to set this option to false. So we do the sanitization
+    // here. Tests that test this option set this option to true explicitly.
+    ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
   ~CompactionPickerTestBase() override {}
@@ -79,7 +84,8 @@ class CompactionPickerTestBase : public testing::Test {
     options_.num_levels = num_levels;
     vstorage_.reset(new VersionStorageInfo(
         &icmp_, ucmp_, options_.num_levels, style, nullptr, false,
-        EpochNumberRequirement::kMustPresent));
+        EpochNumberRequirement::kMustPresent, ioptions_.clock,
+        options_.bottommost_file_compaction_delay));
     vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
   }
 
@@ -88,7 +94,8 @@ class CompactionPickerTestBase : public testing::Test {
   void AddVersionStorage() {
     temp_vstorage_.reset(new VersionStorageInfo(
         &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
-        vstorage_.get(), false, EpochNumberRequirement::kMustPresent));
+        vstorage_.get(), false, EpochNumberRequirement::kMustPresent,
+        ioptions_.clock, options_.bottommost_file_compaction_delay));
   }
 
   void DeleteVersionStorage() {
@@ -148,7 +155,8 @@ class CompactionPickerTestBase : public testing::Test {
         smallest_seq, largest_seq, marked_for_compact, temperature,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        true /* user_defined_timestamps_persisted */);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
@@ -505,7 +513,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   const uint64_t kFileSize = 100000;
-  NewVersionStorage(1, kCompactionStyleUniversal);
+  NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
   ioptions_.allow_ingest_behind = true;
   ioptions_.num_levels = 3;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -532,6 +540,14 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
 
   // output level should be the one above the bottom-most
   ASSERT_EQ(1, compaction->output_level());
+
+  // input should not include the reserved level
+  const std::vector<CompactionInputFiles>* inputs = compaction->inputs();
+  for (const auto& compaction_input : *inputs) {
+    if (!compaction_input.empty()) {
+      ASSERT_LT(compaction_input.level, 2);
+    }
+  }
 }
 // Tests if the files can be trivially moved in multi level
 // universal compaction when allow_trivial_move option is set
@@ -976,6 +992,61 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace5) {
   ASSERT_EQ(100 + 14 * 3, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(100 + 19 * 3, compaction->input(0, 5)->fd.GetNumber());
   ASSERT_EQ(13, compaction->num_input_files(1));
+}
+
+TEST_F(CompactionPickerTest,
+       PartiallyExcludeL0ToReduceWriteStopForSizeAmpCompaction) {
+  const uint64_t kFileSize = 100000;
+  const uint64_t kL0FileCount = 30;
+  const uint64_t kLastLevelFileCount = 1;
+  const uint64_t kNumLevels = 5;
+
+  for (const uint64_t test_no_exclusion : {false, true}) {
+    const uint64_t kExpectedNumExcludedL0 =
+        test_no_exclusion ? 0 : kL0FileCount * 1 / 10;
+
+    mutable_cf_options_.level0_stop_writes_trigger = 36;
+    mutable_cf_options_.compaction_options_universal
+        .max_size_amplification_percent = 1;
+    mutable_cf_options_.compaction_options_universal.max_merge_width =
+        test_no_exclusion
+            // In universal compaction, sorted runs from non L0 levels are
+            // counted toward `level0_stop_writes_trigger`. Therefore we need to
+            // subtract the total number of sorted runs picked originally for
+            // this compaction (i.e, kL0FileCount + kLastLevelFileCount) from
+            // `level0_stop_writes_trigger` to calculate `max_merge_width` that
+            // results in no L0 exclusion for testing purpose.
+            ? mutable_cf_options_.level0_stop_writes_trigger -
+                  (kL0FileCount + kLastLevelFileCount)
+            : UINT_MAX;
+
+    UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+    NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+
+    for (uint64_t i = 1; i <= kL0FileCount + kLastLevelFileCount; ++i) {
+      Add(i <= kL0FileCount ? 0 : kNumLevels - 1, static_cast<uint32_t>(i),
+          std::to_string((i + 100) * 1000).c_str(),
+          std::to_string((i + 100) * 1000 + 999).c_str(), kFileSize, 0, i * 100,
+          i * 100 + 99);
+    }
+
+    UpdateVersionStorageInfo();
+
+    ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
+    std::unique_ptr<Compaction> compaction(
+        universal_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+            &log_buffer_));
+    ASSERT_TRUE(compaction.get() != nullptr);
+    ASSERT_EQ(compaction->compaction_reason(),
+              CompactionReason::kUniversalSizeAmplification);
+    ASSERT_EQ(compaction->num_input_files(0),
+              kL0FileCount - kExpectedNumExcludedL0);
+    ASSERT_EQ(compaction->num_input_files(kNumLevels - 1), kLastLevelFileCount);
+    for (uint64_t level = 1; level <= kNumLevels - 2; level++) {
+      ASSERT_EQ(compaction->num_input_files(level), 0);
+    }
+  }
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
@@ -1952,6 +2023,15 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
   ASSERT_EQ(1U, compaction->num_input_files(1));
   ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, FileTtlBoosterLargeNumLevels) {
+  const uint64_t kCurrentTime = 1000000;
+  FileTtlBooster booster(kCurrentTime, /*ttl=*/2048,
+                         /*num_non_empty_levels=*/100, /*level=*/1);
+  FileMetaData meta;
+  meta.oldest_ancester_time = kCurrentTime - 1023;
+  ASSERT_EQ(1, booster.GetBoostScore(&meta));
 }
 
 TEST_F(CompactionPickerTest, FileTtlBooster) {
@@ -3355,6 +3435,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
   ioptions_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
+  // To avoid any L0 file exclusion in size amp compaction intended for reducing
+  // write stop
+  mutable_cf_options_.compaction_options_universal.max_merge_width = 2;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
@@ -3428,6 +3511,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
   ioptions_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
+  // To avoid any L0 file exclusion in size amp compaction intended for reducing
+  // write stop
+  mutable_cf_options_.compaction_options_universal.max_merge_width = 2;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);

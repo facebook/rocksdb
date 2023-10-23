@@ -51,7 +51,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     files_.push_back(f);
   }
 
@@ -129,7 +130,9 @@ class VersionStorageInfoTestBase : public testing::Test {
         mutable_cf_options_(options_),
         vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel,
                   /*src_vstorage=*/nullptr,
-                  /*_force_consistency_checks=*/false) {}
+                  /*_force_consistency_checks=*/false,
+                  EpochNumberRequirement::kMustPresent, ioptions_.clock,
+                  mutable_cf_options_.bottommost_file_compaction_delay) {}
 
   ~VersionStorageInfoTestBase() override {
     for (int i = 0; i < vstorage_.num_levels(); ++i) {
@@ -163,7 +166,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kNullUniqueId64x2, compensated_range_deletion_size, 0);
+        kNullUniqueId64x2, compensated_range_deletion_size, 0,
+        /* user_defined_timestamps_persisted */ true);
     vstorage_.AddFile(level, f);
   }
 
@@ -580,7 +584,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
 
   constexpr double age_cutoff = 0.5;
   constexpr double force_threshold = 0.75;
-  vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
   ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
 }
@@ -664,7 +669,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 0.1;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -675,7 +681,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -686,7 +693,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 1.0;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -697,7 +705,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
   {
     constexpr double age_cutoff = 1.0;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 1);
@@ -811,7 +820,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.1;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -822,7 +832,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.25;
     constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -833,7 +844,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -844,7 +856,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.5;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 2);
@@ -873,7 +886,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
@@ -884,7 +898,8 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   {
     constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(
+        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
     auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
     ASSERT_EQ(ssts_to_be_compacted.size(), 2);
@@ -1219,7 +1234,7 @@ class VersionSetTestBase {
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     new_db.SetLogNumber(0);
@@ -1275,7 +1290,7 @@ class VersionSetTestBase {
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
@@ -1347,6 +1362,8 @@ class VersionSetTestBase {
     new_cf.SetColumnFamily(new_id);
     new_cf.SetLogNumber(0);
     new_cf.SetComparatorName(cf_options.comparator->Name());
+    new_cf.SetPersistUserDefinedTimestamps(
+        cf_options.persist_user_defined_timestamps);
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(/*column_family_data=*/nullptr,
@@ -2858,11 +2875,12 @@ class VersionSetTestEmptyDb
     assert(nullptr != log_writer);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
+      ASSERT_OK(SetIdentityFile(env_, dbname_));
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
@@ -3192,7 +3210,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
       new_db.SetDBId(db_id);
     }
     {
@@ -3292,11 +3310,11 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
-                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
-                               0, info.epoch_number, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-                               0, 0);
+      file_metas->emplace_back(
+          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
+          Temperature::kUnknown, 0, 0, 0, info.epoch_number,
+          kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+          0, 0, /* user_defined_timestamps_persisted */ true);
     }
   }
 
@@ -3318,7 +3336,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     ++last_seqno_;
     assert(log_writer_.get() != nullptr);
     std::string record;
-    ASSERT_TRUE(edit.EncodeTo(&record));
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
     Status s = log_writer_->AddRecord(record);
     ASSERT_OK(s);
   }
@@ -3353,7 +3371,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3414,7 +3433,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
+        /* user_defined_timestamps_persisted */ true);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3547,6 +3567,7 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   BlockBasedTableOptions table_options;
   CacheEntryRoleOptions::Decision charge_file_metadata = GetParam();
   table_options.cache_usage_options.options_overrides.insert(

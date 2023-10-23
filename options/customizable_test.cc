@@ -1230,8 +1230,13 @@ class TestSecondaryCache : public SecondaryCache {
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
-                const Cache::CacheItemHelper* /*helper*/) override {
+                const Cache::CacheItemHelper* /*helper*/,
+                bool /*force_insert*/) override {
     return Status::NotSupported();
+  }
+  Status InsertSaved(const Slice& /*key*/, const Slice& /*saved*/,
+                     CompressionType /*type*/, CacheTier /*source*/) override {
+    return Status::OK();
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,

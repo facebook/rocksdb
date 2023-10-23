@@ -419,6 +419,10 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
+    if (command == "verify") {
+      verify_checksum = true;
+    }
+
     ROCKSDB_NAMESPACE::SstFileDumper dumper(
         options, filename, Temperature::kUnknown, readahead_size,
         verify_checksum, output_hex, decode_blob_index);

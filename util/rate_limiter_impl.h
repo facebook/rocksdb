@@ -36,6 +36,8 @@ class GenericRateLimiter : public RateLimiter {
   // This API allows user to dynamically change rate limiter's bytes per second.
   virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
 
+  virtual Status SetSingleBurstBytes(int64_t single_burst_bytes) override;
+
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
@@ -102,11 +104,14 @@ class GenericRateLimiter : public RateLimiter {
   }
 
  private:
+  static constexpr int kMicrosecondsPerSecond = 1000000;
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
+  int64_t CalculateRefillPeriodUsLocked(int64_t single_burst_bytes);
   Status TuneLocked();
   void SetBytesPerSecondLocked(int64_t bytes_per_second);
+  void SetSingleBurstBytesLocked(int64_t single_burst_bytes);
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
@@ -115,7 +120,7 @@ class GenericRateLimiter : public RateLimiter {
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  const int64_t refill_period_us_;
+  std::atomic<int64_t> refill_period_us_;
 
   std::atomic<int64_t> rate_bytes_per_sec_;
   std::atomic<int64_t> refill_bytes_per_period_;

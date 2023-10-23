@@ -57,7 +57,8 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
 
 class PartitionedFilterBlockTest
     : public testing::Test,
-      virtual public ::testing::WithParamInterface<uint32_t> {
+      virtual public ::testing::WithParamInterface<
+          std::tuple<uint32_t, test::UserDefinedTimestampTestMode>> {
  public:
   Options options_;
   ImmutableOptions ioptions_;
@@ -67,38 +68,64 @@ class PartitionedFilterBlockTest
   std::unique_ptr<BlockBasedTable> table_;
   std::shared_ptr<Cache> cache_;
   int bits_per_key_;
+  size_t ts_sz_;
+  bool user_defined_timestamps_persisted_;
 
-  PartitionedFilterBlockTest()
-      : ioptions_(options_),
-        env_options_(options_),
-        icomp_(options_.comparator),
-        bits_per_key_(10) {
+  PartitionedFilterBlockTest() : bits_per_key_(10) {
+    auto udt_test_mode = std::get<1>(GetParam());
+    if (test::IsUDTEnabled(udt_test_mode)) {
+      options_.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    }
+    ts_sz_ = options_.comparator->timestamp_size();
+    user_defined_timestamps_persisted_ = test::ShouldPersistUDT(udt_test_mode);
+    icomp_ = InternalKeyComparator(options_.comparator);
+    env_options_ = EnvOptions(options_);
+    ioptions_ = ImmutableOptions(options_);
     table_options_.filter_policy.reset(
         NewBloomFilterPolicy(bits_per_key_, false));
-    table_options_.format_version = GetParam();
+    table_options_.format_version = std::get<0>(GetParam());
     table_options_.index_block_restart_interval = 3;
   }
 
   ~PartitionedFilterBlockTest() override {}
 
-  const std::string keys[4] = {"afoo", "bar", "box", "hello"};
-  const std::string missing_keys[2] = {"missing", "other"};
+  static constexpr int kKeyNum = 4;
+  static constexpr int kMissingKeyNum = 2;
+  const std::string keys_without_ts[kKeyNum] = {"afoo", "bar", "box", "hello"};
+  const std::string missing_keys_without_ts[kMissingKeyNum] = {"missing",
+                                                               "other"};
+
+  std::vector<std::string> PrepareKeys(const std::string* orig_keys,
+                                       int number_of_keys) {
+    std::vector<std::string> user_keys;
+    if (ts_sz_ == 0) {
+      user_keys.assign(orig_keys, orig_keys + number_of_keys);
+    } else {
+      for (int i = 0; i < number_of_keys; i++) {
+        std::string key_with_ts;
+        AppendKeyWithMinTimestamp(&key_with_ts, orig_keys[i], ts_sz_);
+        user_keys.push_back(std::move(key_with_ts));
+      }
+    }
+    return user_keys;
+  }
 
   uint64_t MaxIndexSize() {
-    int num_keys = sizeof(keys) / sizeof(*keys);
     uint64_t max_key_size = 0;
-    for (int i = 1; i < num_keys; i++) {
-      max_key_size =
-          std::max(max_key_size, static_cast<uint64_t>(keys[i].size()));
+    for (int i = 0; i < kKeyNum; i++) {
+      // If UDT is enabled, the size of each key would be increased by a
+      // timestamp size.
+      max_key_size = std::max(
+          max_key_size, static_cast<uint64_t>(keys_without_ts[i].size()) +
+                            ts_sz_ * sizeof(static_cast<unsigned char>(0)));
     }
-    uint64_t max_index_size = num_keys * (max_key_size + 8 /*handle*/);
+    uint64_t max_index_size = kKeyNum * (max_key_size + 8 /*handle*/);
     return max_index_size;
   }
 
   uint64_t MaxFilterSize() {
-    int num_keys = sizeof(keys) / sizeof(*keys);
     // General, rough over-approximation
-    return num_keys * bits_per_key_ + (CACHE_LINE_SIZE * 8 + /*metadata*/ 5);
+    return kKeyNum * bits_per_key_ + (CACHE_LINE_SIZE * 8 + /*metadata*/ 5);
   }
 
   uint64_t last_offset = 10;
@@ -112,7 +139,8 @@ class PartitionedFilterBlockTest
   PartitionedIndexBuilder* NewIndexBuilder() {
     const bool kValueDeltaEncoded = true;
     return PartitionedIndexBuilder::CreateIndexBuilder(
-        &icomp_, !kValueDeltaEncoded, table_options_);
+        &icomp_, !kValueDeltaEncoded, table_options_, ts_sz_,
+        user_defined_timestamps_persisted_);
   }
 
   PartitionedFilterBlockBuilder* NewBuilder(
@@ -131,7 +159,8 @@ class PartitionedFilterBlockTest
         BloomFilterPolicy::GetBuilderFromContext(
             FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
-        p_index_builder, partition_size);
+        p_index_builder, partition_size, ts_sz_,
+        user_defined_timestamps_persisted_);
   }
 
   PartitionedFilterBlockReader* NewReader(
@@ -152,7 +181,8 @@ class PartitionedFilterBlockTest
     table_.reset(new MockedBlockBasedTable(
         new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
                                  icomp_, skip_filters, file_size, level,
-                                 immortal_table),
+                                 immortal_table,
+                                 user_defined_timestamps_persisted_),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(
@@ -169,38 +199,41 @@ class PartitionedFilterBlockTest
         NewReader(builder, pib));
     // Querying added keys
     const bool no_io = true;
+    std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
     for (auto key : keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
-                                      /*get_context=*/nullptr,
-                                      /*lookup_context=*/nullptr,
-                                      ReadOptions()));
+      ASSERT_TRUE(reader->KeyMayMatch(
+          StripTimestampFromUserKey(key, ts_sz_), !no_io, &ikey_slice,
+          /*get_context=*/nullptr,
+          /*lookup_context=*/nullptr, ReadOptions()));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(keys[0], !no_io, &ikey_slice,
-                                      /*get_context=*/nullptr,
-                                      /*lookup_context=*/nullptr,
-                                      ReadOptions()));
+      ASSERT_TRUE(reader->KeyMayMatch(
+          StripTimestampFromUserKey(keys[0], ts_sz_), !no_io, &ikey_slice,
+          /*get_context=*/nullptr,
+          /*lookup_context=*/nullptr, ReadOptions()));
     }
     // querying missing keys
+    std::vector<std::string> missing_keys =
+        PrepareKeys(missing_keys_without_ts, kMissingKeyNum);
     for (auto key : missing_keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
-        ASSERT_TRUE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
-                                        /*get_context=*/nullptr,
-                                        /*lookup_context=*/nullptr,
-                                        ReadOptions()));
+        ASSERT_TRUE(reader->KeyMayMatch(
+            StripTimestampFromUserKey(key, ts_sz_), !no_io, &ikey_slice,
+            /*get_context=*/nullptr,
+            /*lookup_context=*/nullptr, ReadOptions()));
       } else {
         // assuming a good hash function
-        ASSERT_FALSE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
-                                         /*get_context=*/nullptr,
-                                         /*lookup_context=*/nullptr,
-                                         ReadOptions()));
+        ASSERT_FALSE(reader->KeyMayMatch(
+            StripTimestampFromUserKey(key, ts_sz_), !no_io, &ikey_slice,
+            /*get_context=*/nullptr,
+            /*lookup_context=*/nullptr, ReadOptions()));
       }
     }
   }
@@ -210,17 +243,18 @@ class PartitionedFilterBlockTest
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
         NewBuilder(pib.get()));
     int i = 0;
-    builder->Add(keys[i]);
+    std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
-    builder->Add(keys[i]);
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get(), pib.get());
@@ -231,16 +265,17 @@ class PartitionedFilterBlockTest
     std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
         NewBuilder(pib.get(), prefix_extractor));
+    std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
     int i = 0;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
-    builder->Add(keys[i]);
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get(), pib.get(), prefix_extractor);
@@ -250,15 +285,16 @@ class PartitionedFilterBlockTest
     std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
         NewBuilder(pib.get()));
+    std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
     int i = 0;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     i++;
-    builder->Add(keys[i]);
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     i++;
-    builder->Add(keys[i]);
+    builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
     CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get(), pib.get());
@@ -299,10 +335,12 @@ class PartitionedFilterBlockTest
 };
 
 // Format versions potentially intersting to partitioning
-INSTANTIATE_TEST_CASE_P(FormatVersions, PartitionedFilterBlockTest,
-                        testing::ValuesIn(std::set<uint32_t>{
-                            2, 3, 4, test::kDefaultFormatVersion,
-                            kLatestFormatVersion}));
+INSTANTIATE_TEST_CASE_P(
+    FormatVersions, PartitionedFilterBlockTest,
+    testing::Combine(testing::ValuesIn(std::set<uint32_t>{
+                         2, 3, 4, test::kDefaultFormatVersion,
+                         kLatestFormatVersion}),
+                     testing::ValuesIn(test::GetUDTTestModes())));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
@@ -337,12 +375,14 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
-  const std::string pkeys[3] = {"p-key10", "p-key20", "p-key30"};
-  builder->Add(pkeys[0]);
+  const std::string pkeys_without_ts[3] = {"p-key10", "p-key20", "p-key30"};
+  std::vector<std::string> pkeys =
+      PrepareKeys(pkeys_without_ts, 3 /* number_of_keys */);
+  builder->Add(StripTimestampFromUserKey(pkeys[0], ts_sz_));
   CutABlock(pib.get(), pkeys[0], pkeys[1]);
-  builder->Add(pkeys[1]);
+  builder->Add(StripTimestampFromUserKey(pkeys[1], ts_sz_));
   CutABlock(pib.get(), pkeys[1], pkeys[2]);
-  builder->Add(pkeys[2]);
+  builder->Add(StripTimestampFromUserKey(pkeys[2], ts_sz_));
   CutABlock(pib.get(), pkeys[2]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
@@ -356,7 +396,10 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
                                        ReadOptions()));
   }
   // Non-existent keys but with the same prefix
-  const std::string pnonkeys[4] = {"p-key9", "p-key11", "p-key21", "p-key31"};
+  const std::string pnonkeys_without_ts[4] = {"p-key9", "p-key11", "p-key21",
+                                              "p-key31"};
+  std::vector<std::string> pnonkeys =
+      PrepareKeys(pnonkeys_without_ts, 4 /* number_of_keys */);
   for (auto key : pnonkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
@@ -381,23 +424,25 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   // In the bug, searching for prefix "p3" on an index with format version 3,
   // will give the key "p3" and the partition of the keys that are <= p3, i.e.,
   // p2-keys, where the filter for prefix "p3" does not exist.
-  const std::string pkeys[] = {"p1-key1", "p2-key2", "p3-key3", "p4-key3",
-                               "p5-key3"};
-  builder->Add(pkeys[0]);
+  const std::string pkeys_without_ts[] = {"p1-key1", "p2-key2", "p3-key3",
+                                          "p4-key3", "p5-key3"};
+  std::vector<std::string> pkeys =
+      PrepareKeys(pkeys_without_ts, 5 /* number_of_keys */);
+  builder->Add(StripTimestampFromUserKey(pkeys[0], ts_sz_));
   CutABlock(pib.get(), pkeys[0], pkeys[1]);
-  builder->Add(pkeys[1]);
+  builder->Add(StripTimestampFromUserKey(pkeys[1], ts_sz_));
   CutABlock(pib.get(), pkeys[1], pkeys[2]);
-  builder->Add(pkeys[2]);
+  builder->Add(StripTimestampFromUserKey(pkeys[2], ts_sz_));
   CutABlock(pib.get(), pkeys[2], pkeys[3]);
-  builder->Add(pkeys[3]);
+  builder->Add(StripTimestampFromUserKey(pkeys[3], ts_sz_));
   CutABlock(pib.get(), pkeys[3], pkeys[4]);
-  builder->Add(pkeys[4]);
+  builder->Add(StripTimestampFromUserKey(pkeys[4], ts_sz_));
   CutABlock(pib.get(), pkeys[4]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
   for (auto key : pkeys) {
     auto prefix = prefix_extractor->Transform(key);
-    auto ikey = InternalKey(prefix, 0, ValueType::kTypeValue);
+    auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(prefix,
                                        /*no_io=*/false, &ikey_slice,
@@ -416,7 +461,6 @@ TEST_P(PartitionedFilterBlockTest, OneBlockPerKey) {
 }
 
 TEST_P(PartitionedFilterBlockTest, PartitionCount) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
   table_options_.metadata_block_size =
       std::max(MaxIndexSize(), MaxFilterSize());
   int partitions = TestBlockPerKey();
@@ -424,7 +468,7 @@ TEST_P(PartitionedFilterBlockTest, PartitionCount) {
   // A low number ensures cutting a block after each key
   table_options_.metadata_block_size = 1;
   partitions = TestBlockPerKey();
-  ASSERT_EQ(partitions, num_keys - 1 /* last two keys make one flush */);
+  ASSERT_EQ(partitions, kKeyNum - 1 /* last two keys make one flush */);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

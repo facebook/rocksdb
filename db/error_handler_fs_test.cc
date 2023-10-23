@@ -2565,8 +2565,8 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
   s = dbfull()->TEST_GetBGError();
   ASSERT_OK(s);
 
-  TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
-                              GetDefaultOptions());
+  ASSERT_OK(TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                                        GetDefaultOptions()));
   ASSERT_EQ("val", Get(Key(0)));
 }
 
@@ -2606,8 +2606,8 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
   s = dbfull()->TEST_GetBGError();
   ASSERT_OK(s);
 
-  TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
-                              GetDefaultOptions());
+  ASSERT_OK(TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                                        GetDefaultOptions()));
   ASSERT_EQ("val", Get(Key(0)));
 }
 

@@ -8,6 +8,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/types.h"
+#include "util/coding.h"
 #include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -36,7 +37,7 @@ RecoveryType GetRecoveryType(const size_t running_ts_sz,
     return RecoveryType::kPadTimestamp;
   }
 
-  if (running_ts_sz != recorded_ts_sz.value()) {
+  if (running_ts_sz != *recorded_ts_sz) {
     return RecoveryType::kUnrecoverable;
   }
 
@@ -44,8 +45,8 @@ RecoveryType GetRecoveryType(const size_t running_ts_sz,
 }
 
 bool AllRunningColumnFamiliesConsistent(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz) {
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz) {
   for (const auto& [cf_id, ts_sz] : running_ts_sz) {
     auto record_it = record_ts_sz.find(cf_id);
     RecoveryType recovery_type =
@@ -61,8 +62,8 @@ bool AllRunningColumnFamiliesConsistent(
 
 Status CheckWriteBatchTimestampSizeConsistency(
     const WriteBatch* batch,
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode, bool* ts_need_recovery) {
   std::vector<uint32_t> column_family_ids;
   Status status =
@@ -100,15 +101,50 @@ Status CheckWriteBatchTimestampSizeConsistency(
   }
   return Status::OK();
 }
+
+enum class ToggleUDT {
+  kUnchanged,
+  kEnableUDT,
+  kDisableUDT,
+  kInvalidChange,
+};
+
+ToggleUDT CompareComparator(const Comparator* new_comparator,
+                            const std::string& old_comparator_name) {
+  static const char* kUDTSuffix = ".u64ts";
+  static const Slice kSuffixSlice = kUDTSuffix;
+  static const size_t kSuffixSize = 6;
+  size_t ts_sz = new_comparator->timestamp_size();
+  (void)ts_sz;
+  Slice new_ucmp_name(new_comparator->Name());
+  Slice old_ucmp_name(old_comparator_name);
+  if (new_ucmp_name.compare(old_ucmp_name) == 0) {
+    return ToggleUDT::kUnchanged;
+  }
+  if (new_ucmp_name.size() == old_ucmp_name.size() + kSuffixSize &&
+      new_ucmp_name.starts_with(old_ucmp_name) &&
+      new_ucmp_name.ends_with(kSuffixSlice)) {
+    assert(ts_sz == 8);
+    return ToggleUDT::kEnableUDT;
+  }
+  if (old_ucmp_name.size() == new_ucmp_name.size() + kSuffixSize &&
+      old_ucmp_name.starts_with(new_ucmp_name) &&
+      old_ucmp_name.ends_with(kSuffixSlice)) {
+    assert(ts_sz == 0);
+    return ToggleUDT::kDisableUDT;
+  }
+  return ToggleUDT::kInvalidChange;
+}
 }  // namespace
 
 TimestampRecoveryHandler::TimestampRecoveryHandler(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz)
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz)
     : running_ts_sz_(running_ts_sz),
       record_ts_sz_(record_ts_sz),
       new_batch_(new WriteBatch()),
-      handler_valid_(true) {}
+      handler_valid_(true),
+      new_batch_diff_from_orig_batch_(false) {}
 
 Status TimestampRecoveryHandler::PutCF(uint32_t cf, const Slice& key,
                                        const Slice& value) {
@@ -213,11 +249,13 @@ Status TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
       break;
     case RecoveryType::kStripTimestamp:
       assert(record_ts_sz.has_value());
-      *new_key = StripTimestampFromUserKey(key, record_ts_sz.value());
+      *new_key = StripTimestampFromUserKey(key, *record_ts_sz);
+      new_batch_diff_from_orig_batch_ = true;
       break;
     case RecoveryType::kPadTimestamp:
       AppendKeyWithMinTimestamp(new_key_buf, key, running_ts_sz);
       *new_key = *new_key_buf;
+      new_batch_diff_from_orig_batch_ = true;
       break;
     case RecoveryType::kUnrecoverable:
       return Status::InvalidArgument(
@@ -230,30 +268,118 @@ Status TimestampRecoveryHandler::ReconcileTimestampDiscrepancy(
 }
 
 Status HandleWriteBatchTimestampSizeDifference(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const WriteBatch* batch,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>& batch) {
+    std::unique_ptr<WriteBatch>* new_batch) {
   // Quick path to bypass checking the WriteBatch.
   if (AllRunningColumnFamiliesConsistent(running_ts_sz, record_ts_sz)) {
     return Status::OK();
   }
   bool need_recovery = false;
   Status status = CheckWriteBatchTimestampSizeConsistency(
-      batch.get(), running_ts_sz, record_ts_sz, check_mode, &need_recovery);
+      batch, running_ts_sz, record_ts_sz, check_mode, &need_recovery);
   if (!status.ok()) {
     return status;
   } else if (need_recovery) {
-    SequenceNumber sequence = WriteBatchInternal::Sequence(batch.get());
+    assert(new_batch);
+    SequenceNumber sequence = WriteBatchInternal::Sequence(batch);
     TimestampRecoveryHandler recovery_handler(running_ts_sz, record_ts_sz);
     status = batch->Iterate(&recovery_handler);
     if (!status.ok()) {
       return status;
     } else {
-      batch = recovery_handler.TransferNewBatch();
-      WriteBatchInternal::SetSequence(batch.get(), sequence);
+      *new_batch = recovery_handler.TransferNewBatch();
+      WriteBatchInternal::SetSequence(new_batch->get(), sequence);
     }
   }
   return Status::OK();
+}
+
+Status ValidateUserDefinedTimestampsOptions(
+    const Comparator* new_comparator, const std::string& old_comparator_name,
+    bool new_persist_udt, bool old_persist_udt,
+    bool* mark_sst_files_has_no_udt) {
+  size_t ts_sz = new_comparator->timestamp_size();
+  ToggleUDT res = CompareComparator(new_comparator, old_comparator_name);
+  switch (res) {
+    case ToggleUDT::kUnchanged:
+      if (old_persist_udt == new_persist_udt) {
+        return Status::OK();
+      }
+      if (ts_sz == 0) {
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot toggle the persist_user_defined_timestamps flag for a column "
+          "family with user-defined timestamps feature enabled.");
+    case ToggleUDT::kEnableUDT:
+      if (!new_persist_udt) {
+        *mark_sst_files_has_no_udt = true;
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot open a column family and enable user-defined timestamps "
+          "feature without setting persist_user_defined_timestamps flag to "
+          "false.");
+    case ToggleUDT::kDisableUDT:
+      if (!old_persist_udt) {
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "Cannot open a column family and disable user-defined timestamps "
+          "feature if its existing persist_user_defined_timestamps flag is not "
+          "false.");
+    case ToggleUDT::kInvalidChange:
+      return Status::InvalidArgument(
+          new_comparator->Name(),
+          "does not match existing comparator " + old_comparator_name);
+    default:
+      break;
+  }
+  return Status::InvalidArgument(
+      "Unsupported user defined timestamps settings change.");
+}
+
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low) {
+  uint64_t cutoff_udt_ts = 0;
+  [[maybe_unused]] bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
+  assert(format_res);
+  PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
+}
+
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end) {
+  std::optional<Slice> ret_start, ret_end;
+  if (start) {
+    if (ts_sz == 0) {
+      ret_start = *start;
+    } else {
+      // Maximum timestamp means including all keys with any timestamp for start
+      AppendKeyWithMaxTimestamp(start_with_ts, *start, ts_sz);
+      ret_start = Slice(*start_with_ts);
+    }
+  }
+  if (end) {
+    if (ts_sz == 0) {
+      ret_end = *end;
+    } else {
+      if (exclusive_end) {
+        // Append a maximum timestamp as the range limit is exclusive:
+        // [start, end)
+        AppendKeyWithMaxTimestamp(end_with_ts, *end, ts_sz);
+      } else {
+        // Append a minimum timestamp to end so the range limit is inclusive:
+        // [start, end]
+        AppendKeyWithMinTimestamp(end_with_ts, *end, ts_sz);
+      }
+      ret_end = Slice(*end_with_ts);
+    }
+  }
+  return std::make_tuple(ret_start, ret_end);
 }
 }  // namespace ROCKSDB_NAMESPACE

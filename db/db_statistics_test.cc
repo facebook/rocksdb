@@ -219,7 +219,7 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   ASSERT_OK(Flush());
   std::unordered_map<std::string, uint64_t> table_files;
   uint64_t table_files_size = 0;
-  GetAllDataFiles(kTableFile, &table_files, &table_files_size);
+  ASSERT_OK(GetAllDataFiles(kTableFile, &table_files, &table_files_size));
 
   {
     // Scenario 1: Table verified in `VerifyFileChecksums()`. This should read

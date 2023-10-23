@@ -594,14 +594,19 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   }
 }
 
-Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
+Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& _read_options,
                                      ColumnFamilyHandle* column_family) {
-  if (opts.io_activity != Env::IOActivity::kUnknown) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return NewErrorIterator(Status::InvalidArgument(
-        "Cannot call NewIterator with `ReadOptions::io_activity` != "
-        "`Env::IOActivity::kUnknown`"));
+        "Can only call NewIterator with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`"));
   }
-  return new TtlIterator(db_->NewIterator(opts, column_family));
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kDBIterator;
+  }
+  return new TtlIterator(db_->NewIterator(read_options, column_family));
 }
 
 void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {

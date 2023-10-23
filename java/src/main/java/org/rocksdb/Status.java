@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -13,7 +14,8 @@ import java.util.Objects;
  * Currently only used with {@link RocksDBException} when the
  * status is not {@link Code#Ok}
  */
-public class Status {
+public class Status implements Serializable {
+  private static final long serialVersionUID = -3794191127754280439L;
   private final Code code;
   /* @Nullable */ private final SubCode subCode;
   /* @Nullable */ private final String state;

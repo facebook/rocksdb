@@ -39,6 +39,8 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
+#include "db/wide/wide_columns_helper.h"
+#include "file/file_util.h"
 #include "table/compaction_merging_iterator.h"
 
 #if USE_COROUTINES
@@ -955,18 +957,21 @@ class LevelIterator final : public InternalIterator {
         flevel_(flevel),
         prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
-        should_sample_(should_sample),
         caller_(caller),
-        skip_filters_(skip_filters),
-        allow_unprepared_value_(allow_unprepared_value),
         file_index_(flevel_->num_files),
-        level_(level),
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
         compaction_boundaries_(compaction_boundaries),
-        is_next_read_sequential_(false),
-        block_protection_bytes_per_key_(block_protection_bytes_per_key),
         range_tombstone_iter_(nullptr),
+        read_seq_(read_options.snapshot
+                      ? read_options.snapshot->GetSequenceNumber()
+                      : kMaxSequenceNumber),
+        level_(level),
+        block_protection_bytes_per_key_(block_protection_bytes_per_key),
+        should_sample_(should_sample),
+        skip_filters_(skip_filters),
+        allow_unprepared_value_(allow_unprepared_value),
+        is_next_read_sequential_(false),
         to_return_sentinel_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
@@ -1054,6 +1059,10 @@ class LevelIterator final : public InternalIterator {
 
   bool IsDeleteRangeSentinelKey() const override { return to_return_sentinel_; }
 
+  void SetRangeDelReadSeqno(SequenceNumber read_seq) override {
+    read_seq_ = read_seq;
+  }
+
  private:
   // Return true if at least one invalid file is seen and skipped.
   bool SkipEmptyFileForward();
@@ -1110,7 +1119,7 @@ class LevelIterator final : public InternalIterator {
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_,
-        block_protection_bytes_per_key_, range_tombstone_iter_);
+        block_protection_bytes_per_key_, &read_seq_, range_tombstone_iter_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1140,13 +1149,8 @@ class LevelIterator final : public InternalIterator {
   const std::shared_ptr<const SliceTransform>& prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
-  bool should_sample_;
   TableReaderCaller caller_;
-  bool skip_filters_;
-  bool allow_unprepared_value_;
-  bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
-  int level_;
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
@@ -1154,10 +1158,6 @@ class LevelIterator final : public InternalIterator {
   // To be propagated to RangeDelAggregator in order to safely truncate range
   // tombstones.
   const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
-
-  bool is_next_read_sequential_;
-
-  uint8_t block_protection_bytes_per_key_;
 
   // This is set when this level iterator is used under a merging iterator
   // that processes range tombstones. range_tombstone_iter_ points to where the
@@ -1175,20 +1175,29 @@ class LevelIterator final : public InternalIterator {
   // *range_tombstone_iter_ points to range tombstones of the current SST file
   TruncatedRangeDelIterator** range_tombstone_iter_;
 
-  // Whether next/prev key is a sentinel key.
-  bool to_return_sentinel_ = false;
   // The sentinel key to be returned
   Slice sentinel_;
+  SequenceNumber read_seq_;
+
+  int level_;
+  uint8_t block_protection_bytes_per_key_;
+  bool should_sample_;
+  bool skip_filters_;
+  bool allow_unprepared_value_;
+  bool may_be_out_of_lower_bound_ = true;
+  bool is_next_read_sequential_;
+  // Set in Seek() when a prefix seek reaches end of the current file,
+  // and the next file has a different prefix. SkipEmptyFileForward()
+  // will not move to next file when this flag is set.
+  bool prefix_exhausted_ = false;
+  // Whether next/prev key is a sentinel key.
+  bool to_return_sentinel_ = false;
+
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
   // file_iter_: !Valid() && status.().ok().
   void TrySetDeleteRangeSentinel(const Slice& boundary_key);
   void ClearSentinel() { to_return_sentinel_ = false; }
-
-  // Set in Seek() when a prefix seek reaches end of the current file,
-  // and the next file has a different prefix. SkipEmptyFileForward()
-  // will not move to next file when this flag is set.
-  bool prefix_exhausted_ = false;
 };
 
 void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key) {
@@ -1947,8 +1956,14 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
   uint64_t sum_file_size_bytes = 0;
   uint64_t sum_data_size_bytes = 0;
   for (auto* file_meta : files_[level]) {
-    sum_file_size_bytes += file_meta->fd.GetFileSize();
-    sum_data_size_bytes += file_meta->raw_key_size + file_meta->raw_value_size;
+    auto raw_size = file_meta->raw_key_size + file_meta->raw_value_size;
+    // Check if the table property is properly initialized. It might not be
+    // because in `UpdateAccumulatedStats` we limit the maximum number of
+    // properties to read once.
+    if (raw_size > 0) {
+      sum_file_size_bytes += file_meta->fd.GetFileSize();
+      sum_data_size_bytes += raw_size;
+    }
   }
   if (sum_file_size_bytes == 0) {
     return -1.0;
@@ -1998,7 +2013,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value,
-          mutable_cf_options_.block_protection_bytes_per_key, &tombstone_iter);
+          mutable_cf_options_.block_protection_bytes_per_key,
+          /*range_del_read_seqno=*/nullptr, &tombstone_iter);
       if (read_options.ignore_range_deletions) {
         merge_iter_builder->AddIterator(table_iter);
       } else {
@@ -2107,7 +2123,8 @@ VersionStorageInfo::VersionStorageInfo(
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
-    EpochNumberRequirement epoch_number_requirement)
+    EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
+    uint32_t bottommost_file_compaction_delay)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2135,6 +2152,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_deletions_(0),
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
+      clock_(clock),
+      bottommost_file_compaction_delay_(bottommost_file_compaction_delay),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
       epoch_number_requirement_(epoch_number_requirement) {
@@ -2179,7 +2198,11 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
               ? nullptr
               : cfd_->current()->storage_info(),
           cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
-          epoch_number_requirement),
+          epoch_number_requirement,
+          cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
+          cfd_ == nullptr
+              ? 0
+              : mutable_cf_options.bottommost_file_compaction_delay),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -2190,7 +2213,12 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
       io_tracer_(io_tracer),
-      use_async_io_(env_->GetFileSystem()->use_async_io()) {}
+      use_async_io_(false) {
+  if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
+                            FSSupportedOps::kAsyncIO)) {
+    use_async_io_ = true;
+  }
+}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const Slice& blob_index_slice,
@@ -2433,12 +2461,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                                   fp.GetHitFileLevel());
 
         if (is_blob_index && do_merge && (value || columns)) {
-          assert(!columns ||
-                 (!columns->columns().empty() &&
-                  columns->columns().front().name() == kDefaultWideColumnName));
-
           Slice blob_index =
-              value ? *value : columns->columns().front().value();
+              value ? *value
+                    : WideColumnsHelper::GetDefaultColumn(columns->columns());
 
           TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
                                    &blob_index);
@@ -2502,21 +2527,16 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     if (value || columns) {
-      std::string result;
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-          &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
-          /* op_failure_scope */ nullptr);
+          merge_operator_, user_key, MergeHelper::kNoBaseValue,
+          merge_context->GetOperands(), info_log_, db_statistics_, clock_,
+          /* update_num_ops_stats */ true, value ? value->GetSelf() : nullptr,
+          columns, /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
-          *(value->GetSelf()) = std::move(result);
           value->PinSelf();
-        } else {
-          assert(columns != nullptr);
-          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2753,22 +2773,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string result;
-
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          merge_operator_, user_key, MergeHelper::kNoBaseValue,
+          iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
+          /* update_num_ops_stats */ true,
+          iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
           /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
-        *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
-        iter->columns->SetPlainValue(std::move(result));
         range->AddValueSize(iter->columns->serialized_size());
       }
 
@@ -3390,6 +3407,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
+  int max_output_level = MaxOutputLevel(immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3417,7 +3435,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         // For universal compaction, we use level0 score to indicate
         // compaction score for the whole DB. Adding other levels as if
         // they are L0 files.
-        for (int i = 1; i < num_levels(); i++) {
+        for (int i = 1; i <= max_output_level; i++) {
           // It's possible that a subset of the files in a level may be in a
           // compaction, due to delete triggered compaction or trivial move.
           // In that case, the below check may not catch a level being
@@ -3459,12 +3477,11 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          // If score in L0 is always too high, L0->L1 will always be
-          // prioritized over L1->L2 compaction and L1 will accumulate to
-          // too large. But if L0 score isn't high enough, L0 will accumulate
-          // and data is not moved to L1 fast enough. With potential L0->L0
-          // compaction, number of L0 files aren't always an indication of
-          // L0 oversizing, and we also need to consider total size of L0.
+          // If score in L0 is always too high, L0->LBase will always be
+          // prioritized over LBase->LBase+1 compaction and LBase will
+          // accumulate to too large. But if L0 score isn't high enough, L0 will
+          // accumulate and data is not moved to LBase fast enough. The score
+          // calculation below takes into account L0 size vs LBase size.
           if (immutable_options.level_compaction_dynamic_level_bytes) {
             if (total_size >= mutable_cf_options.max_bytes_for_level_base) {
               // When calculating estimated_compaction_needed_bytes, we assume
@@ -3476,10 +3493,13 @@ void VersionStorageInfo::ComputeCompactionScore(
               score = std::max(score, 1.01);
             }
             if (total_size > level_max_bytes_[base_level_]) {
-              // In this case, we compare L0 size with actual L1 size and make
-              // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
-              // than L1. Since in this case L1 score is lower than 10.0, L0->L1
-              // is prioritized over L1->L2.
+              // In this case, we compare L0 size with actual LBase size and
+              // make sure score is more than 1.0 (10.0 after scaled) if L0 is
+              // larger than LBase. Since LBase score = LBase size /
+              // (target size + total_downcompact_bytes) where
+              // total_downcompact_bytes = total_size > LBase size,
+              // LBase score is lower than 10.0. So L0->LBase is prioritized
+              // over LBase -> LBase+1.
               uint64_t base_level_size = 0;
               for (auto f : files_[base_level_]) {
                 base_level_size += f->compensated_file_size;
@@ -3561,37 +3581,29 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
     }
   }
-  ComputeFilesMarkedForCompaction();
-  if (!immutable_options.allow_ingest_behind) {
-    ComputeBottommostFilesMarkedForCompaction();
-  }
-  if (mutable_cf_options.ttl > 0) {
-    ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
-  }
-  if (mutable_cf_options.periodic_compaction_seconds > 0) {
-    ComputeFilesMarkedForPeriodicCompaction(
-        immutable_options, mutable_cf_options.periodic_compaction_seconds);
-  }
-
-  if (mutable_cf_options.enable_blob_garbage_collection &&
-      mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
-      mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
-    ComputeFilesMarkedForForcedBlobGC(
-        mutable_cf_options.blob_garbage_collection_age_cutoff,
-        mutable_cf_options.blob_garbage_collection_force_threshold);
-  }
+  ComputeFilesMarkedForCompaction(max_output_level);
+  ComputeBottommostFilesMarkedForCompaction(
+      immutable_options.allow_ingest_behind);
+  ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
+  ComputeFilesMarkedForPeriodicCompaction(
+      immutable_options, mutable_cf_options.periodic_compaction_seconds,
+      max_output_level);
+  ComputeFilesMarkedForForcedBlobGC(
+      mutable_cf_options.blob_garbage_collection_age_cutoff,
+      mutable_cf_options.blob_garbage_collection_force_threshold,
+      mutable_cf_options.enable_blob_garbage_collection);
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
-void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
+void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
   files_marked_for_compaction_.clear();
   int last_qualify_level = 0;
 
   // Do not include files from the last level with data
   // If table properties collector suggests a file on the last level,
   // we should not move it to a new level.
-  for (int level = num_levels() - 1; level >= 1; level--) {
+  for (int level = last_level; level >= 1; level--) {
     if (!files_[level].empty()) {
       last_qualify_level = level - 1;
       break;
@@ -3609,9 +3621,10 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
 
 void VersionStorageInfo::ComputeExpiredTtlFiles(
     const ImmutableOptions& ioptions, const uint64_t ttl) {
-  assert(ttl > 0);
-
   expired_ttl_files_.clear();
+  if (ttl == 0 || compaction_style_ != CompactionStyle::kCompactionStyleLevel) {
+    return;
+  }
 
   int64_t _current_time;
   auto status = ioptions.clock->GetCurrentTime(&_current_time);
@@ -3635,10 +3648,11 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableOptions& ioptions,
-    const uint64_t periodic_compaction_seconds) {
-  assert(periodic_compaction_seconds > 0);
-
+    const uint64_t periodic_compaction_seconds, int last_level) {
   files_marked_for_periodic_compaction_.clear();
+  if (periodic_compaction_seconds == 0) {
+    return;
+  }
 
   int64_t temp_current_time;
   auto status = ioptions.clock->GetCurrentTime(&temp_current_time);
@@ -3656,7 +3670,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
-  for (int level = 0; level < num_levels(); level++) {
+  for (int level = 0; level <= last_level; level++) {
     for (auto f : files_[level]) {
       if (!f->being_compacted) {
         // Compute a file's modification time in the following order:
@@ -3692,8 +3706,14 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
 void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     double blob_garbage_collection_age_cutoff,
-    double blob_garbage_collection_force_threshold) {
+    double blob_garbage_collection_force_threshold,
+    bool enable_blob_garbage_collection) {
   files_marked_for_forced_blob_gc_.clear();
+  if (!(enable_blob_garbage_collection &&
+        blob_garbage_collection_age_cutoff > 0.0 &&
+        blob_garbage_collection_force_threshold < 1.0)) {
+    return;
+  }
 
   if (blob_files_.empty()) {
     return;
@@ -4150,25 +4170,64 @@ void VersionStorageInfo::GenerateFileLocationIndex() {
   }
 }
 
-void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
+void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum,
+                                              bool allow_ingest_behind) {
   assert(seqnum >= oldest_snapshot_seqnum_);
   oldest_snapshot_seqnum_ = seqnum;
   if (oldest_snapshot_seqnum_ > bottommost_files_mark_threshold_) {
-    ComputeBottommostFilesMarkedForCompaction();
+    ComputeBottommostFilesMarkedForCompaction(allow_ingest_behind);
   }
 }
 
-void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
+void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
+    bool allow_ingest_behind) {
   bottommost_files_marked_for_compaction_.clear();
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  if (allow_ingest_behind) {
+    return;
+  }
+  // If a file's creation time is larger than creation_time_ub,
+  // it is too new to be marked for compaction.
+  int64_t creation_time_ub = 0;
+  bool needs_delay = bottommost_file_compaction_delay_ > 0;
+  if (needs_delay) {
+    int64_t current_time = 0;
+    clock_->GetCurrentTime(&current_time).PermitUncheckedError();
+    // Note that if GetCurrentTime() fails, current_time will be 0.
+    // We will treat it as is and treat all files as too new.
+    // The subtraction will not underflow since
+    // bottommost_file_compaction_delay_ is of type uint32_t.
+    creation_time_ub =
+        current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
+  }
+
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
         level_and_file.second->fd.largest_seqno != 0) {
       // largest_seqno might be nonzero due to containing the final key in an
-      // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
-      // ensures the file really contains deleted or overwritten keys.
+      // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
-        bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        if (!needs_delay) {
+          bottommost_files_marked_for_compaction_.push_back(level_and_file);
+        } else if (creation_time_ub > 0) {
+          int64_t creation_time = static_cast<int64_t>(
+              level_and_file.second->TryGetFileCreationTime());
+          if (creation_time == kUnknownFileCreationTime ||
+              creation_time <= creation_time_ub) {
+            bottommost_files_marked_for_compaction_.push_back(level_and_file);
+          } else {
+            // Just ignore this file for both
+            // bottommost_files_marked_for_compaction_ and
+            // bottommost_files_mark_threshold_. The next time
+            // this method is called, it will try this file again. The method
+            // is called after a new Version creation (compaction, flush, etc.),
+            // after a compaction is picked, and after a snapshot newer than
+            // bottommost_files_mark_threshold_ is released.
+          }
+        } else {
+          // creation_time_ub <= 0, all files are too new to be marked for
+          // compaction.
+        }
       } else {
         bottommost_files_mark_threshold_ =
             std::min(bottommost_files_mark_threshold_,
@@ -4700,7 +4759,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
           assert(base_level_ == 1);
           base_level_size = base_bytes_max;
         } else {
-          base_level_size = cur_level_size;
+          base_level_size = std::max(static_cast<uint64_t>(1), cur_level_size);
         }
       }
 
@@ -5107,6 +5166,12 @@ Status VersionSet::ProcessManifestWrites(
   assert(manifest_writers_.front() == &first_writer);
 
   autovector<VersionEdit*> batch_edits;
+  // This vector keeps track of the corresponding user-defined timestamp size
+  // for `batch_edits` side by side, which is only needed for encoding a
+  // `VersionEdit` that adds new SST files.
+  // Note that anytime `batch_edits` has new element added or get existing
+  // element removed, `batch_edits_ts_sz` should be updated too.
+  autovector<std::optional<size_t>> batch_edits_ts_sz;
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
@@ -5122,6 +5187,7 @@ Status VersionSet::ProcessManifestWrites(
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);
     batch_edits.push_back(first_writer.edit_list.front());
+    batch_edits_ts_sz.push_back(std::nullopt);
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
@@ -5198,6 +5264,9 @@ Status VersionSet::ProcessManifestWrites(
         TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
                                  version);
       }
+      const Comparator* ucmp = last_writer->cfd->user_comparator();
+      assert(ucmp);
+      std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
@@ -5218,6 +5287,7 @@ Status VersionSet::ProcessManifestWrites(
           return s;
         }
         batch_edits.push_back(e);
+        batch_edits_ts_sz.push_back(edit_ts_sz);
       }
     }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -5383,9 +5453,11 @@ Status VersionSet::ProcessManifestWrites(
 #ifndef NDEBUG
       size_t idx = 0;
 #endif
-      for (auto& e : batch_edits) {
+      assert(batch_edits.size() == batch_edits_ts_sz.size());
+      for (size_t bidx = 0; bidx < batch_edits.size(); bidx++) {
+        auto& e = batch_edits[bidx];
         std::string record;
-        if (!e->EncodeTo(&record)) {
+        if (!e->EncodeTo(&record, batch_edits_ts_sz[bidx])) {
           s = Status::Corruption("Unable to encode VersionEdit:" +
                                  e->DebugString(true));
           break;
@@ -6278,8 +6350,9 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   return s;
 }
 
-Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-                                bool verbose, bool hex, bool json) {
+Status VersionSet::DumpManifest(
+    Options& options, std::string& dscname, bool verbose, bool hex, bool json,
+    const std::vector<ColumnFamilyDescriptor>& cf_descs) {
   assert(options.env);
   // TODO: plumb Env::IOActivity
   const ReadOptions read_options;
@@ -6305,13 +6378,22 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::vector<ColumnFamilyDescriptor> cf_descs;
+  std::map<std::string, const ColumnFamilyDescriptor*> cf_name_to_desc;
+  for (const auto& cf_desc : cf_descs) {
+    cf_name_to_desc[cf_desc.name] = &cf_desc;
+  }
+  std::vector<ColumnFamilyDescriptor> final_cf_descs;
   for (const auto& cf : column_families) {
-    cf_descs.emplace_back(cf, options);
+    const auto iter = cf_name_to_desc.find(cf);
+    if (iter != cf_name_to_desc.cend()) {
+      final_cf_descs.push_back(*iter->second);
+    } else {
+      final_cf_descs.emplace_back(cf, options);
+    }
   }
 
-  DumpManifestHandler handler(cf_descs, this, io_tracer_, read_options, verbose,
-                              hex, json);
+  DumpManifestHandler handler(final_cf_descs, this, io_tracer_, read_options,
+                              verbose, hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
@@ -6414,6 +6496,8 @@ Status VersionSet::WriteCurrentStateToManifest(
       }
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
+      edit.SetPersistUserDefinedTimestamps(
+          cfd->ioptions()->persist_user_defined_timestamps);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +
@@ -6449,7 +6533,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->oldest_blob_file_number, f->oldest_ancester_time,
                        f->file_creation_time, f->epoch_number, f->file_checksum,
                        f->file_checksum_func_name, f->unique_id,
-                       f->compensated_range_deletion_size, f->tail_size);
+                       f->compensated_range_deletion_size, f->tail_size,
+                       f->user_defined_timestamps_persisted);
         }
       }
 
@@ -6493,8 +6578,10 @@ Status VersionSet::WriteCurrentStateToManifest(
 
       edit.SetLastSequence(descriptor_last_sequence_);
 
+      const Comparator* ucmp = cfd->user_comparator();
+      assert(ucmp);
       std::string record;
-      if (!edit.EncodeTo(&record)) {
+      if (!edit.EncodeTo(&record, ucmp->timestamp_size())) {
         return Status::Corruption("Unable to Encode VersionEdit:" +
                                   edit.DebugString(true));
       }
@@ -6846,7 +6933,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           const FileMetaData& fmd = *flevel->files[i].file_metadata;
           if (start.has_value() &&
               cfd->user_comparator()->CompareWithoutTimestamp(
-                  start.value(), fmd.largest.user_key()) > 0) {
+                  *start, fmd.largest.user_key()) > 0) {
             continue;
           }
           // We should be able to filter out the case where the end key
@@ -6854,7 +6941,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           // We try to be extra safe here.
           if (end.has_value() &&
               cfd->user_comparator()->CompareWithoutTimestamp(
-                  end.value(), fmd.smallest.user_key()) < 0) {
+                  *end, fmd.smallest.user_key()) < 0) {
             continue;
           }
           TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
@@ -6872,6 +6959,7 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false,
               c->mutable_cf_options()->block_protection_bytes_per_key,
+              /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter);
           range_tombstones.emplace_back(range_tombstone_iter, nullptr);
         }
@@ -7003,6 +7091,16 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
   obsolete_manifests_.swap(*manifest_filenames);
 }
 
+uint64_t VersionSet::GetObsoleteSstFilesSize() const {
+  uint64_t ret = 0;
+  for (auto& f : obsolete_files_) {
+    if (f.metadata != nullptr) {
+      ret += f.metadata->fd.GetFileSize();
+    }
+  }
+  return ret;
+}
+
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
     const VersionEdit* edit) {
@@ -7126,8 +7224,7 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
     status = table_cache->FindTable(
         read_options, file_opts, *icmp, meta_copy, &handle,
         cf_opts->block_protection_bytes_per_key, pe,
-        /*no_io=*/false, /*record_read_stats=*/true,
-        internal_stats->GetFileReadHist(level), false, level,
+        /*no_io=*/false, internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
     if (handle) {

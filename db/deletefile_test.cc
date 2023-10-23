@@ -575,6 +575,7 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
       ASSERT_OK(itr->status());
       ++count;
     }
+    ASSERT_OK(itr->status());
     ASSERT_EQ(count, 1000);
   }
 
@@ -588,6 +589,7 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
       ASSERT_OK(itr->status());
       ++count;
     }
+    ASSERT_OK(itr->status());
     ASSERT_EQ(count, 1000);
   }
 }

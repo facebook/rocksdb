@@ -86,6 +86,8 @@ class TableCache {
   //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
+  // @param range_del_read_seqno If non-nullptr, will be used to create
+  // *range_del_iter.
   InternalIterator* NewIterator(
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -97,6 +99,7 @@ class TableCache {
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       uint8_t protection_bytes_per_key,
+      const SequenceNumber* range_del_read_seqno = nullptr,
       TruncatedRangeDelIterator** range_del_iter = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
@@ -171,9 +174,9 @@ class TableCache {
       const FileMetaData& file_meta, TypedHandle**,
       uint8_t block_protection_bytes_per_key,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      const bool no_io = false, bool record_read_stats = true,
-      HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1, bool prefetch_index_and_filter_in_cache = true,
+      const bool no_io = false, HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true,
       size_t max_file_size_for_l0_meta_pin = 0,
       Temperature file_temperature = Temperature::kUnknown);
 
@@ -243,8 +246,8 @@ class TableCache {
       const ReadOptions& ro, const FileOptions& file_options,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, bool sequential_mode,
-      bool record_read_stats, uint8_t block_protection_bytes_per_key,
-      HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
+      uint8_t block_protection_bytes_per_key, HistogramImpl* file_read_hist,
+      std::unique_ptr<TableReader>* table_reader,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool skip_filters = false, int level = -1,
       bool prefetch_index_and_filter_in_cache = true,
@@ -259,15 +262,18 @@ class TableCache {
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be
   // appended to form the full key
-  void CreateRowCacheKeyPrefix(const ReadOptions& options,
-                               const FileDescriptor& fd,
-                               const Slice& internal_key,
-                               GetContext* get_context, IterKey& row_cache_key);
+  // Return the sequence number that determines the visibility of row_cache_key
+  uint64_t CreateRowCacheKeyPrefix(const ReadOptions& options,
+                                   const FileDescriptor& fd,
+                                   const Slice& internal_key,
+                                   GetContext* get_context,
+                                   IterKey& row_cache_key);
 
   // Helper function to lookup the row cache for a key. It appends the
   // user key to row_cache_key at offset prefix_size
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
-                       size_t prefix_size, GetContext* get_context);
+                       size_t prefix_size, GetContext* get_context,
+                       SequenceNumber seq_no = kMaxSequenceNumber);
 
   const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
@@ -275,7 +281,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;
-  Striped<port::Mutex, Slice> loader_mutex_;
+  Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
 };

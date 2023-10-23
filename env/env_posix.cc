@@ -213,13 +213,14 @@ class PosixEnv : public CompositeEnv {
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
 
-  ~PosixEnv() override {
-    if (this == Env::Default()) {
-      for (const auto tid : threads_to_join_) {
+  struct JoinThreadsOnExit {
+    explicit JoinThreadsOnExit(PosixEnv& _deflt) : deflt(_deflt) {}
+    ~JoinThreadsOnExit() {
+      for (const auto tid : deflt.threads_to_join_) {
         pthread_join(tid, nullptr);
       }
       for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-        thread_pools_[pool_id].JoinAllThreads();
+        deflt.thread_pools_[pool_id].JoinAllThreads();
       }
       // Do not delete the thread_status_updater_ in order to avoid the
       // free after use when Env::Default() is destructed while some other
@@ -227,7 +228,8 @@ class PosixEnv : public CompositeEnv {
       // PosixEnv instances use the same thread_status_updater_, so never
       // explicitly delete it.
     }
-  }
+    PosixEnv& deflt;
+  };
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -328,12 +330,16 @@ class PosixEnv : public CompositeEnv {
   }
 
   Status GetHostName(char* name, uint64_t len) override {
-    int ret = gethostname(name, static_cast<size_t>(len));
+    const size_t max_len = static_cast<size_t>(len);
+    int ret = gethostname(name, max_len);
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL) {
         return Status::InvalidArgument(errnoStr(errno).c_str());
+      } else if (errno == ENAMETOOLONG) {
+        return IOError("GetHostName", std::string(name, strnlen(name, max_len)),
+                       errno);
       } else {
-        return IOError("GetHostName", name, errno);
+        return IOError("GetHostName", "", errno);
       }
     }
     return Status::OK();
@@ -501,9 +507,11 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  // ~PosixEnv must be called on exit
-  //**TODO: Can we make this a STATIC_AVOID_DESTRUCTION?
-  static PosixEnv default_env;
+  // Avoid problems with accessing most members of Env::Default() during
+  // static destruction.
+  STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
+  // This destructor must be called on exit
+  static PosixEnv::JoinThreadsOnExit thread_joiner(default_env);
   return &default_env;
 }
 

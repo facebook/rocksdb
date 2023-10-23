@@ -3,8 +3,6 @@
 # --> DO NOT EDIT MANUALLY <--
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
-#
-# @noautodeps @nocodemods
 load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
 
 
@@ -21,6 +19,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cache/secondary_cache.cc",
         "cache/secondary_cache_adapter.cc",
         "cache/sharded_cache.cc",
+        "cache/tiered_secondary_cache.cc",
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_contents.cc",
         "db/blob/blob_fetcher.cc",
@@ -103,6 +102,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/wal_manager.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
+        "db/wide/wide_columns_helper.cc",
         "db/write_batch.cc",
         "db/write_batch_base.cc",
         "db/write_controller.cc",
@@ -393,6 +393,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/db_stress_stat.cc",
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
+        "db_stress_tool/db_stress_wide_merge_operator.cc",
         "db_stress_tool/expected_state.cc",
         "db_stress_tool/expected_value.cc",
         "db_stress_tool/multi_ops_txns_stress.cc",
@@ -404,6 +405,8 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
 
 
 cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=[":rocksdb_stress_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
+
+cpp_binary_wrapper(name="cache_bench", srcs=["cache/cache_bench.cc"], deps=[":rocksdb_cache_bench_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
@@ -5474,6 +5477,12 @@ cpp_unittest_wrapper(name="tiered_compaction_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="tiered_secondary_cache_test",
+            srcs=["cache/tiered_secondary_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="timer_queue_test",
             srcs=["util/timer_queue_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5548,6 +5557,12 @@ cpp_unittest_wrapper(name="wal_manager_test",
 
 cpp_unittest_wrapper(name="wide_column_serialization_test",
             srcs=["db/wide/wide_column_serialization_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="wide_columns_helper_test",
+            srcs=["db/wide/wide_columns_helper_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

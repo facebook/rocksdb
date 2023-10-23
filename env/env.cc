@@ -159,8 +159,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       req.len = fs_reqs[i].len;
       req.scratch = fs_reqs[i].scratch;
       req.status = Status::OK();
-
-      reqs.emplace_back(req);
+      reqs.emplace_back(std::move(req));
     }
     status = target_->MultiRead(reqs.data(), num_reqs);
     for (size_t i = 0; i < num_reqs; ++i) {
@@ -1229,5 +1228,10 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     });
     return LoadSharedObject<SystemClock>(config_options, value, result);
   }
+}
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
 }
 }  // namespace ROCKSDB_NAMESPACE

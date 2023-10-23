@@ -68,8 +68,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       s = FindTable(options, file_options_, internal_comparator, file_meta,
                     &handle, block_protection_bytes_per_key, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
-                    true /* record_read_stats */, file_read_hist, skip_filters,
-                    level, true /* prefetch_index_and_filter_in_cache */,
+                    file_read_hist, skip_filters, level,
+                    true /* prefetch_index_and_filter_in_cache */,
                     0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {

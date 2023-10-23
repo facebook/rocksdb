@@ -709,4 +709,14 @@ public class ColumnFamilyOptionsTest {
       assertThat(options.cfPaths()).isEqualTo(paths);
     }
   }
+
+  @Test
+  public void memtableMaxRangeDeletions() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
+      final int val = 32;
+      assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
 }

@@ -132,8 +132,9 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks,
-                     EpochNumberRequirement epoch_number_requirement =
-                         EpochNumberRequirement::kMustPresent);
+                     EpochNumberRequirement epoch_number_requirement,
+                     SystemClock* clock,
+                     uint32_t bottommost_file_compaction_delay);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -204,7 +205,7 @@ class VersionStorageInfo {
 
   // This computes files_marked_for_compaction_ and is called by
   // ComputeCompactionScore()
-  void ComputeFilesMarkedForCompaction();
+  void ComputeFilesMarkedForCompaction(int last_level);
 
   // This computes ttl_expired_files_ and is called by
   // ComputeCompactionScore()
@@ -215,7 +216,7 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(
       const ImmutableOptions& ioptions,
-      const uint64_t periodic_compaction_seconds);
+      const uint64_t periodic_compaction_seconds, int last_level);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -227,7 +228,7 @@ class VersionStorageInfo {
   // eligible for compaction.
   //
   // REQUIRES: DB mutex held
-  void ComputeBottommostFilesMarkedForCompaction();
+  void ComputeBottommostFilesMarkedForCompaction(bool allow_ingest_behind);
 
   // This computes files_marked_for_forced_blob_gc_ and is called by
   // ComputeCompactionScore()
@@ -235,14 +236,16 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
-      double blob_garbage_collection_force_threshold);
+      double blob_garbage_collection_force_threshold,
+      bool enable_blob_garbage_collection);
 
   bool level0_non_overlapping() const { return level0_non_overlapping_; }
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
   // REQUIRES: DB mutex held
-  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum);
+  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum,
+                            bool allow_ingest_behind);
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
@@ -465,6 +468,7 @@ class VersionStorageInfo {
 
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
+  // Used by Leveled Compaction only.
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
@@ -472,6 +476,7 @@ class VersionStorageInfo {
 
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
+  // Used by Leveled and Universal Compaction.
   const autovector<std::pair<int, FileMetaData*>>&
   FilesMarkedForPeriodicCompaction() const {
     assert(finalized_);
@@ -680,7 +685,7 @@ class VersionStorageInfo {
 
   // This vector contains list of files marked for compaction and also not
   // currently being compacted. It is protected by DB mutex. It is calculated in
-  // ComputeCompactionScore()
+  // ComputeCompactionScore(). Used by Leveled and Universal Compaction.
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
@@ -745,6 +750,10 @@ class VersionStorageInfo {
   // Estimated bytes needed to be compacted until all levels' size is down to
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
+
+  // Used for computing bottommost files marked for compaction.
+  SystemClock* clock_;
+  uint32_t bottommost_file_compaction_delay_;
 
   bool finalized_;
 
@@ -1167,7 +1176,8 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr) {
+      const ColumnFamilyOptions* column_family_options = nullptr,
+      const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -1178,7 +1188,7 @@ class VersionSet {
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
                        mu, dir_contains_current_file, new_descriptor_log,
-                       column_family_options);
+                       column_family_options, {manifest_wcb});
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -1271,8 +1281,8 @@ class VersionSet {
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false, bool json = false);
-
+                      bool verbose, bool hex = false, bool json = false,
+                      const std::vector<ColumnFamilyDescriptor>& cf_descs = {});
 
   const std::string& DbSessionId() const { return db_session_id_; }
 
@@ -1466,7 +1476,21 @@ class VersionSet {
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
+  // REQUIRES: DB mutex held
+  uint64_t GetObsoleteSstFilesSize() const;
+
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+
+  const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
+      const {
+    return column_family_set_->GetRunningColumnFamiliesTimestampSize();
+  }
+
+  const UnorderedMap<uint32_t, size_t>&
+  GetColumnFamiliesTimestampSizeForRecord() const {
+    return column_family_set_->GetColumnFamiliesTimestampSizeForRecord();
+  }
+
   RefedColumnFamilySet GetRefedColumnFamilySet() {
     return RefedColumnFamilySet(GetColumnFamilySet());
   }
@@ -1505,9 +1529,6 @@ class VersionSet {
   }
 
  protected:
-  using VersionBuilderMap =
-      UnorderedMap<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>;
-
   struct ManifestWriter;
 
   friend class Version;

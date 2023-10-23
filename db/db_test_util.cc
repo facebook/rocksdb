@@ -259,7 +259,7 @@ bool DBTestBase::ChangeFilterOptions() {
 
   auto options = CurrentOptions();
   options.create_if_missing = true;
-  TryReopen(options);
+  EXPECT_OK(TryReopen(options));
   return true;
 }
 
@@ -270,34 +270,34 @@ bool DBTestBase::ChangeOptionsForFileIngestionTest() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else if (option_config_ == kUniversalSubcompactions) {
     option_config_ = kDirectIO;
     Destroy(last_options_);
     auto options = CurrentOptions();
-    TryReopen(options);
+    EXPECT_OK(TryReopen(options));
     return true;
   } else {
     return false;
@@ -324,6 +324,12 @@ Options DBTestBase::GetDefaultOptions() const {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  // The original default value for this option is false,
+  // and many unit tests assume this value. It also makes
+  // it easier to create desired LSM shape in unit tests.
+  // Unit tests for this option sets level_compaction_dynamic_level_bytes=true
+  // explicitly.
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = env_;
   if (!env_->skip_fsync_) {
     options.track_and_verify_wals_in_manifest = true;
@@ -569,6 +575,8 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  options.level_compaction_dynamic_level_bytes =
+      options_override.level_compaction_dynamic_level_bytes;
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
@@ -691,6 +699,7 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
+  Close();
   MaybeInstallTimeElapseOnlySleep(options);
   return DB::OpenForReadOnly(options, dbname_, &db_);
 }
@@ -934,6 +943,7 @@ std::string DBTestBase::Contents(int cf) {
     EXPECT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
     matched++;
   }
+  EXPECT_OK(iter->status());
   EXPECT_EQ(matched, forward.size());
 
   delete iter;
@@ -1356,6 +1366,7 @@ std::string DBTestBase::IterStatus(Iterator* iter) {
   if (iter->Valid()) {
     result = iter->key().ToString() + "->" + iter->value().ToString();
   } else {
+    EXPECT_OK(iter->status());
     result = "(invalid)";
   }
   return result;
@@ -1574,6 +1585,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.end())
         << iter_cnt << " / " << true_data.size();
     delete iter;
@@ -1597,6 +1609,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_rev, true_data.rend())
         << iter_cnt << " / " << true_data.size();
 
@@ -1708,12 +1721,12 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
-                                                 ObjectPtr value,
-                                                 const CacheItemHelper* helper,
-                                                 size_t charge, Handle** handle,
-                                                 Priority priority) {
-  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+Status TargetCacheChargeTrackingCache<R>::Insert(
+    const Slice& key, ObjectPtr value, const CacheItemHelper* helper,
+    size_t charge, Handle** handle, Priority priority, const Slice& compressed,
+    CompressionType type) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
   if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;

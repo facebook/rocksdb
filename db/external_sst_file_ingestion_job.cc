@@ -217,6 +217,8 @@ Status ExternalSstFileIngestionJob::Prepare(
         std::string requested_checksum_func_name;
         // TODO: rate limit file reads for checksum calculation during file
         // ingestion.
+        // TODO: plumb Env::IOActivity
+        ReadOptions ro;
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(),
@@ -224,8 +226,8 @@ Status ExternalSstFileIngestionJob::Prepare(
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_,
-            db_options_.rate_limiter.get(),
-            Env::IO_TOTAL /* rate_limiter_priority */);
+            db_options_.rate_limiter.get(), ro, db_options_.stats,
+            db_options_.clock);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -348,7 +350,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
       std::string end_str;
       AppendUserKeyWithMaxTimestamp(
           &begin_str, file_to_ingest.smallest_internal_key.user_key(), ts_sz);
-      AppendKeyWithMinTimestamp(
+      AppendUserKeyWithMinTimestamp(
           &end_str, file_to_ingest.largest_internal_key.user_key(), ts_sz);
       keys.emplace_back(std::move(begin_str));
       keys.emplace_back(std::move(end_str));
@@ -482,7 +484,9 @@ Status ExternalSstFileIngestionJob::Run() {
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
-        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size);
+        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0, tail_size,
+        static_cast<bool>(
+            f.table_properties.user_defined_timestamps_persisted));
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -684,6 +688,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   sst_file_reader.reset(new RandomAccessFileReader(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
+  // TODO(yuzhangyu): User-defined timestamps doesn't support external sst file
+  //  ingestion. Pass in the correct `user_defined_timestamps_persisted` flag
+  //  for creating `TableReaderOptions` when the support is there.
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
@@ -708,9 +715,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
-  }
-  if (!status.ok()) {
-    return status;
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   // Get the external file properties
@@ -1053,13 +1060,15 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   std::string file_checksum_func_name;
   std::string requested_checksum_func_name;
   // TODO: rate limit file reads for checksum calculation during file ingestion.
+  // TODO: plumb Env::IOActivity
+  ReadOptions ro;
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
       db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
-      Env::IO_TOTAL /* rate_limiter_priority */);
+      ro, db_options_.stats, db_options_.clock);
   if (!io_s.ok()) {
     return io_s;
   }

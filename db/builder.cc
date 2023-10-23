@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -202,24 +203,42 @@ Status BuildTable(
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
+        true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
+    const size_t ts_sz = ucmp->timestamp_size();
+    const bool strip_timestamp =
+        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
+
+    std::string key_after_flush_buf;
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      // Generate a rolling 64-bit hash of the key and values
-      // Note :
-      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key, value);
+      Slice key_after_flush = key;
+      // If user defined timestamps will be stripped from user key after flush,
+      // the in memory version of the key act logically the same as one with a
+      // minimum timestamp. We update the timestamp here so file boundary and
+      // output validator, block builder all see the effect of the stripping.
+      if (strip_timestamp) {
+        key_after_flush_buf.clear();
+        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
+        key_after_flush = key_after_flush_buf;
+      }
+
+      //  Generate a rolling 64-bit hash of the key and values
+      //  Note :
+      //  Here "key" integrates 'sequence_number'+'kType'+'user key'.
+      s = output_validator.Add(key_after_flush, value);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key, value);
+      builder->Add(key_after_flush, value);
 
-      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      s = meta->UpdateBoundaries(key_after_flush, value, ikey.sequence,
+                                 ikey.type);
       if (!s.ok()) {
         break;
       }
@@ -249,6 +268,7 @@ Status BuildTable(
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
         auto kv = tombstone.Serialize();
+        // TODO(yuzhangyu): handle range deletion for UDT in memtables only.
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
@@ -272,18 +292,19 @@ Status BuildTable(
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
     if (num_input_entries != nullptr) {
+      assert(c_iter.HasNumInputEntryScanned());
       *num_input_entries =
-          c_iter.num_input_entry_scanned() + num_unfragmented_tombstones;
+          c_iter.NumInputEntryScanned() + num_unfragmented_tombstones;
     }
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
-      std::string seqno_time_mapping_str;
+      std::string seqno_to_time_mapping_str;
       seqno_to_time_mapping.Encode(
-          seqno_time_mapping_str, meta->fd.smallest_seqno,
+          seqno_to_time_mapping_str, meta->fd.smallest_seqno,
           meta->fd.largest_seqno, meta->file_creation_time);
       builder->SetSeqnoTimeTableProperties(
-          seqno_time_mapping_str,
+          seqno_to_time_mapping_str,
           ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
               ? meta->file_creation_time
               : meta->oldest_ancester_time);
@@ -298,6 +319,8 @@ Status BuildTable(
       meta->fd.file_size = file_size;
       meta->tail_size = builder->GetTailSize();
       meta->marked_for_compaction = builder->NeedCompact();
+      meta->user_defined_timestamps_persisted =
+          ioptions.persist_user_defined_timestamps;
       assert(meta->fd.GetFileSize() > 0);
       tp = builder
                ->GetTableProperties();  // refresh now that builder is finished
@@ -357,6 +380,8 @@ Status BuildTable(
       s = *io_status;
     }
 
+    // TODO(yuzhangyu): handle the key copy in the blob when ts should be
+    // stripped.
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();

@@ -15,15 +15,40 @@ namespace ROCKSDB_NAMESPACE {
 void BlockPrefetcher::PrefetchIfNeeded(
     const BlockBasedTable::Rep* rep, const BlockHandle& handle,
     const size_t readahead_size, bool is_for_compaction,
-    const bool no_sequential_checking,
-    const Env::IOPriority rate_limiter_priority) {
-  // num_file_reads is used  by FilePrefetchBuffer only when
-  // implicit_auto_readahead is set.
+    const bool no_sequential_checking, const ReadOptions& read_options,
+    const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb) {
+  const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
+  const size_t offset = handle.offset();
   if (is_for_compaction) {
+    if (!rep->file->use_direct_io() && compaction_readahead_size_ > 0) {
+      // If FS supports prefetching (readahead_limit_ will be non zero in that
+      // case) and current block exists in prefetch buffer then return.
+      if (offset + len <= readahead_limit_) {
+        return;
+      }
+      IOOptions opts;
+      Status s = rep->file->PrepareIOOptions(read_options, opts);
+      if (!s.ok()) {
+        return;
+      }
+      s = rep->file->Prefetch(opts, offset, len + compaction_readahead_size_);
+      if (s.ok()) {
+        readahead_limit_ = offset + len + compaction_readahead_size_;
+        return;
+      } else if (!s.IsNotSupported()) {
+        return;
+      }
+    }
+    // If FS prefetch is not supported, fall back to use internal prefetch
+    // buffer.
+    //
+    // num_file_reads is used  by FilePrefetchBuffer only when
+    // implicit_auto_readahead is set.
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
         &prefetch_buffer_, /*implicit_auto_readahead=*/false,
-        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0);
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0,
+        /*upper_bound_offset=*/0, /*readaheadsize_cb=*/nullptr);
     return;
   }
 
@@ -32,7 +57,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         readahead_size, readahead_size, &prefetch_buffer_,
         /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
-        /*num_file_reads_for_auto_readahead=*/0);
+        /*num_file_reads_for_auto_readahead=*/0, upper_bound_offset_,
+        readaheadsize_cb,
+        /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
 
@@ -56,12 +83,11 @@ void BlockPrefetcher::PrefetchIfNeeded(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true,
         /*num_file_reads=*/0,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_, readaheadsize_cb,
+        /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
-
-  size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
-  size_t offset = handle.offset();
 
   // If FS supports prefetching (readahead_limit_ will be non zero in that case)
   // and current block exists in prefetch buffer then return.
@@ -89,7 +115,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_, readaheadsize_cb,
+        /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
 
@@ -98,17 +126,21 @@ void BlockPrefetcher::PrefetchIfNeeded(
   }
 
   // If prefetch is not supported, fall back to use internal prefetch buffer.
-  // Discarding other return status of Prefetch calls intentionally, as
-  // we can fallback to reading from disk if Prefetch fails.
-  Status s = rep->file->Prefetch(
-      handle.offset(),
-      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_,
-      rate_limiter_priority);
+  IOOptions opts;
+  Status s = rep->file->PrepareIOOptions(read_options, opts);
+  if (!s.ok()) {
+    return;
+  }
+  s = rep->file->Prefetch(
+      opts, handle.offset(),
+      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
-        rep->table_options.num_file_reads_for_auto_readahead);
+        rep->table_options.num_file_reads_for_auto_readahead,
+        upper_bound_offset_, readaheadsize_cb,
+        /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
 

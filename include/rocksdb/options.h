@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -206,6 +207,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // - kZSTD: 3
   // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
   // - kLZ4HCCompression: 0
+  // - kLZ4: -1 (i.e., `acceleration=1`; see `CompressionOptions::level` doc)
   // - For all others, we do not specify a compression level
   //
   // Dynamically changeable through SetOptions() API
@@ -330,6 +332,17 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+
+  // RocksDB will try to flush the current memtable after the number of range
+  // deletions is >= this limit. For workloads with many range
+  // deletions, limiting the number of range deletions in memtable can help
+  // prevent performance degradation and/or OOM caused by too many range
+  // tombstones in a single memtable.
+  //
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t memtable_max_range_deletions = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -472,7 +485,8 @@ struct DBOptions {
   // Default: false
   bool create_if_missing = false;
 
-  // If true, missing column families will be automatically created.
+  // If true, missing column families will be automatically created on
+  // DB::Open().
   // Default: false
   bool create_missing_column_families = false;
 
@@ -490,10 +504,28 @@ struct DBOptions {
 
   // If true, during memtable flush, RocksDB will validate total entries
   // read in flush, and compare with counter inserted into it.
+  //
   // The option is here to turn the feature off in case this new validation
-  // feature has a bug.
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
+  //
   // Default: true
   bool flush_verify_memtable_count = true;
+
+  // If true, during compaction, RocksDB will count the number of entries
+  // read and compare it against the number of entries in the compaction
+  // input files. This is intended to add protection against corruption
+  // during compaction. Note that
+  // - this verification is not done for compactions during which a compaction
+  // filter returns kRemoveAndSkipUntil, and
+  // - the number of range deletions is not verified.
+  //
+  // The option is here to turn the feature off in case this new validation
+  // feature has a bug. The option may be removed in the future once the
+  // feature is stable.
+  //
+  // Default: true
+  bool compaction_verify_record_count = true;
 
   // If true, the log numbers and sizes of the synced WALs are tracked
   // in MANIFEST. During DB recovery, if a synced WAL is missing
@@ -913,6 +945,9 @@ struct DBOptions {
   // Default: null
   std::shared_ptr<WriteBufferManager> write_buffer_manager = nullptr;
 
+  // DEPRECATED
+  // This flag has no effect on the behavior of compaction and we plan to delete
+  // it in the future.
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
@@ -923,10 +958,10 @@ struct DBOptions {
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
   //
-  // Default: 0
+  // Default: 2MB
   //
   // Dynamically changeable through SetDBOptions() API.
-  size_t compaction_readahead_size = 0;
+  size_t compaction_readahead_size = 2 * 1024 * 1024;
 
   // This is a maximum buffer size that is used by WinMmapReadableFile in
   // unbuffered disk I/O mode. We need to maintain an aligned buffer for
@@ -1071,7 +1106,7 @@ struct DBOptions {
   //
   // By default, i.e., when it is false, rocksdb does not advance the sequence
   // number for new snapshots unless all the writes with lower sequence numbers
-  // are already finished. This provides the immutability that we except from
+  // are already finished. This provides the immutability that we expect from
   // snapshots. Moreover, since Iterator and MultiGet internally depend on
   // snapshots, the snapshot immutability results into Iterator and MultiGet
   // offering consistent-point-in-time view. If set to true, although
@@ -1157,7 +1192,7 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  std::shared_ptr<GeneralCache> row_cache = nullptr;
+  std::shared_ptr<RowCache> row_cache = nullptr;
 
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log
@@ -1166,11 +1201,11 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
-  // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+  // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
   // SetOptions will fail if options file is not properly persisted.
   //
-  // DEFAULT: false
-  bool fail_if_options_file_error = false;
+  // DEFAULT: true
+  bool fail_if_options_file_error = true;
 
   // If true, then print malloc stats together with rocksdb.stats
   // when printing to LOG.
@@ -1198,11 +1233,11 @@ struct DBOptions {
   // Set this option to true during creation of database if you want
   // to be able to ingest behind (call IngestExternalFile() skipping keys
   // that already exist, rather than overwriting matching keys).
-  // Setting this option to true will affect 2 things:
-  // 1) Disable some internal optimizations around SST file compression
-  // 2) Reserve bottom-most level for ingested files only.
-  // Note that only universal compaction supports reserving last level
-  // for file ingestion only.
+  // Setting this option to true has the following effects:
+  // 1) Disable some internal optimizations around SST file compression.
+  // 2) Reserve the last level for ingested files only.
+  // 3) Compaction will not include any file from the last level.
+  // Note that only Universal Compaction supports allow_ingest_behind.
   // `num_levels` should be >= 3 if this option is turned on.
   //
   //
@@ -1393,6 +1428,24 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  // EXPERIMENTAL
+  // Implementing off-peak duration awareness in RocksDB. In this context,
+  // "off-peak time" signifies periods characterized by significantly less read
+  // and write activity compared to other times. By leveraging this knowledge,
+  // we can prevent low-priority tasks, such as TTL-based compactions, from
+  // competing with read and write operations during peak hours. Essentially, we
+  // preprocess these tasks during the preceding off-peak period, just before
+  // the next peak cycle begins. For example, if the TTL is configured for 25
+  // days, we may compact the files during the off-peak hours of the 24th day.
+  //
+  // Time of the day in UTC, start_time-end_time inclusive.
+  // Format - HH:mm-HH:mm (00:00-23:59)
+  // If the start time > end time, it will be considered that the time period
+  // spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
+  // use "0:00-23:59". To make an entire day have no offpeak period, leave
+  // this field blank. Default: Empty string (no offpeak).
+  std::string daily_offpeak_time_utc = "";
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1519,6 +1572,12 @@ struct ReadOptions {
   // soft limit then all the remaining keys are returned with status Aborted.
   uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
 
+  // When the number of merge operands applied exceeds this threshold
+  // during a successful query, the operation will return a special OK
+  // Status with subcode kMergeOperandThresholdExceeded. Currently only applies
+  // to point lookups and is disabled by default.
+  std::optional<size_t> merge_operand_count_threshold;
+
   // If true, all data read from underlying storage will be
   // verified against corresponding checksums.
   bool verify_checksums = true;
@@ -1537,8 +1596,6 @@ struct ReadOptions {
   // broken, stale keys could be served in read paths.
   bool ignore_range_deletions = false;
 
-  // Experimental
-  //
   // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
   // RocksDB apply it if reads are sequential and its internal automatic
   // prefetching.
@@ -1675,10 +1732,32 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
+  // Experimental
+  //
+  // If auto_readahead_size is set to true, it will auto tune the readahead_size
+  // during scans internally.
+  // For this feature to enabled, iterate_upper_bound must also be specified.
+  //
+  // NOTE: - Recommended for forward Scans only.
+  //       - In case of backward scans like Prev or SeekForPrev, the
+  //          cost of these backward operations might increase and affect the
+  //          performace. So this option should not be enabled if workload
+  //          contains backward scans.
+  //       - If there is a backward scans, this option will be
+  //          disabled internally and won't be reset if forward scan is done
+  //          again.
+  //
+  // Default: false
+  bool auto_readahead_size = false;
+
   // *** END options only relevant to iterators or scans ***
 
-  // ** For RocksDB internal use only **
+  // *** BEGIN options for RocksDB internal use only ***
+
+  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
@@ -1817,15 +1896,18 @@ struct CompactionOptions {
 // For level based compaction, we can configure if we want to skip/force
 // bottommost level compaction.
 enum class BottommostLevelCompaction {
-  // Skip bottommost level compaction
+  // Skip bottommost level compaction.
   kSkip,
-  // Only compact bottommost level if there is a compaction filter
-  // This is the default option
+  // Only compact bottommost level if there is a compaction filter.
+  // This is the default option.
+  // Similar to kForceOptimized, when compacting bottommost level, avoid
+  // double-compacting files
+  // created in the same manual compaction.
   kIfHaveCompactionFilter,
-  // Always compact bottommost level
+  // Always compact bottommost level.
   kForce,
   // Always compact bottommost level but in bottommost level avoid
-  // double-compacting files created in the same compaction
+  // double-compacting files created in the same compaction.
   kForceOptimized,
 };
 
@@ -2078,6 +2160,32 @@ struct LiveFilesStorageInfoOptions {
   // number (and DB is not read-only).
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
+};
+
+struct WaitForCompactOptions {
+  // A boolean to abort waiting in case of a pause (PauseBackgroundWork()
+  // called) If true, Status::Aborted will be returned immediately. If false,
+  // ContinueBackgroundWork() must be called to resume the background jobs.
+  // Otherwise, jobs that were queued, but not scheduled yet may never finish
+  // and WaitForCompact() may wait indefinitely (if timeout is set, it will
+  // expire and return Status::TimedOut).
+  bool abort_on_pause = false;
+
+  // A boolean to flush all column families before starting to wait.
+  bool flush = false;
+
+  // A boolean to call Close() after waiting is done. By the time Close() is
+  // called here, there should be no background jobs in progress and no new
+  // background jobs should be added. DB may not have been closed if Close()
+  // returned Aborted status due to unreleased snapshots in the system. See
+  // comments in DB::Close() for details.
+  bool close_db = false;
+
+  // Timeout in microseconds for waiting for compaction to complete.
+  // Status::TimedOut will be returned if timeout expires.
+  // when timeout == 0, WaitForCompact() will wait as long as there's background
+  // work to finish.
+  std::chrono::microseconds timeout = std::chrono::microseconds::zero();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

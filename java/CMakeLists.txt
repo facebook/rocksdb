@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.4)
 
+set(JAVA_JUNIT_VERSION "4.13.1")
+set(JAVA_HAMCR_VERSION "2.2")
+set(JAVA_MOCKITO_VERSION "1.10.19")
+set(JAVA_CGLIB_VERSION "3.3.0")
+set(JAVA_ASSERTJ_VERSION "2.9.0")
+
+
 if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
@@ -48,6 +55,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/persistent_cache.cc
+        rocksjni/jni_perf_context.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -151,6 +159,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Experimental.java
   src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
   src/main/java/org/rocksdb/Filter.java
+  src/main/java/org/rocksdb/FilterPolicyType.java
   src/main/java/org/rocksdb/FileOperationInfo.java
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java
@@ -193,6 +202,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptionString.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
+  src/main/java/org/rocksdb/PerfContext.java
+  src/main/java/org/rocksdb/PerfLevel.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java
@@ -275,20 +286,219 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
+  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
+  src/test/java/org/rocksdb/RocksDBExceptionTest.java
+  src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/WriteBatchTest.java
+  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
+  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
 set(JAVA_TEST_CLASSES
-  src/test/java/org/rocksdb/BackupEngineTest.java
-  src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
-  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
+  src/test/java/org/rocksdb/ConcurrentTaskLimiterTest.java
+  src/test/java/org/rocksdb/EventListenerTest.java
+  src/test/java/org/rocksdb/CompactionOptionsTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
-  src/test/java/org/rocksdb/RocksDBExceptionTest.java
-  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
+  src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
+  src/test/java/org/rocksdb/MutableDBOptionsTest.java
+  src/test/java/org/rocksdb/WriteOptionsTest.java
+  src/test/java/org/rocksdb/SstPartitionerTest.java
+  src/test/java/org/rocksdb/RocksMemEnvTest.java
+  src/test/java/org/rocksdb/CompactionOptionsUniversalTest.java
+  src/test/java/org/rocksdb/ClockCacheTest.java
+  src/test/java/org/rocksdb/BytewiseComparatorRegressionTest.java
   src/test/java/org/rocksdb/SnapshotTest.java
-  src/test/java/org/rocksdb/WriteBatchTest.java
-  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
-  src/test/java/org/rocksdb/util/WriteBatchGetter.java
+  src/test/java/org/rocksdb/CompactionJobStatsTest.java
+  src/test/java/org/rocksdb/MemTableTest.java
+  src/test/java/org/rocksdb/CompactionFilterFactoryTest.java
+  src/test/java/org/rocksdb/DefaultEnvTest.java
+  src/test/java/org/rocksdb/DBOptionsTest.java
+  src/test/java/org/rocksdb/RocksIteratorTest.java
+  src/test/java/org/rocksdb/SliceTest.java
+  src/test/java/org/rocksdb/MultiGetTest.java
+  src/test/java/org/rocksdb/ComparatorOptionsTest.java
+  src/test/java/org/rocksdb/NativeLibraryLoaderTest.java
+  src/test/java/org/rocksdb/StatisticsTest.java
+  src/test/java/org/rocksdb/WALRecoveryModeTest.java
+  src/test/java/org/rocksdb/TransactionLogIteratorTest.java
+  src/test/java/org/rocksdb/ReadOptionsTest.java
+  src/test/java/org/rocksdb/SecondaryDBTest.java
+  src/test/java/org/rocksdb/KeyMayExistTest.java
+  src/test/java/org/rocksdb/BlobOptionsTest.java
+  src/test/java/org/rocksdb/InfoLogLevelTest.java
+  src/test/java/org/rocksdb/CompactionPriorityTest.java
+  src/test/java/org/rocksdb/FlushOptionsTest.java
+  src/test/java/org/rocksdb/VerifyChecksumsTest.java
+  src/test/java/org/rocksdb/MultiColumnRegressionTest.java
+  src/test/java/org/rocksdb/FlushTest.java
+  src/test/java/org/rocksdb/PutMultiplePartsTest.java
+  src/test/java/org/rocksdb/StatisticsCollectorTest.java
+  src/test/java/org/rocksdb/LRUCacheTest.java
+  src/test/java/org/rocksdb/ColumnFamilyOptionsTest.java
+  src/test/java/org/rocksdb/TransactionTest.java
+  src/test/java/org/rocksdb/CompactionOptionsFIFOTest.java
+  src/test/java/org/rocksdb/BackupEngineOptionsTest.java
+  src/test/java/org/rocksdb/CheckPointTest.java
+  src/test/java/org/rocksdb/PlainTableConfigTest.java
+  src/test/java/org/rocksdb/TransactionDBOptionsTest.java
+  src/test/java/org/rocksdb/ReadOnlyTest.java
+  src/test/java/org/rocksdb/EnvOptionsTest.java
+  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
+  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
+  src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/test/RocksJunitRunner.java
+  src/test/java/org/rocksdb/LoggerTest.java
+  src/test/java/org/rocksdb/FilterTest.java
+  src/test/java/org/rocksdb/ByteBufferUnsupportedOperationTest.java
+  src/test/java/org/rocksdb/util/IntComparatorTest.java
+  src/test/java/org/rocksdb/util/JNIComparatorTest.java
+  src/test/java/org/rocksdb/util/ByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/SizeUnitTest.java
+  src/test/java/org/rocksdb/util/BytewiseComparatorTest.java
+  src/test/java/org/rocksdb/util/EnvironmentTest.java
+  src/test/java/org/rocksdb/util/BytewiseComparatorIntTest.java
+  src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/TestUtil.java
+  src/test/java/org/rocksdb/util/ReverseBytewiseComparatorIntTest.java
+  src/test/java/org/rocksdb/Types.java
+  src/test/java/org/rocksdb/MixedOptionsTest.java
+  src/test/java/org/rocksdb/CompactRangeOptionsTest.java
+  src/test/java/org/rocksdb/SstFileWriterTest.java
+  src/test/java/org/rocksdb/WalFilterTest.java
+  src/test/java/org/rocksdb/AbstractTransactionTest.java
+  src/test/java/org/rocksdb/MergeTest.java
+  src/test/java/org/rocksdb/OptionsTest.java
+  src/test/java/org/rocksdb/WriteBatchThreadedTest.java
+  src/test/java/org/rocksdb/MultiGetManyKeysTest.java
+  src/test/java/org/rocksdb/TimedEnvTest.java
+  src/test/java/org/rocksdb/CompactionStopStyleTest.java
+  src/test/java/org/rocksdb/CompactionJobInfoTest.java
+  src/test/java/org/rocksdb/BlockBasedTableConfigTest.java
+  src/test/java/org/rocksdb/BuiltinComparatorTest.java
+  src/test/java/org/rocksdb/RateLimiterTest.java
+  src/test/java/org/rocksdb/TransactionOptionsTest.java
+  src/test/java/org/rocksdb/WriteBatchWithIndexTest.java
+  src/test/java/org/rocksdb/WriteBatchHandlerTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionDBTest.java
+  src/test/java/org/rocksdb/OptionsUtilTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionTest.java
+  src/test/java/org/rocksdb/MutableColumnFamilyOptionsTest.java
+  src/test/java/org/rocksdb/CompressionOptionsTest.java
+  src/test/java/org/rocksdb/ColumnFamilyTest.java
+  src/test/java/org/rocksdb/SstFileReaderTest.java
+  src/test/java/org/rocksdb/TransactionDBTest.java
+  src/test/java/org/rocksdb/RocksDBTest.java
+  src/test/java/org/rocksdb/MutableOptionsGetSetTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionOptionsTest.java
+  src/test/java/org/rocksdb/SstFileManagerTest.java
+  src/test/java/org/rocksdb/BackupEngineTest.java
+  src/test/java/org/rocksdb/DirectSliceTest.java
+  src/test/java/org/rocksdb/StatsCallbackMock.java
+  src/test/java/org/rocksdb/CompressionTypesTest.java
+  src/test/java/org/rocksdb/MemoryUtilTest.java
+  src/test/java/org/rocksdb/TableFilterTest.java
+  src/test/java/org/rocksdb/TtlDBTest.java
+)
+
+set(JAVA_TEST_RUNNING_CLASSES
+  org.rocksdb.ConcurrentTaskLimiterTest
+  org.rocksdb.EventListenerTest
+  org.rocksdb.CompactionOptionsTest
+  org.rocksdb.IngestExternalFileOptionsTest
+  org.rocksdb.MutableDBOptionsTest
+  org.rocksdb.WriteOptionsTest
+  org.rocksdb.SstPartitionerTest
+  org.rocksdb.RocksMemEnvTest
+  org.rocksdb.CompactionOptionsUniversalTest
+  org.rocksdb.ClockCacheTest
+  # org.rocksdb.BytewiseComparatorRegressionTest
+  org.rocksdb.SnapshotTest
+  org.rocksdb.CompactionJobStatsTest
+  org.rocksdb.MemTableTest
+  org.rocksdb.CompactionFilterFactoryTest
+  # org.rocksdb.DefaultEnvTest
+  org.rocksdb.DBOptionsTest
+  org.rocksdb.WriteBatchTest
+  org.rocksdb.RocksIteratorTest
+  org.rocksdb.SliceTest
+  org.rocksdb.MultiGetTest
+  org.rocksdb.ComparatorOptionsTest
+  # org.rocksdb.NativeLibraryLoaderTest
+  org.rocksdb.StatisticsTest
+  org.rocksdb.WALRecoveryModeTest
+  org.rocksdb.TransactionLogIteratorTest
+  org.rocksdb.ReadOptionsTest
+  org.rocksdb.SecondaryDBTest
+  org.rocksdb.KeyMayExistTest
+  org.rocksdb.BlobOptionsTest
+  org.rocksdb.InfoLogLevelTest
+  org.rocksdb.CompactionPriorityTest
+  org.rocksdb.FlushOptionsTest
+  org.rocksdb.VerifyChecksumsTest
+  org.rocksdb.MultiColumnRegressionTest
+  org.rocksdb.FlushTest
+  org.rocksdb.PutMultiplePartsTest
+  org.rocksdb.StatisticsCollectorTest
+  org.rocksdb.LRUCacheTest
+  org.rocksdb.ColumnFamilyOptionsTest
+  org.rocksdb.TransactionTest
+  org.rocksdb.CompactionOptionsFIFOTest
+  org.rocksdb.BackupEngineOptionsTest
+  org.rocksdb.CheckPointTest
+  org.rocksdb.PlainTableConfigTest
+  # org.rocksdb.TransactionDBOptionsTest
+  org.rocksdb.ReadOnlyTest
+  org.rocksdb.EnvOptionsTest
+  org.rocksdb.LoggerTest
+  org.rocksdb.FilterTest
+  # org.rocksdb.ByteBufferUnsupportedOperationTest
+  # org.rocksdb.util.IntComparatorTest
+  # org.rocksdb.util.JNIComparatorTest
+  org.rocksdb.util.SizeUnitTest
+  # org.rocksdb.util.BytewiseComparatorTest
+  org.rocksdb.util.EnvironmentTest
+  # org.rocksdb.util.BytewiseComparatorIntTest
+  # org.rocksdb.util.ReverseBytewiseComparatorIntTest
+  org.rocksdb.MixedOptionsTest
+  org.rocksdb.CompactRangeOptionsTest
+  # org.rocksdb.SstFileWriterTest
+  org.rocksdb.WalFilterTest
+  # org.rocksdb.AbstractTransactionTest
+  org.rocksdb.MergeTest
+  org.rocksdb.OptionsTest
+  org.rocksdb.WriteBatchThreadedTest
+  org.rocksdb.MultiGetManyKeysTest
+  org.rocksdb.TimedEnvTest
+  org.rocksdb.CompactionStopStyleTest
+  org.rocksdb.CompactionJobInfoTest
+  org.rocksdb.BlockBasedTableConfigTest
+  org.rocksdb.BuiltinComparatorTest
+  org.rocksdb.RateLimiterTest
+  # org.rocksdb.TransactionOptionsTest
+  org.rocksdb.WriteBatchWithIndexTest
+  org.rocksdb.WriteBatchHandlerTest
+  org.rocksdb.OptimisticTransactionDBTest
+  org.rocksdb.OptionsUtilTest
+  org.rocksdb.OptimisticTransactionTest
+  org.rocksdb.MutableColumnFamilyOptionsTest
+  org.rocksdb.CompressionOptionsTest
+  org.rocksdb.ColumnFamilyTest
+  org.rocksdb.SstFileReaderTest
+  org.rocksdb.TransactionDBTest
+  org.rocksdb.RocksDBTest
+  org.rocksdb.MutableOptionsGetSetTest
+  # org.rocksdb.OptimisticTransactionOptionsTest
+  org.rocksdb.SstFileManagerTest
+  org.rocksdb.BackupEngineTest
+  org.rocksdb.DirectSliceTest
+  org.rocksdb.CompressionTypesTest
+  org.rocksdb.MemoryUtilTest
+  org.rocksdb.TableFilterTest
+  org.rocksdb.TtlDBTest
 )
 
 include(FindJava)
@@ -300,12 +510,20 @@ include_directories(${PROJECT_SOURCE_DIR}/java)
 
 set(JAVA_TEST_LIBDIR ${PROJECT_SOURCE_DIR}/java/test-libs)
 set(JAVA_TMP_JAR ${JAVA_TEST_LIBDIR}/tmp.jar)
-set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-4.12.jar)
-set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-core-1.3.jar)
-set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-1.10.19.jar)
-set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-2.2.2.jar)
-set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
+set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-${JAVA_JUNIT_VERSION}.jar)
+set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-${JAVA_HAMCR_VERSION}.jar)
+set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-${JAVA_MOCKITO_VERSION}.jar)
+set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-${JAVA_CGLIB_VERSION}.jar)
+set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-${JAVA_ASSERTJ_VERSION}.jar)
 set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} ${JAVA_CGLIB_JAR} ${JAVA_ASSERTJ_JAR})
+message("CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
+message("MINGW: ${MINGW}")
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+  set(JAVA_RUN_TESTCLASSPATH ${JAVA_JUNIT_JAR}$<SEMICOLON>${JAVA_HAMCR_JAR}$<SEMICOLON>${JAVA_MOCKITO_JAR}$<SEMICOLON>${JAVA_CGLIB_JAR}$<SEMICOLON>${JAVA_ASSERTJ_JAR})
+else()
+  set(JAVA_RUN_TESTCLASSPATH ${JAVA_JUNIT_JAR}:${JAVA_HAMCR_JAR}:${JAVA_MOCKITO_JAR}:${JAVA_CGLIB_JAR}:${JAVA_ASSERTJ_JAR})
+endif()
 
 set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
 file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
@@ -323,25 +541,31 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
   message("Using an old CMAKE (${CMAKE_VERSION}) - JNI headers generated in separate step")
   add_jar(
       rocksdbjni_classes
-      SOURCES
-      ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      SOURCES ${JAVA_MAIN_CLASSES}
   )
 
 else ()
   # Java 1.8 or newer prepare the JAR...
   message("Preparing Jar for JDK ${Java_VERSION_STRING}")
+  message("JAVA_TESTCLASSPATH=${JAVA_TESTCLASSPATH}")
   add_jar(
       rocksdbjni_classes
-      SOURCES
-      ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      SOURCES ${JAVA_MAIN_CLASSES}
+      INCLUDE_JARS ${ROCKSDBJNI_CLASSES_JAR_FILE} ${JAVA_TESTCLASSPATH}
       GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
 
 endif()
+
+get_target_property(ROCKSDBJNI_CLASSES_JAR_FILE rocksdbjni_classes JAR_FILE)
+add_jar(
+    rocksdbjni_test_classes
+    SOURCES
+    ${JAVA_MAIN_CLASSES}
+    ${JAVA_TEST_CLASSES}
+    INCLUDE_JARS ${ROCKSDBJNI_CLASSES_JAR_FILE} ${JAVA_TESTCLASSPATH}
+    GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
+)
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
   file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
@@ -361,7 +585,7 @@ endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
-  file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/junit-${JAVA_JUNIT_VERSION}.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
@@ -371,7 +595,7 @@ if(NOT EXISTS ${JAVA_JUNIT_JAR})
 endif()
 if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
-  file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/hamcrest-${JAVA_HAMCR_VERSION}.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
@@ -381,7 +605,7 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
 endif()
 if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
-  file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/mockito-all-${JAVA_MOCKITO_VERSION}.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
@@ -391,7 +615,7 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
 endif()
 if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
-  file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/cglib-${JAVA_CGLIB_VERSION}.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
@@ -401,7 +625,7 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
 endif()
 if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
-  file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/assertj-core-${JAVA_ASSERTJ_VERSION}.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
@@ -530,7 +754,12 @@ if(NOT MSVC)
 endif()
 
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
-add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
+if(MINGW)
+  # Build mingw only as staic library.
+  add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
+else()
+  add_library(${ROCKSDBJNI_STATIC_LIB} SHARED ${JNI_NATIVE_SOURCES})
+endif()
 add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
 target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
@@ -547,3 +776,19 @@ if(NOT MINGW)
     COMPILE_PDB_NAME ${ROCKSDBJNI_STATIC_LIB}.pdb
   )
 endif()
+
+enable_testing()
+get_target_property(ROCKSDBJNI_CLASSES_TEST_JAR_FILE rocksdbjni_test_classes JAR_FILE)
+foreach (CLAZZ ${JAVA_TEST_RUNNING_CLASSES})
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    add_test(
+      NAME jtest_${CLAZZ}
+      COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java/${CMAKE_BUILD_TYPE} -classpath ${JAVA_RUN_TESTCLASSPATH}$<SEMICOLON>${ROCKSDBJNI_CLASSES_TEST_JAR_FILE} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
+    )
+  else()
+    add_test(
+      NAME jtest_${CLAZZ}
+      COMMAND ${Java_JAVA_EXECUTABLE} ${JVMARGS} -ea -Xcheck:jni -Djava.library.path=${PROJECT_BINARY_DIR}/java -classpath ${JAVA_RUN_TESTCLASSPATH}:${ROCKSDBJNI_CLASSES_TEST_JAR_FILE} org.rocksdb.test.RocksJunitRunner ${CLAZZ}
+    )
+  endif()
+endforeach(CLAZZ)

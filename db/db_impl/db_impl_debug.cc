@@ -178,9 +178,12 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 
-Status DBImpl::TEST_WaitForCompact(bool abort_on_pause) {
-  // Wait until the compaction completes
-  return WaitForCompact(abort_on_pause);
+Status DBImpl::TEST_WaitForCompact() {
+  return WaitForCompact(WaitForCompactOptions());
+}
+Status DBImpl::TEST_WaitForCompact(
+    const WaitForCompactOptions& wait_for_compact_options) {
+  return WaitForCompact(wait_for_compact_options);
 }
 
 Status DBImpl::TEST_WaitForPurge() {
@@ -303,11 +306,12 @@ const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
 
 SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   InstrumentedMutexLock l(&mutex_);
-  return seqno_time_mapping_;
+  return seqno_to_time_mapping_;
 }
 
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace ROCKSDB_NAMESPACE

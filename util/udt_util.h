@@ -16,6 +16,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -102,9 +103,8 @@ class UserDefinedTimestampSizeRecord {
 // but not equal, return Status::InvalidArgument.
 class TimestampRecoveryHandler : public WriteBatch::Handler {
  public:
-  TimestampRecoveryHandler(
-      const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-      const std::unordered_map<uint32_t, size_t>& record_ts_sz);
+  TimestampRecoveryHandler(const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+                           const UnorderedMap<uint32_t, size_t>& record_ts_sz);
 
   ~TimestampRecoveryHandler() override {}
 
@@ -143,6 +143,7 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
   std::unique_ptr<WriteBatch>&& TransferNewBatch() {
+    assert(new_batch_diff_from_orig_batch_);
     handler_valid_ = false;
     return std::move(new_batch_);
   }
@@ -154,16 +155,20 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
 
   // Mapping from column family id to user-defined timestamp size for all
   // running column families including the ones with zero timestamp size.
-  const std::unordered_map<uint32_t, size_t>& running_ts_sz_;
+  const UnorderedMap<uint32_t, size_t>& running_ts_sz_;
 
   // Mapping from column family id to user-defined timestamp size as recorded
   // in the WAL. This only contains non-zero user-defined timestamp size.
-  const std::unordered_map<uint32_t, size_t>& record_ts_sz_;
+  const UnorderedMap<uint32_t, size_t>& record_ts_sz_;
 
   std::unique_ptr<WriteBatch> new_batch_;
   // Handler is valid upon creation and becomes invalid after its `new_batch_`
   // is transferred.
   bool handler_valid_;
+
+  // False upon creation, and become true if at least one user key from the
+  // original batch is updated when creating the new batch.
+  bool new_batch_diff_from_orig_batch_;
 };
 
 // Mode for checking and handling timestamp size inconsistency encountered in a
@@ -193,8 +198,9 @@ enum class TimestampSizeConsistencyMode {
 // any running column family has an inconsistent user-defined timestamp size
 // that cannot be reconciled with a best-effort recovery. Check
 // `TimestampRecoveryHandler` for what a best-effort recovery is capable of. In
-// this mode, a new WriteBatch is created on the heap and transferred to `batch`
-// if there is tolerable inconsistency.
+// this mode, output argument `new_batch` should be set, a new WriteBatch is
+// created on the heap and transferred to `new_batch` if there is tolerable
+// inconsistency.
 //
 // An invariant that WAL logging ensures is that all timestamp size info
 // is logged prior to a WriteBatch that needed this info. And zero timestamp
@@ -204,8 +210,59 @@ enum class TimestampSizeConsistencyMode {
 // `running_ts_sz` should contain the timestamp size for all running column
 // families including the ones with zero timestamp size.
 Status HandleWriteBatchTimestampSizeDifference(
-    const std::unordered_map<uint32_t, size_t>& running_ts_sz,
-    const std::unordered_map<uint32_t, size_t>& record_ts_sz,
+    const WriteBatch* batch,
+    const UnorderedMap<uint32_t, size_t>& running_ts_sz,
+    const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>& batch);
+    std::unique_ptr<WriteBatch>* new_batch = nullptr);
+
+// This util function is used when opening an existing column family and
+// processing its VersionEdit. It does a sanity check for the column family's
+// old user comparator and the persist_user_defined_timestamps flag as recorded
+// in the VersionEdit, against its new settings from the column family's
+// ImmutableCFOptions.
+//
+// Valid settings change include:
+// 1) no user comparator change and no effective persist_user_defined_timestamp
+// flag change.
+// 2) switch user comparator to enable user-defined timestamps feature provided
+// the immediately effective persist_user_defined_timestamps flag is false.
+// 3) switch user comparator to disable user-defined timestamps feature provided
+// that the before-change persist_user_defined_timestamps is already false.
+//
+// Switch user comparator to disable/enable UDT is only sanity checked by a user
+// comparator name comparison. The full check includes enforcing the new user
+// comparator ranks user keys exactly the same as the old user comparator and
+// only add / remove the user-defined timestamp comparison. We don't have ways
+// to strictly enforce this so currently only the RocksDB builtin comparator
+// wrapper `ComparatorWithU64TsImpl` is  supported to enable / disable
+// user-defined timestamps. It formats user-defined timestamps as uint64_t.
+//
+// When the settings indicate a legit change to enable user-defined timestamps
+// feature on a column family, `mark_sst_files_has_no_udt` will be set to true
+// to indicate marking all existing SST files has no user-defined timestamps
+// when re-writing the manifest.
+Status ValidateUserDefinedTimestampsOptions(
+    const Comparator* new_comparator, const std::string& old_comparator_name,
+    bool new_persist_udt, bool old_persist_udt,
+    bool* mark_sst_files_has_no_udt);
+
+// Given a cutoff user-defined timestamp formatted as uint64_t, get the
+// effective `full_history_ts_low` timestamp, which is the next immediately
+// bigger timestamp. Used by the UDT in memtable only feature when flushing
+// memtables and remove timestamps. This process collapses history and increase
+// the effective `full_history_ts_low`.
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low);
+
+// `start` is the inclusive lower user key bound without user-defined timestamp.
+// `end` is the upper user key bound without user-defined timestamp.
+// By default, `end` is treated as being exclusive. If `exclusive_end` is set to
+// false, it's treated as an inclusive upper bound.
+// If any of these two bounds is nullptr, an empty std::optional<Slice> is
+// returned for that bound.
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end = true);
 }  // namespace ROCKSDB_NAMESPACE

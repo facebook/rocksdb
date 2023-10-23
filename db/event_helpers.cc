@@ -122,6 +122,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "column_family_name" << table_properties.column_family_name
               << "column_family_id" << table_properties.column_family_id
               << "comparator" << table_properties.comparator_name
+              << "user_defined_timestamps_persisted"
+              << table_properties.user_defined_timestamps_persisted
               << "merge_operator" << table_properties.merge_operator_name
               << "prefix_extractor_name"
               << table_properties.prefix_extractor_name << "property_collectors"
@@ -238,6 +240,8 @@ void EventHelpers::NotifyOnErrorRecoveryEnd(
       info.new_bg_error.PermitUncheckedError();
     }
     db_mutex->Lock();
+  } else {
+    old_bg_error.PermitUncheckedError();
   }
 }
 

@@ -17,6 +17,7 @@
 #include "db/version_edit.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -86,7 +87,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
         message << ' ';
       }
       // append the filename to the corruption message
-      message << "in file " << reader.file()->file_name();
+      message << " The file " << reader.file()->file_name()
+              << " may be corrupted.";
       // overwrite the status with the extended status
       s = Status(s.code(), s.subcode(), s.severity(), message.str());
     }
@@ -308,6 +310,17 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
+      // It's important to handle file boundaries before `MaybeCreateVersion`
+      // because `VersionEditHandlerPointInTime::MaybeCreateVersion` does
+      // `FileMetaData` verification that involves the file boundaries.
+      // All `VersionEditHandlerBase` subclasses that need to deal with
+      // `FileMetaData` for new files are also subclasses of
+      // `VersionEditHandler`, so it's sufficient to do the file boundaries
+      // handling in this method.
+      s = MaybeHandleFileBoundariesForNewFiles(edit, tmp_cfd);
+      if (!s.ok()) {
+        return s;
+      }
       s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
@@ -601,14 +614,20 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
         version_edit_params_.SetLogNumber(edit.log_number_);
       }
     }
-    if (edit.has_comparator_ &&
-        edit.comparator_ != cfd->user_comparator()->Name()) {
-      if (!cf_to_cmp_names_) {
-        s = Status::InvalidArgument(
-            cfd->user_comparator()->Name(),
-            "does not match existing comparator " + edit.comparator_);
-      } else {
+    if (edit.has_comparator_) {
+      bool mark_sst_files_has_no_udt = false;
+      // If `persist_user_defined_timestamps` flag is recorded in manifest, it
+      // is guaranteed to be in the same VersionEdit as comparator. Otherwise,
+      // it's not recorded and it should have default value true.
+      s = ValidateUserDefinedTimestampsOptions(
+          cfd->user_comparator(), edit.comparator_,
+          cfd->ioptions()->persist_user_defined_timestamps,
+          edit.persist_user_defined_timestamps_, &mark_sst_files_has_no_udt);
+      if (!s.ok() && cf_to_cmp_names_) {
         cf_to_cmp_names_->emplace(cfd->GetID(), edit.comparator_);
+      }
+      if (mark_sst_files_has_no_udt) {
+        cfds_to_mark_no_udt_.insert(cfd->GetID());
       }
     }
     if (edit.HasFullHistoryTsLow()) {
@@ -645,6 +664,59 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
   }
   return s;
+}
+
+Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
+    VersionEdit& edit, const ColumnFamilyData* cfd) {
+  if (edit.GetNewFiles().empty()) {
+    return Status::OK();
+  }
+  auto ucmp = cfd->user_comparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0) {
+    return Status::OK();
+  }
+
+  VersionEdit::NewFiles& new_files = edit.GetMutableNewFiles();
+  assert(!new_files.empty());
+  // If true, enabling user-defined timestamp is detected for this column
+  // family. All its existing SST files need to have the file boundaries handled
+  // and their `persist_user_defined_timestamps` flag set to false regardless of
+  // its existing value.
+  bool mark_existing_ssts_with_no_udt =
+      cfds_to_mark_no_udt_.find(cfd->GetID()) != cfds_to_mark_no_udt_.end();
+  bool file_boundaries_need_handling = false;
+  for (auto& new_file : new_files) {
+    FileMetaData& meta = new_file.second;
+    if (meta.user_defined_timestamps_persisted &&
+        !mark_existing_ssts_with_no_udt) {
+      // `FileMetaData.user_defined_timestamps_persisted` field is the value of
+      // the flag `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+      // at the time when the SST file was created. As a result, all added SST
+      // files in one `VersionEdit` should have the same value for it.
+      if (file_boundaries_need_handling) {
+        return Status::Corruption(
+            "New files in one VersionEdit has different "
+            "user_defined_timestamps_persisted value.");
+      }
+      break;
+    }
+    file_boundaries_need_handling = true;
+    assert(!meta.user_defined_timestamps_persisted ||
+           mark_existing_ssts_with_no_udt);
+    if (mark_existing_ssts_with_no_udt) {
+      meta.user_defined_timestamps_persisted = false;
+    }
+    std::string smallest_buf;
+    std::string largest_buf;
+    PadInternalKeyWithMinTimestamp(&smallest_buf, meta.smallest.Encode(),
+                                   ts_sz);
+    PadInternalKeyWithMinTimestamp(&largest_buf, meta.largest.Encode(), ts_sz);
+    meta.smallest.DecodeFrom(smallest_buf);
+    meta.largest.DecodeFrom(largest_buf);
+  }
+  return Status::OK();
 }
 
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(

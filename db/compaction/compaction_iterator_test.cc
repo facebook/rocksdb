@@ -293,8 +293,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse_,
-        std::move(compaction), filter, &shutting_down_, /*info_log=*/nullptr,
-        full_history_ts_low));
+        std::move(compaction), /*must_count_input_entries=*/false, filter,
+        &shutting_down_, /*info_log=*/nullptr, full_history_ts_low));
   }
 
   void AddSnapshot(SequenceNumber snapshot,

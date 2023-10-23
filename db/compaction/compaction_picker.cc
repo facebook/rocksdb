@@ -611,23 +611,21 @@ Compaction* CompactionPicker::CompactRange(
     // Universal compaction with more than one level always compacts all the
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
+    int max_output_level =
+        vstorage->MaxOutputLevel(ioptions_.allow_ingest_behind);
     // DBImpl::CompactRange() set output level to be the last level
-    if (ioptions_.allow_ingest_behind) {
-      assert(output_level == vstorage->num_levels() - 2);
-    } else {
-      assert(output_level == vstorage->num_levels() - 1);
-    }
+    assert(output_level == max_output_level);
     // DBImpl::RunManualCompaction will make full range for universal compaction
     assert(begin == nullptr);
     assert(end == nullptr);
     *compaction_end = nullptr;
 
     int start_level = 0;
-    for (; start_level < vstorage->num_levels() &&
+    for (; start_level <= max_output_level &&
            vstorage->NumLevelFiles(start_level) == 0;
          start_level++) {
     }
-    if (start_level == vstorage->num_levels()) {
+    if (start_level > max_output_level) {
       return nullptr;
     }
 
@@ -637,9 +635,9 @@ Compaction* CompactionPicker::CompactRange(
       return nullptr;
     }
 
-    std::vector<CompactionInputFiles> inputs(vstorage->num_levels() -
+    std::vector<CompactionInputFiles> inputs(max_output_level + 1 -
                                              start_level);
-    for (int level = start_level; level < vstorage->num_levels(); level++) {
+    for (int level = start_level; level <= max_output_level; level++) {
       inputs[level - start_level].level = level;
       auto& files = inputs[level - start_level].files;
       for (FileMetaData* f : vstorage->LevelFiles(level)) {
@@ -753,8 +751,10 @@ Compaction* CompactionPicker::CompactRange(
 
   // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out
   // files that are created during the current compaction.
-  if (compact_range_options.bottommost_level_compaction ==
-          BottommostLevelCompaction::kForceOptimized &&
+  if ((compact_range_options.bottommost_level_compaction ==
+           BottommostLevelCompaction::kForceOptimized ||
+       compact_range_options.bottommost_level_compaction ==
+           BottommostLevelCompaction::kIfHaveCompactionFilter) &&
       max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all

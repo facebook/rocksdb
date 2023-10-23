@@ -182,9 +182,8 @@ class LogTest
 
   Slice* get_reader_contents() { return &reader_contents_; }
 
-  void Write(
-      const std::string& msg,
-      const std::unordered_map<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
+  void Write(const std::string& msg,
+             const UnorderedMap<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
     if (cf_to_ts_sz != nullptr && !cf_to_ts_sz->empty()) {
       ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(*cf_to_ts_sz));
     }
@@ -193,10 +192,9 @@ class LogTest
 
   size_t WrittenBytes() const { return dest_contents().size(); }
 
-  std::string Read(
-      const WALRecoveryMode wal_recovery_mode =
-          WALRecoveryMode::kTolerateCorruptedTailRecords,
-      std::unordered_map<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
+  std::string Read(const WALRecoveryMode wal_recovery_mode =
+                       WALRecoveryMode::kTolerateCorruptedTailRecords,
+                   UnorderedMap<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
     std::string scratch;
     Slice record;
     bool ret = false;
@@ -270,9 +268,8 @@ class LogTest
   }
 
   void CheckRecordAndTimestampSize(
-      std::string record,
-      std::unordered_map<uint32_t, size_t>& expected_ts_sz) {
-    std::unordered_map<uint32_t, size_t> recorded_ts_sz;
+      std::string record, UnorderedMap<uint32_t, size_t>& expected_ts_sz) {
+    UnorderedMap<uint32_t, size_t> recorded_ts_sz;
     ASSERT_EQ(record,
               Read(WALRecoveryMode::
                        kTolerateCorruptedTailRecords /* wal_recovery_mode */,
@@ -297,18 +294,18 @@ TEST_P(LogTest, ReadWrite) {
 }
 
 TEST_P(LogTest, ReadWriteWithTimestampSize) {
-  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
       {1, sizeof(uint64_t)},
   };
   Write("foo", &ts_sz_one);
   Write("bar");
-  std::unordered_map<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
   Write("", &ts_sz_two);
   Write("xxxx");
 
   CheckRecordAndTimestampSize("foo", ts_sz_one);
   CheckRecordAndTimestampSize("bar", ts_sz_one);
-  std::unordered_map<uint32_t, size_t> expected_ts_sz_two;
+  UnorderedMap<uint32_t, size_t> expected_ts_sz_two;
   // User-defined timestamp size records are accumulated and applied to
   // subsequent records.
   expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());
@@ -320,10 +317,9 @@ TEST_P(LogTest, ReadWriteWithTimestampSize) {
 }
 
 TEST_P(LogTest, ReadWriteWithTimestampSizeZeroTimestampIgnored) {
-  std::unordered_map<uint32_t, size_t> ts_sz_one = {{1, sizeof(uint64_t)}};
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {{1, sizeof(uint64_t)}};
   Write("foo", &ts_sz_one);
-  std::unordered_map<uint32_t, size_t> ts_sz_two(ts_sz_one.begin(),
-                                                 ts_sz_one.end());
+  UnorderedMap<uint32_t, size_t> ts_sz_two(ts_sz_one.begin(), ts_sz_one.end());
   ts_sz_two.insert(std::make_pair(2, 0));
   Write("bar", &ts_sz_two);
 
@@ -749,7 +745,7 @@ TEST_P(LogTest, RecycleWithTimestampSize) {
   if (!recyclable_log) {
     return;  // test is only valid for recycled logs
   }
-  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
       {1, sizeof(uint32_t)},
   };
   Write("foo", &ts_sz_one);
@@ -765,7 +761,7 @@ TEST_P(LogTest, RecycleWithTimestampSize) {
   std::unique_ptr<WritableFileWriter> dest_holder(new WritableFileWriter(
       std::move(sink), "" /* don't care */, FileOptions()));
   Writer recycle_writer(std::move(dest_holder), 123, true);
-  std::unordered_map<uint32_t, size_t> ts_sz_two = {
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {
       {2, sizeof(uint64_t)},
   };
   ASSERT_OK(recycle_writer.MaybeAddUserDefinedTimestampSizeRecord(ts_sz_two));
@@ -1039,18 +1035,18 @@ TEST_P(CompressionLogTest, ReadWriteWithTimestampSize) {
     return;
   }
   ASSERT_OK(SetupTestEnv());
-  std::unordered_map<uint32_t, size_t> ts_sz_one = {
+  UnorderedMap<uint32_t, size_t> ts_sz_one = {
       {1, sizeof(uint64_t)},
   };
   Write("foo", &ts_sz_one);
   Write("bar");
-  std::unordered_map<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
+  UnorderedMap<uint32_t, size_t> ts_sz_two = {{2, sizeof(char)}};
   Write("", &ts_sz_two);
   Write("xxxx");
 
   CheckRecordAndTimestampSize("foo", ts_sz_one);
   CheckRecordAndTimestampSize("bar", ts_sz_one);
-  std::unordered_map<uint32_t, size_t> expected_ts_sz_two;
+  UnorderedMap<uint32_t, size_t> expected_ts_sz_two;
   // User-defined timestamp size records are accumulated and applied to
   // subsequent records.
   expected_ts_sz_two.insert(ts_sz_one.begin(), ts_sz_one.end());

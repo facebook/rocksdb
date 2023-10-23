@@ -386,7 +386,8 @@ class CompactionJobTestBase : public testing::Test {
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
-        0, 0);
+        /*compensated_range_deletion_size=*/0, /*tail_size=*/0,
+        /*user_defined_timestamps_persisted=*/true);
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
@@ -643,7 +644,7 @@ class CompactionJobTestBase : public testing::Test {
         mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
         cfd->GetLatestMutableCFOptions()->compression_opts,
         Temperature::kUnknown, max_subcompactions, grandparents, true);
-    compaction.SetInputVersion(cfd->current());
+    compaction.FinalizeInputInfo(cfd->current());
 
     assert(db_options_.info_log);
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -654,11 +655,12 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_TRUE(full_history_ts_low_.empty() ||
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
+    JobContext job_context(1, false /* create_superversion */);
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, nullptr,
+        earliest_write_conflict_snapshot, snapshot_checker, &job_context,
         table_cache_, &event_logger, false, false, dbname_,
         &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
@@ -672,7 +674,9 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
-    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
+    bool compaction_released = false;
+    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
+                                     &compaction_released));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
     log_buffer.FlushBufferToLog();

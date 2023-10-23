@@ -170,9 +170,12 @@ class ShardedCache : public ShardedCacheBase {
         [s_c_l](CacheShard* cs) { cs->SetStrictCapacityLimit(s_c_l); });
   }
 
-  Status Insert(const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
-                size_t charge, Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
+  Status Insert(
+      const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW,
+      const Slice& /*compressed_value*/ = Slice(),
+      CompressionType /*type*/ = CompressionType::kNoCompression) override {
     assert(helper);
     HashVal hash = CacheShard::ComputeHash(key, hash_seed_);
     auto h_out = reinterpret_cast<HandleImpl**>(handle);
@@ -267,6 +270,14 @@ class ShardedCache : public ShardedCacheBase {
 
  protected:
   inline void ForEachShard(const std::function<void(CacheShard*)>& fn) {
+    uint32_t num_shards = GetNumShards();
+    for (uint32_t i = 0; i < num_shards; i++) {
+      fn(shards_ + i);
+    }
+  }
+
+  inline void ForEachShard(
+      const std::function<void(const CacheShard*)>& fn) const {
     uint32_t num_shards = GetNumShards();
     for (uint32_t i = 0; i < num_shards; i++) {
       fn(shards_ + i);

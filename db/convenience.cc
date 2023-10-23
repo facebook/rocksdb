@@ -7,6 +7,7 @@
 
 #include "rocksdb/convenience.h"
 
+#include "db/convenience_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 
@@ -39,9 +40,25 @@ Status VerifySstFileChecksum(const Options& options,
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const ReadOptions& read_options,
+                             const ReadOptions& _read_options,
                              const std::string& file_path,
                              const SequenceNumber& largest_seqno) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Can only call VerifySstFileChecksum with `ReadOptions::io_activity` "
+        "is "
+        "`Env::IOActivity::kUnknown`");
+  }
+  ReadOptions read_options(_read_options);
+  return VerifySstFileChecksumInternal(options, env_options, read_options,
+                                       file_path, largest_seqno);
+}
+
+Status VerifySstFileChecksumInternal(const Options& options,
+                                     const EnvOptions& env_options,
+                                     const ReadOptions& read_options,
+                                     const std::string& file_path,
+                                     const SequenceNumber& largest_seqno) {
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
@@ -68,8 +85,8 @@ Status VerifySstFileChecksum(const Options& options,
       !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
   s = ioptions.table_factory->NewTableReader(
-      reader_options, std::move(file_reader), file_size, &table_reader,
-      false /* prefetch_index_and_filter_in_cache */);
+      read_options, reader_options, std::move(file_reader), file_size,
+      &table_reader, false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
     return s;
   }

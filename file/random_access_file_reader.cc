@@ -22,12 +22,37 @@
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-const std::array<Histograms, std::size_t(Env::IOActivity::kUnknown)>
-    kReadHistograms{{
-        FILE_READ_FLUSH_MICROS,
-        FILE_READ_COMPACTION_MICROS,
-        FILE_READ_DB_OPEN_MICROS,
-    }};
+inline Histograms GetFileReadHistograms(Statistics* stats,
+                                        Env::IOActivity io_activity) {
+  switch (io_activity) {
+    case Env::IOActivity::kFlush:
+      return Histograms::FILE_READ_FLUSH_MICROS;
+    case Env::IOActivity::kCompaction:
+      return Histograms::FILE_READ_COMPACTION_MICROS;
+    case Env::IOActivity::kDBOpen:
+      return Histograms::FILE_READ_DB_OPEN_MICROS;
+    default:
+      break;
+  }
+
+  if (stats && stats->get_stats_level() > StatsLevel::kExceptDetailedTimers) {
+    switch (io_activity) {
+      case Env::IOActivity::kGet:
+        return Histograms::FILE_READ_GET_MICROS;
+      case Env::IOActivity::kMultiGet:
+        return Histograms::FILE_READ_MULTIGET_MICROS;
+      case Env::IOActivity::kDBIterator:
+        return Histograms::FILE_READ_DB_ITERATOR_MICROS;
+      case Env::IOActivity::kVerifyDBChecksum:
+        return Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
+      case Env::IOActivity::kVerifyFileChecksums:
+        return Histograms::FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
+      default:
+        break;
+    }
+  }
+  return Histograms::HISTOGRAM_ENUM_MAX;
+}
 inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
                           bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
@@ -79,11 +104,11 @@ IOStatus RandomAccessFileReader::Create(
   return io_s;
 }
 
-IOStatus RandomAccessFileReader::Read(
-    const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-    char* scratch, AlignedBuf* aligned_buf,
-    Env::IOPriority rate_limiter_priority) const {
+IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
+                                      size_t n, Slice* result, char* scratch,
+                                      AlignedBuf* aligned_buf) const {
   (void)aligned_buf;
+  const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
 
@@ -97,17 +122,23 @@ IOStatus RandomAccessFileReader::Read(
 
   IOStatus io_s;
   uint64_t elapsed = 0;
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = false;
+  if (scratch != nullptr) {
+    // Check if offset, length and buffer are aligned.
+    is_aligned = (offset & (alignment - 1)) == 0 &&
+                 (n & (alignment - 1)) == 0 &&
+                 (uintptr_t(scratch) & (alignment - 1)) == 0;
+  }
+
   {
     StopWatch sw(clock_, stats_, hist_type_,
-                 (opts.io_activity != Env::IOActivity::kUnknown)
-                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
-                     : Histograms::HISTOGRAM_ENUM_MAX,
+                 GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-      size_t alignment = file_->GetRequiredBufferAlignment();
+    if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
@@ -182,9 +213,9 @@ IOStatus RandomAccessFileReader::Read(
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
-          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
-                                                rate_limiter_priority, stats_,
-                                                RateLimiter::OpType::kRead);
+          allowed = rate_limiter_->RequestToken(
+              n - pos, (use_direct_io() ? alignment : 0), rate_limiter_priority,
+              stats_, RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
@@ -240,6 +271,14 @@ IOStatus RandomAccessFileReader::Read(
     file_read_hist_->Add(elapsed);
   }
 
+#ifndef NDEBUG
+  auto pair = std::make_pair(&file_name_, &io_s);
+  if (offset == 0) {
+    TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read::BeforeReturn",
+                             &pair);
+  }
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read::AnyOffset", &pair);
+#endif
   return io_s;
 }
 
@@ -269,9 +308,10 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-IOStatus RandomAccessFileReader::MultiRead(
-    const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
-    AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
+IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
+                                           FSReadRequest* read_reqs,
+                                           size_t num_reqs,
+                                           AlignedBuf* aligned_buf) const {
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -280,6 +320,7 @@ IOStatus RandomAccessFileReader::MultiRead(
     assert(read_reqs[i].offset <= read_reqs[i + 1].offset);
   }
 #endif  // !NDEBUG
+  const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   // To be paranoid modify scratch a little bit, so in case underlying
   // FileSystem doesn't fill the buffer but return success and `scratch` returns
@@ -296,9 +337,7 @@ IOStatus RandomAccessFileReader::MultiRead(
   uint64_t elapsed = 0;
   {
     StopWatch sw(clock_, stats_, hist_type_,
-                 (opts.io_activity != Env::IOActivity::kUnknown)
-                     ? kReadHistograms[(std::size_t)(opts.io_activity)]
-                     : Histograms::HISTOGRAM_ENUM_MAX,
+                 GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -314,14 +353,14 @@ IOStatus RandomAccessFileReader::MultiRead(
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       for (size_t i = 0; i < num_reqs; i++) {
-        const auto& r = Align(read_reqs[i], alignment);
+        FSReadRequest r = Align(read_reqs[i], alignment);
         if (i == 0) {
           // head
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else if (!TryMerge(&aligned_reqs.back(), r)) {
           // head + n
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else {
           // unused
@@ -487,16 +526,16 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
     assert(read_async_info->buf_.CurrentSize() == 0);
 
-    StopWatch sw(clock_, nullptr /*stats*/,
-                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
-                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+    StopWatch sw(clock_, stats_, hist_type_,
+                 GetFileReadHistograms(stats_, opts.io_activity),
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
-    StopWatch sw(clock_, nullptr /*stats*/,
-                 Histograms::HISTOGRAM_ENUM_MAX /*hist_type*/,
-                 Histograms::HISTOGRAM_ENUM_MAX, &elapsed, true /*overwrite*/,
+    StopWatch sw(clock_, stats_, hist_type_,
+                 GetFileReadHistograms(stats_, opts.io_activity),
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                          io_handle, del_fn, nullptr /*dbg*/);

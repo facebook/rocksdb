@@ -27,6 +27,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 const std::string kPropertiesBlockName = "rocksdb.properties";
+// NB: only used with format_version >= 6
+const std::string kIndexBlockName = "rocksdb.index";
 // Old property block name for backward compatibility
 const std::string kPropertiesBlockOldName = "rocksdb.stats";
 const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
@@ -116,6 +118,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
         props.fast_compression_estimated_data_size);
   }
   Add(TablePropertiesNames::kTailStartOffset, props.tail_start_offset);
+  if (props.user_defined_timestamps_persisted == 0) {
+    Add(TablePropertiesNames::kUserDefinedTimestampsPersisted,
+        props.user_defined_timestamps_persisted);
+  }
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -310,6 +316,8 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->fast_compression_estimated_data_size},
       {TablePropertiesNames::kTailStartOffset,
        &new_table_properties->tail_start_offset},
+      {TablePropertiesNames::kUserDefinedTimestampsPersisted,
+       &new_table_properties->user_defined_timestamps_persisted},
   };
 
   std::string last_key;
@@ -389,8 +397,8 @@ Status ReadTablePropertiesHelper(
   // Modified version of BlockFetcher checksum verification
   // (See write_global_seqno comment above)
   if (s.ok() && footer.GetBlockTrailerSize() > 0) {
-    s = VerifyBlockChecksum(footer.checksum_type(), properties_block.data(),
-                            block_size, file->file_name(), handle.offset());
+    s = VerifyBlockChecksum(footer, properties_block.data(), block_size,
+                            file->file_name(), handle.offset());
     if (s.IsCorruption()) {
       if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
         std::string tmp_buf(properties_block.data(),
@@ -399,8 +407,8 @@ Status ReadTablePropertiesHelper(
             new_table_properties->external_sst_file_global_seqno_offset -
             handle.offset();
         EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
-        s = VerifyBlockChecksum(footer.checksum_type(), tmp_buf.data(),
-                                block_size, file->file_name(), handle.offset());
+        s = VerifyBlockChecksum(footer, tmp_buf.data(), block_size,
+                                file->file_name(), handle.offset());
       }
     }
   }

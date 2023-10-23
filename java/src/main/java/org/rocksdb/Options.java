@@ -16,14 +16,8 @@ import java.util.*;
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class Options extends RocksObject
-    implements DBOptionsInterface<Options>,
-    MutableDBOptionsInterface<Options>,
-    ColumnFamilyOptionsInterface<Options>,
-    MutableColumnFamilyOptionsInterface<Options> {
-  static {
-    RocksDB.loadLibrary();
-  }
-
+    implements DBOptionsInterface<Options>, MutableDBOptionsInterface<Options>,
+               ColumnFamilyOptionsInterface<Options>, MutableColumnFamilyOptionsInterface<Options> {
   /**
    * Converts the input properties into a Options-style formatted string
    * @param properties   The set of properties to convert
@@ -50,7 +44,7 @@ public class Options extends RocksObject
    * an {@code rocksdb::Options} in the c++ side.
    */
   public Options() {
-    super(newOptions());
+    super(newOptionsInstance());
     env_ = Env.getDefault();
   }
 
@@ -840,6 +834,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public Options setAccessHintOnCompactionStart(final AccessHint accessHint) {
     assert(isOwningHandle());
     setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
@@ -847,6 +842,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public AccessHint accessHintOnCompactionStart() {
     assert(isOwningHandle());
     return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
@@ -1985,6 +1981,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMemtableMaxRangeDeletions(final int count) {
+    setMemtableMaxRangeDeletions(nativeHandle_, count);
+    return this;
+  }
+
+  @Override
+  public int memtableMaxRangeDeletions() {
+    return memtableMaxRangeDeletions(nativeHandle_);
+  }
+
+  @Override
   public Options setCompactionThreadLimiter(final ConcurrentTaskLimiter compactionThreadLimiter) {
     setCompactionThreadLimiter(nativeHandle_, compactionThreadLimiter.nativeHandle_);
     this.compactionThreadLimiter_ = compactionThreadLimiter;
@@ -2116,6 +2123,10 @@ public class Options extends RocksObject
   // END options for blobs (integrated BlobDB)
   //
 
+  private static long newOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newOptions();
+  }
   private static native long newOptions();
   private static native long newOptions(long dbOptHandle, long cfOptHandle);
   private static native long copyOptions(long handle);
@@ -2502,6 +2513,8 @@ public class Options extends RocksObject
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
+  private native void setMemtableMaxRangeDeletions(final long handle, final int count);
+  private native int memtableMaxRangeDeletions(final long handle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long newLimiterHandle);
   private static native void setAvoidUnnecessaryBlockingIO(
@@ -2524,7 +2537,6 @@ public class Options extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);

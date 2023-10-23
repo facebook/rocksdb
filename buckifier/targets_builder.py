@@ -23,7 +23,7 @@ def pretty_list(lst, indent=8):
     return res
 
 
-class TARGETSBuilder(object):
+class TARGETSBuilder:
     def __init__(self, path, extra_argv):
         self.path = path
         header = targets_cfg.rocksdb_target_header_template.format(

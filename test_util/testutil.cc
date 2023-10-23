@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
@@ -70,6 +73,22 @@ std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
     result += kTestChars[indx];
   }
   return result;
+}
+
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes() {
+  static std::vector<UserDefinedTimestampTestMode> udt_test_modes = {
+      UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+      UserDefinedTimestampTestMode::kNormal,
+      UserDefinedTimestampTestMode::kNone};
+  return udt_test_modes;
+}
+
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kNone;
+}
+
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
 }
 
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
@@ -130,6 +149,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   const Comparator* user_comparator = nullptr;
   Status s = Comparator::CreateFromString(
       config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
   s.PermitUncheckedError();
   return user_comparator;
 }

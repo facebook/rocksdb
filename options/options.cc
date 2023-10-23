@@ -94,6 +94,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
+      default_temperature(options.default_temperature),
       preclude_last_level_data_seconds(
           options.preclude_last_level_data_seconds),
       preserve_internal_time_seconds(options.preserve_internal_time_seconds),
@@ -412,6 +413,17 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    const auto& it_temp = temperature_to_string.find(default_temperature);
+    std::string str_default_temperature;
+    if (it_temp == temperature_to_string.end()) {
+      assert(false);
+      str_default_temperature = "unknown_temperature";
+    } else {
+      str_default_temperature = it_temp->second;
+    }
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.default_temperature: %s",
+                     str_default_temperature.c_str());
     ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
                      preclude_last_level_data_seconds);
     ROCKS_LOG_HEADER(log, "   Options.preserve_internal_time_seconds: %" PRIu64,
@@ -448,8 +460,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
               ? "flush only"
               : "disabled");
     }
-    ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
+    ROCKS_LOG_HEADER(log, "        Options.experimental_mempurge_threshold: %f",
                      experimental_mempurge_threshold);
+    ROCKS_LOG_HEADER(log, "           Options.memtable_max_range_deletions: %d",
+                     memtable_max_range_deletions);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

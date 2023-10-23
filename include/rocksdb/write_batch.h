@@ -356,6 +356,9 @@ class WriteBatch : public WriteBatchBase {
   // Retrieve the serialized version of this batch.
   const std::string& Data() const { return rep_; }
 
+  // Release the serialized data and clear this batch.
+  std::string Release();
+
   // Retrieve data size of the batch.
   size_t GetDataSize() const { return rep_.size(); }
 
@@ -392,8 +395,6 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Experimental.
-  //
   // Update timestamps of existing entries in the write batch if
   // applicable. If a key is intended for a column family that disables
   // timestamp, then this API won't set the timestamp for this key.
