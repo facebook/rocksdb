@@ -345,7 +345,8 @@ Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
     : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_(0) {
+      trace_request_count_(0),
+      trace_write_status_(Status::OK()) {
   // TODO: What if this fails?
   WriteHeader().PermitUncheckedError();
 }
@@ -612,9 +613,18 @@ Status Tracer::WriteFooter() {
 }
 
 Status Tracer::WriteTrace(const Trace& trace) {
+  if (!trace_write_status_.ok()) {
+    return Status::Incomplete("Tracing has seen error: %s",
+                              trace_write_status_.ToString());
+  }
+  assert(trace_write_status_.ok());
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  return trace_writer_->Write(Slice(encoded_trace));
+  Status s = trace_writer_->Write(Slice(encoded_trace));
+  if (!s.ok()) {
+    trace_write_status_ = s;
+  }
+  return s;
 }
 
 Status Tracer::Close() { return WriteFooter(); }
