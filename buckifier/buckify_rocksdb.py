@@ -197,6 +197,10 @@ def generate_targets(repo_path, deps_map):
     TARGETS.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
     )
+    # cache_bench binary
+    TARGETS.add_binary(
+        "cache_bench", ["cache/cache_bench.cc"], [":rocksdb_cache_bench_tools_lib"]
+    )
     # bench binaries
     for src in src_mk.get("MICROBENCH_SOURCES", []):
         name = src.rsplit("/", 1)[1].split(".")[0] if "/" in src else src.split(".")[0]
