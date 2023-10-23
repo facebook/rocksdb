@@ -1830,6 +1830,70 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover1) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
+  // Activate the FS before the first resume
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.statistics = CreateDBStatistics();
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  fault_fs_->SetFilesystemActive(false, error_msg);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"NotifyOnErrorRecoveryEnd:MutexUnlocked:1",
+        "MultipleRecoveryThreads:1"},
+       {"MultipleRecoveryThreads:2",
+        "NotifyOnErrorRecoveryEnd:MutexUnlocked:2"},
+       {"StartRecoverFromRetryableBGIOError:WaitingForOtherThread",
+        "MultipleRecoveryThreads:3"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // First write with read fault injected and recovery will start
+  {
+    ASSERT_OK(Put(Key(1), "val1", wo));
+    Status s = Flush();
+    ASSERT_NOK(s);
+    ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  }
+  // Remove read fault injection so that first recovery can go through
+  fault_fs_->SetFilesystemActive(true);
+
+  // At this point, first recovery is now at NotifyOnErrorRecoveryEnd. Mutex is
+  // released.
+  TEST_SYNC_POINT("MultipleRecoveryThreads:1");
+
+  // Inject failure again to create second recovery
+  fault_fs_->SetFilesystemActive(false, error_msg);
+  ROCKSDB_NAMESPACE::port::Thread second_write([&] {
+    // Second write with read fault injected
+    ASSERT_OK(Put(Key(2), "val2", wo));
+    Status s = Flush();
+    ASSERT_NOK(s);
+    ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+
+    // Remove error injection so that second thread recovery can go through
+    fault_fs_->SetFilesystemActive(true);
+  });
+  TEST_SYNC_POINT("MultipleRecoveryThreads:3");
+  TEST_SYNC_POINT("MultipleRecoveryThreads:2");
+  second_write.join();
+  // Wait for second write to recover
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
   // Activate the FS before the first resume
   std::shared_ptr<ErrorHandlerFSListener> listener(

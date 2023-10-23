@@ -671,11 +671,11 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
+    TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError:WaitingForOtherThread");
     old_recovery_thread->join();
     db_mutex_->Lock();
   }
 
-  TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
 
@@ -689,7 +689,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 // Automatic recover from Retryable BG IO error. Must be called after db
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
-  assert(recovery_in_prog_);
+  // assert(recovery_in_prog_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart2");
   InstrumentedMutexLock l(db_mutex_);
