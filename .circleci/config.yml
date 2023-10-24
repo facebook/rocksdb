@@ -563,7 +563,7 @@ jobs:
           no_output_timeout: 100m
       - post-steps
 
-  build-windows-vs2022-AVX2:
+  build-windows-vs2022-avx2:
     executor:
       name: win/server-2022
       size: 2xlarge
@@ -631,7 +631,7 @@ jobs:
       - post-steps
 
   build-linux-java-pmd:
-    machine: 
+    machine:
       image: ubuntu-2004:202111-02
     resource_class: large
     environment:
@@ -905,6 +905,7 @@ workflows:
       - build-linux-mini-crashtest
   jobs-windows:
     jobs:
+      - build-windows-vs2022-avx2
       - build-windows-vs2022
       - build-windows-vs2019
       - build-cmake-mingw
