@@ -645,6 +645,13 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
+  } else if (end_recovery_) {
+    // Can temporarily release db mutex
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                           Status::ShutdownInProgress(),
+                                           db_mutex_);
+    db_mutex_->AssertHeld();
+    return bg_error_;
   }
   if (bg_error_stats_ != nullptr) {
     RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
@@ -819,6 +826,7 @@ void ErrorHandler::EndAutoRecovery() {
     old_recovery_thread->join();
     db_mutex_->Lock();
   }
+  TEST_SYNC_POINT("PostEndAutoRecovery");
   return;
 }
 
