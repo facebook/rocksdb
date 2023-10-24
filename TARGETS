@@ -5620,3 +5620,5 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+
+export_file(name = "tools/db_crashtest.py")

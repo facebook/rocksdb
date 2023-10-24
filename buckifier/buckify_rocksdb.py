@@ -303,6 +303,7 @@ def generate_targets(repo_path, deps_map):
                     deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
                     extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
                 )
+    TARGETS.export_file("tools/db_crashtest.py")
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))
