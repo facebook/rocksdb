@@ -121,16 +121,39 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("get x2", "y2")
         self.assertRunFAIL("get x3")
 
-        self.assertRunOK("scan --from=x1 --to=z", "x1 ==> y1\nx2 ==> y2")
+        self.assertRunFAIL("put_entity x4")
+        self.assertRunFAIL("put_entity x4 cv1")
+        self.assertRunOK("put_entity x4 :cv1", "OK")
+        self.assertRunOK("get_entity x4", ":cv1")
+
+        self.assertRunOK("put_entity x5 cn1:cv1 cn2:cv2", "OK")
+        self.assertRunOK("get_entity x5", "cn1:cv1 cn2:cv2")
+
+        self.assertRunOK(
+            "scan --from=x1 --to=z",
+            "x1 ==> y1\nx2 ==> y2\nx4 ==> cv1\nx5 ==> cn1:cv1 cn2:cv2",
+        )
         self.assertRunOK("put x3 y3", "OK")
 
-        self.assertRunOK("scan --from=x1 --to=z", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3")
-        self.assertRunOK("scan", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3")
-        self.assertRunOK("scan --from=x", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3")
+        self.assertRunOK(
+            "scan --from=x1 --to=z",
+            "x1 ==> y1\nx2 ==> y2\nx3 ==> y3\nx4 ==> cv1\nx5 ==> cn1:cv1 cn2:cv2",
+        )
+        self.assertRunOK(
+            "scan",
+            "x1 ==> y1\nx2 ==> y2\nx3 ==> y3\nx4 ==> cv1\nx5 ==> cn1:cv1 cn2:cv2",
+        )
+        self.assertRunOK(
+            "scan --from=x",
+            "x1 ==> y1\nx2 ==> y2\nx3 ==> y3\nx4 ==> cv1\nx5 ==> cn1:cv1 cn2:cv2",
+        )
 
         self.assertRunOK("scan --to=x2", "x1 ==> y1")
         self.assertRunOK("scan --from=x1 --to=z --max_keys=1", "x1 ==> y1")
         self.assertRunOK("scan --from=x1 --to=z --max_keys=2", "x1 ==> y1\nx2 ==> y2")
+
+        self.assertRunOK("delete x4", "OK")
+        self.assertRunOK("delete x5", "OK")
 
         self.assertRunOK(
             "scan --from=x1 --to=z --max_keys=3", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3"

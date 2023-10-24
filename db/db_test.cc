@@ -127,6 +127,7 @@ TEST_F(DBTest, MockEnvTest) {
     iterator->Next();
   }
   ASSERT_TRUE(!iterator->Valid());
+  ASSERT_OK(iterator->status());
   delete iterator;
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
@@ -171,6 +172,7 @@ TEST_F(DBTest, MemEnvTest) {
     iterator->Next();
   }
   ASSERT_TRUE(!iterator->Valid());
+  ASSERT_OK(iterator->status());
   delete iterator;
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
@@ -644,6 +646,33 @@ TEST_F(DBTest, ReadFromPersistedTier) {
         ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
       }
 
+      const auto check_multiget_func =
+          [&](const ReadOptions& read_opts,
+              std::vector<ColumnFamilyHandle*> cfhs, std::vector<Slice>& keys,
+              std::vector<std::string>& values,
+              bool batched) -> std::vector<Status> {
+        if (!batched) {
+          return db_->MultiGet(read_opts, cfhs, keys, &values);
+        } else {
+          size_t num_keys = keys.size();
+          std::vector<Status> statuses;
+          std::vector<PinnableSlice> pinnable_values;
+          statuses.resize(num_keys);
+          pinnable_values.resize(num_keys);
+          values.resize(num_keys);
+          db_->MultiGet(read_opts, cfhs[0], num_keys, keys.data(),
+                        pinnable_values.data(), statuses.data(), false);
+          for (size_t i = 0; i < statuses.size(); ++i) {
+            if (statuses[i].ok()) {
+              values[i].assign(pinnable_values[i].data(),
+                               pinnable_values[i].size());
+              pinnable_values[i].Reset();
+            }
+          }
+          return statuses;
+        }
+      };
+
       // Multiget
       std::vector<ColumnFamilyHandle*> multiget_cfs;
       multiget_cfs.push_back(handles_[1]);
@@ -652,14 +681,17 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       multiget_keys.push_back("foo");
       multiget_keys.push_back("bar");
       std::vector<std::string> multiget_values;
-      auto statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[0].IsNotFound());
-        ASSERT_TRUE(statuses[1].IsNotFound());
-      } else {
-        ASSERT_OK(statuses[0]);
-        ASSERT_OK(statuses[1]);
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[0].IsNotFound());
+          ASSERT_TRUE(statuses[1].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[0]);
+          ASSERT_OK(statuses[1]);
+        }
       }
 
       // 2nd round: flush and put a new value in memtable.
@@ -683,16 +715,21 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       // Expect same result in multiget
       multiget_cfs.push_back(handles_[1]);
       multiget_keys.push_back("rocksdb");
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      ASSERT_TRUE(statuses[0].ok());
-      ASSERT_EQ("first", multiget_values[0]);
-      ASSERT_TRUE(statuses[1].ok());
-      ASSERT_EQ("one", multiget_values[1]);
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[2].IsNotFound());
-      } else {
-        ASSERT_OK(statuses[2]);
+      multiget_values.clear();
+
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        ASSERT_TRUE(statuses[0].ok());
+        ASSERT_EQ("first", multiget_values[0]);
+        ASSERT_TRUE(statuses[1].ok());
+        ASSERT_EQ("one", multiget_values[1]);
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[2].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[2]);
+        }
       }
 
       // 3rd round: delete and flush
@@ -712,17 +749,21 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_TRUE(db_->Get(ropt, handles_[1], "rocksdb", &value).ok());
       ASSERT_EQ(value, "hello");
 
-      statuses =
-          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
-      ASSERT_TRUE(statuses[0].IsNotFound());
-      if (wopt.disableWAL) {
-        ASSERT_TRUE(statuses[1].ok());
-        ASSERT_EQ("one", multiget_values[1]);
-      } else {
-        ASSERT_TRUE(statuses[1].IsNotFound());
+      multiget_values.clear();
+      for (int i = 0; i < 2; i++) {
+        bool batched = i == 0;
+        auto statuses = check_multiget_func(ropt, multiget_cfs, multiget_keys,
+                                            multiget_values, batched);
+        ASSERT_TRUE(statuses[0].IsNotFound());
+        if (wopt.disableWAL) {
+          ASSERT_TRUE(statuses[1].ok());
+          ASSERT_EQ("one", multiget_values[1]);
+        } else {
+          ASSERT_TRUE(statuses[1].IsNotFound());
+        }
+        ASSERT_TRUE(statuses[2].ok());
+        ASSERT_EQ("hello", multiget_values[2]);
       }
-      ASSERT_TRUE(statuses[2].ok());
-      ASSERT_EQ("hello", multiget_values[2]);
       if (wopt.disableWAL == 0) {
         DestroyAndReopen(options);
       }
@@ -2944,6 +2985,7 @@ TEST_F(DBTest, GroupCommitTest) {
       itr->Next();
     }
     ASSERT_TRUE(!itr->Valid());
+    ASSERT_OK(itr->status());
     delete itr;
 
     HistogramData hist_data;
@@ -3472,6 +3514,8 @@ static bool CompareIterators(int step, DB* model, DB* db,
       ok = false;
     }
   }
+  EXPECT_OK(miter->status());
+  EXPECT_OK(dbiter->status());
   (void)count;
   delete miter;
   delete dbiter;
@@ -5969,6 +6013,7 @@ TEST_F(DBTest, MergeTestTime) {
     ASSERT_OK(iter->status());
     ++count;
   }
+  ASSERT_OK(iter->status());
 
   ASSERT_EQ(1, count);
   ASSERT_EQ(4000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
@@ -6039,6 +6084,64 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
             TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
   delete itr;
 }
+
+#ifndef OS_WIN
+// CPUMicros() is not supported. See WinClock::CPUMicros().
+TEST_P(DBTestWithParam, CompactionTotalTimeTest) {
+  int record_count = 0;
+  class TestStatistics : public StatisticsImpl {
+   public:
+    explicit TestStatistics(int* record_count)
+        : StatisticsImpl(nullptr), record_count_(record_count) {}
+    void recordTick(uint32_t ticker_type, uint64_t count) override {
+      if (ticker_type == COMPACTION_CPU_TOTAL_TIME) {
+        ASSERT_GT(count, 0);
+        (*record_count_)++;
+      }
+      StatisticsImpl::recordTick(ticker_type, count);
+    }
+
+    int* record_count_;
+  };
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options.statistics = std::make_shared<TestStatistics>(&record_count);
+  options.statistics->set_stats_level(kExceptTimeForMutex);
+  options.max_subcompactions = max_subcompactions_;
+  DestroyAndReopen(options);
+
+  int n = 0;
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 1000; ++i) {
+      ASSERT_OK(Put(std::to_string(table * 1000 + i), "val"));
+      ++n;
+    }
+    // Overlapping tables
+    ASSERT_OK(Put(std::to_string(0), "val"));
+    ++n;
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Hard-coded number in CompactionJob::ProcessKeyValueCompaction().
+  const int kRecordStatsEvery = 1000;
+  // The stat COMPACTION_CPU_TOTAL_TIME should be recorded
+  // during compaction and once more after compaction.
+  ASSERT_EQ(n / kRecordStatsEvery + 1, record_count);
+
+  // Check that COMPACTION_CPU_TOTAL_TIME correctly
+  // records compaction time after a compaction.
+  HistogramData h;
+  options.statistics->histogramData(COMPACTION_CPU_TIME, &h);
+  ASSERT_EQ(1, h.count);
+  ASSERT_EQ(h.max, TestGetTickerCount(options, COMPACTION_CPU_TOTAL_TIME));
+}
+#endif
 
 TEST_F(DBTest, TestLogCleanup) {
   Options options = CurrentOptions();
@@ -6934,8 +7037,9 @@ TEST_F(DBTest, RowCache) {
     using CacheWrapper::CacheWrapper;
     const char* Name() const override { return "FailInsertionCache"; }
     Status Insert(const Slice&, Cache::ObjectPtr, const CacheItemHelper*,
-                  size_t, Handle** = nullptr,
-                  Priority = Priority::LOW) override {
+                  size_t, Handle** = nullptr, Priority = Priority::LOW,
+                  const Slice& /*compressed*/ = Slice(),
+                  CompressionType /*type*/ = kNoCompression) override {
       return Status::MemoryLimit();
     }
   };

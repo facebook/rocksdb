@@ -822,6 +822,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // For BaseClockTable::Insert
   struct InsertState {
     uint64_t saved_length_info = 0;
+    size_t likely_empty_slot = 0;
   };
 
   void StartInsert(InsertState& state);

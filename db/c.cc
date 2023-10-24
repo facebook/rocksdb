@@ -4589,6 +4589,11 @@ void rocksdb_readoptions_set_iter_start_ts(rocksdb_readoptions_t* opt,
   }
 }
 
+void rocksdb_readoptions_set_auto_readahead_size(rocksdb_readoptions_t* opt,
+                                                 unsigned char v) {
+  opt->rep.auto_readahead_size = v;
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }

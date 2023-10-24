@@ -30,6 +30,11 @@ class IteratorWrapperBase {
   }
   ~IteratorWrapperBase() {}
   InternalIteratorBase<TValue>* iter() const { return iter_; }
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) {
+    if (iter_) {
+      iter_->SetRangeDelReadSeqno(read_seqno);
+    }
+  }
 
   // Set the underlying Iterator to _iter and return
   // previous underlying Iterator.
@@ -47,6 +52,17 @@ class IteratorWrapperBase {
 
   void DeleteIter(bool is_arena_mode) {
     if (iter_) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+      if (!status_checked_after_invalid_) {
+        // If this assertion fails, it is likely that you did not check
+        // iterator status after Valid() returns false.
+        fprintf(stderr,
+                "Failed to check status after Valid() returned false from this "
+                "iterator.\n");
+        port::PrintStack();
+        std::abort();
+      }
+#endif
       if (!is_arena_mode) {
         delete iter_;
       } else {
@@ -56,7 +72,12 @@ class IteratorWrapperBase {
   }
 
   // Iterator interface methods
-  bool Valid() const { return valid_; }
+  bool Valid() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    status_checked_after_invalid_ = valid_;
+#endif
+    return valid_;
+  }
   Slice key() const {
     assert(Valid());
     return result_.key;
@@ -67,6 +88,9 @@ class IteratorWrapperBase {
   }
   // Methods below require iter() != nullptr
   Status status() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    status_checked_after_invalid_ = true;
+#endif
     assert(iter_);
     return iter_->status();
   }
@@ -178,6 +202,10 @@ class IteratorWrapperBase {
   InternalIteratorBase<TValue>* iter_;
   IterateResult result_;
   bool valid_;
+
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  mutable bool status_checked_after_invalid_ = true;
+#endif
 };
 
 using IteratorWrapper = IteratorWrapperBase<Slice>;

@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/testutil.h"
+#include "util/overload.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -208,6 +209,11 @@ TEST_F(DBWideBasicTest, PutEntity) {
   ASSERT_OK(Flush());
 
   verify();
+
+  // Reopen as Readonly DB and verify
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  verify();
 }
 
 TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
@@ -262,6 +268,134 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntity) {
 
   ASSERT_OK(statuses[1]);
   ASSERT_EQ(results[1].columns(), second_columns);
+}
+
+TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"hot_cf", "cold_cf"}, options);
+
+  constexpr int DEFAULT_CF_HANDLE_INDEX = 0;
+  constexpr int HOT_CF_HANDLE_INDEX = 1;
+  constexpr int COLD_CF_HANDLE_INDEX = 2;
+
+  constexpr char first_key[] = "first";
+  WideColumns first_default_columns{
+      {"default_cf_col_1_name", "first_key_default_cf_col_1_value"},
+      {"default_cf_col_2_name", "first_key_default_cf_col_2_value"}};
+  WideColumns first_hot_columns{
+      {"hot_cf_col_1_name", "first_key_hot_cf_col_1_value"},
+      {"hot_cf_col_2_name", "first_key_hot_cf_col_2_value"}};
+  WideColumns first_cold_columns{
+      {"cold_cf_col_1_name", "first_key_cold_cf_col_1_value"}};
+  constexpr char second_key[] = "second";
+  WideColumns second_hot_columns{
+      {"hot_cf_col_1_name", "second_key_hot_cf_col_1_value"}};
+  WideColumns second_cold_columns{
+      {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
+
+  // TODO - update this to use the multi-attribute-group PutEntity when ready
+  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[DEFAULT_CF_HANDLE_INDEX],
+                           first_key, first_default_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
+                           first_key, first_hot_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[COLD_CF_HANDLE_INDEX],
+                           first_key, first_cold_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
+                           second_key, second_hot_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[COLD_CF_HANDLE_INDEX],
+                           second_key, second_cold_columns));
+
+  constexpr size_t num_keys = 2;
+  std::array<Slice, num_keys> keys = {first_key, second_key};
+  std::vector<ColumnFamilyHandle*> all_cfs = handles_;
+  std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
+      {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
+  std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
+      {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
+  auto create_result =
+      [](const std::vector<ColumnFamilyHandle*>& column_families)
+      -> PinnableAttributeGroups {
+    PinnableAttributeGroups result;
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      result.emplace_back(column_families[i]);
+    }
+    return result;
+  };
+  {
+    // Check for invalid argument
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+    std::vector<PinnableAttributeGroups> results;
+    for (size_t i = 0; i < num_keys; ++i) {
+      results.emplace_back(create_result(all_cfs));
+    }
+    db_->MultiGetEntity(read_options, num_keys, keys.data(), results.data());
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < all_cfs.size(); ++j) {
+        ASSERT_NOK(results[i][j].status());
+        ASSERT_TRUE(results[i][j].status().IsInvalidArgument());
+      }
+    }
+  }
+  {
+    // Case 1. Get first key from default cf and hot_cf and second key from
+    // hot_cf and cold_cf
+    std::vector<PinnableAttributeGroups> results;
+    PinnableAttributeGroups first_key_result =
+        create_result(default_and_hot_cfs);
+    PinnableAttributeGroups second_key_result = create_result(hot_and_cold_cfs);
+    results.emplace_back(std::move(first_key_result));
+    results.emplace_back(std::move(second_key_result));
+
+    db_->MultiGetEntity(ReadOptions(), num_keys, keys.data(), results.data());
+    ASSERT_EQ(2, results.size());
+    // We expect to get values for all keys and CFs
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < 2; ++j) {
+        ASSERT_OK(results[i][j].status());
+      }
+    }
+    // verify values for first key (default cf and hot cf)
+    ASSERT_EQ(2, results[0].size());
+    ASSERT_EQ(first_default_columns, results[0][0].columns());
+    ASSERT_EQ(first_hot_columns, results[0][1].columns());
+
+    // verify values for second key (hot cf and cold cf)
+    ASSERT_EQ(2, results[1].size());
+    ASSERT_EQ(second_hot_columns, results[1][0].columns());
+    ASSERT_EQ(second_cold_columns, results[1][1].columns());
+  }
+  {
+    // Case 2. Get first key and second key from all cfs. For the second key, we
+    // don't expect to get columns from default cf.
+    std::vector<PinnableAttributeGroups> results;
+    PinnableAttributeGroups first_key_result = create_result(all_cfs);
+    PinnableAttributeGroups second_key_result = create_result(all_cfs);
+    results.emplace_back(std::move(first_key_result));
+    results.emplace_back(std::move(second_key_result));
+
+    db_->MultiGetEntity(ReadOptions(), num_keys, keys.data(), results.data());
+    // verify first key
+    for (size_t i = 0; i < all_cfs.size(); ++i) {
+      ASSERT_OK(results[0][i].status());
+    }
+    ASSERT_EQ(3, results[0].size());
+    ASSERT_EQ(first_default_columns, results[0][0].columns());
+    ASSERT_EQ(first_hot_columns, results[0][1].columns());
+    ASSERT_EQ(first_cold_columns, results[0][2].columns());
+
+    // verify second key
+    // key does not exist in default cf
+    ASSERT_NOK(results[1][0].status());
+    ASSERT_TRUE(results[1][0].status().IsNotFound());
+    ASSERT_TRUE(results[1][0].columns().empty());
+
+    // key exists in hot_cf and cold_cf
+    ASSERT_OK(results[1][1].status());
+    ASSERT_EQ(second_hot_columns, results[1][1].columns());
+    ASSERT_OK(results[1][2].status());
+    ASSERT_EQ(second_cold_columns, results[1][2].columns());
+  }
 }
 
 TEST_F(DBWideBasicTest, MergePlainKeyValue) {
@@ -683,6 +817,397 @@ TEST_F(DBWideBasicTest, MergeEntity) {
                               /* end */ nullptr));
   verify_basic();
   verify_merge_ops_post_compaction();
+}
+
+class DBWideMergeV3Test : public DBWideBasicTest {
+ protected:
+  void RunTest(const WideColumns& first_expected,
+               const WideColumns& second_expected,
+               const WideColumns& third_expected) {
+    // Note: we'll take some snapshots to prevent merging during flush
+    snapshots_.reserve(6);
+
+    // Test reading from memtables
+    WriteKeyValues();
+    VerifyKeyValues(first_expected, second_expected, third_expected);
+    VerifyMergeOperandCount(first_key, 2);
+    VerifyMergeOperandCount(second_key, 3);
+    VerifyMergeOperandCount(third_key, 3);
+
+    // Test reading from SST files
+    ASSERT_OK(Flush());
+    VerifyKeyValues(first_expected, second_expected, third_expected);
+    VerifyMergeOperandCount(first_key, 2);
+    VerifyMergeOperandCount(second_key, 3);
+    VerifyMergeOperandCount(third_key, 3);
+
+    // Test reading from SSTs after compaction. Note that we write the same KVs
+    // and flush again so we have two overlapping files. We also release the
+    // snapshots so that the compaction can merge all keys.
+    WriteKeyValues();
+    ASSERT_OK(Flush());
+
+    snapshots_.clear();
+
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /* begin */ nullptr,
+                                /* end */ nullptr));
+    VerifyKeyValues(first_expected, second_expected, third_expected);
+    VerifyMergeOperandCount(first_key, 1);
+    VerifyMergeOperandCount(second_key, 1);
+    VerifyMergeOperandCount(third_key, 1);
+  }
+
+  void WriteKeyValues() {
+    // Base values
+    ASSERT_OK(db_->Delete(WriteOptions(), db_->DefaultColumnFamily(),
+                          first_key));  // no base value
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                       second_base_value));  // plain base value
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             third_key,
+                             third_columns));  // wide-column base value
+
+    snapshots_.emplace_back(db_);
+
+    // First round of merge operands
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                         first_merge_op1));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                         second_merge_op1));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), third_key,
+                         third_merge_op1));
+
+    snapshots_.emplace_back(db_);
+
+    // Second round of merge operands
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                         first_merge_op2));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                         second_merge_op2));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), third_key,
+                         third_merge_op2));
+
+    snapshots_.emplace_back(db_);
+  }
+
+  void VerifyKeyValues(const WideColumns& first_expected,
+                       const WideColumns& second_expected,
+                       const WideColumns& third_expected) {
+    assert(!first_expected.empty() &&
+           first_expected[0].name() == kDefaultWideColumnName);
+    assert(!second_expected.empty() &&
+           second_expected[0].name() == kDefaultWideColumnName);
+    assert(!third_expected.empty() &&
+           third_expected[0].name() == kDefaultWideColumnName);
+
+    // Get
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
+                         &result));
+      ASSERT_EQ(result, first_expected[0].value());
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
+                         &result));
+      ASSERT_EQ(result, second_expected[0].value());
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), third_key,
+                         &result));
+      ASSERT_EQ(result, third_expected[0].value());
+    }
+
+    // MultiGet
+    {
+      std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+      std::array<PinnableSlice, num_keys> values;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                    keys.data(), values.data(), statuses.data());
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(values[0], first_expected[0].value());
+      ASSERT_OK(statuses[1]);
+      ASSERT_EQ(values[1], second_expected[0].value());
+      ASSERT_OK(statuses[2]);
+      ASSERT_EQ(values[2], third_expected[0].value());
+    }
+
+    // GetEntity
+    {
+      PinnableWideColumns result;
+
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+      ASSERT_EQ(result.columns(), first_expected);
+    }
+
+    {
+      PinnableWideColumns result;
+
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+      ASSERT_EQ(result.columns(), second_expected);
+    }
+
+    {
+      PinnableWideColumns result;
+
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               third_key, &result));
+      ASSERT_EQ(result.columns(), third_expected);
+    }
+
+    // MultiGetEntity
+    {
+      std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+      std::array<PinnableWideColumns, num_keys> results;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                          keys.data(), results.data(), statuses.data());
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(results[0].columns(), first_expected);
+      ASSERT_OK(statuses[1]);
+      ASSERT_EQ(results[1].columns(), second_expected);
+      ASSERT_OK(statuses[2]);
+      ASSERT_EQ(results[2].columns(), third_expected);
+    }
+
+    // Iterator
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_expected[0].value());
+      ASSERT_EQ(iter->columns(), first_expected);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), second_expected[0].value());
+      ASSERT_EQ(iter->columns(), second_expected);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), third_expected[0].value());
+      ASSERT_EQ(iter->columns(), third_expected);
+
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), third_expected[0].value());
+      ASSERT_EQ(iter->columns(), third_expected);
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), second_expected[0].value());
+      ASSERT_EQ(iter->columns(), second_expected);
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_expected[0].value());
+      ASSERT_EQ(iter->columns(), first_expected);
+
+      iter->Prev();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  }
+
+  void VerifyMergeOperandCount(const Slice& key, int expected_merge_ops) {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = expected_merge_ops;
+
+    std::vector<PinnableSlice> merge_operands(expected_merge_ops);
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, expected_merge_ops);
+  }
+
+  std::vector<ManagedSnapshot> snapshots_;
+
+  static constexpr size_t num_keys = 3;
+
+  static constexpr char first_key[] = "first";
+  static constexpr char first_merge_op1[] = "hello";
+  static constexpr char first_merge_op1_upper[] = "HELLO";
+  static constexpr char first_merge_op2[] = "world";
+  static constexpr char first_merge_op2_upper[] = "WORLD";
+
+  static constexpr char second_key[] = "second";
+  static constexpr char second_base_value[] = "foo";
+  static constexpr char second_base_value_upper[] = "FOO";
+  static constexpr char second_merge_op1[] = "bar";
+  static constexpr char second_merge_op1_upper[] = "BAR";
+  static constexpr char second_merge_op2[] = "baz";
+  static constexpr char second_merge_op2_upper[] = "BAZ";
+
+  static constexpr char third_key[] = "third";
+  static const WideColumns third_columns;
+  static constexpr char third_merge_op1[] = "three";
+  static constexpr char third_merge_op1_upper[] = "THREE";
+  static constexpr char third_merge_op2[] = "four";
+  static constexpr char third_merge_op2_upper[] = "FOUR";
+};
+
+const WideColumns DBWideMergeV3Test::third_columns{{"one", "ONE"},
+                                                   {"two", "TWO"}};
+
+TEST_F(DBWideMergeV3Test, MergeV3WideColumnOutput) {
+  // A test merge operator that always returns a wide-column result. It adds any
+  // base values and merge operands to a single wide-column entity, and converts
+  // all column values to uppercase. In addition, it puts "none", "plain", or
+  // "wide" into the value of the default column depending on the type of the
+  // base value (if any).
+  static constexpr char kNone[] = "none";
+  static constexpr char kPlain[] = "plain";
+  static constexpr char kWide[] = "wide";
+
+  class WideColumnOutputMergeOperator : public MergeOperator {
+   public:
+    bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                     MergeOperationOutputV3* merge_out) const override {
+      assert(merge_out);
+
+      merge_out->new_value = MergeOperationOutputV3::NewColumns();
+      auto& new_columns =
+          std::get<MergeOperationOutputV3::NewColumns>(merge_out->new_value);
+
+      auto upper = [](std::string str) {
+        for (char& c : str) {
+          c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+
+        return str;
+      };
+
+      std::visit(overload{[&](const std::monostate&) {
+                            new_columns.emplace_back(
+                                kDefaultWideColumnName.ToString(), kNone);
+                          },
+                          [&](const Slice& value) {
+                            new_columns.emplace_back(
+                                kDefaultWideColumnName.ToString(), kPlain);
+
+                            const std::string val = value.ToString();
+                            new_columns.emplace_back(val, upper(val));
+                          },
+                          [&](const WideColumns& columns) {
+                            new_columns.emplace_back(
+                                kDefaultWideColumnName.ToString(), kWide);
+
+                            for (const auto& column : columns) {
+                              new_columns.emplace_back(
+                                  column.name().ToString(),
+                                  upper(column.value().ToString()));
+                            }
+                          }},
+                 merge_in.existing_value);
+
+      for (const auto& operand : merge_in.operand_list) {
+        const std::string op = operand.ToString();
+        new_columns.emplace_back(op, upper(op));
+      }
+
+      return true;
+    }
+
+    const char* Name() const override {
+      return "WideColumnOutputMergeOperator";
+    }
+  };
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.merge_operator = std::make_shared<WideColumnOutputMergeOperator>();
+  Reopen(options);
+
+  // Expected results
+  // Lexicographical order: [default] < hello < world
+  const WideColumns first_expected{{kDefaultWideColumnName, kNone},
+                                   {first_merge_op1, first_merge_op1_upper},
+                                   {first_merge_op2, first_merge_op2_upper}};
+  // Lexicographical order: [default] < bar < baz < foo
+  const WideColumns second_expected{
+      {kDefaultWideColumnName, kPlain},
+      {second_merge_op1, second_merge_op1_upper},
+      {second_merge_op2, second_merge_op2_upper},
+      {second_base_value, second_base_value_upper}};
+  // Lexicographical order: [default] < four < one < three < two
+  const WideColumns third_expected{
+      {kDefaultWideColumnName, kWide},
+      {third_merge_op2, third_merge_op2_upper},
+      {third_columns[0].name(), third_columns[0].value()},
+      {third_merge_op1, third_merge_op1_upper},
+      {third_columns[1].name(), third_columns[1].value()}};
+
+  RunTest(first_expected, second_expected, third_expected);
+}
+
+TEST_F(DBWideMergeV3Test, MergeV3PlainOutput) {
+  // A test merge operator that always returns a plain value as result, namely
+  // the total number of operands serialized as a string. Base values are also
+  // counted as operands; specifically, a plain base value is counted as one
+  // operand, while a wide-column base value is counted as as many operands as
+  // the number of columns.
+  class PlainOutputMergeOperator : public MergeOperator {
+   public:
+    bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                     MergeOperationOutputV3* merge_out) const override {
+      assert(merge_out);
+
+      size_t count = 0;
+      std::visit(
+          overload{[&](const std::monostate&) {},
+                   [&](const Slice&) { count = 1; },
+                   [&](const WideColumns& columns) { count = columns.size(); }},
+          merge_in.existing_value);
+
+      count += merge_in.operand_list.size();
+
+      merge_out->new_value = std::string();
+      std::get<std::string>(merge_out->new_value) = std::to_string(count);
+
+      return true;
+    }
+
+    const char* Name() const override { return "PlainOutputMergeOperator"; }
+  };
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.merge_operator = std::make_shared<PlainOutputMergeOperator>();
+  Reopen(options);
+
+  const WideColumns first_expected{{kDefaultWideColumnName, "2"}};
+  const WideColumns second_expected{{kDefaultWideColumnName, "3"}};
+  const WideColumns third_expected{{kDefaultWideColumnName, "4"}};
+
+  RunTest(first_expected, second_expected, third_expected);
 }
 
 TEST_F(DBWideBasicTest, CompactionFilter) {

@@ -118,6 +118,7 @@ public class ThreadStatus {
    *
    * @return the properties
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public long[] getOperationProperties() {
     return operationProperties;
   }

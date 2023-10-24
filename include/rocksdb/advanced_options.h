@@ -76,9 +76,16 @@ struct CompressionOptions {
   // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
   int window_bits = -14;
 
-  // Compression "level" applicable to zstd, zlib, LZ4. Except for
+  // Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
   // kDefaultCompressionLevel (see above), the meaning of each value depends
-  // on the compression algorithm.
+  // on the compression algorithm. Decreasing across non-
+  // `kDefaultCompressionLevel` values will either favor speed over
+  // compression ratio or have no effect.
+  //
+  // In LZ4 specifically, the absolute value of a negative `level` internally
+  // configures the `acceleration` parameter. For example, set `level=-10` for
+  // `acceleration=10`. This negation is necessary to ensure decreasing `level`
+  // values favor speed over compression ratio.
   int level = kDefaultCompressionLevel;
 
   // zlib only: strategy parameter. See https://www.zlib.net/manual.html
@@ -268,7 +275,8 @@ struct CompactionOptionsFIFO {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kNonVolatileBlockTier = 0x01,
+  kVolatileCompressedTier = 0x01,
+  kNonVolatileBlockTier = 0x02,
 };
 
 enum UpdateStatus {     // Return status For inplace update callback

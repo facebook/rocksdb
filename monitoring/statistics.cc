@@ -111,6 +111,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
     {MERGE_OPERATION_TOTAL_TIME, "rocksdb.merge.operation.time.nanos"},
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
+    {COMPACTION_CPU_TOTAL_TIME, "rocksdb.compaction.total.time.cpu_micros"},
     {ROW_CACHE_HIT, "rocksdb.row.cache.hit"},
     {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
@@ -258,6 +259,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BYTES_DECOMPRESSED_FROM, "rocksdb.bytes.decompressed.from"},
     {BYTES_DECOMPRESSED_TO, "rocksdb.bytes.decompressed.to"},
     {READAHEAD_TRIMMED, "rocksdb.readahead.trimmed"},
+    {FIFO_MAX_SIZE_COMPACTIONS, "rocksdb.fifo.max.size.compactions"},
+    {FIFO_TTL_COMPACTIONS, "rocksdb.fifo.ttl.compactions"},
+    {PREFETCH_BYTES, "rocksdb.prefetch.bytes"},
+    {PREFETCH_BYTES_USEFUL, "rocksdb.prefetch.bytes.useful"},
+    {PREFETCH_HITS, "rocksdb.prefetch.hits"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

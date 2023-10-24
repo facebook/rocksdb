@@ -682,7 +682,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Revert flush
-  list.RollbackMemtableFlush(to_flush, 0);
+  list.RollbackMemtableFlush(to_flush, false);
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
   to_flush.clear();
@@ -732,7 +732,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Rollback first pick of tables
-  list.RollbackMemtableFlush(to_flush, 0);
+  list.RollbackMemtableFlush(to_flush, false);
   ASSERT_TRUE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
   to_flush.clear();
@@ -833,7 +833,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Add another table
   list.Add(tables[5], &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
-  ASSERT_EQ(5, list.GetLatestMemTableID());
+  ASSERT_EQ(5, list.GetLatestMemTableID(false /* for_atomic_flush */));
   memtable_id = 4;
   // Pick tables to flush. The tables to pick must have ID smaller than or
   // equal to 4. Therefore, no table will be selected in this case.

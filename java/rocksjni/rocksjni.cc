@@ -22,6 +22,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -2214,6 +2215,108 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
   return exists;
 }
 
+jboolean key_exists_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
+                           jlong jread_opts_handle, char* key, jint jkey_len) {
+  std::string value;
+  bool value_found = false;
+
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  if (jcf_handle == 0) {
+    cf_handle = db->DefaultColumnFamily();
+  } else {
+    cf_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  }
+
+  ROCKSDB_NAMESPACE::ReadOptions read_opts =
+      jread_opts_handle == 0
+          ? ROCKSDB_NAMESPACE::ReadOptions()
+          : *(reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
+                jread_opts_handle));
+
+  ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
+
+  const bool may_exist =
+      db->KeyMayExist(read_opts, cf_handle, key_slice, &value, &value_found);
+
+  if (may_exist) {
+    ROCKSDB_NAMESPACE::Status s;
+    {
+      ROCKSDB_NAMESPACE::PinnableSlice pinnable_val;
+      s = db->Get(read_opts, cf_handle, key_slice, &pinnable_val);
+    }
+    if (s.IsNotFound()) {
+      return JNI_FALSE;
+    } else if (s.ok()) {
+      return JNI_TRUE;
+    } else {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+      return JNI_FALSE;
+    }
+  } else {
+    return JNI_FALSE;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    keyExist
+ * Signature: (JJJ[BII)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyExists(JNIEnv* env, jobject,
+                                            jlong jdb_handle, jlong jcf_handle,
+                                            jlong jread_opts_handle,
+                                            jbyteArray jkey, jint jkey_offset,
+                                            jint jkey_len) {
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, jkey_offset, jkey_len, key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] key;
+    return JNI_FALSE;
+  } else {
+    jboolean key_exists =
+        key_exists_helper(env, jdb_handle, jcf_handle, jread_opts_handle,
+                          reinterpret_cast<char*>(key), jkey_len);
+    delete[] key;
+    return key_exists;
+  }
+}
+
+/*
+     private native boolean keyExistDirect(final long handle, final long
+ cfHandle, final long readOptHandle, final ByteBuffer key, final int keyOffset,
+ final int keyLength);
+
+
+ * Class:     org_rocksdb_RocksDB
+ * Method:    keyExistDirect
+ * Signature: (JJJLjava/nio/ByteBuffer;II)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyExistsDirect(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jlong jread_opts_handle, jobject jkey, jint jkey_offset, jint jkey_len) {
+  char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+  if (key == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    return JNI_FALSE;
+  }
+  if (env->GetDirectBufferCapacity(jkey) < (jkey_offset + jkey_len)) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument. Capacity is less than requested region (offset "
+        "+ length).");
+    return JNI_FALSE;
+  }
+
+  return key_exists_helper(env, jdb_handle, jcf_handle, jread_opts_handle, key,
+                           jkey_len);
+}
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    keyMayExist
@@ -3076,6 +3179,37 @@ jstring Java_org_rocksdb_RocksDB_getDBOptions(JNIEnv* env, jobject,
     return nullptr;
   }
   return env->NewStringUTF(options_as_string.c_str());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    setPerfLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_RocksDB_setPerfLevel(JNIEnv*, jobject,
+                                           jbyte jperf_level) {
+  rocksdb::SetPerfLevel(
+      ROCKSDB_NAMESPACE::PerfLevelTypeJni::toCppPerfLevelType(jperf_level));
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getPerfLevel
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_RocksDB_getPerfLevelNative(JNIEnv*, jobject) {
+  return ROCKSDB_NAMESPACE::PerfLevelTypeJni::toJavaPerfLevelType(
+      rocksdb::GetPerfLevel());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getPerfContextNative
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_RocksDB_getPerfContextNative(JNIEnv*, jobject) {
+  ROCKSDB_NAMESPACE::PerfContext* perf_context = rocksdb::get_perf_context();
+  return reinterpret_cast<jlong>(perf_context);
 }
 
 /*

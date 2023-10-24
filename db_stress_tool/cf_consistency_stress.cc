@@ -36,18 +36,15 @@ class CfConsistencyStressTest : public StressTest {
 
     WriteBatch batch;
 
-    const bool use_put_entity = !FLAGS_use_merge &&
-                                FLAGS_use_put_entity_one_in > 0 &&
-                                (value_base % FLAGS_use_put_entity_one_in) == 0;
-
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* const cfh = column_families_[cf];
       assert(cfh);
 
-      if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
-      } else if (use_put_entity) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
+        batch.Merge(cfh, k, v);
       } else {
         batch.Put(cfh, k, v);
       }

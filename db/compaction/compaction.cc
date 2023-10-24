@@ -204,32 +204,36 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-const TablePropertiesCollection& Compaction::GetTableProperties() {
-  if (!input_table_properties_initialized_) {
-    const ReadOptions read_options(Env::IOActivity::kCompaction);
-    for (size_t i = 0; i < num_input_levels(); ++i) {
-      for (const FileMetaData* fmd : *(this->inputs(i))) {
-        std::shared_ptr<const TableProperties> tp;
-        std::string file_name =
-            TableFileName(immutable_options_.cf_paths, fmd->fd.GetNumber(),
-                          fmd->fd.GetPathId());
-        Status s = input_version_->GetTableProperties(read_options, &tp, fmd,
-                                                      &file_name);
-        if (s.ok()) {
-          table_properties_[file_name] = tp;
-        } else {
-          ROCKS_LOG_ERROR(immutable_options_.info_log,
-                          "Unable to load table properties for file %" PRIu64
-                          " --- %s\n",
-                          fmd->fd.GetNumber(), s.ToString().c_str());
-        }
+Status Compaction::InitInputTableProperties() {
+  if (!input_table_properties_.empty()) {
+    return Status::OK();
+  }
+
+  Status s;
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+  assert(input_version_);
+  for (size_t i = 0; i < num_input_levels(); ++i) {
+    for (const FileMetaData* fmd : *(this->inputs(i))) {
+      std::shared_ptr<const TableProperties> tp;
+      std::string file_name =
+          TableFileName(immutable_options_.cf_paths, fmd->fd.GetNumber(),
+                        fmd->fd.GetPathId());
+      s = input_version_->GetTableProperties(read_options, &tp, fmd,
+                                             &file_name);
+      if (s.ok()) {
+        input_table_properties_[file_name] = tp;
+      } else {
+        ROCKS_LOG_ERROR(immutable_options_.info_log,
+                        "Unable to load table properties for file %" PRIu64
+                        " --- %s\n",
+                        fmd->fd.GetNumber(), s.ToString().c_str());
+        input_table_properties_.clear();
+        return s;
       }
     }
+  }
 
-    input_table_properties_initialized_ = true;
-  };
-
-  return table_properties_;
+  return s;
 }
 
 Compaction::Compaction(
@@ -774,8 +778,17 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
+  context.input_start_level = start_level_;
   context.column_family_id = cfd_->GetID();
   context.reason = TableFileCreationReason::kCompaction;
+  context.input_table_properties = GetInputTableProperties();
+  if (context.input_table_properties.empty()) {
+    ROCKS_LOG_WARN(
+        immutable_options_.info_log,
+        "Unable to set `input_table_properties` of `CompactionFilter::Context` "
+        "for compaction.");
+  }
+
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }

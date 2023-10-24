@@ -46,6 +46,10 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
       return Env::IOActivity::kVerifyDBChecksum;
     case ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS:
       return Env::IOActivity::kVerifyFileChecksums;
+    case ThreadStatus::OperationType::OP_GETENTITY:
+      return Env::IOActivity::kGetEntity;
+    case ThreadStatus::OperationType::OP_MULTIGETENTITY:
+      return Env::IOActivity::kMultiGetEntity;
     default:
       return Env::IOActivity::kUnknown;
   }

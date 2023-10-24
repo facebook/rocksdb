@@ -57,6 +57,7 @@
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
@@ -948,10 +949,7 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   }
 
   WideColumns sorted_columns(columns);
-  std::sort(sorted_columns.begin(), sorted_columns.end(),
-            [](const WideColumn& lhs, const WideColumn& rhs) {
-              return lhs.name().compare(rhs.name()) < 0;
-            });
+  WideColumnsHelper::SortColumns(sorted_columns);
 
   std::string entity;
   const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
@@ -2485,13 +2483,15 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     if (perform_merge) {
-      // 1) Get the existing value
-      std::string get_value;
+      // 1) Get the existing value. Use the wide column APIs to make sure we
+      // don't lose any columns in the process.
+      PinnableWideColumns existing;
 
       // Pass in the sequence number so that we also include previous merge
       // operations in the same batch.
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
+
       // TODO: plumb Env::IOActivity
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
@@ -2500,26 +2500,47 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      Status get_status = db_->Get(read_options, cf_handle, key, &get_value);
+
+      Status get_status =
+          db_->GetEntity(read_options, cf_handle, key, &existing);
       if (!get_status.ok()) {
         // Failed to read a key we know exists. Store the delta in memtable.
         perform_merge = false;
       } else {
-        Slice get_value_slice = Slice(get_value);
-
         // 2) Apply this merge
         auto merge_operator = moptions->merge_operator;
         assert(merge_operator);
 
+        const auto& columns = existing.columns();
+
+        Status merge_status;
         std::string new_value;
-        // `op_failure_scope` (an output parameter) is not provided (set to
-        // nullptr) since a failure must be propagated regardless of its value.
-        Status merge_status = MergeHelper::TimedFullMerge(
-            merge_operator, key, &get_value_slice, {value}, &new_value,
-            moptions->info_log, moptions->statistics,
-            SystemClock::Default().get(), /* result_operand */ nullptr,
-            /* update_num_ops_stats */ false,
-            /* op_failure_scope */ nullptr);
+        ValueType new_value_type;
+
+        if (WideColumnsHelper::HasDefaultColumnOnly(columns)) {
+          // `op_failure_scope` (an output parameter) is not provided (set to
+          // nullptr) since a failure must be propagated regardless of its
+          // value.
+          merge_status = MergeHelper::TimedFullMerge(
+              merge_operator, key, MergeHelper::kPlainBaseValue,
+              WideColumnsHelper::GetDefaultColumn(columns), {value},
+              moptions->info_log, moptions->statistics,
+              SystemClock::Default().get(),
+              /* update_num_ops_stats */ false, &new_value,
+              /* result_operand */ nullptr, &new_value_type,
+              /* op_failure_scope */ nullptr);
+        } else {
+          // `op_failure_scope` (an output parameter) is not provided (set to
+          // nullptr) since a failure must be propagated regardless of its
+          // value.
+          merge_status = MergeHelper::TimedFullMerge(
+              merge_operator, key, MergeHelper::kWideBaseValue, columns,
+              {value}, moptions->info_log, moptions->statistics,
+              SystemClock::Default().get(),
+              /* update_num_ops_stats */ false, &new_value,
+              /* result_operand */ nullptr, &new_value_type,
+              /* op_failure_scope */ nullptr);
+        }
 
         if (!merge_status.ok()) {
           // Failed to merge!
@@ -2528,15 +2549,18 @@ class MemTableInserter : public WriteBatch::Handler {
         } else {
           // 3) Add value to memtable
           assert(!concurrent_memtable_writes_);
+          assert(new_value_type == kTypeValue ||
+                 new_value_type == kTypeWideColumnEntity);
+
           if (kv_prot_info != nullptr) {
             auto merged_kv_prot_info =
                 kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
             merged_kv_prot_info.UpdateV(value, new_value);
-            merged_kv_prot_info.UpdateO(kTypeMerge, kTypeValue);
-            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+            merged_kv_prot_info.UpdateO(kTypeMerge, new_value_type);
+            ret_status = mem->Add(sequence_, new_value_type, key, new_value,
                                   &merged_kv_prot_info);
           } else {
-            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+            ret_status = mem->Add(sequence_, new_value_type, key, new_value,
                                   nullptr /* kv_prot_info */);
           }
         }

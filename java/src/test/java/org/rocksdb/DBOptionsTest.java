@@ -886,6 +886,8 @@ public class DBOptionsTest {
                  wasCalled2.set(true);
                }
              }) {
+      assertThat(options.setListeners(null)).isEqualTo(options);
+      assertThat(options.listeners().size()).isEqualTo(0);
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
       final List<AbstractEventListener> listeners = options.listeners();
       assertEquals(el1, listeners.get(0));

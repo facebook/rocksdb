@@ -718,7 +718,9 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+DEFINE_uint64(compaction_readahead_size,
+              ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
+              "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
@@ -3058,12 +3060,12 @@ class Benchmark {
                                   FLAGS_cache_numshardbits);
       opts.hash_seed = GetCacheHashSeed();
       if (use_tiered_cache) {
-        TieredVolatileCacheOptions tiered_opts;
+        TieredCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
         tiered_opts.cache_opts = &opts;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(tiered_opts);
+        return NewTieredCache(tiered_opts);
       } else {
         return opts.MakeSharedCache();
       }
@@ -3091,12 +3093,12 @@ class Benchmark {
       }
 
       if (use_tiered_cache) {
-        TieredVolatileCacheOptions tiered_opts;
+        TieredCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
         tiered_opts.cache_opts = &opts;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(tiered_opts);
+        return NewTieredCache(tiered_opts);
       } else {
         return opts.MakeSharedCache();
       }

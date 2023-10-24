@@ -52,11 +52,11 @@ class BatchedOpsStressTest : public StressTest {
       const std::string k = num + key_body;
       const std::string v = value_body + num;
 
-      if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
-      } else if (FLAGS_use_put_entity_one_in > 0 &&
-                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
+        batch.Merge(cfh, k, v);
       } else {
         batch.Put(cfh, k, v);
       }

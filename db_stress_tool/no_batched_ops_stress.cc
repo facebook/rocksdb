@@ -1067,7 +1067,8 @@ class NonBatchedOpsStressTest : public StressTest {
         is_consistent = false;
       } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
         PinnableWideColumns cmp_result;
-
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GETENTITY);
         const Status cmp_s =
             db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
 
@@ -1278,7 +1279,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     Status s;
 
-    if (FLAGS_use_merge) {
+    if (FLAGS_use_put_entity_one_in > 0 &&
+        (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
+    } else if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Merge(write_opts, cfh, k, v);
@@ -1290,10 +1295,6 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.Merge(cfh, k, v);
         });
       }
-    } else if (FLAGS_use_put_entity_one_in > 0 &&
-               (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
@@ -1307,8 +1308,6 @@ class NonBatchedOpsStressTest : public StressTest {
         });
       }
     }
-
-    pending_expected_value.Commit();
 
     if (!s.ok()) {
       if (FLAGS_inject_error_severity >= 2) {
@@ -1324,7 +1323,7 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     }
-
+    pending_expected_value.Commit();
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);
@@ -1366,9 +1365,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.Delete(cfh, key);
         });
       }
-      pending_expected_value.Commit();
 
-      thread->stats.AddDeletes(1);
       if (!s.ok()) {
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
@@ -1384,6 +1381,8 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddDeletes(1);
     } else {
       PendingExpectedValue pending_expected_value =
           shared->PrepareSingleDelete(rand_column_family, rand_key);
@@ -1398,8 +1397,7 @@ class NonBatchedOpsStressTest : public StressTest {
           return txn.SingleDelete(cfh, key);
         });
       }
-      pending_expected_value.Commit();
-      thread->stats.AddSingleDeletes(1);
+
       if (!s.ok()) {
         if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
@@ -1415,6 +1413,8 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddSingleDeletes(1);
     }
     return s;
   }
@@ -1542,11 +1542,8 @@ class NonBatchedOpsStressTest : public StressTest {
       const Slice k(key_str);
       const Slice v(value, value_len);
 
-      const bool use_put_entity =
-          !FLAGS_use_merge && FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0;
-
-      if (use_put_entity) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         WideColumns columns = GenerateWideColumns(value_base, v);
         s = sst_file_writer.PutEntity(k, columns);
       } else {
@@ -1566,12 +1563,16 @@ class NonBatchedOpsStressTest : public StressTest {
                                   {sst_filename}, IngestExternalFileOptions());
     }
     if (!s.ok()) {
-      fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
-      thread->shared->SafeTerminate();
-    }
-
-    for (size_t i = 0; i < pending_expected_values.size(); ++i) {
-      pending_expected_values[i].Commit();
+      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      } else {
+        fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
+      }
+    } else {
+      for (size_t i = 0; i < pending_expected_values.size(); ++i) {
+        pending_expected_values[i].Commit();
+      }
     }
   }
 
@@ -2034,9 +2035,7 @@ class NonBatchedOpsStressTest : public StressTest {
       const Slice slice(value_from_db);
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
-                                                  expected_value) ||
-          !ExpectedValueHelper::InExpectedValueBaseRange(
-              value_base_from_db, expected_value, expected_value)) {
+                                                  expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
                           key, value_from_db, "");
         return false;
@@ -2045,6 +2044,14 @@ class NonBatchedOpsStressTest : public StressTest {
       size_t expected_value_data_size =
           GenerateValue(expected_value.GetValueBase(), expected_value_data,
                         sizeof(expected_value_data));
+      if (!ExpectedValueHelper::InExpectedValueBaseRange(
+              value_base_from_db, expected_value, expected_value)) {
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+      // TODO: are the length/memcmp() checks repetitive?
       if (value_from_db.length() != expected_value_data_size) {
         VerificationAbort(shared,
                           msg_prefix + ": Length of value read is not equal",

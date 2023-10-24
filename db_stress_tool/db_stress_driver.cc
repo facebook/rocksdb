@@ -81,11 +81,29 @@ bool RunStressTestImpl(SharedState* shared) {
   stress->InitDb(shared);
   stress->FinishInitDb(shared);
 
+  if (FLAGS_write_fault_one_in) {
+    if (!FLAGS_sync_fault_injection) {
+      // unsynced WAL loss is not supported without sync_fault_injection
+      fault_fs_guard->SetDirectWritableTypes({kWalFile});
+    }
+    IOStatus error_msg;
+    if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
+      error_msg = IOStatus::IOError("Retryable injected write error");
+      error_msg.SetRetryable(true);
+    } else if (FLAGS_inject_error_severity == 2) {
+      error_msg = IOStatus::IOError("Fatal injected write error");
+      error_msg.SetDataLoss(true);
+    }
+    // TODO: inject write error for other file types including
+    //  MANIFEST, CURRENT, and WAL files.
+    fault_fs_guard->SetRandomWriteError(
+        shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
+        /*inject_for_all_file_types=*/false, {FileType::kTableFile});
+    fault_fs_guard->SetFilesystemDirectWritable(false);
+    fault_fs_guard->EnableWriteErrorInjection();
+  }
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
-  }
-  if (FLAGS_write_fault_one_in) {
-    fault_fs_guard->EnableWriteErrorInjection();
   }
 
   uint32_t n = FLAGS_threads;
@@ -100,6 +118,11 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (FLAGS_continuous_verification_interval > 0) {
+    shared->IncBgThreads();
+  }
+
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
     shared->IncBgThreads();
   }
 
@@ -118,6 +141,13 @@ bool RunStressTestImpl(SharedState* shared) {
   if (FLAGS_continuous_verification_interval > 0) {
     db_stress_env->StartThread(DbVerificationThread,
                                &continuous_verification_thread);
+  }
+
+  ThreadState compressed_cache_set_capacity_thread(0, shared);
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
+    db_stress_env->StartThread(CompressedCacheSetCapacityThread,
+                               &compressed_cache_set_capacity_thread);
   }
 
   // Each thread goes through the following states:
@@ -212,7 +242,9 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
+      FLAGS_continuous_verification_interval > 0 ||
+      FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
     MutexLock l(shared->GetMutex());
     shared->SetShouldStopBgThread();
     while (!shared->BgThreadsFinished()) {

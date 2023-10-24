@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -481,22 +482,53 @@ enum TieredAdmissionPolicy {
   // Same as kAdmPolicyPlaceholder, but also if an entry in the primary cache
   // was a hit, then force insert it into the compressed secondary cache
   kAdmPolicyAllowCacheHits,
+  // An admission policy for three cache tiers - primary uncompressed,
+  // compressed secondary, and a compressed local flash (non-volatile) cache.
+  // Each tier is managed as an independent queue.
+  kAdmPolicyThreeQueue,
   kAdmPolicyMax,
 };
 
+// EXPERIMENTAL
+// The following feature is experimental, and the API is subject to change
+//
 // A 2-tier cache with a primary block cache, and a compressed secondary
 // cache. The returned cache instance will internally allocate a primary
 // uncompressed cache of the specified type, and a compressed secondary
 // cache. Any cache memory reservations, such as WriteBufferManager
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
-struct TieredVolatileCacheOptions {
-  ShardedCacheOptions* cache_opts;
-  PrimaryCacheType cache_type;
-  TieredAdmissionPolicy adm_policy;
+struct TieredCacheOptions {
+  ShardedCacheOptions* cache_opts = nullptr;
+  PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
+  TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
   CompressedSecondaryCacheOptions comp_cache_opts;
+  // Any capacity specified in LRUCacheOptions, HyperClockCacheOptions and
+  // CompressedSecondaryCacheOptions is ignored
+  // The total_capacity specified here is taken as the memory budget and
+  // divided between the primary block cache and compressed secondary cache
+  size_t total_capacity = 0;
+  double compressed_secondary_ratio = 0.0;
+  // An optional secondary cache that will serve as the persistent cache
+  // tier. If present, compressed blocks will be written to this
+  // secondary cache.
+  std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
-extern std::shared_ptr<Cache> NewTieredVolatileCache(
-    TieredVolatileCacheOptions& cache_opts);
+extern std::shared_ptr<Cache> NewTieredCache(
+    const TieredCacheOptions& cache_opts);
+
+// EXPERIMENTAL
+// Dynamically update some of the parameters of a TieredCache. The input
+// cache shared_ptr should have been allocated using NewTieredVolatileCache.
+// At the moment, there are a couple of limitations -
+// 1. The total_capacity should be > the WriteBufferManager max size, if
+//    using the block cache charging feature
+// 2. Once the compressed secondary cache is disabled by setting the
+//    compressed_secondary_ratio to 0.0, it cannot be dynamically re-enabled
+//    again
+extern Status UpdateTieredCache(
+    const std::shared_ptr<Cache>& cache, int64_t total_capacity = -1,
+    double compressed_secondary_ratio = std::numeric_limits<double>::max(),
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyMax);
 }  // namespace ROCKSDB_NAMESPACE

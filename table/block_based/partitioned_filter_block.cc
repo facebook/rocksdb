@@ -317,12 +317,12 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     read_options.read_tier = kBlockCacheTier;
   }
 
-  const Status s =
-      table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
-                             UncompressionDict::GetEmptyDict(), filter_block,
-                             get_context, lookup_context,
-                             /* for_compaction */ false, /* use_cache */ true,
-                             /* async_read */ false);
+  const Status s = table()->RetrieveBlock(
+      prefetch_buffer, read_options, fltr_blk_handle,
+      UncompressionDict::GetEmptyDict(), filter_block, get_context,
+      lookup_context,
+      /* for_compaction */ false, /* use_cache */ true,
+      /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   return s;
 }
@@ -498,7 +498,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
         0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/,
-        /*upper_bound_offset*/ 0);
+        /*upper_bound_offset*/ 0, /*readaheadsize_cb*/ nullptr,
+        /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
     IOOptions opts;
     s = rep->file->PrepareIOOptions(ro, opts);
@@ -521,7 +522,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(
         prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
         handle, UncompressionDict::GetEmptyDict(),
         /* for_compaction */ false, &block, nullptr /* get_context */,
-        &lookup_context, nullptr /* contents */, false);
+        &lookup_context, nullptr /* contents */, false,
+        /* use_block_cache_for_lookup */ true);
     if (!s.ok()) {
       return s;
     }

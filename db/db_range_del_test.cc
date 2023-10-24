@@ -682,6 +682,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
     // soon as its refcount drops to zero.
     bbto.block_cache->EraseUnRefEntries();
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(kNum, expected);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -840,6 +841,7 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
       ++expected;
     }
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(kNum, expected);
   delete iter;
 }
@@ -908,6 +910,7 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
     std::string key;
     ASSERT_EQ(expected[i], iter->key());
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(3, i);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -1382,6 +1385,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
     for (; iter->Valid(); iter->Next()) {
       ++keys_found;
     }
+    EXPECT_OK(iter->status());
     delete iter;
     return keys_found;
   };
@@ -1485,6 +1489,7 @@ TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
   for (; iter->Valid(); iter->Prev()) {
     ++keys_found;
   }
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(kNumKeys, keys_found);
 
@@ -1519,6 +1524,7 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -1564,6 +1570,7 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInImmMemTables) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
@@ -1978,6 +1985,7 @@ TEST_F(DBRangeDelTest, IteratorRefresh) {
     ASSERT_EQ("key1", iter->key());
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
 
     delete iter;
   }
@@ -3642,6 +3650,124 @@ TEST_F(DBRangeDelTest, RangeDelReseekAfterFileReadError) {
   ASSERT_TRUE(iter->status().IsIOError());
 
   iter.reset();
+}
+
+TEST_F(DBRangeDelTest, ReleaseSnapshotAfterIteratorCreation) {
+  // Test that range tombstone code path in LevelIterator
+  // does access ReadOptions::snapshot after Iterator creation.
+  //
+  // Put some data in L2 so that range tombstone in L1 will not be dropped.
+  ASSERT_OK(Put(Key(0), "v"));
+  ASSERT_OK(Put(Key(100), "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  // two L1 file with range del
+  ASSERT_OK(Put(Key(1), "v"));
+  ASSERT_OK(Put(Key(2), "v"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(3),
+                             Key(4)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  ASSERT_OK(Put(Key(5), "v"));
+  ASSERT_OK(Put(Key(6), "v"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(5),
+                             Key(6)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions ro;
+  ro.snapshot = snapshot;
+
+  Iterator* iter = db_->NewIterator(ro);
+  db_->ReleaseSnapshot(snapshot);
+
+  iter->Seek(Key(1));
+  std::vector<int> expected_keys{1, 2, 6, 100};
+  for (int i : expected_keys) {
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), Key(i));
+    iter->Next();
+  }
+  ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+
+  delete iter;
+}
+
+TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
+  ASSERT_OK(Put(Key(4), "4"));
+  ASSERT_OK(Put(Key(6), "6"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(3),
+                             Key(5)));
+
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  // Live Memtable
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  ASSERT_OK(iter->Refresh(snapshot));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // Immutable Memtable
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(iter->Refresh(nullptr));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  ASSERT_OK(iter->Refresh(snapshot));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L0
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_OK(iter->Refresh(nullptr));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  ASSERT_OK(iter->Refresh(snapshot));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L1
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_OK(iter->Refresh(nullptr));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(6));
+  ASSERT_OK(iter->Refresh(snapshot));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  // L1 with two file.
+  // Test that when LevelIterator enters a new file,
+  // it remembers which snapshot sequence number to use.
+  ASSERT_OK(Put(Key(2), "2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  ASSERT_OK(iter->Refresh(nullptr));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  // LevelIterator is at the first file
+  ASSERT_EQ(iter->key(), Key(2));
+  ASSERT_OK(iter->Refresh(snapshot));
+  // Will enter the second file, and create a new range tombstone iterator.
+  // It should use the snapshot sequence number.
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(4));
+  iter.reset();
+  db_->ReleaseSnapshot(snapshot);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -107,7 +107,7 @@ class CompactionOutputs {
 
   // Finish the current output file
   Status Finish(const Status& intput_status,
-                const SeqnoToTimeMapping& seqno_time_mapping);
+                const SeqnoToTimeMapping& seqno_to_time_mapping);
 
   // Update output table properties from table builder
   void UpdateTableProperties() {

@@ -306,11 +306,12 @@ const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
 
 SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   InstrumentedMutexLock l(&mutex_);
-  return seqno_time_mapping_;
+  return seqno_to_time_mapping_;
 }
 
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
+  InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);
   return EstimateInMemoryStatsHistorySize();
 }
 }  // namespace ROCKSDB_NAMESPACE
