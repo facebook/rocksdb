@@ -489,6 +489,22 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
   }
 }
 
+Status CacheWithSecondaryAdapter::GetSecondaryCacheCapacity(
+    size_t& size) const {
+  return secondary_cache_->GetCapacity(size);
+}
+
+Status CacheWithSecondaryAdapter::GetSecondaryCachePinnedUsage(
+    size_t& size) const {
+  MutexLock m(&mutex_);
+  size_t capacity = 0;
+  Status s = secondary_cache_->GetCapacity(capacity);
+  if (s.ok()) {
+    size = capacity - pri_cache_res_->GetTotalMemoryUsed();
+  }
+  return s;
+}
+
 // Update the secondary/primary allocation ratio (remember, the primary
 // capacity is the total memory budget when distribute_cache_res_ is true).
 // When the ratio changes, we may accumulate some error in the calculations
