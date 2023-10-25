@@ -198,6 +198,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/MemTableConfig.java
   src/main/java/org/rocksdb/MemTableInfo.java
   src/main/java/org/rocksdb/MergeOperator.java
+  src/main/java/org/rocksdb/MergeEncodings.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/MutableDBOptions.java
@@ -387,6 +388,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/WalFilterTest.java
   src/test/java/org/rocksdb/AbstractTransactionTest.java
   src/test/java/org/rocksdb/MergeTest.java
+  src/test/java/org/rocksdb/MergeEncodingsTest.java
   src/test/java/org/rocksdb/OptionsTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/MultiGetManyKeysTest.java
