@@ -69,7 +69,7 @@ commands:
           command: |
             mkdir build
             cd build
-            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
             cd ..
             echo "Building with VS version: $Env:CMAKE_GENERATOR"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
@@ -563,6 +563,23 @@ jobs:
           no_output_timeout: 100m
       - post-steps
 
+  build-windows-vs2022-avx2:
+    executor:
+      name: win/server-2022
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: AVX2
+    steps:
+      - windows-build-steps
+
   build-windows-vs2022:
     executor:
       name: win/server-2022
@@ -576,6 +593,7 @@ jobs:
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
@@ -592,6 +610,7 @@ jobs:
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 16 2019
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
@@ -613,7 +632,7 @@ jobs:
       - post-steps
 
   build-linux-java-pmd:
-    machine: 
+    machine:
       image: ubuntu-2004:202111-02
     resource_class: large
     environment:
@@ -887,6 +906,7 @@ workflows:
       - build-linux-mini-crashtest
   jobs-windows:
     jobs:
+      - build-windows-vs2022-avx2
       - build-windows-vs2022
       - build-windows-vs2019
       - build-cmake-mingw
