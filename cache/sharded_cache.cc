@@ -83,6 +83,16 @@ size_t ShardedCacheBase::GetCapacity() const {
   return capacity_;
 }
 
+Status ShardedCacheBase::GetSecondaryCacheCapacity(size_t& size) const {
+  size = 0;
+  return Status::OK();
+}
+
+Status ShardedCacheBase::GetSecondaryCachePinnedUsage(size_t& size) const {
+  size = 0;
+  return Status::OK();
+}
+
 bool ShardedCacheBase::HasStrictCapacityLimit() const {
   MutexLock l(&config_mutex_);
   return strict_capacity_limit_;
