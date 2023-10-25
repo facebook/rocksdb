@@ -375,6 +375,14 @@ class Cache {
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
 
+  virtual Status GetSecondaryCacheCapacity(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
+  virtual Status GetSecondaryCachePinnedUsage(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
