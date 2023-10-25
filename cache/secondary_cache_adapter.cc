@@ -496,11 +496,18 @@ Status CacheWithSecondaryAdapter::GetSecondaryCacheCapacity(
 
 Status CacheWithSecondaryAdapter::GetSecondaryCachePinnedUsage(
     size_t& size) const {
-  MutexLock m(&mutex_);
-  size_t capacity = 0;
-  Status s = secondary_cache_->GetCapacity(capacity);
-  if (s.ok()) {
-    size = capacity - pri_cache_res_->GetTotalMemoryUsed();
+  Status s;
+  if (distribute_cache_res_) {
+    MutexLock m(&mutex_);
+    size_t capacity = 0;
+    s = secondary_cache_->GetCapacity(capacity);
+    if (s.ok()) {
+      size = capacity - pri_cache_res_->GetTotalMemoryUsed();
+    } else {
+      size = 0;
+    }
+  } else {
+    size = 0;
   }
   return s;
 }
