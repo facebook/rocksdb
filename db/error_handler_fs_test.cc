@@ -7,12 +7,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
+
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
 #include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -2470,6 +2473,59 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAbortRecovery) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
 
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FlushErrorRecoveryRaceWithDBDestruction) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k1", "val"));
+
+  // Inject retryable flush error
+  bool error_set = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeOutputValidation", [&](void*) {
+        if (error_set) {
+          return;
+        }
+        IOStatus st = IOStatus::IOError("Injected");
+        st.SetRetryable(true);
+        fault_fs_->SetFilesystemActive(false, st);
+        error_set = true;
+      });
+
+  port::Thread db_close_thread;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeDeleteFile", [&](void*) {
+        // Clear retryable flush error injection
+        fault_fs_->SetFilesystemActive(true);
+
+        // Coerce race between ending auto recovery in db destruction and flush
+        // error recovery
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+            {{"PostEndAutoRecovery", "FlushJob::WriteLevel0Table"}});
+        db_close_thread = port::Thread([&] { Close(); });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+  ASSERT_NOK(s);
+
+  int placeholder = 1;
+  listener->WaitForRecovery(placeholder);
+  ASSERT_TRUE(listener->new_bg_error().IsShutdownInProgress());
+
+  // Prior to the fix, the db close will crash due to the recovery thread for
+  // flush error is not joined by the time of destruction.
+  db_close_thread.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   Destroy(options);
 }
 
