@@ -61,6 +61,7 @@ public class MergeEncodings {
    *
    * @throws IllegalArgumentException when the input value is negative
    */
+  @SuppressWarnings("PMD.AvoidReassigningParameters")
   public static byte[] encodeVarint(long value) {
     if (value < 0) {
       throw new IllegalArgumentException(
