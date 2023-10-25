@@ -1831,7 +1831,12 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover1) {
 }
 
 TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
-  // Activate the FS before the first resume
+  // This test creates a scenario where second write's recovery can get started
+  // while mutex is released for a short period during
+  // NotifyOnErrorRecoveryEnd() from the first write's recovery. This is to make
+  // sure RecoverFromRetryableBGIOError() from the second write's recovery
+  // thread does not start with recovery_in_prog_ = false;
+
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -1861,9 +1866,7 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
        {"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
         "MultipleRecoveryThreads:4"},
        {"MultipleRecoveryThreads:5",
-        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"},
-       {"MultipleRecoveryThreads:SecondWriteReadFaultInjected",
-        "MultipleRecoveryThreads:6"}});
+        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   // First write with read fault injected and recovery will start
@@ -1885,30 +1888,28 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
     ASSERT_OK(Put(Key(2), "val2", wo));
     Status s = Flush();
     ASSERT_NOK(s);
-    TEST_SYNC_POINT("MultipleRecoveryThreads:SecondWriteReadFaultInjected");
   });
   // Second bg thread before waiting for the first thread's recovery thread
   TEST_SYNC_POINT("MultipleRecoveryThreads:3");
   // First thread's recovery thread continues
   TEST_SYNC_POINT("MultipleRecoveryThreads:2");
-  // Wait for the first thread's recovery to be done (this sets
-  // recovery_in_prog_ = false)
+  // Wait for the first thread's recovery to finish
+  // (this sets recovery_in_prog_ = false)
   TEST_SYNC_POINT("MultipleRecoveryThreads:4");
   // Second thread continues and starts recovery thread
   TEST_SYNC_POINT("MultipleRecoveryThreads:5");
-  // To make sure we don't remove error injection too early
-  TEST_SYNC_POINT("MultipleRecoveryThreads:6");
+  second_write.join();
   // Remove error injection so that second thread recovery can go through
   fault_fs_->SetFilesystemActive(true);
 
-  // Before Second thread continues, set up sync point so that we can wait for
-  // the recovery thread to finish
+  // Set up sync point so that we can wait for the recovery thread to finish
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"RecoverFromRetryableBGIOError:End", "MultipleRecoveryThreads:7"}});
+      {{"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
+        "MultipleRecoveryThreads:6"}});
 
   // Wait for the second thread's recovery to be done
-  TEST_SYNC_POINT("MultipleRecoveryThreads:7");
-  second_write.join();
+  TEST_SYNC_POINT("MultipleRecoveryThreads:6");
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   Destroy(options);
