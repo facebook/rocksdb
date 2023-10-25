@@ -591,8 +591,8 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B(
  * Method:    getIterator
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_Transaction_getIterator(JNIEnv* /*env*/,
-                                               jclass, jlong jhandle,
+jlong Java_org_rocksdb_Transaction_getIterator(JNIEnv* /*env*/, jclass,
+                                               jlong jhandle,
                                                jlong jread_options_handle,
                                                jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
@@ -611,9 +611,9 @@ jlong Java_org_rocksdb_Transaction_getIterator(JNIEnv* /*env*/,
  * Signature: (J[BII[BIIJZ)V
  */
 void Java_org_rocksdb_Transaction_put__J_3BII_3BIIJZ(
-    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey,
-    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
-    jint jval_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
+    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey, jint jkey_off,
+    jint jkey_part_len, jbyteArray jval, jint jval_off, jint jval_len,
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
@@ -635,9 +635,8 @@ void Java_org_rocksdb_Transaction_put__J_3BII_3BIIJZ(
  * Signature: (J[BII[BII)V
  */
 void Java_org_rocksdb_Transaction_put__J_3BII_3BII(
-    JNIEnv* env, jclass /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
-    jint jval_len) {
+    JNIEnv* env, jclass /*jobj*/, jlong jhandle, jbyteArray jkey, jint jkey_off,
+    jint jkey_part_len, jbyteArray jval, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
@@ -845,9 +844,9 @@ void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BI(
  * Signature: (J[BII[BIIJZ)V
  */
 void Java_org_rocksdb_Transaction_merge__J_3BII_3BIIJZ(
-    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey,
-    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
-    jint jval_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
+    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey, jint jkey_off,
+    jint jkey_part_len, jbyteArray jval, jint jval_off, jint jval_len,
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
@@ -869,9 +868,8 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BIIJZ(
  * Signature: (J[BII[BII)V
  */
 void Java_org_rocksdb_Transaction_merge__J_3BII_3BII(
-    JNIEnv* env, jclass /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
-    jint jval_len) {
+    JNIEnv* env, jclass /*jobj*/, jlong jhandle, jbyteArray jkey, jint jkey_off,
+    jint jkey_part_len, jbyteArray jval, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
@@ -1255,9 +1253,9 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BI(
  * Signature: (J[BII[BIIJ)V
  */
 void Java_org_rocksdb_Transaction_mergeUntracked(
-    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey,
-    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
-    jint jval_len, jlong jcolumn_family_handle) {
+    JNIEnv* env, jclass, jlong jhandle, jbyteArray jkey, jint jkey_off,
+    jint jkey_part_len, jbyteArray jval, jint jval_off, jint jval_len,
+    jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(

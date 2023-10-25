@@ -2878,18 +2878,17 @@ public class Transaction extends RocksObject {
 
   private static native void setSnapshot(final long handle);
   private static native void setSnapshotOnNextOperation(final long handle);
-  private static native void setSnapshotOnNextOperation(final long handle,
-      final long transactionNotifierHandle);
+  private static native void setSnapshotOnNextOperation(
+      final long handle, final long transactionNotifierHandle);
   private static native long getSnapshot(final long handle);
   private static native void clearSnapshot(final long handle);
   private static native void prepare(final long handle) throws RocksDBException;
   private static native void commit(final long handle) throws RocksDBException;
   private static native void rollback(final long handle) throws RocksDBException;
   private static native void setSavePoint(final long handle) throws RocksDBException;
-  private static native void rollbackToSavePoint(final long handle)
-      throws RocksDBException;
-  private static native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyOffset, final int keyLength, final long columnFamilyHandle)
+  private static native void rollbackToSavePoint(final long handle) throws RocksDBException;
+  private static native byte[] get(final long handle, final long readOptionsHandle,
+      final byte[] key, final int keyOffset, final int keyLength, final long columnFamilyHandle)
       throws RocksDBException;
   private static native int get(final long handle, final long readOptionsHandle, final byte[] key,
       final int keyOffset, final int keyLen, final byte[] value, final int valueOffset,
@@ -2901,27 +2900,25 @@ public class Transaction extends RocksObject {
 
   private static native byte[][] multiGet(final long handle, final long readOptionsHandle,
       final byte[][] keys, final long[] columnFamilyHandles) throws RocksDBException;
-  private static native byte[][] multiGet(final long handle,
-      final long readOptionsHandle, final byte[][] keys)
-      throws RocksDBException;
+  private static native byte[][] multiGet(
+      final long handle, final long readOptionsHandle, final byte[][] keys) throws RocksDBException;
   private static native byte[] getForUpdate(final long handle, final long readOptionsHandle,
       final byte[] key, final int keyOffset, final int keyLength, final long columnFamilyHandle,
       final boolean exclusive, final boolean doValidate) throws RocksDBException;
-  private static native int getForUpdate(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
-      final int valueLen, final long columnFamilyHandle, final boolean exclusive,
-      final boolean doValidate) throws RocksDBException;
+  private static native int getForUpdate(final long handle, final long readOptionsHandle,
+      final byte[] key, final int keyOffset, final int keyLength, final byte[] value,
+      final int valueOffset, final int valueLen, final long columnFamilyHandle,
+      final boolean exclusive, final boolean doValidate) throws RocksDBException;
   private static native int getDirectForUpdate(final long handle, final long readOptionsHandle,
       final ByteBuffer key, final int keyOffset, final int keyLength, final ByteBuffer value,
       final int valueOffset, final int valueLen, final long columnFamilyHandle,
       final boolean exclusive, final boolean doValidate) throws RocksDBException;
-  private static native byte[][] multiGetForUpdate(final long handle,
-      final long readOptionsHandle, final byte[][] keys,
-      final long[] columnFamilyHandles) throws RocksDBException;
+  private static native byte[][] multiGetForUpdate(final long handle, final long readOptionsHandle,
+      final byte[][] keys, final long[] columnFamilyHandles) throws RocksDBException;
   private static native byte[][] multiGetForUpdate(
       final long handle, final long readOptionsHandle, final byte[][] keys) throws RocksDBException;
-  private static native long getIterator(final long handle,
-      final long readOptionsHandle, final long columnFamilyHandle);
+  private static native long getIterator(
+      final long handle, final long readOptionsHandle, final long columnFamilyHandle);
   private static native void put(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
@@ -2931,9 +2928,8 @@ public class Transaction extends RocksObject {
   private static native void put(final long handle, final byte[][] keys, final int keysLength,
       final byte[][] values, final int valuesLength, final long columnFamilyHandle,
       final boolean assumeTracked) throws RocksDBException;
-  private static native void put(final long handle, final byte[][] keys,
-      final int keysLength, final byte[][] values, final int valuesLength)
-      throws RocksDBException;
+  private static native void put(final long handle, final byte[][] keys, final int keysLength,
+      final byte[][] values, final int valuesLength) throws RocksDBException;
   private static native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
       ByteBuffer value, int valueOffset, int valueLength, long cfHandle,
       final boolean assumeTracked) throws RocksDBException;
@@ -2954,26 +2950,26 @@ public class Transaction extends RocksObject {
       throws RocksDBException;
   private static native void delete(final long handle, final byte[] key, final int keyLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
-  private static native void delete(final long handle, final byte[] key,
-      final int keyLength) throws RocksDBException;
+  private static native void delete(final long handle, final byte[] key, final int keyLength)
+      throws RocksDBException;
   private static native void delete(final long handle, final byte[][] keys, final int keysLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
-  private static native void delete(final long handle, final byte[][] keys,
-      final int keysLength) throws RocksDBException;
+  private static native void delete(final long handle, final byte[][] keys, final int keysLength)
+      throws RocksDBException;
   private static native void singleDelete(final long handle, final byte[] key, final int keyLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
-  private static native void singleDelete(final long handle, final byte[] key,
-      final int keyLength) throws RocksDBException;
-  private static native void singleDelete(final long handle, final byte[][] keys, final int keysLength,
-      final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
-  private static native void singleDelete(final long handle, final byte[][] keys,
-      final int keysLength) throws RocksDBException;
-  private static native void putUntracked(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength,
-      final long columnFamilyHandle) throws RocksDBException;
-  private static native void putUntracked(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength)
+  private static native void singleDelete(final long handle, final byte[] key, final int keyLength)
       throws RocksDBException;
+  private static native void singleDelete(final long handle, final byte[][] keys,
+      final int keysLength, final long columnFamilyHandle, final boolean assumeTracked)
+      throws RocksDBException;
+  private static native void singleDelete(
+      final long handle, final byte[][] keys, final int keysLength) throws RocksDBException;
+  private static native void putUntracked(final long handle, final byte[] key, final int keyLength,
+      final byte[] value, final int valueLength, final long columnFamilyHandle)
+      throws RocksDBException;
+  private static native void putUntracked(final long handle, final byte[] key, final int keyLength,
+      final byte[] value, final int valueLength) throws RocksDBException;
   private static native void putUntracked(final long handle, final byte[][] keys,
       final int keysLength, final byte[][] values, final int valuesLength,
       final long columnFamilyHandle) throws RocksDBException;
@@ -2985,17 +2981,15 @@ public class Transaction extends RocksObject {
   private static native void mergeUntrackedDirect(final long handle, final ByteBuffer key,
       final int keyOff, final int keyLength, final ByteBuffer value, final int valueOff,
       final int valueLength, final long columnFamilyHandle) throws RocksDBException;
-  private static native void deleteUntracked(final long handle, final byte[] key, final int keyLength,
-      final long columnFamilyHandle) throws RocksDBException;
   private static native void deleteUntracked(final long handle, final byte[] key,
-      final int keyLength) throws RocksDBException;
+      final int keyLength, final long columnFamilyHandle) throws RocksDBException;
+  private static native void deleteUntracked(
+      final long handle, final byte[] key, final int keyLength) throws RocksDBException;
   private static native void deleteUntracked(final long handle, final byte[][] keys,
-      final int keysLength, final long columnFamilyHandle)
-      throws RocksDBException;
-  private static native void deleteUntracked(final long handle, final byte[][] keys,
-      final int keysLength) throws RocksDBException;
-  private static native void putLogData(final long handle, final byte[] blob,
-      final int blobLength);
+      final int keysLength, final long columnFamilyHandle) throws RocksDBException;
+  private static native void deleteUntracked(
+      final long handle, final byte[][] keys, final int keysLength) throws RocksDBException;
+  private static native void putLogData(final long handle, final byte[] blob, final int blobLength);
   private static native void disableIndexing(final long handle);
   private static native void enableIndexing(final long handle);
   private static native long getNumKeys(final long handle);
@@ -3006,19 +3000,17 @@ public class Transaction extends RocksObject {
   private static native long getWriteBatch(final long handle);
   private static native void setLockTimeout(final long handle, final long lockTimeout);
   private static native long getWriteOptions(final long handle);
-  private static native void setWriteOptions(final long handle,
-      final long writeOptionsHandle);
-  private static native void undoGetForUpdate(final long handle, final byte[] key,
-      final int keyLength, final long columnFamilyHandle);
-  private static native void undoGetForUpdate(final long handle, final byte[] key,
-      final int keyLength);
-  private static native void rebuildFromWriteBatch(final long handle,
-      final long writeBatchHandle) throws RocksDBException;
+  private static native void setWriteOptions(final long handle, final long writeOptionsHandle);
+  private static native void undoGetForUpdate(
+      final long handle, final byte[] key, final int keyLength, final long columnFamilyHandle);
+  private static native void undoGetForUpdate(
+      final long handle, final byte[] key, final int keyLength);
+  private static native void rebuildFromWriteBatch(final long handle, final long writeBatchHandle)
+      throws RocksDBException;
   private static native long getCommitTimeWriteBatch(final long handle);
   private static native void setLogNumber(final long handle, final long logNumber);
   private static native long getLogNumber(final long handle);
-  private static native void setName(final long handle, final String name)
-      throws RocksDBException;
+  private static native void setName(final long handle, final String name) throws RocksDBException;
   private static native String getName(final long handle);
   private static native long getID(final long handle);
   private static native boolean isDeadlockDetect(final long handle);

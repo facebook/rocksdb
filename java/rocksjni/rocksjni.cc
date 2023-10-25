@@ -3245,8 +3245,7 @@ jstring Java_org_rocksdb_RocksDB_getDBOptions(JNIEnv* env, jclass,
  * Method:    setPerfLevel
  * Signature: (JB)V
  */
-void Java_org_rocksdb_RocksDB_setPerfLevel(JNIEnv*, jclass,
-                                           jbyte jperf_level) {
+void Java_org_rocksdb_RocksDB_setPerfLevel(JNIEnv*, jclass, jbyte jperf_level) {
   rocksdb::SetPerfLevel(
       ROCKSDB_NAMESPACE::PerfLevelTypeJni::toCppPerfLevelType(jperf_level));
 }

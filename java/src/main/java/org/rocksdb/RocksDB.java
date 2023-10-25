@@ -4847,125 +4847,102 @@ public class RocksDB extends RocksObject {
   private static native long[] createColumnFamilies(
       final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
       throws RocksDBException;
-  private static native long createColumnFamilyWithImport(final long handle, final byte[] columnFamilyName,
-      final int columnFamilyNamelen, final long columnFamilyOptions,
+  private static native long createColumnFamilyWithImport(final long handle,
+      final byte[] columnFamilyName, final int columnFamilyNamelen, final long columnFamilyOptions,
       final long importColumnFamilyOptions, final long[] metadataHandleList)
       throws RocksDBException;
-  private static native void dropColumnFamily(
-      final long handle, final long cfHandle) throws RocksDBException;
-  private static native void dropColumnFamilies(final long handle,
-      final long[] cfHandles) throws RocksDBException;
-  private static native void put(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, int valueLength) throws RocksDBException;
+  private static native void dropColumnFamily(final long handle, final long cfHandle)
+      throws RocksDBException;
+  private static native void dropColumnFamilies(final long handle, final long[] cfHandles)
+      throws RocksDBException;
   private static native void put(final long handle, final byte[] key, final int keyOffset,
-      final int keyLength, final byte[] value, final int valueOffset,
+      final int keyLength, final byte[] value, final int valueOffset, int valueLength)
+      throws RocksDBException;
+  private static native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long cfHandle) throws RocksDBException;
+  private static native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native void put(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
       final int valueLength, final long cfHandle) throws RocksDBException;
-  private static native void put(final long handle, final long writeOptHandle,
-      final byte[] key,  final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private static native void put(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
-      final long cfHandle) throws RocksDBException;
-  private static native void delete(final long handle, final byte[] key,
+  private static native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength) throws RocksDBException;
+  private static native void delete(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
       final int keyOffset, final int keyLength) throws RocksDBException;
-  private static native void delete(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
+  private static native void delete(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native void singleDelete(final long handle, final byte[] key, final int keyLen)
       throws RocksDBException;
-  private static native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private static native void delete(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
+  private static native void singleDelete(final long handle, final byte[] key, final int keyLen,
       final long cfHandle) throws RocksDBException;
-  private static native void singleDelete(
-      final long handle, final byte[] key, final int keyLen)
-      throws RocksDBException;
-  private static native void singleDelete(
-      final long handle, final byte[] key, final int keyLen,
-      final long cfHandle) throws RocksDBException;
-  private static native void singleDelete(
-      final long handle, final long writeOptHandle, final byte[] key,
-      final int keyLen) throws RocksDBException;
-  private static native void singleDelete(
-      final long handle, final long writeOptHandle,
-      final byte[] key, final int keyLen, final long cfHandle)
-      throws RocksDBException;
+  private static native void singleDelete(final long handle, final long writeOptHandle,
+      final byte[] key, final int keyLen) throws RocksDBException;
+  private static native void singleDelete(final long handle, final long writeOptHandle,
+      final byte[] key, final int keyLen, final long cfHandle) throws RocksDBException;
   private static native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength) throws RocksDBException;
   private static native void deleteRange(final long handle, final byte[] beginKey,
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
-      throws RocksDBException;
+      final int endKeyOffset, final int endKeyLength, final long cfHandle) throws RocksDBException;
   private static native void deleteRange(final long handle, final long writeOptHandle,
       final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
-      final byte[] endKey, final int endKeyOffset, final int endKeyLength)
-      throws RocksDBException;
-  private static native void deleteRange(
-      final long handle, final long writeOptHandle, final byte[] beginKey,
-      final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
-      final int endKeyOffset, final int endKeyLength, final long cfHandle)
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
+  private static native void deleteRange(final long handle, final long writeOptHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
   private static native void clipColumnFamily(final long handle, final long cfHandle,
       final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
       final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
-  private static native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private static native void merge(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
+  private static native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
-  private static native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private static native void merge(final long handle, final long writeOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private static native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
-  private static native void mergeDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
+  private static native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native void merge(final long handle, final long writeOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
+  private static native void mergeDirect(long handle, long writeOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
 
-  private static native void write0(final long handle, final long writeOptHandle,
-      final long wbHandle) throws RocksDBException;
-  private static native void write1(final long handle, final long writeOptHandle,
-      final long wbwiHandle) throws RocksDBException;
-  private static native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final byte[] value,
-      final int valueOffset, final int valueLength) throws RocksDBException;
-  private static native int get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, byte[] value,
-      final int valueOffset, final int valueLength, final long cfHandle)
+  private static native void write0(
+      final long handle, final long writeOptHandle, final long wbHandle) throws RocksDBException;
+  private static native void write1(
+      final long handle, final long writeOptHandle, final long wbwiHandle) throws RocksDBException;
+  private static native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
       throws RocksDBException;
-  private static native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength)
-      throws RocksDBException;
-  private static native int get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength,
-      final byte[] value, final int valueOffset, final int valueLength,
+  private static native int get(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
+  private static native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength) throws RocksDBException;
+  private static native int get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLength, final long cfHandle) throws RocksDBException;
   private static native byte[] get(final long handle, byte[] key, final int keyOffset,
       final int keyLength) throws RocksDBException;
-  private static native byte[] get(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
-      throws RocksDBException;
-  private static native byte[] get(final long handle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength)
-      throws RocksDBException;
-  private static native byte[] get(final long handle,
-      final long readOptHandle, final byte[] key, final int keyOffset,
+  private static native byte[] get(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength) throws RocksDBException;
+  private static native byte[] get(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle) throws RocksDBException;
+  private static native byte[][] multiGet(
+      final long dbHandle, final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
   private static native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths);
-  private static native byte[][] multiGet(final long dbHandle, final byte[][] keys,
-      final int[] keyOffsets, final int[] keyLengths,
-      final long[] columnFamilyHandles);
+      final int[] keyOffsets, final int[] keyLengths, final long[] columnFamilyHandles);
   private static native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
   private static native byte[][] multiGet(final long dbHandle, final long rOptHandle,
@@ -4977,38 +4954,33 @@ public class RocksDB extends RocksObject {
       final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
       final Status[] statusArray);
 
-  private static native boolean keyExists(final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
+  private static native boolean keyExists(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
 
   private static native boolean keyExistsDirect(final long handle, final long cfHandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
 
-  private static native boolean keyMayExist(
-      final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
-  private static native byte[][] keyMayExistFoundValue(
-      final long handle, final long cfHandle, final long readOptHandle,
-      final byte[] key, final int keyOffset, final int keyLength);
-  private static native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
-  private static native long iterator(final long handle, final long cfHandle, final long readOptHandle);
-  private static native long[] iterators(final long handle,
-      final long[] columnFamilyHandles, final long readOptHandle)
-      throws RocksDBException;
+  private static native boolean keyMayExist(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
+  private static native byte[][] keyMayExistFoundValue(final long handle, final long cfHandle,
+      final long readOptHandle, final byte[] key, final int keyOffset, final int keyLength);
+  private static native void putDirect(long handle, long writeOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  private static native long iterator(
+      final long handle, final long cfHandle, final long readOptHandle);
+  private static native long[] iterators(final long handle, final long[] columnFamilyHandles,
+      final long readOptHandle) throws RocksDBException;
 
   private static native long getSnapshot(final long nativeHandle);
-  private static native void releaseSnapshot(
-      final long nativeHandle, final long snapshotHandle);
-  private static native String getProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
+  private static native void releaseSnapshot(final long nativeHandle, final long snapshotHandle);
+  private static native String getProperty(final long nativeHandle, final long cfHandle,
+      final String property, final int propertyLength) throws RocksDBException;
   private static native Map<String, String> getMapProperty(final long nativeHandle,
-      final long cfHandle, final String property, final int propertyLength)
-      throws RocksDBException;
-  private static native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
-       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-       throws RocksDBException;
+      final long cfHandle, final String property, final int propertyLength) throws RocksDBException;
+  private static native int getDirect(long handle, long readOptHandle, ByteBuffer key,
+      int keyOffset, int keyLength, ByteBuffer value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
   private static native boolean keyMayExistDirect(final long handle, final long cfHhandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
   private static native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
