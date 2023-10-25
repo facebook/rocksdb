@@ -6,9 +6,6 @@
 
 package org.rocksdb;
 
-import java.nio.ByteBuffer;
-import java.util.List;
-
 /**
  * The result for a fetch
  * and the total size of the object fetched.

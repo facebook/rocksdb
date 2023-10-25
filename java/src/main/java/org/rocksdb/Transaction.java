@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import static org.rocksdb.RocksDB.NOT_FOUND;
 import static org.rocksdb.RocksDB.PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD;
 
 import java.nio.ByteBuffer;
@@ -33,6 +32,8 @@ public class Transaction extends RocksObject {
   private static final String FOR_EACH_KEY_THERE_MUST_BE_A_COLUMNFAMILYHANDLE =
       "For each key there must be a ColumnFamilyHandle.";
 
+  private static final String BB_ALL_DIRECT_OR_INDIRECT =
+      "ByteBuffer parameters must all be direct, or must all be indirect";
   private final RocksDB parent;
   private final ColumnFamilyHandle defaultColumnFamilyHandle;
 
@@ -450,8 +451,7 @@ public class Transaction extends RocksObject {
               key.remaining(), value.array(), value.arrayOffset() + value.position(),
               value.remaining(), columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
 
     key.position(key.limit());
@@ -1143,8 +1143,7 @@ public class Transaction extends RocksObject {
           value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_, exclusive, doValidate);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     if (result < 0) {
@@ -1290,7 +1289,7 @@ public class Transaction extends RocksObject {
    */
   public RocksIterator getIterator() {
     assert (isOwningHandle());
-    try (final ReadOptions readOptions = new ReadOptions()) {
+    try (ReadOptions readOptions = new ReadOptions()) {
       return new RocksIterator(parent,
           getIterator(
               nativeHandle_, readOptions.nativeHandle_, defaultColumnFamilyHandle.nativeHandle_));
@@ -1375,7 +1374,7 @@ public class Transaction extends RocksObject {
    */
   public RocksIterator getIterator(final ColumnFamilyHandle columnFamilyHandle) {
     assert (isOwningHandle());
-    try (final ReadOptions readOptions = new ReadOptions()) {
+    try (ReadOptions readOptions = new ReadOptions()) {
       return new RocksIterator(parent,
           getIterator(nativeHandle_, readOptions.nativeHandle_, columnFamilyHandle.nativeHandle_));
     }
@@ -1557,8 +1556,7 @@ public class Transaction extends RocksObject {
       put(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
           value.array(), value.arrayOffset() + value.position(), value.remaining());
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1605,8 +1603,7 @@ public class Transaction extends RocksObject {
           value.array(), value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_, assumeTracked);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1764,8 +1761,7 @@ public class Transaction extends RocksObject {
       merge(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
           value.array(), value.arrayOffset() + value.position(), value.remaining());
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
   }
 
@@ -1806,8 +1802,7 @@ public class Transaction extends RocksObject {
           value.array(), value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_, assumeTracked);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -2302,8 +2297,7 @@ public class Transaction extends RocksObject {
           key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());

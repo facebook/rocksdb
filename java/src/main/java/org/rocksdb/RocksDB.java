@@ -39,6 +39,9 @@ public class RocksDB extends RocksObject {
 
   static final String PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD =
       "Performance optimization for a very specific workload";
+
+  private static final String BB_ALL_DIRECT_OR_INDIRECT =
+      "ByteBuffer parameters must all be direct, or must all be indirect";
   private ColumnFamilyHandle defaultColumnFamilyHandle_;
   private final ReadOptions defaultReadOptions_ = new ReadOptions();
 
@@ -1050,8 +1053,7 @@ public class RocksDB extends RocksObject {
           key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1084,8 +1086,7 @@ public class RocksDB extends RocksObject {
           key.remaining(), value.array(), value.arrayOffset() + value.position(),
           value.remaining());
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1307,8 +1308,7 @@ public class RocksDB extends RocksObject {
               key.remaining(), value.array(), value.arrayOffset() + value.position(),
               value.remaining(), defaultColumnFamilyHandle_.nativeHandle_);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
@@ -1705,8 +1705,7 @@ public class RocksDB extends RocksObject {
           key.remaining(), value.array(), value.arrayOffset() + value.position(),
           value.remaining());
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1724,8 +1723,7 @@ public class RocksDB extends RocksObject {
           key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
           columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(BB_ALL_DIRECT_OR_INDIRECT);
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -4789,12 +4787,6 @@ public class RocksDB extends RocksObject {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
       throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
-  }
-
-  private static int computeCapacityHint(final int estimatedNumberOfItems) {
-    // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
-    // limit. We add +1 for a buffer.
-    return (int) Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   // native methods
