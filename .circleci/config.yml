@@ -600,6 +600,7 @@ jobs:
   build-windows-vs2019:
     executor:
       name: win/server-2019
+      version: 2023.08.1
       size: 2xlarge
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
