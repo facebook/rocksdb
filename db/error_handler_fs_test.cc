@@ -155,9 +155,9 @@ class ErrorHandlerFSListener : public EventListener {
   FaultInjectionTestFS* fault_fs_;
 };
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -200,9 +200,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
 // All the NoSpace IOError will be handled as the regular BG Error no matter the
 // retryable flag is set of not. So the auto resume for retryable IO Error will
 // not be triggered. Also, it is mapped as hard error.
-TEST_F(DBErrorHandlingFSTest, FLushWriteNoSpaceError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteNoSpaceError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -244,9 +244,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoSpaceError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -318,9 +318,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteRetryableError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteFileScopeError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteFileScopeError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -402,9 +402,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteFileScopeError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWALWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWALWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -446,9 +446,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWALWriteRetryableError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWALAtomicWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -492,9 +492,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
 }
 
 // The flush error is injected before we finish the table build
-TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWritNoWALRetryableError1) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -548,9 +548,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
 }
 
 // The retryable IO error is injected before we sync table
-TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteNoWALRetryableError2) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -592,9 +592,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
 }
 
 // The retryable IO error is injected before we close the table file
-TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_F(DBErrorHandlingFSTest, FlushWriteNoWALRetryableError3) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -636,8 +636,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
 }
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -677,8 +677,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -720,8 +720,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteFileScopeError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -766,8 +766,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteFileScopeError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -811,8 +811,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -863,8 +863,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -933,8 +933,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1005,8 +1005,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1047,8 +1047,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1094,8 +1094,8 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteRetryableError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteFileScopeError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1186,8 +1186,8 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1231,8 +1231,8 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1260,8 +1260,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1333,8 +1333,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1428,8 +1428,8 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1760,10 +1760,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 // to soft error and trigger auto resume. During auto resume, SwitchMemtable
 // is disabled to avoid small SST tables. Write can still be applied before
 // the bg error is cleaned unless the memtable is full.
-TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover1) {
+TEST_F(DBErrorHandlingFSTest, FlushWritNoWALRetryableErrorAutoRecover1) {
   // Activate the FS before the first resume
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1784,7 +1784,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover1) {
   ASSERT_OK(Put(Key(1), "val1", wo));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:LoopOut",
-        "FLushWritNoWALRetryableeErrorAutoRecover1:1"}});
+        "FlushWritNoWALRetryableeErrorAutoRecover1:1"}});
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
@@ -1793,7 +1793,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover1) {
   s = Flush();
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-  TEST_SYNC_POINT("FLushWritNoWALRetryableeErrorAutoRecover1:1");
+  TEST_SYNC_POINT("FlushWritNoWALRetryableeErrorAutoRecover1:1");
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val1", Get(Key(1)));
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1837,8 +1837,8 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
   // sure RecoverFromRetryableBGIOError() from the second write's recovery
   // thread does not start with recovery_in_prog_ = false;
 
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1915,10 +1915,10 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
+TEST_F(DBErrorHandlingFSTest, FlushWritNoWALRetryableErrorAutoRecover2) {
   // Activate the FS before the first resume
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -1976,10 +1976,10 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
 
 // Auto resume fromt the flush retryable IO error. Activate the FS before the
 // first resume. Resume is successful
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
+TEST_F(DBErrorHandlingFSTest, FlushWritRetryableErrorAutoRecover1) {
   // Activate the FS before the first resume
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2018,10 +2018,10 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
 
 // Auto resume fromt the flush retryable IO error and set the retry limit count.
 // Never activate the FS and auto resume should fail at the end
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
+TEST_F(DBErrorHandlingFSTest, FlushWritRetryableErrorAutoRecover2) {
   // Fail all the resume and let user to resume
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2038,18 +2038,18 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
 
   ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"FLushWritRetryableeErrorAutoRecover2:0",
+      {{"FlushWritRetryableeErrorAutoRecover2:0",
         "RecoverFromRetryableBGIOError:BeforeStart"},
        {"RecoverFromRetryableBGIOError:LoopOut",
-        "FLushWritRetryableeErrorAutoRecover2:1"}});
+        "FlushWritRetryableeErrorAutoRecover2:1"}});
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover2:0");
-  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover2:1");
+  TEST_SYNC_POINT("FlushWritRetryableeErrorAutoRecover2:0");
+  TEST_SYNC_POINT("FlushWritRetryableeErrorAutoRecover2:1");
   fault_fs_->SetFilesystemActive(true);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -2071,8 +2071,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
 // Fail the first resume and let the second resume be successful.
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   // Fail the first resume and let the second resume be successful
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2124,8 +2124,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableErrorAutoRecover) {
   // Fail the first resume and let the second resume be successful
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2179,8 +2179,8 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableErrorAutoRecover) {
 
 TEST_F(DBErrorHandlingFSTest,
        CompactionManifestWriteRetryableErrorAutoRecover) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2269,8 +2269,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
   // compaction, the FS is set to active and compaction is successful, so
   // the test will hit the CompactionJob::FinishCompactionOutputFile1 sync
   // point.
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2323,8 +2323,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
 }
 
 TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2426,8 +2426,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
 
 TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
   // Fail the first recover and try second time.
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2527,10 +2527,10 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
 
 // Fail auto resume from a flush retryable error and verify that
 // OnErrorRecoveryEnd listener callback is called
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAbortRecovery) {
+TEST_F(DBErrorHandlingFSTest, FlushWritRetryableErrorAbortRecovery) {
   // Activate the FS before the first resume
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2821,9 +2821,9 @@ TEST_F(DBErrorHandlingFSTest, CompactionReadRetryableErrorAutoRecover) {
 class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,
                                    public testing::WithParamInterface<bool> {};
 
-TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+TEST_P(DBErrorHandlingFencingTest, FlushWriteFenced) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2850,8 +2850,8 @@ TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
 }
 
 TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2885,8 +2885,8 @@ TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
 }
 
 TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2926,8 +2926,8 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
 }
 
 TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
-  std::shared_ptr<ErrorHandlerFSListener> listener(
-      new ErrorHandlerFSListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
