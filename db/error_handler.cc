@@ -779,6 +779,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         TEST_SYNC_POINT(
             "RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn");
+        TEST_SYNC_POINT("RecoverFromRetryableBGIOError:End");
         return;
       } else {
         // In this case: 1) recovery_error_ is more serious or not retryable
@@ -805,6 +806,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     RecordInHistogram(bg_error_stats_.get(),
                       ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
   }
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:End");
   return;
 }
 

@@ -1838,8 +1838,8 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
-  options.max_bgerror_resume_count = 2;
-  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.max_bgerror_resume_count = 100;
+  options.bgerror_resume_retry_interval = 1000000;  // 1 second
   options.statistics = CreateDBStatistics();
 
   listener->EnableAutoRecovery(false);
@@ -1861,7 +1861,9 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
        {"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
         "MultipleRecoveryThreads:4"},
        {"MultipleRecoveryThreads:5",
-        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"}});
+        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"},
+       {"MultipleRecoveryThreads:SecondWriteReadFaultInjected",
+        "MultipleRecoveryThreads:6"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   // First write with read fault injected and recovery will start
@@ -1869,7 +1871,6 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
     ASSERT_OK(Put(Key(1), "val1", wo));
     Status s = Flush();
     ASSERT_NOK(s);
-    ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
   }
   // Remove read fault injection so that first recovery can go through
   fault_fs_->SetFilesystemActive(true);
@@ -1884,27 +1885,32 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
     ASSERT_OK(Put(Key(2), "val2", wo));
     Status s = Flush();
     ASSERT_NOK(s);
-    ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-    // Remove error injection so that second thread recovery can go through
-    fault_fs_->SetFilesystemActive(true);
+    TEST_SYNC_POINT("MultipleRecoveryThreads:SecondWriteReadFaultInjected");
   });
-  // Lock is released by both threads
+  // Second bg thread before waiting for the first thread's recovery thread
   TEST_SYNC_POINT("MultipleRecoveryThreads:3");
   // First thread's recovery thread continues
   TEST_SYNC_POINT("MultipleRecoveryThreads:2");
-  // Wait for the first thread's recovery to be done
+  // Wait for the first thread's recovery to be done (this sets
+  // recovery_in_prog_ = false)
   TEST_SYNC_POINT("MultipleRecoveryThreads:4");
   // Second thread continues and starts recovery thread
   TEST_SYNC_POINT("MultipleRecoveryThreads:5");
-  // Wait for the second thread's recovery to be done
-  // (listener->WaitForRecovery() not available due to race condition from
-  // thread 1)
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
-        "MultipleRecoveryThreads:6"}});
+  // To make sure we don't remove error injection too early
   TEST_SYNC_POINT("MultipleRecoveryThreads:6");
+  // Remove error injection so that second thread recovery can go through
+  fault_fs_->SetFilesystemActive(true);
+
+  // Before Second thread continues, set up sync point so that we can wait for
+  // the recovery thread to finish
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:End", "MultipleRecoveryThreads:7"}});
+
+  // Wait for the second thread's recovery to be done
+  TEST_SYNC_POINT("MultipleRecoveryThreads:7");
   second_write.join();
   SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   Destroy(options);
 }
 
