@@ -5,9 +5,8 @@
 
 package org.rocksdb;
 
-import static org.rocksdb.RocksDB.PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD;
-
 import static org.rocksdb.RocksDB.NOT_FOUND;
+import static org.rocksdb.RocksDB.PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;

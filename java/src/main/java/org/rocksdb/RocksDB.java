@@ -4794,7 +4794,7 @@ public class RocksDB extends RocksObject {
   private static int computeCapacityHint(final int estimatedNumberOfItems) {
     // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
     // limit. We add +1 for a buffer.
-    return (int)Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
+    return (int) Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   // native methods
