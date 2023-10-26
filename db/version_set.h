@@ -53,6 +53,7 @@
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/offpeak_time_info.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -215,7 +216,7 @@ class VersionStorageInfo {
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(
-      const ImmutableOptions& ioptions,
+      const ImmutableOptions& immutable_options,
       const uint64_t periodic_compaction_seconds, int last_level);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
@@ -1146,7 +1147,8 @@ class VersionSet {
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_id, const std::string& db_session_id);
+             const std::string& db_id, const std::string& db_session_id,
+             const std::string& daily_offpeak_time_utc);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1501,6 +1503,10 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  void ChangeOffpeakTimeInfo(const MutableDBOptions& new_options) {
+    offpeak_time_info_.SetOffpeakTime(new_options.daily_offpeak_time_utc);
+  }
+
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
@@ -1650,6 +1656,9 @@ class VersionSet {
   std::shared_ptr<IOTracer> io_tracer_;
 
   std::string db_session_id_;
+
+  // Off-peak time information used for compaction scoring
+  OffpeakTimeInfo offpeak_time_info_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
