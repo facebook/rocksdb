@@ -1,6 +1,14 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.7.2 (10/25/2023)
+### Public API Changes
+* Add new Cache APIs GetSecondaryCacheCapacity() and GetSecondaryCachePinnedUsage() to return the configured capacity, and cache reservation charged to the secondary cache.
+
+### Bug Fixes
+* Fixed a possible underflow when computing the compressed secondary cache share of memory reservations while updating the compressed secondary to total block cache ratio.
+* Fix an assertion failure when UpdeteTieredCache() is called in an idempotent manner.
+
 ## 8.7.1 (10/20/2023)
 ### Bug Fixes
 * Fix a bug in auto_readahead_size where first_internal_key of index blocks wasn't copied properly resulting in corruption error when first_internal_key was used for comparison.
