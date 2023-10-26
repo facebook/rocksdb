@@ -216,7 +216,7 @@ class VersionStorageInfo {
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(
-      const ImmutableOptions& immutable_options,
+      const ImmutableOptions& ioptions,
       const uint64_t periodic_compaction_seconds, int last_level);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
@@ -1503,7 +1503,7 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
-  const OffpeakTimeInfo offpeak_time_info() { return offpeak_time_info_; }
+  const OffpeakTimeInfo& offpeak_time_info() { return offpeak_time_info_; }
   void ChangeOffpeakTimeInfo(const std::string& daily_offpeak_time_utc) {
     offpeak_time_info_.SetOffpeakTime(daily_offpeak_time_utc);
   }

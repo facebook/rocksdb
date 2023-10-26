@@ -7,10 +7,9 @@
 
 #include <string>
 
-#include "options/db_options.h"
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 class SystemClock;
 
 struct OffpeakTimeInfo {
