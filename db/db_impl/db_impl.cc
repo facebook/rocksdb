@@ -1343,7 +1343,8 @@ Status DBImpl::SetDBOptions(
                                              Env::Priority::LOW);
         }
         if (offpeak_time_changed) {
-          versions_->ChangeOffpeakTimeInfo(mutable_db_options_);
+          versions_->ChangeOffpeakTimeInfo(
+              new_db_options.daily_offpeak_time_utc);
         }
 
         MaybeScheduleFlushOrCompaction();

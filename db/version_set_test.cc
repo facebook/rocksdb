@@ -21,6 +21,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -2191,7 +2192,70 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
 }
 
 TEST_F(VersionSetTest, OffpeakTimeInfoTest) {
-  //TODO - Implement me
+  Random rnd(test::RandomSeed());
+
+  // Sets off-peak time from 11:30PM to 4:30AM next day.
+  // Starting at 1:30PM, use mock sleep to make time pass
+  // and see if IsNowOffpeak() returns correctly per time changes
+  int now_hour = 13;
+  int now_minute = 30;
+  versions_->ChangeOffpeakTimeInfo("23:30-04:30");
+
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  // Add some extra random days to current time
+  int days = rnd.Uniform(100);
+  mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
+
+  // Starting at 1:30PM. It's not off-peak
+  ASSERT_FALSE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Now it's at 4:30PM. Still not off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_FALSE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Now it's at 11:30PM. It's off-peak
+  mock_clock->MockSleepForSeconds(7 * 3600);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Now it's at 2:30AM next day. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Now it's at 4:30AM. It's still off-peak
+  mock_clock->MockSleepForSeconds(2 * 3600);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
+  mock_clock->MockSleepForSeconds(60);
+  ASSERT_FALSE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Entire day offpeak
+  versions_->ChangeOffpeakTimeInfo("00:00-23:59");
+  // It doesn't matter what time it is. It should be just offpeak.
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Mock Sleep for 3 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(3 * 3600);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Mock Sleep for 20 hours. It's still off-peak
+  mock_clock->MockSleepForSeconds(20 * 3600);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Mock Sleep for 59 minutes. It's still off-peak
+  mock_clock->MockSleepForSeconds(59 * 60);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Mock Sleep for 59 seconds. It's still off-peak
+  mock_clock->MockSleepForSeconds(59);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+
+  // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
+  // Another second for sanity check
+  mock_clock->MockSleepForSeconds(1);
+  ASSERT_TRUE(versions_->offpeak_time_info().IsNowOffpeak(mock_clock.get()));
 }
 
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {

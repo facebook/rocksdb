@@ -1504,8 +1504,8 @@ class VersionSet {
   }
 
   const OffpeakTimeInfo offpeak_time_info() { return offpeak_time_info_; }
-  void ChangeOffpeakTimeInfo(const MutableDBOptions& new_options) {
-    offpeak_time_info_.SetOffpeakTime(new_options.daily_offpeak_time_utc);
+  void ChangeOffpeakTimeInfo(const std::string& daily_offpeak_time_utc) {
+    offpeak_time_info_.SetOffpeakTime(daily_offpeak_time_utc);
   }
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
