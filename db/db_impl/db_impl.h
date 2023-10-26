@@ -1395,6 +1395,7 @@ class DBImpl : public DB {
     autovector<autovector<VersionEdit*>> edit_lists_;
     // files_to_delete_ contains sst files
     std::unordered_set<std::string> files_to_delete_;
+    bool is_new_db_ = false;
   };
 
   // Persist options to options file. Must be holding options_mutex_.
@@ -2168,7 +2169,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker(bool from_db_open);
+  Status RegisterRecordSeqnoTimeWorker(bool is_new_db);
 
   void PrintStatistics();
 
@@ -2248,6 +2249,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,

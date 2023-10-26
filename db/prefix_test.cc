@@ -782,6 +782,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
         }
       }
     }
+    ASSERT_OK(iter->status());
   }
 }
 

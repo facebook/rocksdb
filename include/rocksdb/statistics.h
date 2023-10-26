@@ -518,6 +518,19 @@ enum Tickers : uint32_t {
   // ReadOptions.auto_readahead_size is set.
   READAHEAD_TRIMMED,
 
+  // Number of FIFO compactions that drop files based on different reasons
+  FIFO_MAX_SIZE_COMPACTIONS,
+  FIFO_TTL_COMPACTIONS,
+
+  // Number of bytes prefetched during user initiated scan
+  PREFETCH_BYTES,
+
+  // Number of prefetched bytes that were actually useful
+  PREFETCH_BYTES_USEFUL,
+
+  // Number of FS reads avoided due to scan prefetching
+  PREFETCH_HITS,
+
   TICKER_ENUM_MAX
 };
 

@@ -299,12 +299,20 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {
-  auto wbwiii =
-      new WBWIIteratorImpl(GetColumnFamilyID(column_family), &(rep->skip_list),
-                           &rep->write_batch, &rep->comparator);
+  WBWIIteratorImpl* wbwiii;
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        GetColumnFamilyID(column_family), &(rep->skip_list), &rep->write_batch,
+        &rep->comparator, read_options->iterate_lower_bound,
+        read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(GetColumnFamilyID(column_family),
+                                  &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
+  }
+
   return new BaseDeltaIterator(column_family, base_iterator, wbwiii,
-                               GetColumnFamilyUserComparator(column_family),
-                               read_options);
+                               GetColumnFamilyUserComparator(column_family));
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
