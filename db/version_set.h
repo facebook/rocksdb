@@ -135,7 +135,8 @@ class VersionStorageInfo {
                      bool _force_consistency_checks,
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
-                     uint32_t bottommost_file_compaction_delay);
+                     uint32_t bottommost_file_compaction_delay,
+                     const OffpeakTimeInfo& offpeak_time_info);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -752,7 +753,8 @@ class VersionStorageInfo {
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
 
-  // Used for computing bottommost files marked for compaction.
+  // Used for computing bottommost files marked for compaction and checking for
+  // offpeak time.
   SystemClock* clock_;
   uint32_t bottommost_file_compaction_delay_;
 
@@ -763,6 +765,8 @@ class VersionStorageInfo {
   bool force_consistency_checks_;
 
   EpochNumberRequirement epoch_number_requirement_;
+
+  OffpeakTimeInfo offpeak_time_info_;
 
   friend class Version;
   friend class VersionSet;
