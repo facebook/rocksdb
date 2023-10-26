@@ -1328,16 +1328,22 @@ Status DBImpl::SetDBOptions(
       const bool max_compactions_increased =
           new_bg_job_limits.max_compactions >
           current_bg_job_limits.max_compactions;
+      const bool offpeak_time_changed =
+          versions_->offpeak_time_info().daily_offpeak_time_utc !=
+          new_db_options.daily_offpeak_time_utc;
 
-      if (max_flushes_increased || max_compactions_increased) {
+      if (max_flushes_increased || max_compactions_increased ||
+          offpeak_time_changed) {
         if (max_flushes_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
                                              Env::Priority::HIGH);
         }
-
         if (max_compactions_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
                                              Env::Priority::LOW);
+        }
+        if (offpeak_time_changed) {
+          versions_->ChangeOffpeakTimeInfo(mutable_db_options_);
         }
 
         MaybeScheduleFlushOrCompaction();

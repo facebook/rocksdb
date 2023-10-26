@@ -1503,6 +1503,7 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  const OffpeakTimeInfo offpeak_time_info() { return offpeak_time_info_; }
   void ChangeOffpeakTimeInfo(const MutableDBOptions& new_options) {
     offpeak_time_info_.SetOffpeakTime(new_options.daily_offpeak_time_utc);
   }

@@ -1099,7 +1099,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(fifo_temp_opt[1].age, 30000);
 }
 
-TEST_F(DBOptionsTest, OffPeakTimes) {
+TEST_F(DBOptionsTest, OffpeakTimesValidity) {
   Options options;
   options.create_if_missing = true;
   Random rnd(test::RandomSeed());
