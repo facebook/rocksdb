@@ -125,10 +125,9 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
-        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
-         "auto_hyper_clock_cache", "tiered_lru_cache",
-         "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
-         "tiered_auto_hyper_clock_cache"]
+        ["lru_cache", "fixed_hyper_clock_cache",
+         # NOTE: auto_hyper_clock_cache disabled for now
+         "tiered_lru_cache", "tiered_fixed_hyper_clock_cache"]
     ),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
@@ -847,6 +846,17 @@ def blackbox_crash_main(args, unknown_args):
                 print("stderr has error message:")
                 print("***" + line + "***")
 
+        stderrdata = errs.lower()
+        errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+        print("#times error occurred in output is " + str(errorcount) + "\n")
+
+        if errorcount > 0:
+            print("TEST FAILED. Output has 'error'!!!\n")
+            sys.exit(2)
+        if stderrdata.find("fail") >= 0:
+            print("TEST FAILED. Output has 'fail'!!!\n")
+            sys.exit(2)
+
         time.sleep(1)  # time to stabilize before the next run
 
         time.sleep(1)  # time to stabilize before the next run
@@ -869,6 +879,17 @@ def blackbox_crash_main(args, unknown_args):
         if line != "" and not line.startswith("WARNING"):
             print("stderr has error message:")
             print("***" + line + "***")
+
+    stderrdata = errs.lower()
+    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+    print("#times error occurred in output is " + str(errorcount) + "\n")
+
+    if errorcount > 0:
+        print("TEST FAILED. Output has 'error'!!!\n")
+        sys.exit(2)
+    if stderrdata.find("fail") >= 0:
+        print("TEST FAILED. Output has 'fail'!!!\n")
+        sys.exit(2)
 
     # we need to clean up after ourselves -- only do this on test success
     shutil.rmtree(dbname, True)

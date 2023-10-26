@@ -418,7 +418,8 @@ Status DBImpl::Recover(
     uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
 
-  bool is_new_db = false;
+  bool tmp_is_new_db = false;
+  bool& is_new_db = recovery_ctx ? recovery_ctx->is_new_db_ : tmp_is_new_db;
   assert(db_lock_ == nullptr);
   std::vector<std::string> files_in_dbname;
   if (!read_only) {
@@ -2247,7 +2248,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker(/*from_db_open=*/true);
+    s = impl->RegisterRecordSeqnoTimeWorker(recovery_ctx.is_new_db_);
   }
   impl->options_mutex_.Unlock();
   if (!s.ok()) {

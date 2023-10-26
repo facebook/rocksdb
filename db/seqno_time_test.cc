@@ -843,6 +843,10 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
       // interfere with the seqno-to-time mapping getting a starting entry.
       ASSERT_OK(Put("foo", "bar"));
       ASSERT_OK(Flush());
+    } else {
+      // FIXME: currently, starting entry after CreateColumnFamily requires
+      // non-zero seqno
+      ASSERT_OK(Delete("blah"));
     }
 
     // Unfortunately, if we add a CF with preserve/preclude option after
@@ -899,6 +903,9 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
     }
     sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
     ASSERT_EQ(sttm.Size(), 0);
+    if (!with_write) {
+      ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
+    }
 
     ASSERT_OK(ReadOnlyReopen(track_options));
     if (with_write) {
@@ -906,6 +913,16 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
     }
     sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
     ASSERT_EQ(sttm.Size(), 0);
+    if (!with_write) {
+      ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
+
+      // And even if we re-open read-write, we do not get pre-population,
+      // because that's only for new DBs.
+      Reopen(track_options);
+      sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
+      ASSERT_EQ(sttm.Size(), 0);
+      ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
+    }
   }
 
   // #### DB#5: Destroy and open with preserve/preclude option ####
@@ -986,6 +1003,13 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
   ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time), latest_seqno);
   // Oldest tracking time maps to first pre-allocated seqno
   ASSERT_EQ(sttm.GetProximalSeqnoBeforeTime(start_time - kPreserveSecs), 1);
+
+  // Even after no writes and DB re-open without tracking options, sequence
+  // numbers should not go backward into those that were pre-allocated.
+  // (Future work: persist the mapping)
+  ReopenWithColumnFamilies({"default", "one"},
+                           List({base_options, base_options}));
+  ASSERT_EQ(latest_seqno, db_->GetLatestSequenceNumber());
 
   Close();
 }

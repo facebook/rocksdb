@@ -21,6 +21,7 @@
 #ifdef __SSE4_2__
 #ifdef _WIN32
 #include <intrin.h>
+#define _rdtsc() __rdtsc()
 #else
 #include <x86intrin.h>
 #endif

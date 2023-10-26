@@ -37,3 +37,7 @@ fancy_bench_template = """
 fancy_bench_wrapper(suite_name="{name}", binary_to_bench_to_metric_list_map={bench_config}, slow={slow}, expected_runtime={expected_runtime}, sl_iterations={sl_iterations}, regression_threshold={regression_threshold})
 
 """
+
+export_file_template = """
+export_file(name = "{name}")
+"""

@@ -3453,6 +3453,45 @@ TEST_F(FilePrefetchBufferTest, IterateUpperBoundTest1) {
   ASSERT_EQ(result, async_result);
 }
 
+TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
+  std::string fname = "seek-with-block-cache-hit";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  FilePrefetchBuffer fpb(8192, 8192, true, false, false, 0, 0, 0, fs(), nullptr,
+                         stats.get());
+  Slice result;
+  // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
+  // it will do two reads of 4096+8192 and 8192
+  Status s;
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 0);
+
+  // Simulate a block cache hit
+  fpb.UpdateReadPattern(4096, 4096, false);
+  // Now read some data that straddles the two prefetch buffers - offset 8192 to
+  // 16384
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 4096);
+
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 1);
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 8192);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
