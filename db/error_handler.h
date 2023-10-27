@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <sstream>
+
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "rocksdb/io_status.h"
@@ -42,8 +44,7 @@ class ErrorHandler {
         recovery_in_prog_(false),
         soft_error_no_bg_work_(false),
         is_db_stopped_(false),
-        bg_error_stats_(db_options.statistics),
-        recovery_disabled_file_deletion_(false) {
+        bg_error_stats_(db_options.statistics) {
     // Clear the checked flag for uninitialized errors
     bg_error_.PermitUncheckedError();
     recovery_error_.PermitUncheckedError();
@@ -81,6 +82,19 @@ class ErrorHandler {
 
   void EndAutoRecovery();
 
+  void AddFilesToQuarantine(
+      std::vector<const std::vector<uint64_t>*> files_to_quarantine);
+
+  const std::vector<uint64_t>& GetFilesToQuarantine() const {
+    db_mutex_->AssertHeld();
+    return files_to_quarantine_;
+  };
+
+  void ClearFilesToQuarantine() {
+    db_mutex_->AssertHeld();
+    files_to_quarantine_.clear();
+  };
+
  private:
   DBImpl* db_;
   const ImmutableDBOptions& db_options_;
@@ -109,9 +123,12 @@ class ErrorHandler {
   // The pointer of DB statistics.
   std::shared_ptr<Statistics> bg_error_stats_;
 
-  // Tracks whether the recovery has disabled file deletion. This boolean flag
-  // is updated while holding db mutex.
-  bool recovery_disabled_file_deletion_;
+  // During recovery from manifest IO errors, files whose VersionEdits entries
+  // could be in an ambiguous state are quarantined and file deletion refrain
+  // from deleting them. Successful recovery will clear this vector. Files are
+  // added to this vector while DB mutex was locked, this data structure is
+  // unsorted.
+  std::vector<uint64_t> files_to_quarantine_;
 
   const Status& HandleKnownErrors(const Status& bg_err,
                                   BackgroundErrorReason reason);

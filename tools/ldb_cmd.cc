@@ -1364,8 +1364,9 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "",
-                      options.daily_offpeak_time_utc);
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      options.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1508,8 +1509,9 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "",
-                      options.daily_offpeak_time_utc);
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      options.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -2330,8 +2332,9 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_id*/ "", /*db_session_id*/ "",
-                      opt.daily_offpeak_time_utc);
+                      /*db_id=*/"", /*db_session_id=*/"",
+                      opt.daily_offpeak_time_utc,
+                      /*error_handler=*/nullptr);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
