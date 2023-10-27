@@ -2125,7 +2125,7 @@ VersionStorageInfo::VersionStorageInfo(
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
     uint32_t bottommost_file_compaction_delay,
-    const OffpeakTimeInfo& offpeak_time_info)
+    OffpeakTimeInfo offpeak_time_info)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy

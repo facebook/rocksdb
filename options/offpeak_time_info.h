@@ -17,9 +17,6 @@ struct OffpeakTimeInfo {
   explicit OffpeakTimeInfo(const std::string& offpeak_time);
   std::string daily_offpeak_time_utc;
   bool IsNowOffpeak(SystemClock* clock) const;
-  void SetOffpeakTime(const std::string& offpeak_time) {
-    daily_offpeak_time_utc = offpeak_time;
-  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

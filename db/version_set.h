@@ -136,7 +136,7 @@ class VersionStorageInfo {
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
                      uint32_t bottommost_file_compaction_delay,
-                     const OffpeakTimeInfo& offpeak_time_info);
+                     OffpeakTimeInfo offpeak_time_info);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -1507,9 +1507,10 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  // TODO - Consider updating together when file options change in SetDBOptions
   const OffpeakTimeInfo& offpeak_time_info() { return offpeak_time_info_; }
   void ChangeOffpeakTimeInfo(const std::string& daily_offpeak_time_utc) {
-    offpeak_time_info_.SetOffpeakTime(daily_offpeak_time_utc);
+    offpeak_time_info_.daily_offpeak_time_utc = daily_offpeak_time_utc;
   }
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
