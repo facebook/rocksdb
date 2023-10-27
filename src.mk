@@ -156,6 +156,7 @@ LIB_SOURCES =                                                   \
   options/configurable.cc                                       \
   options/customizable.cc                                       \
   options/db_options.cc                                         \
+  options/offpeak_time_info.cc                                  \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
