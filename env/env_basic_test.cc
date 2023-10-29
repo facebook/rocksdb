@@ -59,8 +59,8 @@ static Env* GetTestEnv() {
   if (custom_env == nullptr) {
     const char* env_uri = getenv("TEST_ENV_URI");
     if (env_uri != nullptr) {
-      EXPECT_OK(Env::CreateFromUri(
-          ConfigOptions(), env_uri, /*fs_uri=*/"", &custom_env, &env_guard));
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), env_uri, /*fs_uri=*/"",
+                                   &custom_env, &env_guard));
     }
   }
   EXPECT_NE(custom_env, nullptr);
@@ -73,8 +73,8 @@ static Env* GetTestFS() {
   if (fs_env == nullptr) {
     const char* fs_uri = getenv("TEST_FS_URI");
     if (fs_uri != nullptr) {
-      EXPECT_OK(Env::CreateFromUri(
-          ConfigOptions(), /*env_uri=*/"", fs_uri, &fs_env, &fs_env_guard));
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), /*env_uri=*/"", fs_uri,
+                                   &fs_env, &fs_env_guard));
     }
   }
   EXPECT_NE(fs_env, nullptr);
