@@ -37,6 +37,7 @@
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
 #include "rocksjni/table_filter_jnicallback.h"
+#include "rocksjni/table_properties_collector_factory.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -3925,6 +3926,62 @@ jint Java_org_rocksdb_Options_memtableMaxRangeDeletions(JNIEnv*, jobject,
                                                         jlong jhandle) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jint>(opts->memtable_max_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    tablePropertiesCollectorFactory
+ * Signature: (J)[J
+ */
+jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
+    JNIEnv* env, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  const auto size = opt->table_properties_collector_factories.size();
+  jlongArray retVal = env->NewLongArray(static_cast<jsize>(size));
+  if (retVal == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  jlong* buf = env->GetLongArrayElements(retVal, NULL);
+  if (buf == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
+  for (int i = 0; i < size; i++) {
+    auto* wrapper = new TablePropertiesCollectorFactoriesJniWrapper();
+    wrapper->table_properties_collector_factories =
+        opt->table_properties_collector_factories[i];
+    buf[i] = GET_CPLUSPLUS_POINTER(wrapper);
+  }
+  env->ReleaseLongArrayElements(retVal, buf, 0);
+  return retVal;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setTablePropertiesCollectorFactory
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
+    JNIEnv* env, jclass, jlong jhandle, jlongArray j_factory_handlers) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  const auto size = env->GetArrayLength(j_factory_handlers);
+
+  jlong* buf = env->GetLongArrayElements(j_factory_handlers, NULL);
+  if (buf == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  opt->table_properties_collector_factories.clear();
+  for (int i = 0; i < size; i++) {
+    auto* wrapper =
+        reinterpret_cast<TablePropertiesCollectorFactoriesJniWrapper*>(buf[i]);
+    opt->table_properties_collector_factories.emplace_back(
+        wrapper->table_properties_collector_factories);
+  }
+  env->ReleaseLongArrayElements(j_factory_handlers, buf, JNI_ABORT);
 }
 
 //////////////////////////////////////////////////////////////////////////////
