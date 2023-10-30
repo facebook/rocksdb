@@ -587,6 +587,8 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
 
+    // Ensures ikey always uses the ts associated with cached object not the ts
+    // associated with user's query.
     if (ts.size() > 0) {
       ikey.SetTimestamp(ts);
     }
