@@ -417,7 +417,7 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
     // can use row_cache_key's seq no to construct InternalKey.
     Slice cache_entry_ts = row_cache.Timestamp(row_handle);
     replayGetContextLog(*row_cache.Value(row_handle), user_key, get_context,
-                        &value_pinner, seq_no, cache_entry_ts);
+                          &value_pinner, seq_no, cache_entry_ts);
     RecordTick(ioptions_.stats, ROW_CACHE_HIT);
     found = true;
   } else {
@@ -504,11 +504,9 @@ Status TableCache::Get(
     size_t charge = row_cache_entry->capacity() + sizeof(std::string);
     auto row_ptr = new std::string(std::move(*row_cache_entry));
     Status rcs;
-    if (get_context->NeedTimestamp()) {
-      // If ts is fetched when an object is found, cache the ts associated with
-      // the object.
-      rcs = row_cache.Insert(row_cache_key.GetUserKey(), row_ptr,
-                             get_context->Timestamp(), charge);
+    if(get_context->NeedTimestamp()) {
+      // If ts is fetched when an object is found, cache the ts associated with the object.
+      rcs = row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, get_context->Timestamp(), charge);
     } else {
       rcs = row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge);
     }

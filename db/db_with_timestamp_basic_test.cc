@@ -1655,7 +1655,7 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   std::string read_value;
   std::string read_ts;
   Status s;
-
+  
   {
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);

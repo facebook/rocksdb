@@ -520,7 +520,8 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
 LRUHandle* LRUCacheShard::CreateHandle(const Slice& key, uint32_t hash,
                                        Cache::ObjectPtr value,
                                        const Cache::CacheItemHelper* helper,
-                                       size_t charge, const Slice& ts) {
+                                       size_t charge,
+                                       const Slice& ts) {
   assert(helper);
   // value == nullptr is reserved for indicating failure in SecondaryCache
   assert(!(helper->IsSecondaryCacheCompatible() && value == nullptr));
@@ -528,8 +529,8 @@ LRUHandle* LRUCacheShard::CreateHandle(const Slice& key, uint32_t hash,
   // Allocate the memory here outside of the mutex.
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
-  LRUHandle* e = static_cast<LRUHandle*>(
-      malloc(sizeof(LRUHandle) - 1 + key.size() + ts.size()));
+  LRUHandle* e =
+      static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size() + ts.size()));
 
   e->value = value;
   e->m_flags = 0;

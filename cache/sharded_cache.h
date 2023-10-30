@@ -185,7 +185,8 @@ class ShardedCache : public ShardedCacheBase {
 
   Status InsertWithTimestamp(
       const Slice& key, ObjectPtr obj, const Slice& ts,
-      const CacheItemHelper* helper, size_t charge, Handle** handle = nullptr,
+      const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
       Priority priority = Priority::LOW,
       const Slice& /*compressed_value*/ = Slice(),
       CompressionType /*type*/ = CompressionType::kNoCompression) override {
