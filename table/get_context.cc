@@ -19,22 +19,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
-  if (replay_log) {
-    if (replay_log->empty()) {
-      // Optimization: in the common case of only one operation in the
-      // log, we allocate the exact amount of space needed.
-      replay_log->reserve(1 + VarintLength(value.size()) + value.size());
-    }
-    replay_log->push_back(type);
-    PutLengthPrefixedSlice(replay_log, value);
-  }
-}
-
-}  // namespace
-
 GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
@@ -87,6 +71,19 @@ GetContext::GetContext(const Comparator* ucmp,
                  merge_context, do_merge, _max_covering_tombstone_seq, clock,
                  seq, _pinned_iters_mgr, callback, is_blob_index,
                  tracing_get_id, blob_fetcher) {}
+
+void GetContext::appendToReplayLog(std::string* replay_log, ValueType type,
+                                   Slice value) {
+  if (replay_log) {
+    if (replay_log->empty()) {
+      // Optimization: in the common case of only one operation in the
+      // log, we allocate the exact amount of space needed.
+      replay_log->reserve(1 + VarintLength(value.size()) + value.size());
+    }
+    replay_log->push_back(type);
+    PutLengthPrefixedSlice(replay_log, value);
+  }
+}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -561,17 +558,39 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context, Cleanable* value_pinner,
                          SequenceNumber seq_no) {
   Slice s = replay_log;
+  Slice ts = Slice();
+  bool ret;
+
+  // If cf enables ts, only Put() and Get() with ts can be called and all cached
+  // entries will contain ts at the end of value. Should manually extract the ts
+  // and return it to user.
+  if (get_context->NeedTimestamp()) {
+    size_t ts_sz = get_context->TimestampSize();
+    size_t prefix_ts_slice_len = VarintLength(ts_sz) + ts_sz;
+    Slice ts_slice =
+        Slice(s.data() + s.size() - prefix_ts_slice_len, prefix_ts_slice_len);
+    ret = GetLengthPrefixedSlice(&ts_slice, &ts);
+    assert(ret);
+
+    s.remove_suffix(1 + prefix_ts_slice_len);
+  }
+
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
     s.remove_prefix(1);
     Slice value;
-    bool ret = GetLengthPrefixedSlice(&s, &value);
+    ret = GetLengthPrefixedSlice(&s, &value);
     assert(ret);
     (void)ret;
 
     bool dont_care __attribute__((__unused__));
 
     ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
+
+    if (ts.size() > 0) {
+      ikey.SetTimestamp(ts);
+    }
+
     get_context->SaveValue(ikey, value, &dont_care, value_pinner);
   }
 }

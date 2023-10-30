@@ -1654,19 +1654,23 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
 
   std::string read_value;
   std::string read_ts;
-  Status s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-  ASSERT_OK(s);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-  ASSERT_EQ(read_ts, ts_early);
+  Status s;
 
-  s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-  ASSERT_OK(s);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
-  // Row cache is not storing the ts when record is inserted/updated.
-  // To be fixed after enabling ROW_CACHE with timestamp.
-  // ASSERT_EQ(read_ts, ts_early);
+  {
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+    ASSERT_EQ(read_ts, ts_early);
+
+    for (int i = 0; i < 3; i++) {
+      s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+      ASSERT_OK(s);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1 + i);
+      ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+      ASSERT_EQ(read_ts, ts_early);
+    }
+  }
 
   {
     std::string ts_nothing = Timestamp(0, 0);
@@ -1674,13 +1678,13 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     read_opts.timestamp = &ts_nothing_slice;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
 
     read_opts.timestamp = &ts_later_slice;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 4);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
   }
 
@@ -1689,12 +1693,12 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 4);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 5);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
   }
 
@@ -1702,12 +1706,12 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     read_opts.snapshot = snap_with_nothing;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 5);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 4);
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_TRUE(s.IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 5);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 5);
   }
 

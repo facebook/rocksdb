@@ -487,6 +487,12 @@ Status TableCache::Get(
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
       s = t->Get(options, k, get_context, prefix_extractor.get(), skip_filters);
+      // If ts enabled for current cf, all cache entries will have ts appended
+      // at the end of their value.
+      if (s.ok() && row_cache_entry && !row_cache_entry->empty()) {
+        get_context->appendToReplayLog(row_cache_entry, kTypeValue,
+                                       get_context->TimestampSlice());
+      }
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       // Couldn't find Table in cache but treat as kFound if no_io set
