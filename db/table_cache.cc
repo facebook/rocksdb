@@ -489,7 +489,8 @@ Status TableCache::Get(
       s = t->Get(options, k, get_context, prefix_extractor.get(), skip_filters);
       // If ts enabled for current cf, all cache entries will have ts appended
       // at the end of their value.
-      if (s.ok() && row_cache_entry && !row_cache_entry->empty()) {
+      if (s.ok() && row_cache_entry && !row_cache_entry->empty() &&
+          get_context->NeedTimestamp()) {
         get_context->appendToReplayLog(row_cache_entry, kTypeValue,
                                        get_context->TimestampSlice());
       }
