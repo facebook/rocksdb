@@ -1164,8 +1164,10 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
                                now_utc_minute * 60 + now_utc_second);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
-    auto offpeak_info = OffpeakTimeInfo(options.daily_offpeak_time_utc);
-    ASSERT_EQ(expected, offpeak_info.IsNowOffpeak(mock_clock.get()));
+    auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
+    ASSERT_EQ(
+        expected,
+        offpeak_option.GetOffpeakTimeInfo(mock_clock.get()).is_now_offpeak);
   };
 
   options.daily_offpeak_time_utc = "";
@@ -1209,25 +1211,29 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
   for (std::string invalid_case : invalid_cases) {
     ASSERT_NOK(
         dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
-    ASSERT_EQ(
-        "",
-        dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc);
+    ASSERT_EQ("", dbfull()
+                      ->GetVersionSet()
+                      ->offpeak_time_option()
+                      .daily_offpeak_time_utc);
   }
   ASSERT_EQ(0, may_schedule_compaction_called);
 
   // Changing to new valid values should call MaybeScheduleFlushOrCompaction()
-  // and sets the offpeak_time_info in VersionSet
+  // and sets the offpeak_time_option in VersionSet
   int expected_count = 0;
   for (std::string valid_case : valid_cases) {
-    if (dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc !=
-        valid_case) {
+    if (dbfull()
+            ->GetVersionSet()
+            ->offpeak_time_option()
+            .daily_offpeak_time_utc != valid_case) {
       expected_count++;
     }
     ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
     ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
-    ASSERT_EQ(
-        valid_case,
-        dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc);
+    ASSERT_EQ(valid_case, dbfull()
+                              ->GetVersionSet()
+                              ->offpeak_time_option()
+                              .daily_offpeak_time_utc);
   }
   ASSERT_EQ(expected_count, may_schedule_compaction_called);
 

@@ -5,44 +5,49 @@
 
 #include "options/offpeak_time_info.h"
 
+#include "offpeak_time_info.h"
 #include "rocksdb/system_clock.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-OffpeakTimeInfo::OffpeakTimeInfo() : daily_offpeak_time_utc("") {}
-OffpeakTimeInfo::OffpeakTimeInfo(const std::string& offpeak_time)
+OffpeakTimeOption::OffpeakTimeOption() : daily_offpeak_time_utc("") {}
+OffpeakTimeOption::OffpeakTimeOption(const std::string& offpeak_time)
     : daily_offpeak_time_utc(offpeak_time) {}
 
-bool OffpeakTimeInfo::IsNowOffpeak(SystemClock* clock) const {
+OffpeakTimeInfo OffpeakTimeOption::GetOffpeakTimeInfo(
+    SystemClock* clock) const {
+  OffpeakTimeInfo offpeak_time_info;
   if (daily_offpeak_time_utc.empty()) {
-    return false;
+    return offpeak_time_info;
   }
   int64_t now;
   if (clock->GetCurrentTime(&now).ok()) {
-    constexpr int kSecondsPerDay = 86400;
-    constexpr int kSecondsPerMinute = 60;
+    int seconds_since_midnight = static_cast<int>(now % kSecondsPerDay);
     int seconds_since_midnight_to_nearest_minute =
-        (static_cast<int>(now % kSecondsPerDay) / kSecondsPerMinute) *
-        kSecondsPerMinute;
+        (seconds_since_midnight / kSecondsPerMinute) * kSecondsPerMinute;
     int start_time = 0, end_time = 0;
-    bool success =
-        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time);
-    assert(success);
-    assert(start_time != end_time);
-    if (!success) {
+    bool is_valid =
+        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time) &&
+        start_time != end_time;
+    assert(is_valid);
+    if (!is_valid) {
       // If the validation was done properly, we should never reach here
-      return false;
+      return offpeak_time_info;
     }
     // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
     if (start_time > end_time) {
-      return start_time <= seconds_since_midnight_to_nearest_minute ||
-             seconds_since_midnight_to_nearest_minute <= end_time;
+      offpeak_time_info.is_now_offpeak =
+          start_time <= seconds_since_midnight_to_nearest_minute ||
+          seconds_since_midnight_to_nearest_minute <= end_time;
     } else {
-      return start_time <= seconds_since_midnight_to_nearest_minute &&
-             seconds_since_midnight_to_nearest_minute <= end_time;
+      offpeak_time_info.is_now_offpeak =
+          start_time <= seconds_since_midnight_to_nearest_minute &&
+          seconds_since_midnight_to_nearest_minute <= end_time;
     }
+    offpeak_time_info.seconds_till_next_offpeak_start =
+        (start_time + kSecondsPerDay) - seconds_since_midnight;
   }
-  return false;
+  return offpeak_time_info;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
