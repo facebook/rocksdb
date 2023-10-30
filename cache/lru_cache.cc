@@ -520,8 +520,7 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
 LRUHandle* LRUCacheShard::CreateHandle(const Slice& key, uint32_t hash,
                                        Cache::ObjectPtr value,
                                        const Cache::CacheItemHelper* helper,
-                                       size_t charge,
-                                       const Slice& ts) {
+                                       size_t charge) {
   assert(helper);
   // value == nullptr is reserved for indicating failure in SecondaryCache
   assert(!(helper->IsSecondaryCacheCompatible() && value == nullptr));
@@ -530,19 +529,17 @@ LRUHandle* LRUCacheShard::CreateHandle(const Slice& key, uint32_t hash,
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
   LRUHandle* e =
-      static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size() + ts.size()));
+      static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
   e->value = value;
   e->m_flags = 0;
   e->im_flags = 0;
   e->helper = helper;
   e->key_length = key.size();
-  e->timestamp_length = ts.size();
   e->hash = hash;
   e->refs = 0;
   e->next = e->prev = nullptr;
-  memcpy(e->user_key, key.data(), key.size());
-  memcpy(e->user_key + key.size(), ts.data(), ts.size());
+  memcpy(e->key_data, key.data(), key.size());
   e->CalcTotalCharge(charge, metadata_charge_policy_);
 
   return e;
@@ -554,17 +551,6 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash,
                              size_t charge, LRUHandle** handle,
                              Cache::Priority priority) {
   LRUHandle* e = CreateHandle(key, hash, value, helper, charge);
-  e->SetPriority(priority);
-  e->SetInCache(true);
-  return InsertItem(e, handle);
-}
-
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash,
-                             Cache::ObjectPtr value, const Slice& ts,
-                             const Cache::CacheItemHelper* helper,
-                             size_t charge, LRUHandle** handle,
-                             Cache::Priority priority) {
-  LRUHandle* e = CreateHandle(key, hash, value, helper, charge, ts);
   e->SetPriority(priority);
   e->SetInCache(true);
   return InsertItem(e, handle);
@@ -677,11 +663,6 @@ LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
 Cache::ObjectPtr LRUCache::Value(Handle* handle) {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
   return h->value;
-}
-
-Slice LRUCache::Timestamp(Handle* handle) {
-  auto h = reinterpret_cast<const LRUHandle*>(handle);
-  return Slice(h->user_key + h->key_length, h->timestamp_length);
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {

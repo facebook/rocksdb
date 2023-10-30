@@ -55,7 +55,6 @@ struct LRUHandle {
   LRUHandle* prev;
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
-  size_t timestamp_length;
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
   // The number of external refs to this entry. The cache itself is not counted.
@@ -88,11 +87,10 @@ struct LRUHandle {
     IM_IS_STANDALONE = (1 << 2),
   };
 
-  // Complete data of the user key (MUST BE THE LAST FIELD IN THIS STRUCT!)
-  // in format of < user_key | ts (optionala)>.
-  char user_key[1];
+  // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
+  char key_data[1];
 
-  Slice key() const { return Slice(user_key, key_length); }
+  Slice key() const { return Slice(key_data, key_length); }
 
   // For HandleImpl concept
   uint32_t GetHash() const { return hash; }
@@ -304,11 +302,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
                 const Cache::CacheItemHelper* helper, size_t charge,
                 LRUHandle** handle, Cache::Priority priority);
 
-  Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
-                const Slice& ts,
-                const Cache::CacheItemHelper* helper, size_t charge,
-                LRUHandle** handle, Cache::Priority priority);
-
   LRUHandle* CreateStandalone(const Slice& key, uint32_t hash,
                               Cache::ObjectPtr obj,
                               const Cache::CacheItemHelper* helper,
@@ -380,7 +373,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
 
   LRUHandle* CreateHandle(const Slice& key, uint32_t hash,
                           Cache::ObjectPtr value,
-                          const Cache::CacheItemHelper* helper, size_t charge, const Slice& ts = Slice());
+                          const Cache::CacheItemHelper* helper, size_t charge);
 
   // Initialized before use.
   size_t capacity_;
@@ -457,7 +450,6 @@ class LRUCache
   const char* Name() const override { return "LRUCache"; }
   ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
-  Slice Timestamp(Handle* handle) override;
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
   // Retrieves number of elements in LRU, for unit test purpose only.

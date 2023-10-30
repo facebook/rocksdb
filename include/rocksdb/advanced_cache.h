@@ -263,16 +263,6 @@ class Cache {
       Priority priority = Priority::LOW, const Slice& compressed = Slice(),
       CompressionType type = CompressionType::kNoCompression) = 0;
 
-  // A extended version of Insert(). Used when user want to query and cache object 
-  // with timestamp.
-  virtual Status InsertWithTimestamp(
-      const Slice& key, ObjectPtr obj, const Slice&, const CacheItemHelper* helper,
-      size_t charge, Handle** handle = nullptr,
-      Priority priority = Priority::LOW, const Slice& compressed = Slice(),
-      CompressionType type = CompressionType::kNoCompression) {
-        return Insert(key, obj, helper, charge, handle, priority, compressed, type);
-      }
-
   // Similar to Insert, but used for creating cache entries that cannot
   // be found with Lookup, such as for memory charging purposes. The
   // key is needed for cache sharding purposes.
@@ -332,12 +322,6 @@ class Cache {
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
   virtual ObjectPtr Value(Handle* handle) = 0;
-
-  // Return the timestamp assiciated with a handle returned by a successful
-  // Lookup(). Return empty slice if timestamp is not specified for cache.
-  // REQUIRES: handle must not have been released yet.
-  // REQUIRES: handle must have been returned by a method on *this. 
-  virtual Slice Timestamp(Handle*) { return Slice(); }
 
   // If the cache contains the entry for the key, erase it.  Note that the
   // underlying entry will be kept around until all existing handles

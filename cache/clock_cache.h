@@ -1008,12 +1008,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
                 Cache::ObjectPtr value, const Cache::CacheItemHelper* helper,
                 size_t charge, HandleImpl** handle, Cache::Priority priority);
 
-  Status Insert(const Slice& key, const UniqueId64x2& hashed_key,
-                Cache::ObjectPtr value, const Slice&, const Cache::CacheItemHelper* helper,
-                size_t charge, HandleImpl** handle, Cache::Priority priority) {
-                  return Insert(key, hashed_key, value, helper, charge, handle, priority);
-                }
-
   HandleImpl* CreateStandalone(const Slice& key, const UniqueId64x2& hashed_key,
                                Cache::ObjectPtr obj,
                                const Cache::CacheItemHelper* helper,

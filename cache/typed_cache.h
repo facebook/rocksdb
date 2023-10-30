@@ -168,17 +168,6 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
         GetBasicHelper(), charge, untyped_handle, priority);
   }
 
-  inline Status Insert(const Slice& key, TValuePtr value, 
-                       const Slice& ts,
-                       size_t charge,
-                       TypedHandle** handle = nullptr,
-                       Priority priority = Priority::LOW) {
-    auto untyped_handle = reinterpret_cast<Handle**>(handle);
-    return this->cache_->InsertWithTimestamp(
-        key, BasicTypedCacheHelperFns<TValue>::UpCastValue(value), ts,
-        GetBasicHelper(), charge, untyped_handle, priority);
-  }
-
   inline TypedHandle* Lookup(const Slice& key, Statistics* stats = nullptr) {
     return reinterpret_cast<TypedHandle*>(
         this->cache_->BasicLookup(key, stats));
@@ -208,10 +197,6 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   inline TValuePtr Value(TypedHandle* handle) {
     return BasicTypedCacheHelperFns<TValue>::DownCastValue(
         this->cache_->Value(handle));
-  }
-
-  inline Slice Timestamp(TypedHandle* handle) {
-    return this->cache_->Timestamp(handle);
   }
 };
 
