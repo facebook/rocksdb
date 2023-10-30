@@ -1863,7 +1863,7 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
         "NotifyOnErrorRecoveryEnd:MutexUnlocked:2"},
        {"StartRecoverFromRetryableBGIOError:BeforeWaitingForOtherThread",
         "MultipleRecoveryThreads:3"},
-       {"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
         "MultipleRecoveryThreads:4"},
        {"MultipleRecoveryThreads:5",
         "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"}});
@@ -1904,7 +1904,7 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
 
   // Set up sync point so that we can wait for the recovery thread to finish
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"RecoverFromRetryableBGIOError:RecoverSuccessBeforeReturn",
+      {{"RecoverFromRetryableBGIOError:RecoverSuccess",
         "MultipleRecoveryThreads:6"}});
 
   // Wait for the second thread's recovery to be done
