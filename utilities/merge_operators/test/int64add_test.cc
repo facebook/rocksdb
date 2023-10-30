@@ -26,13 +26,13 @@ class Int64AddMergeOperatorTest : public testing::Test {
     options_.merge_operator = MergeOperators::CreateFromStringId("int64add");
     options_.create_if_missing = true;
     dbname_ = test::PerThreadDBPath("int64add_merge_operator_test");
-    DestroyDB(dbname_, options_);
+    EXPECT_OK(DestroyDB(dbname_, options_));
   }
 
   ~Int64AddMergeOperatorTest() {
     if (db_ != nullptr) {
       delete db_;
-      DestroyDB(dbname_, options_);
+      EXPECT_OK(DestroyDB(dbname_, options_));
     }
   }
 
