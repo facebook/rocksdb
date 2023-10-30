@@ -11,6 +11,7 @@
 #include <ios>
 #include <thread>
 
+#include "rocksdb/options.h"
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
@@ -18,6 +19,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
+#include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
@@ -1765,13 +1767,16 @@ Status StressTest::TestBackupRestore(
   }
   DB* restored_db = nullptr;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
+
   // Not yet implemented: opening restored BlobDB or TransactionDB
+  Options restore_options;
   if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
-    Options restore_options(options_);
-    restore_options.best_efforts_recovery = false;
-    restore_options.listeners.clear();
-    // Avoid dangling/shared file descriptors, for reliable destroy
-    restore_options.sst_file_manager = nullptr;
+    s = PrepareOptionsForRestoredDB(&restore_options);
+    if (!s.ok()) {
+      from = "PrepareRestoredDBOptions in backup/restore";
+    }
+  }
+  if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
@@ -1889,6 +1894,48 @@ Status StressTest::TestBackupRestore(
   return s;
 }
 
+Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
+  assert(options);
+  // To avoid race with other threads' operations (e.g, SetOptions())
+  // on the same pointer sub-option (e.g, `std::shared_ptr<const FilterPolicy>
+  // filter_policy`) while having the same settings as `options_`, we create a
+  // new Options object from `options_`'s string to deep copy these pointer
+  // sub-options
+  Status s;
+  ConfigOptions config_opts;
+
+  std::string db_options_str;
+  s = GetStringFromDBOptions(config_opts, options_, &db_options_str);
+  if (!s.ok()) {
+    return s;
+  }
+  DBOptions db_options;
+  s = GetDBOptionsFromString(config_opts, Options(), db_options_str,
+                             &db_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string cf_options_str;
+  s = GetStringFromColumnFamilyOptions(config_opts, options_, &cf_options_str);
+  if (!s.ok()) {
+    return s;
+  }
+  ColumnFamilyOptions cf_options;
+  s = GetColumnFamilyOptionsFromString(config_opts, Options(), cf_options_str,
+                                       &cf_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  *options = Options(db_options, cf_options);
+  options->best_efforts_recovery = false;
+  options->listeners.clear();
+  // Avoid dangling/shared file descriptors, for reliable destroy
+  options->sst_file_manager = nullptr;
+
+  return Status::OK();
+}
 Status StressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
