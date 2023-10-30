@@ -2124,7 +2124,8 @@ VersionStorageInfo::VersionStorageInfo(
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
-    uint32_t bottommost_file_compaction_delay)
+    uint32_t bottommost_file_compaction_delay,
+    OffpeakTimeInfo offpeak_time_info)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2156,7 +2157,8 @@ VersionStorageInfo::VersionStorageInfo(
       bottommost_file_compaction_delay_(bottommost_file_compaction_delay),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
-      epoch_number_requirement_(epoch_number_requirement) {
+      epoch_number_requirement_(epoch_number_requirement),
+      offpeak_time_info_(offpeak_time_info) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2200,9 +2202,9 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
           epoch_number_requirement,
           cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
-          cfd_ == nullptr
-              ? 0
-              : mutable_cf_options.bottommost_file_compaction_delay),
+          cfd_ == nullptr ? 0
+                          : mutable_cf_options.bottommost_file_compaction_delay,
+          vset->offpeak_time_info()),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -5043,15 +5045,13 @@ void AtomicGroupReadBuffer::Clear() {
   replay_buffer_.clear();
 }
 
-VersionSet::VersionSet(const std::string& dbname,
-                       const ImmutableDBOptions* _db_options,
-                       const FileOptions& storage_options, Cache* table_cache,
-                       WriteBufferManager* write_buffer_manager,
-                       WriteController* write_controller,
-                       BlockCacheTracer* const block_cache_tracer,
-                       const std::shared_ptr<IOTracer>& io_tracer,
-                       const std::string& db_id,
-                       const std::string& db_session_id)
+VersionSet::VersionSet(
+    const std::string& dbname, const ImmutableDBOptions* _db_options,
+    const FileOptions& storage_options, Cache* table_cache,
+    WriteBufferManager* write_buffer_manager, WriteController* write_controller,
+    BlockCacheTracer* const block_cache_tracer,
+    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+    const std::string& db_session_id, const std::string& daily_offpeak_time_utc)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
@@ -5076,7 +5076,8 @@ VersionSet::VersionSet(const std::string& dbname,
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
-      db_session_id_(db_session_id) {}
+      db_session_id_(db_session_id),
+      offpeak_time_info_(OffpeakTimeInfo(daily_offpeak_time_utc)) {}
 
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
@@ -6201,7 +6202,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
-                      /*db_session_id*/ "");
+                      /*db_session_id*/ "", options->daily_offpeak_time_utc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -7242,7 +7243,8 @@ ReactiveVersionSet::ReactiveVersionSet(
     : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
-                 /*db_session_id*/ "") {}
+                 /*db_session_id*/ "",
+                 /*daily_offpeak_time_utc*/ "") {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}
 

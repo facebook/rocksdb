@@ -1393,8 +1393,9 @@ class DBImpl : public DB {
     autovector<ColumnFamilyData*> cfds_;
     autovector<const MutableCFOptions*> mutable_cf_opts_;
     autovector<autovector<VersionEdit*>> edit_lists_;
-    // files_to_delete_ contains sst files
-    std::unordered_set<std::string> files_to_delete_;
+    // Stale SST files to delete found upon recovery. This stores a mapping from
+    // such a file's absolute path to its parent directory.
+    std::unordered_map<std::string, std::string> files_to_delete_;
     bool is_new_db_ = false;
   };
 
