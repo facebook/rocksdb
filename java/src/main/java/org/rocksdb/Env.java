@@ -26,8 +26,9 @@ public abstract class Env extends RocksObject {
    *
    * @return the default {@link org.rocksdb.RocksEnv} instance.
    */
+  @SuppressWarnings({"PMD.CloseResource", "PMD.AssignmentInOperand"})
   public static Env getDefault() {
-    RocksEnv defaultEnv = null;
+    RocksEnv defaultEnv;
     RocksEnv newDefaultEnv = null;
 
     while ((defaultEnv = SINGULAR_DEFAULT_ENV.get()) == null) {

@@ -89,6 +89,7 @@ public class OptionsUtil {
 
   private static void loadTableFormatConfig(final List<ColumnFamilyDescriptor> cfDescs) {
     for (final ColumnFamilyDescriptor columnFamilyDescriptor : cfDescs) {
+      @SuppressWarnings("PMD.CloseResource")
       final ColumnFamilyOptions columnFamilyOptions = columnFamilyDescriptor.getOptions();
       columnFamilyOptions.setFetchedTableFormatConfig(
           readTableFormatConfig(columnFamilyOptions.nativeHandle_));

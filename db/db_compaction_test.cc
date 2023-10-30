@@ -2673,6 +2673,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
     keys_in_db.append(iter->key().ToString());
     keys_in_db.push_back(',');
   }
+  ASSERT_OK(iter->status());
   delete iter;
 
   std::string expected_keys;

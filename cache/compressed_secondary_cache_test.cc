@@ -1276,6 +1276,13 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
   ASSERT_EQ(sec_capacity, (30 << 20));
 
+  ASSERT_OK(tiered_cache->GetSecondaryCacheCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 30 << 20);
+  size_t sec_usage;
+  ASSERT_OK(tiered_cache->GetSecondaryCachePinnedUsage(sec_usage));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_usage, 3 << 20,
+               GetPercent(3 << 20, 1));
+
   ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.39));
   EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (45 << 20),
                GetPercent(45 << 20, 1));

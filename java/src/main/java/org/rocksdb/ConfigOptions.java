@@ -7,7 +7,6 @@
 package org.rocksdb;
 
 public class ConfigOptions extends RocksObject {
-
   /**
    * Construct with default Options
    */

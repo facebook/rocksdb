@@ -138,6 +138,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
       ASSERT_OK(iter->status());
       ++count;
     }
+    ASSERT_OK(iter->status());
     // Always expect two keys: "foo" and "bar"
     ASSERT_EQ(count, 2);
   };

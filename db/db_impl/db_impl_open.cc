@@ -418,7 +418,8 @@ Status DBImpl::Recover(
     uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
 
-  bool is_new_db = false;
+  bool tmp_is_new_db = false;
+  bool& is_new_db = recovery_ctx ? recovery_ctx->is_new_db_ : tmp_is_new_db;
   assert(db_lock_ == nullptr);
   std::vector<std::string> files_in_dbname;
   if (!read_only) {
@@ -941,8 +942,11 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
       recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
   if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
-    for (const auto& fname : recovery_ctx.files_to_delete_) {
-      s = env_->DeleteFile(fname);
+    for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
+      s = DeleteDBFile(&immutable_db_options_, stale_sst_file.first,
+                       stale_sst_file.second,
+                       /*force_bg=*/false,
+                       /*force_fg=*/false);
       if (!s.ok()) {
         break;
       }
@@ -2124,8 +2128,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
-    persist_options_status = impl->WriteOptionsFile(
-        false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
+    persist_options_status =
+        impl->WriteOptionsFile(true /*db_mutex_already_held*/);
     *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->DeleteObsoleteFiles();
@@ -2247,7 +2251,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker(/*from_db_open=*/true);
+    s = impl->RegisterRecordSeqnoTimeWorker(recovery_ctx.is_new_db_);
   }
   impl->options_mutex_.Unlock();
   if (!s.ok()) {

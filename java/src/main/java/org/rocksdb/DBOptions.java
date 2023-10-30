@@ -16,9 +16,7 @@ import java.util.*;
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class DBOptions extends RocksObject
-    implements DBOptionsInterface<DBOptions>,
-    MutableDBOptionsInterface<DBOptions> {
-
+    implements DBOptionsInterface<DBOptions>, MutableDBOptionsInterface<DBOptions> {
   /**
    * Construct DBOptions.
    * <p>

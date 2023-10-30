@@ -1469,6 +1469,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
       keys_in_db.append(iter->key().ToString());
       keys_in_db.push_back(',');
     }
+    EXPECT_OK(iter->status());
     delete iter;
 
     std::string expected_keys;

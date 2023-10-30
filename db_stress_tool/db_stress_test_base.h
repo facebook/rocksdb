@@ -194,6 +194,8 @@ class StressTest {
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys);
 
+  virtual Status PrepareOptionsForRestoredDB(Options* options);
+
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);

@@ -13,7 +13,6 @@
 #include <alloca.h>
 #endif
 
-#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <map>
@@ -277,10 +276,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
         this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       });
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
-                                 table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_id_, db_session_id_));
+  versions_.reset(new VersionSet(
+      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
+      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
+      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -355,7 +354,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
-  bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
     IOStatus io_s = versions_->io_status();
     if (io_s.IsIOError()) {
@@ -364,7 +362,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       // clean-up phase MANIFEST writing. We must have also disabled file
       // deletions.
       assert(!versions_->descriptor_log_);
-      assert(file_deletion_disabled);
+      assert(!IsFileDeletionsEnabled());
       // Since we are trying to recover from MANIFEST write error, we need to
       // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
       // Therefore, force writing a dummy version edit because we do not know
@@ -407,34 +405,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
-  JobContext job_context(0);
-  FindObsoleteFiles(&job_context, true);
-  mutex_.Unlock();
-
-  job_context.manifest_file_number = 1;
-  if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
-  }
-  job_context.Clean();
-
-  if (s.ok()) {
-    assert(versions_->io_status().ok());
-    // If we reach here, we should re-enable file deletions if it was disabled
-    // during previous error handling.
-    if (file_deletion_disabled) {
-      // Always return ok
-      s = EnableFileDeletions(/*force=*/true);
-      if (!s.ok()) {
-        ROCKS_LOG_INFO(
-            immutable_db_options_.info_log,
-            "DB resume requested but could not enable file deletions [%s]",
-            s.ToString().c_str());
-        assert(false);
-      }
-    }
-  }
-
-  mutex_.Lock();
   if (s.ok()) {
     // This will notify and unblock threads waiting for error recovery to
     // finish. Those previouly waiting threads can now proceed, which may
@@ -447,6 +417,15 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
 
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  mutex_.Unlock();
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   } else {
@@ -454,6 +433,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
                    s.ToString().c_str());
   }
 
+  mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -816,10 +796,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
-  if (!from_db_open) {
-    options_mutex_.AssertHeld();
-  }
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool is_new_db) {
+  options_mutex_.AssertHeld();
 
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
@@ -873,7 +851,17 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
     // 2) In any DB, any data written after setting preserve/preclude options
     // must have a reasonable time estimate (so that we can accurately place
     // the data), which means at least one entry in seqno_to_time_mapping_.
-    if (from_db_open && GetLatestSequenceNumber() == 0) {
+    //
+    // FIXME: We don't currently guarantee that if the first column family with
+    // that setting is added or configured after initial DB::Open but before
+    // the first user Write. Fixing this causes complications with the crash
+    // test because if DB starts without preserve/preclude option, does some
+    // user writes but all those writes are lost in crash, then re-opens with
+    // preserve/preclude option, it sees seqno==1 which looks like one of the
+    // user writes was recovered, when actually it was not.
+    bool last_seqno_zero = GetLatestSequenceNumber() == 0;
+    assert(!is_new_db || last_seqno_zero);
+    if (is_new_db && last_seqno_zero) {
       // Pre-allocate seqnos and pre-populate historical mapping
       assert(mapping_was_empty);
 
@@ -882,16 +870,31 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
       versions_->SetLastAllocatedSequence(kMax);
       versions_->SetLastPublishedSequence(kMax);
       versions_->SetLastSequence(kMax);
+
+      // And record in manifest, to avoid going backwards in seqno on re-open
+      // (potentially with different options). Concurrency is simple because we
+      // are in DB::Open
+      {
+        InstrumentedMutexLock l(&mutex_);
+        VersionEdit edit;
+        edit.SetLastSequence(kMax);
+        s = versions_->LogAndApplyToDefaultColumnFamily(
+            {}, &edit, &mutex_, directories_.GetDbDir());
+        if (!s.ok() && versions_->io_status().IsIOError()) {
+          s = error_handler_.SetBGError(versions_->io_status(),
+                                        BackgroundErrorReason::kManifestWrite);
+        }
+      }
+
       // Pre-populate mappings for reserved sequence numbers.
       RecordSeqnoToTimeMapping(max_preserve_seconds);
     } else if (mapping_was_empty) {
-      // To ensure there is at least one mapping, we need a non-zero sequence
-      // number. Outside of DB::Open, we have to be careful.
-      versions_->EnsureNonZeroSequence();
-      assert(GetLatestSequenceNumber() > 0);
-
-      // Ensure at least one mapping (or log a warning)
-      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      if (!last_seqno_zero) {
+        // Ensure at least one mapping (or log a warning)
+        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      } else {
+        // FIXME (see limitation described above)
+      }
     }
 
     s = periodic_task_scheduler_.Register(
@@ -1231,8 +1234,7 @@ Status DBImpl::SetOptions(
       // thread.
       InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
 
-      persist_options_status = WriteOptionsFile(
-          false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+      persist_options_status = WriteOptionsFile(true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
     }
   }
@@ -1274,7 +1276,8 @@ Status DBImpl::SetDBOptions(
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status = Status::OK();
-  bool wal_changed = false;
+  bool wal_size_option_changed = false;
+  bool wal_other_option_changed = false;
   WriteContext write_context;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -1325,16 +1328,23 @@ Status DBImpl::SetDBOptions(
       const bool max_compactions_increased =
           new_bg_job_limits.max_compactions >
           current_bg_job_limits.max_compactions;
+      const bool offpeak_time_changed =
+          versions_->offpeak_time_info().daily_offpeak_time_utc !=
+          new_db_options.daily_offpeak_time_utc;
 
-      if (max_flushes_increased || max_compactions_increased) {
+      if (max_flushes_increased || max_compactions_increased ||
+          offpeak_time_changed) {
         if (max_flushes_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
                                              Env::Priority::HIGH);
         }
-
         if (max_compactions_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
                                              Env::Priority::LOW);
+        }
+        if (offpeak_time_changed) {
+          versions_->ChangeOffpeakTimeInfo(
+              new_db_options.daily_offpeak_time_utc);
         }
 
         MaybeScheduleFlushOrCompaction();
@@ -1375,8 +1385,10 @@ Status DBImpl::SetDBOptions(
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
                                           ? TableCache::kInfiniteCapacity
                                           : new_options.max_open_files - 10);
-      wal_changed = mutable_db_options_.wal_bytes_per_sync !=
-                    new_options.wal_bytes_per_sync;
+      wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
+                                 new_options.wal_bytes_per_sync;
+      wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
+                                new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
@@ -1387,19 +1399,21 @@ Status DBImpl::SetDBOptions(
           file_options_for_compaction_, immutable_db_options_);
       file_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
-      WriteThread::Writer w;
-      write_thread_.EnterUnbatched(&w, &mutex_);
-      if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
-        Status purge_wal_status = SwitchWAL(&write_context);
-        if (!purge_wal_status.ok()) {
-          ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                         "Unable to purge WAL files in SetDBOptions() -- %s",
-                         purge_wal_status.ToString().c_str());
+      if (wal_other_option_changed || wal_size_option_changed) {
+        WriteThread::Writer w;
+        write_thread_.EnterUnbatched(&w, &mutex_);
+        if (wal_other_option_changed ||
+            total_log_size_ > GetMaxTotalWalSize()) {
+          Status purge_wal_status = SwitchWAL(&write_context);
+          if (!purge_wal_status.ok()) {
+            ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                           "Unable to purge WAL files in SetDBOptions() -- %s",
+                           purge_wal_status.ToString().c_str());
+          }
         }
+        write_thread_.ExitUnbatched(&w);
       }
-      persist_options_status = WriteOptionsFile(
-          false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
-      write_thread_.ExitUnbatched(&w);
+      persist_options_status = WriteOptionsFile(true /*db_mutex_already_held*/);
     } else {
       // To get here, we must have had invalid options and will not attempt to
       // persist the options, which means the status is "OK/Uninitialized.
@@ -3342,6 +3356,58 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
                  statuses, sorted_input);
 }
 
+void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
+                            const Slice* keys,
+                            PinnableAttributeGroups* results) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGetEntity with ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(s);
+      }
+    }
+    return;
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  std::vector<ColumnFamilyHandle*> column_families;
+  std::vector<Slice> all_keys;
+  size_t total_count = 0;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      // Adding the same key slice for different CFs
+      all_keys.emplace_back(keys[i]);
+      column_families.emplace_back(results[i][j].column_family());
+      ++total_count;
+    }
+  }
+  std::vector<Status> statuses(total_count);
+  std::vector<PinnableWideColumns> columns(total_count);
+  MultiGetCommon(read_options, total_count, column_families.data(),
+                 all_keys.data(),
+                 /* values */ nullptr, columns.data(),
+                 /* timestamps */ nullptr, statuses.data(),
+                 /* sorted_input */ false);
+
+  // Set results
+  size_t index = 0;
+  for (size_t i = 0; i < num_keys; ++i) {
+    for (size_t j = 0; j < results[i].size(); ++j) {
+      results[i][j].Reset();
+      results[i][j].SetStatus(std::move(statuses[index]));
+      results[i][j].SetColumns(std::move(columns[index]));
+      ++index;
+    }
+  }
+}
+
 Status DBImpl::WrapUpCreateColumnFamilies(
     const std::vector<const ColumnFamilyOptions*>& cf_options) {
   // NOTE: this function is skipped for create_missing_column_families and
@@ -3355,8 +3421,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
     }
   }
   // Attempt both follow-up actions even if one fails
-  Status s = WriteOptionsFile(true /*need_mutex_lock*/,
-                              true /*need_enter_write_thread*/);
+  Status s = WriteOptionsFile(false /*db_mutex_already_held*/);
   if (register_worker) {
     s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(/*from_db_open=*/false));
   }
@@ -3526,8 +3591,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
-    s = WriteOptionsFile(true /*need_mutex_lock*/,
-                         true /*need_enter_write_thread*/);
+    s = WriteOptionsFile(false /*db_mutex_already_held*/);
   }
   return s;
 }
@@ -3545,8 +3609,8 @@ Status DBImpl::DropColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    Status persist_options_status = WriteOptionsFile(
-        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+    Status persist_options_status =
+        WriteOptionsFile(false /*db_mutex_already_held*/);
     if (s.ok() && !persist_options_status.ok()) {
       s = persist_options_status;
     }
@@ -5174,18 +5238,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   return result;
 }
 
-Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
-                                bool need_enter_write_thread) {
+Status DBImpl::WriteOptionsFile(bool db_mutex_already_held) {
   options_mutex_.AssertHeld();
 
-  WriteThread::Writer w;
-  if (need_mutex_lock) {
-    mutex_.Lock();
-  } else {
+  if (db_mutex_already_held) {
     mutex_.AssertHeld();
-  }
-  if (need_enter_write_thread) {
-    write_thread_.EnterUnbatched(&w, &mutex_);
+  } else {
+    mutex_.Lock();
   }
 
   std::vector<std::string> cf_names;
@@ -5200,10 +5259,10 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
     cf_opts.push_back(cfd->GetLatestCFOptions());
   }
 
-  // Unlock during expensive operations.  New writes cannot get here
-  // because the single write thread ensures all new writes get queued.
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+
+  // Unlock during expensive operations.
   mutex_.Unlock();
 
   TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
@@ -5228,22 +5287,22 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
     }
   }
 
-  // restore lock
-  if (!need_mutex_lock) {
-    mutex_.Lock();
-  }
-  if (need_enter_write_thread) {
-    write_thread_.ExitUnbatched(&w);
-  }
   if (!s.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Unnable to persist options -- %s", s.ToString().c_str());
     if (immutable_db_options_.fail_if_options_file_error) {
-      return Status::IOError("Unable to persist options.",
-                             s.ToString().c_str());
+      s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+    } else {
+      // Ignore error
+      s = Status::OK();
     }
   }
-  return Status::OK();
+
+  // Restore lock if appropriate
+  if (db_mutex_already_held) {
+    mutex_.Lock();
+  }
+  return s;
 }
 
 namespace {
@@ -6464,7 +6523,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
         assert(unix_time > populate_historical_seconds);
       }
     } else {
-      assert(seqno > 0);
+      // FIXME: assert(seqno > 0);
       appended = seqno_to_time_mapping_.Append(seqno, unix_time);
     }
   }

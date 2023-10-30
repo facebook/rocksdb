@@ -304,6 +304,7 @@ class SstFileReaderTimestampTest : public testing::Test {
     }
 
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
   }
 
  protected:
