@@ -652,7 +652,7 @@ class VersionEdit {
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
   void SetRemainingEntries(uint32_t remaining_entries) {
     remaining_entries_ = remaining_entries;
-  };
+  }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
   bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
