@@ -1501,7 +1501,7 @@ public class OptionsTest {
     try (final Options options = new Options()) {
       try (TablePropertiesCollectorFactory collectorFactory =
                TablePropertiesCollectorFactory.NewCompactOnDeletionCollectorFactory(10, 10, 1.0)) {
-        List<TablePropertiesCollectorFactory> factories = List.of(collectorFactory);
+        List<TablePropertiesCollectorFactory> factories = Arrays.asList(collectorFactory);
         options.setTablePropertiesCollectorFactory(factories);
       }
       List<TablePropertiesCollectorFactory> factories = options.tablePropertiesCollectorFactory();

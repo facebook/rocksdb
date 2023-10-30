@@ -3936,7 +3936,7 @@ jint Java_org_rocksdb_Options_memtableMaxRangeDeletions(JNIEnv*, jobject,
 jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
     JNIEnv* env, jclass, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  const auto size = opt->table_properties_collector_factories.size();
+  const size_t size = opt->table_properties_collector_factories.size();
   jlongArray retVal = env->NewLongArray(static_cast<jsize>(size));
   if (retVal == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -3948,7 +3948,7 @@ jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
     return nullptr;
   }
 
-  for (int i = 0; i < size; i++) {
+  for (size_t i = 0; i < size; i++) {
     auto* wrapper = new TablePropertiesCollectorFactoriesJniWrapper();
     wrapper->table_properties_collector_factories =
         opt->table_properties_collector_factories[i];
@@ -3966,7 +3966,7 @@ jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
 void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
     JNIEnv* env, jclass, jlong jhandle, jlongArray j_factory_handlers) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  const auto size = env->GetArrayLength(j_factory_handlers);
+  const jsize size = env->GetArrayLength(j_factory_handlers);
 
   jlong* buf = env->GetLongArrayElements(j_factory_handlers, NULL);
   if (buf == nullptr) {
@@ -3975,7 +3975,7 @@ void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
   }
 
   opt->table_properties_collector_factories.clear();
-  for (int i = 0; i < size; i++) {
+  for (jsize i = 0; i < size; i++) {
     auto* wrapper =
         reinterpret_cast<TablePropertiesCollectorFactoriesJniWrapper*>(buf[i]);
     opt->table_properties_collector_factories.emplace_back(
