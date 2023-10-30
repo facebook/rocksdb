@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.7.3 (10/30/2023)
+### Behavior Changes
+* Deleting stale files upon recovery are delegated to SstFileManger if available so they can be rate limited.
+
 ## 8.7.2 (10/25/2023)
 ### Public API Changes
 * Add new Cache APIs GetSecondaryCacheCapacity() and GetSecondaryCachePinnedUsage() to return the configured capacity, and cache reservation charged to the secondary cache.
