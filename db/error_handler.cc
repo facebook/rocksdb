@@ -556,6 +556,7 @@ Status ErrorHandler::ClearBGError() {
     // old_bg_error is only for notifying listeners, so may not be checked
     old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
+    is_db_stopped_.store(false, std::memory_order_release);
     bg_error_ = Status::OK();
     recovery_error_ = IOStatus::OK();
     bg_error_.PermitUncheckedError();
