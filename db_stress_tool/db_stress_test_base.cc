@@ -1945,8 +1945,12 @@ Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
   options->listeners.clear();
   // Avoid dangling/shared file descriptors, for reliable destroy
   options->sst_file_manager = nullptr;
-  // GetColumnFamilyOptionsFromString does not create customized merge operator
+  // GetColumnFamilyOptionsFromString does not create customized merge operator,
+  // and comparator.
   InitializeMergeOperator(*options);
+  if (FLAGS_user_timestamp_size > 0) {
+    CheckAndSetOptionsForUserTimestamp(*options);
+  }
 
   return Status::OK();
 }
