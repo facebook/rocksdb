@@ -1894,6 +1894,18 @@ Status StressTest::TestBackupRestore(
   return s;
 }
 
+void InitializeMergeOperator(Options& options) {
+  if (FLAGS_use_full_merge_v1) {
+    options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+  } else {
+    if (FLAGS_use_put_entity_one_in > 0) {
+      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
+    } else {
+      options.merge_operator = MergeOperators::CreatePutOperator();
+    }
+  }
+}
+
 Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
   assert(options);
   // To avoid race with other threads' operations (e.g, SetOptions())
@@ -1933,6 +1945,8 @@ Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
   options->listeners.clear();
   // Avoid dangling/shared file descriptors, for reliable destroy
   options->sst_file_manager = nullptr;
+  // GetColumnFamilyOptionsFromString does not create customized merge operator
+  InitializeMergeOperator(*options);
 
   return Status::OK();
 }
@@ -3418,15 +3432,8 @@ void InitializeOptionsFromFlags(
       options.memtable_factory.reset(new VectorRepFactory());
       break;
   }
-  if (FLAGS_use_full_merge_v1) {
-    options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
-  } else {
-    if (FLAGS_use_put_entity_one_in > 0) {
-      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
-    } else {
-      options.merge_operator = MergeOperators::CreatePutOperator();
-    }
-  }
+
+  InitializeMergeOperator(options);
 
   if (FLAGS_enable_compaction_filter) {
     options.compaction_filter_factory =
