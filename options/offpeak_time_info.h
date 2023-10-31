@@ -19,6 +19,7 @@ struct OffpeakTimeInfo {
 
 struct OffpeakTimeOption {
   static constexpr int kSecondsPerDay = 86400;
+  static constexpr int kSecondsPerHour = 3600;
   static constexpr int kSecondsPerMinute = 60;
 
   OffpeakTimeOption();
