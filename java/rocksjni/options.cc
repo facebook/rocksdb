@@ -3964,11 +3964,11 @@ jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
  * Signature: (J[J)V
  */
 void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
-    JNIEnv* env, jclass, jlong jhandle, jlongArray j_factory_handlers) {
+    JNIEnv* env, jclass, jlong jhandle, jlongArray j_factory_handles) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  const jsize size = env->GetArrayLength(j_factory_handlers);
+  const jsize size = env->GetArrayLength(j_factory_handles);
 
-  jlong* buf = env->GetLongArrayElements(j_factory_handlers, NULL);
+  jlong* buf = env->GetLongArrayElements(j_factory_handles, NULL);
   if (buf == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -3981,7 +3981,7 @@ void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
     opt->table_properties_collector_factories.emplace_back(
         wrapper->table_properties_collector_factories);
   }
-  env->ReleaseLongArrayElements(j_factory_handlers, buf, JNI_ABORT);
+  env->ReleaseLongArrayElements(j_factory_handles, buf, JNI_ABORT);
 }
 
 //////////////////////////////////////////////////////////////////////////////

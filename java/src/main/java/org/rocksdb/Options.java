@@ -2120,6 +2120,10 @@ public class Options extends RocksObject
     return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
   }
 
+  //
+  // END options for blobs (integrated BlobDB)
+  //
+
   /**
    * Return copy of TablePropertiesCollectorFactory list. Modifying this list will not change
    * underlying options C++ object. {@link #setTablePropertiesCollectorFactory(List)
@@ -2136,7 +2140,7 @@ public class Options extends RocksObject
   }
 
   /**
-   * Set TablePropertiesCollectorFactory in undulation C++ object.
+   * Set TablePropertiesCollectorFactory in underlying C++ object.
    * This method create its own copy of the list. Caller is responsible for
    * closing all the instances in the list.
    * @param factories
@@ -2148,10 +2152,6 @@ public class Options extends RocksObject
     }
     setTablePropertiesCollectorFactory(nativeHandle_, factoryHandlers);
   }
-
-  //
-  // END options for blobs (integrated BlobDB)
-  //
 
   private static long newOptionsInstance() {
     RocksDB.loadLibrary();
