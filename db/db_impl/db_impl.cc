@@ -2083,7 +2083,7 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   for (size_t i = 0; i < num_column_families; ++i) {
     // Adding the same key slice for different CFs
     keys.emplace_back(key);
-    column_families.emplace_back(result->at(i).column_family());
+    column_families.emplace_back((*result)[i].column_family());
   }
   std::vector<PinnableWideColumns> columns(num_column_families);
   std::vector<Status> statuses(num_column_families);
@@ -2094,9 +2094,9 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   // Set results
   size_t index = 0;
   for (size_t i = 0; i < num_column_families; ++i) {
-    result->at(i).Reset();
-    result->at(i).SetStatus(statuses[index]);
-    result->at(i).SetColumns(std::move(columns[index]));
+    (*result)[i].Reset();
+    (*result)[i].SetStatus(statuses[index]);
+    (*result)[i].SetColumns(std::move(columns[index]));
     ++index;
   }
   return Status::OK();

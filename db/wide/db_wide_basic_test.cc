@@ -296,7 +296,7 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     PinnableAttributeGroups second_key_result = create_result(hot_and_cold_cfs);
 
     // GetEntity for first_key
-    db_->GetEntity(ReadOptions(), first_key, &first_key_result);
+    ASSERT_OK(db_->GetEntity(ReadOptions(), first_key, &first_key_result));
     ASSERT_EQ(num_column_families, first_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
@@ -307,7 +307,7 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     ASSERT_EQ(first_hot_columns, first_key_result[1].columns());
 
     // GetEntity for second_key
-    db_->GetEntity(ReadOptions(), second_key, &second_key_result);
+    ASSERT_OK(db_->GetEntity(ReadOptions(), second_key, &second_key_result));
     ASSERT_EQ(num_column_families, second_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
@@ -325,7 +325,7 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     PinnableAttributeGroups second_key_result = create_result(all_cfs);
 
     // GetEntity for first_key
-    db_->GetEntity(ReadOptions(), first_key, &first_key_result);
+    ASSERT_OK(db_->GetEntity(ReadOptions(), first_key, &first_key_result));
     ASSERT_EQ(num_column_families, first_key_result.size());
     // We expect to get values for all keys and CFs
     for (size_t i = 0; i < num_column_families; ++i) {
@@ -337,7 +337,7 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     ASSERT_EQ(first_cold_columns, first_key_result[2].columns());
 
     // GetEntity for second_key
-    db_->GetEntity(ReadOptions(), second_key, &second_key_result);
+    ASSERT_OK(db_->GetEntity(ReadOptions(), second_key, &second_key_result));
     ASSERT_EQ(num_column_families, second_key_result.size());
     // key does not exist in default cf
     ASSERT_NOK(second_key_result[0].status());
