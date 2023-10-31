@@ -91,7 +91,7 @@ class FilePrefetchBuffer {
       uint64_t num_file_reads_for_auto_readahead = 0,
       uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
-      const std::function<void(uint64_t, size_t, size_t&)>& cb = nullptr,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -239,9 +239,6 @@ class FilePrefetchBuffer {
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool decrease_readaheadsize) {
     if (decrease_readaheadsize) {
-      // Since this block was eligible for prefetch but it was found in
-      // cache, so check and decrease the readahead_size by 8KB (default)
-      // if eligible.
       DecreaseReadAheadIfEligible(offset, len);
     }
     prev_offset_ = offset;
@@ -299,12 +296,12 @@ class FilePrefetchBuffer {
 
   void AbortAllIOs();
 
-  void UpdateBuffersIfNeeded(uint64_t offset);
+  void UpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   // It calls Poll API if any there is any pending asynchronous request. It then
   // checks if data is in any buffer. It clears the outdated data and swaps the
   // buffers if required.
-  void PollAndUpdateBuffersIfNeeded(uint64_t offset);
+  void PollAndUpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   Status PrefetchAsyncInternal(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
@@ -451,20 +448,12 @@ class FilePrefetchBuffer {
     return false;
   }
 
-  // Performs tuning to calculate readahead_size.
-  size_t ReadAheadSizeTuning(uint64_t offset, size_t n) {
-    UpdateReadAheadSizeForUpperBound(offset, n);
-
-    if (readaheadsize_cb_ != nullptr && readahead_size_ > 0) {
-      size_t updated_readahead_size = 0;
-      readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
-      if (readahead_size_ != updated_readahead_size) {
-        RecordTick(stats_, READAHEAD_TRIMMED);
-      }
-      return updated_readahead_size;
-    }
-    return readahead_size_;
-  }
+  void ReadAheadSizeTuning(bool read_curr_block, bool refit_tail,
+                           uint64_t prev_buf_offset, uint32_t index,
+                           size_t alignment, size_t length,
+                           size_t readahead_size, uint64_t& offset,
+                           uint64_t& end_offset, size_t& read_len,
+                           uint64_t& chunk_len);
 
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
@@ -512,6 +501,6 @@ class FilePrefetchBuffer {
   // ReadOptions.auto_readahead_size are set to trim readahead_size upto
   // upper_bound_offset_ during prefetching.
   uint64_t upper_bound_offset_ = 0;
-  std::function<void(uint64_t, size_t, size_t&)> readaheadsize_cb_;
+  std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE
