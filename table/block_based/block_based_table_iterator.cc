@@ -33,136 +33,134 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     readahead_cache_lookup_ = true;
   }
 
-  // Second pass.
-  if (!is_first_pass) {
-    AsyncInitDataBlock(is_first_pass);
-
-    if (target) {
-      block_iter_.Seek(*target);
-    } else {
-      block_iter_.SeekToFirst();
+  if (is_first_pass) {
+    is_out_of_bound_ = false;
+    is_at_first_key_from_index_ = false;
+    seek_stat_state_ = kNone;
+    bool filter_checked = false;
+    if (target && !CheckPrefixMayMatch(*target, IterDirection::kForward,
+                                       &filter_checked)) {
+      ResetDataIter();
+      RecordTick(table_->GetStatistics(), is_last_level_
+                                              ? LAST_LEVEL_SEEK_FILTERED
+                                              : NON_LAST_LEVEL_SEEK_FILTERED);
+      return;
     }
-    FindKeyForward();
+    if (filter_checked) {
+      seek_stat_state_ = kFilterUsed;
+      RecordTick(table_->GetStatistics(),
+                 is_last_level_ ? LAST_LEVEL_SEEK_FILTER_MATCH
+                                : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
+    }
 
-    CheckOutOfBound();
+    bool need_seek_index = true;
 
-    assert(!Valid() || icomp_.Compare(*target, key()) <= 0);
-    return;
-  }
+    //  In case of readahead_cache_lookup_, index_iter_ could change to find the
+    //  readahead size in BlockCacheLookupForReadAheadSize so it needs to
+    //  reseek.
+    if (IsIndexAtCurr() && block_iter_points_to_real_block_ &&
+        block_iter_.Valid()) {
+      // Reseek.
+      prev_block_offset_ = index_iter_->value().handle.offset();
 
-  is_out_of_bound_ = false;
-  is_at_first_key_from_index_ = false;
-  seek_stat_state_ = kNone;
-  bool filter_checked = false;
-  if (target &&
-      !CheckPrefixMayMatch(*target, IterDirection::kForward, &filter_checked)) {
-    ResetDataIter();
-    RecordTick(table_->GetStatistics(), is_last_level_
-                                            ? LAST_LEVEL_SEEK_FILTERED
-                                            : NON_LAST_LEVEL_SEEK_FILTERED);
-    return;
-  }
-  if (filter_checked) {
-    seek_stat_state_ = kFilterUsed;
-    RecordTick(table_->GetStatistics(), is_last_level_
-                                            ? LAST_LEVEL_SEEK_FILTER_MATCH
-                                            : NON_LAST_LEVEL_SEEK_FILTER_MATCH);
-  }
+      if (target) {
+        // We can avoid an index seek if:
+        // 1. The new seek key is larger than the current key
+        // 2. The new seek key is within the upper bound of the block
+        // Since we don't necessarily know the internal key for either
+        // the current key or the upper bound, we check user keys and
+        // exclude the equality case. Considering internal keys can
+        // improve for the boundary cases, but it would complicate the
+        // code.
+        if (user_comparator_.Compare(ExtractUserKey(*target),
+                                     block_iter_.user_key()) > 0 &&
+            user_comparator_.Compare(ExtractUserKey(*target),
+                                     index_iter_->user_key()) < 0) {
+          need_seek_index = false;
+        }
+      }
+    }
 
-  bool need_seek_index = true;
+    if (need_seek_index) {
+      if (target) {
+        index_iter_->Seek(*target);
+      } else {
+        index_iter_->SeekToFirst();
+      }
+      is_index_at_curr_block_ = true;
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
+    }
 
-  //  In case of readahead_cache_lookup_, index_iter_ could change to find the
-  //  readahead size in BlockCacheLookupForReadAheadSize so it needs to reseek.
-  if (IsIndexAtCurr() && block_iter_points_to_real_block_ &&
-      block_iter_.Valid()) {
-    // Reseek.
-    prev_block_offset_ = index_iter_->value().handle.offset();
+    if (autotune_readaheadsize) {
+      FindReadAheadSizeUpperBound();
+      if (target) {
+        index_iter_->Seek(*target);
+      } else {
+        index_iter_->SeekToFirst();
+      }
 
-    if (target) {
-      // We can avoid an index seek if:
-      // 1. The new seek key is larger than the current key
-      // 2. The new seek key is within the upper bound of the block
-      // Since we don't necessarily know the internal key for either
-      // the current key or the upper bound, we check user keys and
-      // exclude the equality case. Considering internal keys can
-      // improve for the boundary cases, but it would complicate the
-      // code.
-      if (user_comparator_.Compare(ExtractUserKey(*target),
-                                   block_iter_.user_key()) > 0 &&
-          user_comparator_.Compare(ExtractUserKey(*target),
-                                   index_iter_->user_key()) < 0) {
-        need_seek_index = false;
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
       }
     }
   }
 
-  if (need_seek_index) {
-    if (target) {
-      index_iter_->Seek(*target);
-    } else {
-      index_iter_->SeekToFirst();
-    }
-    is_index_at_curr_block_ = true;
-    if (!index_iter_->Valid()) {
+  if (is_first_pass) {
+    // After reseek, index_iter_ point to the right key i.e. target in
+    // case of readahead_cache_lookup_. So index_iter_ can be used directly.
+    IndexValue v = index_iter_->value();
+    const bool same_block = block_iter_points_to_real_block_ &&
+                            v.handle.offset() == prev_block_offset_;
+
+    if (!v.first_internal_key.empty() && !same_block &&
+        (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
+        allow_unprepared_value_) {
+      // Index contains the first key of the block, and it's >= target.
+      // We can defer reading the block.
+      is_at_first_key_from_index_ = true;
+      // ResetDataIter() will invalidate block_iter_. Thus, there is no need to
+      // call CheckDataBlockWithinUpperBound() to check for iterate_upper_bound
+      // as that will be done later when the data block is actually read.
       ResetDataIter();
-      return;
-    }
-  }
-
-  if (autotune_readaheadsize) {
-    FindReadAheadSizeUpperBound();
-    if (target) {
-      index_iter_->Seek(*target);
     } else {
-      index_iter_->SeekToFirst();
-    }
-
-    // Check for IO error.
-    if (!index_iter_->Valid()) {
-      ResetDataIter();
-      return;
-    }
-  }
-
-  // After reseek, index_iter_ point to the right key i.e. target in
-  // case of readahead_cache_lookup_. So index_iter_ can be used directly.
-  IndexValue v = index_iter_->value();
-  const bool same_block = block_iter_points_to_real_block_ &&
-                          v.handle.offset() == prev_block_offset_;
-
-  if (!v.first_internal_key.empty() && !same_block &&
-      (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
-      allow_unprepared_value_) {
-    // Index contains the first key of the block, and it's >= target.
-    // We can defer reading the block.
-    is_at_first_key_from_index_ = true;
-    // ResetDataIter() will invalidate block_iter_. Thus, there is no need to
-    // call CheckDataBlockWithinUpperBound() to check for iterate_upper_bound
-    // as that will be done later when the data block is actually read.
-    ResetDataIter();
-  } else {
-    // Need to use the data block.
-    if (!same_block) {
-      if (read_options_.async_io && async_prefetch) {
-        AsyncInitDataBlock(is_first_pass);
-        if (async_read_in_progress_) {
-          // Status::TryAgain indicates asynchronous request for retrieval of
-          // data blocks has been submitted. So it should return at this point
-          // and Seek should be called again to retrieve the requested block
-          // and execute the remaining code.
-          return;
+      // Need to use the data block.
+      if (!same_block) {
+        if (read_options_.async_io && async_prefetch) {
+          AsyncInitDataBlock(is_first_pass);
+          if (async_read_in_progress_) {
+            // Status::TryAgain indicates asynchronous request for retrieval of
+            // data blocks has been submitted. So it should return at this point
+            // and Seek should be called again to retrieve the requested block
+            // and execute the remaining code.
+            return;
+          }
+        } else {
+          InitDataBlock();
         }
       } else {
-        InitDataBlock();
+        // When the user does a reseek, the iterate_upper_bound might have
+        // changed. CheckDataBlockWithinUpperBound() needs to be called
+        // explicitly if the reseek ends up in the same data block.
+        // If the reseek ends up in a different block, InitDataBlock() will do
+        // the iterator upper bound check.
+        CheckDataBlockWithinUpperBound();
       }
-    } else {
-      // When the user does a reseek, the iterate_upper_bound might have
-      // changed. CheckDataBlockWithinUpperBound() needs to be called
-      // explicitly if the reseek ends up in the same data block.
-      // If the reseek ends up in a different block, InitDataBlock() will do
-      // the iterator upper bound check.
-      CheckDataBlockWithinUpperBound();
+
+      if (target) {
+        block_iter_.Seek(*target);
+      } else {
+        block_iter_.SeekToFirst();
+      }
+      FindKeyForward();
     }
+  } else {
+    // second pass
+    AsyncInitDataBlock(is_first_pass);
 
     if (target) {
       block_iter_.Seek(*target);
