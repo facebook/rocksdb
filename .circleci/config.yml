@@ -227,6 +227,9 @@ executors:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
       - image: zjay437/rocksdb:0.6
+  linux-java-docker:
+    docker:
+      - image: evolvedbinary/rocksjava:centos6_x64-be
 
 jobs:
   build-macos:
@@ -653,7 +656,7 @@ jobs:
       - post-pmd-steps
 
   build-linux-java-static:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -666,7 +669,7 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
       - post-steps
 
   build-macos-java:
