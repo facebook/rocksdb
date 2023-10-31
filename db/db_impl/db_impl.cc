@@ -2057,23 +2057,23 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   return GetImpl(read_options, key, get_impl_options);
 }
 
-void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
-                       PinnableAttributeGroups& result) {
-  if (result.size() == 0) {
-    result.emplace_back(Status::InvalidArgument(
-        "Cannot call GetEntity with empty PinnableAttributeGroups"));
-    return;
+Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
+                         PinnableAttributeGroups* result) {
+  if (!result) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without PinnableAttributeGroups object");
   }
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
-    for (size_t i = 0; i < result.size(); ++i) {
-      result[i].SetStatus(Status::InvalidArgument(
-          "Cannot call GetEntity with `ReadOptions::io_activity` != "
-          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`"));
-    }
-    return;
+    return Status::InvalidArgument(
+        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
   }
-  const size_t num_column_families = result.size();
+  // return early if no CF was passed in
+  const size_t num_column_families = result->size();
+  if (num_column_families == 0) {
+    return Status::OK();
+  }
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGetEntity;
@@ -2083,7 +2083,7 @@ void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   for (size_t i = 0; i < num_column_families; ++i) {
     // Adding the same key slice for different CFs
     keys.emplace_back(key);
-    column_families.emplace_back(result[i].column_family());
+    column_families.emplace_back(result->at(i).column_family());
   }
   std::vector<PinnableWideColumns> columns(num_column_families);
   std::vector<Status> statuses(num_column_families);
@@ -2094,11 +2094,12 @@ void DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   // Set results
   size_t index = 0;
   for (size_t i = 0; i < num_column_families; ++i) {
-    result[i].Reset();
-    result[i].SetStatus(statuses[index]);
-    result[i].SetColumns(std::move(columns[index]));
+    result->at(i).Reset();
+    result->at(i).SetStatus(statuses[index]);
+    result->at(i).SetColumns(std::move(columns[index]));
     ++index;
   }
+  return Status::OK();
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {

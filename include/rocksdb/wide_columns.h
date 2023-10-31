@@ -232,8 +232,6 @@ class PinnableAttributeGroup {
   explicit PinnableAttributeGroup(ColumnFamilyHandle* column_family)
       : column_family_(column_family), status_(Status::OK()) {}
 
-  explicit PinnableAttributeGroup(const Status& status) : status_(status) {}
-
   void SetStatus(const Status& status);
   void SetColumns(PinnableWideColumns&& columns);
 

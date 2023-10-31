@@ -605,19 +605,11 @@ class DB {
   // Returns logically grouped wide-column entities per column family (a.k.a.
   // attribute groups) for a single key. PinnableAttributeGroups is a vector of
   // PinnableAttributeGroup. Each PinnableAttributeGroup will have
-  // ColumnFamilyHandle*, Status and PinnableWideColumns as output.
-  virtual void GetEntity(const ReadOptions& /* options */,
-                         const Slice& /* key */,
-                         PinnableAttributeGroups& result) {
-    Status s = Status::NotSupported("GetEntity not supported");
-    if (result.size() == 0) {
-      result.emplace_back(s);
-      return;
-    } else {
-      for (size_t i = 0; i < result.size(); ++i) {
-        result[i].SetStatus(s);
-      }
-    }
+  // ColumnFamilyHandle* as input, and Status and PinnableWideColumns as output.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           const Slice& /* key */,
+                           PinnableAttributeGroups* /* result */) {
+    return Status::NotSupported("GetEntity not supported");
   }
 
   // Populates the `merge_operands` array with all the merge operands in the DB
