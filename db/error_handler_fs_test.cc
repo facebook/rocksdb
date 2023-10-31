@@ -1865,7 +1865,7 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
         "MultipleRecoveryThreads:3"},
        {"RecoverFromRetryableBGIOError:RecoverSuccess",
         "MultipleRecoveryThreads:4"},
-       {"MultipleRecoveryThreads:5",
+       {"MultipleRecoveryThreads:4",
         "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1895,9 +1895,8 @@ TEST_F(DBErrorHandlingFSTest, MultipleRecoveryThreads) {
   TEST_SYNC_POINT("MultipleRecoveryThreads:2");
   // Wait for the first thread's recovery to finish
   // (this sets recovery_in_prog_ = false)
+  // And second thread continues and starts recovery thread
   TEST_SYNC_POINT("MultipleRecoveryThreads:4");
-  // Second thread continues and starts recovery thread
-  TEST_SYNC_POINT("MultipleRecoveryThreads:5");
   second_write.join();
   // Remove error injection so that second thread recovery can go through
   fault_fs_->SetFilesystemActive(true);
