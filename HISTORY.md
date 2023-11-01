@@ -15,6 +15,7 @@
 ### Behavior Changes
 * For non direct IO, eliminate the file system prefetching attempt for compaction read when `Options::compaction_readahead_size` is 0
 * During a write stop, writes now block on in-progress recovery attempts
+* Deleting stale files upon recovery are delegated to SstFileManger if available so they can be rate limited.
 
 ### Bug Fixes
 * Fix a bug in auto_readahead_size where first_internal_key of index blocks wasn't copied properly resulting in corruption error when first_internal_key was used for comparison.
