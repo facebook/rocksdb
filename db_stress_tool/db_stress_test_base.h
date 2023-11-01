@@ -330,7 +330,8 @@ extern void InitializeOptionsGeneral(
 // user-defined timestamp which requires `-user_timestamp_size=8`.
 // This function also checks for known (currently) incompatible features with
 // user-defined timestamp.
-extern void CheckAndSetOptionsForUserTimestamp(Options& options);
+extern void CheckAndSetOptionsForUserTimestamp(Options& options,
+                                               bool from_restore);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
