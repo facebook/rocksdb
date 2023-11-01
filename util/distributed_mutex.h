@@ -28,7 +28,7 @@ class DMutex : public folly::DistributedMutex {
   explicit DMutex(bool IGNORED_adaptive = false) { (void)IGNORED_adaptive; }
 
   // currently no-op
-  void AssertHeld() {}
+  void AssertHeld() const {}
 };
 using DMutexLock = std::lock_guard<folly::DistributedMutex>;
 

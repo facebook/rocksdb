@@ -53,6 +53,7 @@
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/offpeak_time_info.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -134,7 +135,8 @@ class VersionStorageInfo {
                      bool _force_consistency_checks,
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
-                     uint32_t bottommost_file_compaction_delay);
+                     uint32_t bottommost_file_compaction_delay,
+                     OffpeakTimeInfo offpeak_time_info);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -228,7 +230,7 @@ class VersionStorageInfo {
   // eligible for compaction.
   //
   // REQUIRES: DB mutex held
-  void ComputeBottommostFilesMarkedForCompaction();
+  void ComputeBottommostFilesMarkedForCompaction(bool allow_ingest_behind);
 
   // This computes files_marked_for_forced_blob_gc_ and is called by
   // ComputeCompactionScore()
@@ -236,14 +238,16 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
-      double blob_garbage_collection_force_threshold);
+      double blob_garbage_collection_force_threshold,
+      bool enable_blob_garbage_collection);
 
   bool level0_non_overlapping() const { return level0_non_overlapping_; }
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
   // REQUIRES: DB mutex held
-  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum);
+  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum,
+                            bool allow_ingest_behind);
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
@@ -749,7 +753,8 @@ class VersionStorageInfo {
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
 
-  // Used for computing bottommost files marked for compaction.
+  // Used for computing bottommost files marked for compaction and checking for
+  // offpeak time.
   SystemClock* clock_;
   uint32_t bottommost_file_compaction_delay_;
 
@@ -760,6 +765,8 @@ class VersionStorageInfo {
   bool force_consistency_checks_;
 
   EpochNumberRequirement epoch_number_requirement_;
+
+  OffpeakTimeInfo offpeak_time_info_;
 
   friend class Version;
   friend class VersionSet;
@@ -1144,7 +1151,8 @@ class VersionSet {
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_id, const std::string& db_session_id);
+             const std::string& db_id, const std::string& db_session_id,
+             const std::string& daily_offpeak_time_utc);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1499,6 +1507,12 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  // TODO - Consider updating together when file options change in SetDBOptions
+  const OffpeakTimeInfo& offpeak_time_info() { return offpeak_time_info_; }
+  void ChangeOffpeakTimeInfo(const std::string& daily_offpeak_time_utc) {
+    offpeak_time_info_.daily_offpeak_time_utc = daily_offpeak_time_utc;
+  }
+
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
@@ -1648,6 +1662,9 @@ class VersionSet {
   std::shared_ptr<IOTracer> io_tracer_;
 
   std::string db_session_id_;
+
+  // Off-peak time information used for compaction scoring
+  OffpeakTimeInfo offpeak_time_info_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex

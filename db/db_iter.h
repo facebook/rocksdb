@@ -402,6 +402,7 @@ class DBIter final : public Iterator {
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
+  bool auto_readahead_size_;
 };
 
 // Return a new iterator that converts internal keys (yielded by

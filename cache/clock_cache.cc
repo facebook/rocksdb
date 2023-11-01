@@ -1790,6 +1790,8 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
   }
 }
 
+// Assumes a chain rewrite lock prevents concurrent modification of
+// these chain pointers
 void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
                           size_t& frontier, uint64_t stop_before_or_new_tail,
                           int old_shift, int new_shift) {
@@ -1805,7 +1807,6 @@ void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
     if (next_with_shift == stop_before_or_new_tail) {
       // Stopping at entry with pointer matching "stop before"
       assert(!HandleImpl::IsEnd(next_with_shift));
-      // We need to keep a reference to it also to keep it stable.
       return;
     }
     if (HandleImpl::IsEnd(next_with_shift)) {
@@ -1817,8 +1818,7 @@ void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
       frontier = SIZE_MAX;
       return;
     }
-    // Next is another entry to process, so upgrade and unref and advance
-    // frontier
+    // Next is another entry to process, so upgrade and advance frontier
     arr[frontier].chain_next_with_shift.fetch_add(1U,
                                                   std::memory_order_acq_rel);
     assert(GetShiftFromNextWithShift(next_with_shift + 1) == new_shift);
@@ -2015,14 +2015,28 @@ AutoHyperClockTable::AutoHyperClockTable(
 }
 
 AutoHyperClockTable::~AutoHyperClockTable() {
-  // Assumes there are no references or active operations on any slot/element
-  // in the table.
-  size_t end = GetTableSize();
+  // As usual, destructor assumes there are no references or active operations
+  // on any slot/element in the table.
+
+  // It's possible that there were not enough Insert() after final concurrent
+  // Grow to ensure length_info_ (published GetTableSize()) is fully up to
+  // date. Probe for first unused slot to ensure we see the whole structure.
+  size_t used_end = GetTableSize();
+  while (used_end < array_.Count() &&
+         array_[used_end].head_next_with_shift.load() !=
+             HandleImpl::kUnusedMarker) {
+    used_end++;
+  }
 #ifndef NDEBUG
-  std::vector<bool> was_populated(end);
-  std::vector<bool> was_pointed_to(end);
+  for (size_t i = used_end; i < array_.Count(); i++) {
+    assert(array_[i].head_next_with_shift.load() == 0);
+    assert(array_[i].chain_next_with_shift.load() == 0);
+    assert(array_[i].meta.load() == 0);
+  }
+  std::vector<bool> was_populated(used_end);
+  std::vector<bool> was_pointed_to(used_end);
 #endif
-  for (size_t i = 0; i < end; i++) {
+  for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
     switch (h.meta >> ClockHandle::kStateShift) {
       case ClockHandle::kStateEmpty:
@@ -2061,7 +2075,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   // This check is not perfect, but should detect most reasonable cases
   // of abandonned or floating entries, etc.  (A floating cycle would not
   // be reported as bad.)
-  for (size_t i = 0; i < end; i++) {
+  for (size_t i = 0; i < used_end; i++) {
     if (was_populated[i]) {
       assert(was_pointed_to[i]);
     } else {
@@ -2070,8 +2084,9 @@ AutoHyperClockTable::~AutoHyperClockTable() {
   }
 #endif
 
+  // Metadata charging only follows the published table size
   assert(usage_.load() == 0 ||
-         usage_.load() == size_t{GetTableSize()} * sizeof(HandleImpl));
+         usage_.load() == GetTableSize() * sizeof(HandleImpl));
   assert(occupancy_ == 0);
 }
 
@@ -2099,8 +2114,8 @@ void AutoHyperClockTable::StartInsert(InsertState& state) {
 // and a larger limit is used to break cycles should they occur in production.
 #define CHECK_TOO_MANY_ITERATIONS(i) \
   {                                  \
-    assert(i < 0x2000);              \
-    if (UNLIKELY(i >= 0x8000)) {     \
+    assert(i < 768);                 \
+    if (UNLIKELY(i >= 4096)) {       \
       std::terminate();              \
     }                                \
   }
@@ -2160,12 +2175,19 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
     bool own = array_[grow_home].head_next_with_shift.compare_exchange_strong(
         expected_zero, empty_head, std::memory_order_acq_rel);
     if (own) {
+      assert(array_[grow_home].meta.load(std::memory_order_acquire) == 0);
       break;
     } else {
       // Taken by another thread. Try next slot.
       assert(expected_zero != 0);
     }
   }
+#ifdef COERCE_CONTEXT_SWITCH
+  // This is useful in reproducing concurrency issues in Grow()
+  while (Random::GetTLSInstance()->OneIn(2)) {
+    std::this_thread::yield();
+  }
+#endif
   // Basically, to implement https://en.wikipedia.org/wiki/Linear_hashing
   // entries that belong in a new chain starting at grow_home will be
   // split off from the chain starting at old_home, which is computed here.
@@ -2217,6 +2239,9 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
   // of heads) after our last Grow, we do the same when Insert has to "fall
   // forward" due to length_info_ being out-of-date.
   CatchUpLengthInfoNoWait(grow_home);
+
+  // See usage in DoInsert()
+  state.likely_empty_slot = grow_home;
 
   // Success
   return true;
@@ -2515,7 +2540,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
   // BHome --------------------New------------> [A1] -Old-> ...
   // And we need to upgrade as much as we can on the "first" chain
   // (the one eventually pointing to the other's frontier). This will
-  // also finish off any case in which one of the targer chains will be empty.
+  // also finish off any case in which one of the target chains will be empty.
   if (chain_frontier_first >= 0) {
     size_t& first_frontier = chain_frontier_first == 0
                                  ? /*&*/ zero_chain_frontier
@@ -2635,7 +2660,9 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
   int home_shift = GetShiftFromNextWithShift(next_with_shift);
   (void)home;
   (void)home_shift;
-  HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+  size_t next = GetNextFromNextWithShift(next_with_shift);
+  assert(next < array_.Count());
+  HandleImpl* h = &arr[next];
   HandleImpl* prev_to_keep = nullptr;
 #ifndef NDEBUG
   uint64_t prev_to_keep_next_with_shift = 0;
@@ -2666,8 +2693,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
           // Entries for eviction become purgeable
           purgeable = true;
           assert((h->meta.load(std::memory_order_acquire) >>
-                  ClockHandle::kStateShift) &
-                 ClockHandle::kStateOccupiedBit);
+                  ClockHandle::kStateShift) == ClockHandle::kStateConstruction);
         }
       } else {
         (void)op_data;
@@ -2679,8 +2705,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
 
     if (purgeable) {
       assert((h->meta.load(std::memory_order_acquire) >>
-              ClockHandle::kStateShift) &
-             ClockHandle::kStateOccupiedBit);
+              ClockHandle::kStateShift) == ClockHandle::kStateConstruction);
       pending_purge = true;
     } else if (pending_purge) {
       if (prev_to_keep) {
@@ -2700,9 +2725,12 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         // Can simply restart (GetNewHead() already updated from CAS failure).
         next_with_shift = rewrite_lock.GetNewHead();
         assert(!HandleImpl::IsEnd(next_with_shift));
-        h = &arr[GetNextFromNextWithShift(next_with_shift)];
+        next = GetNextFromNextWithShift(next_with_shift);
+        assert(next < array_.Count());
+        h = &arr[next];
         pending_purge = false;
         assert(prev_to_keep == nullptr);
+        assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
         continue;
       }
       pending_purge = false;
@@ -2730,7 +2758,9 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
     if (HandleImpl::IsEnd(next_with_shift)) {
       h = nullptr;
     } else {
-      h = &arr[GetNextFromNextWithShift(next_with_shift)];
+      next = GetNextFromNextWithShift(next_with_shift);
+      assert(next < array_.Count());
+      h = &arr[next];
       assert(h != prev_to_keep);
     }
   }
@@ -2847,14 +2877,15 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   // We could go searching through the chain for any duplicate, but that's
   // not typically helpful, except for the REDUNDANT block cache stats.
   // (Inferior duplicates will age out with eviction.) However, we do skip
-  // insertion if the home slot already has a match (already_matches below),
-  // so that we keep better CPU cache locality when we can.
+  // insertion if the home slot (or some other we happen to probe) already
+  // has a match (already_matches below). This helps to keep better locality
+  // when we can.
   //
   // And we can do that as part of searching for an available slot to
   // insert the new entry, because our preferred location and first slot
   // checked will be the home slot.
   //
-  // As the table initially grows to size few entries will be in the same
+  // As the table initially grows to size, few entries will be in the same
   // cache line as the chain head. However, churn in the cache relatively
   // quickly improves the proportion of entries sharing that cache line with
   // the chain head. Data:
@@ -2877,12 +2908,22 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
 
   size_t idx = home;
   bool already_matches = false;
-  if (!TryInsert(proto, arr[idx], initial_countdown, take_ref,
-                 &already_matches)) {
-    if (already_matches) {
-      return nullptr;
-    }
-
+  bool already_matches_ignore = false;
+  if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                &already_matches)) {
+    assert(idx == home);
+  } else if (already_matches) {
+    return nullptr;
+    // Here we try to populate newly-opened slots in the table, but not
+    // when we can add something to its home slot. This makes the structure
+    // more performant more quickly on (initial) growth. We ignore "already
+    // matches" in this case because it is unlikely and difficult to
+    // incorporate logic for here cleanly and efficiently.
+  } else if (UNLIKELY(state.likely_empty_slot > 0) &&
+             TryInsert(proto, arr[state.likely_empty_slot], initial_countdown,
+                       take_ref, &already_matches_ignore)) {
+    idx = state.likely_empty_slot;
+  } else {
     // We need to search for an available slot outside of the home.
     // Linear hashing provides nice resizing but does typically mean
     // that some heads (home locations) have (in expectation) twice as
@@ -2892,54 +2933,28 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     //
     // This means that if we just use linear probing (by a small constant)
     // to find an available slot, part of the structure could easily fill up
-    // and resot to linear time operations even when the overall load factor
+    // and resort to linear time operations even when the overall load factor
     // is only modestly high, like 70%. Even though each slot has its own CPU
-    // cache line, there is likely a small locality benefit (e.g. TLB and
-    // paging) to iterating one by one, but obviously not with the linear
-    // hashing imbalance.
+    // cache line, there appears to be a small locality benefit (e.g. TLB and
+    // paging) to iterating one by one, as long as we don't afoul of the
+    // linear hashing imbalance.
     //
     // In a traditional non-concurrent structure, we could keep a "free list"
     // to ensure immediate access to an available slot, but maintaining such
     // a structure could require more cross-thread coordination to ensure
     // all entries are eventually available to all threads.
     //
-    // The way we solve this problem is to use linear probing but try to
-    // correct for the linear hashing imbalance (when probing beyond the
-    // home slot). If the home is high load (minimum shift) we choose an
-    // alternate location, uniformly among all slots, to linear probe from.
-    //
-    // Supporting data: we can use FixedHyperClockCache to get a baseline
-    // of near-ideal distribution of occupied slots, with its uniform
-    // distribution and double hashing.
-    // $ ./cache_bench -cache_type=fixed_hyper_clock_cache -histograms=0
-    //     -cache_size=1300000000
-    // ...
-    // Slot occupancy stats: Overall 59% (156629/262144),
-    //   Min/Max/Window = 47%/70%/500, MaxRun{Pos/Neg} = 22/15
-    //
-    // Now we can try various sizes between powers of two with AutoHCC to see
-    // how bad the MaxRun can be.
-    // $ for I in `seq 8 15`; do
-    //     ./cache_bench -cache_type=auto_hyper_clock_cache -histograms=0
-    //       -cache_size=${I}00000000 2>&1 | grep clock_cache.cc; done
-    // where the worst case MaxRun was with I=11:
-    // Slot occupancy stats: Overall 59% (132528/221094),
-    //   Min/Max/Window = 44%/73%/500, MaxRun{Pos/Neg} = 64/19
-    //
-    // The large table size offers a large sample size to be confident that
-    // this is an acceptable level of clustering (max ~3x probe length)
-    // compared to no clustering. Increasing the max load factor to 0.7
-    // increases the MaxRun above 100, potentially much closer to a tipping
-    // point.
-
-    // TODO? remember a freed entry from eviction, possibly in thread local
-
-    size_t start = home;
-    if (orig_home_shift == LengthInfoToMinShift(state.saved_length_info)) {
-      start = FastRange64(proto.hashed_key[0], used_length);
-    }
-    idx = start;
-    for (int cycles = 0;;) {
+    // The way we solve this problem is to use unit-increment linear probing
+    // with a small bound, and then fall back on big jumps to have a good
+    // chance of finding a slot in an under-populated region quickly if that
+    // doesn't work.
+    size_t i = 0;
+    constexpr size_t kMaxLinearProbe = 4;
+    for (; i < kMaxLinearProbe; i++) {
+      idx++;
+      if (idx >= used_length) {
+        idx -= used_length;
+      }
       if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
                     &already_matches)) {
         break;
@@ -2947,26 +2962,59 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
       if (already_matches) {
         return nullptr;
       }
-      ++idx;
-      if (idx >= used_length) {
-        // In case the structure has grown, double-check
-        StartInsert(state);
-        used_length = LengthInfoToUsedLength(state.saved_length_info);
+    }
+    if (i == kMaxLinearProbe) {
+      // Keep searching, but change to a search method that should quickly
+      // find any under-populated region. Switching to an increment based
+      // on the golden ratio helps with that, but we also inject some minor
+      // variation (less than 2%, 1 in 2^6) to avoid clustering effects on
+      // this larger increment (if it were a fixed value in steady state
+      // operation). Here we are primarily using upper bits of hashed_key[1]
+      // while home is based on lowest bits.
+      uint64_t incr_ratio = 0x9E3779B185EBCA87U + (proto.hashed_key[1] >> 6);
+      size_t incr = FastRange64(incr_ratio, used_length);
+      assert(incr > 0);
+      size_t start = idx;
+      for (;; i++) {
+        idx += incr;
         if (idx >= used_length) {
-          idx = 0;
+          // Wrap around (faster than %)
+          idx -= used_length;
         }
-      }
-      if (idx == start) {
-        // Cycling back should not happen unless there is enough random churn
-        // in parallel that we happen to hit each slot at a time that it's
-        // occupied, which is really only feasible for small structures, though
-        // with linear probing to find empty slots, "small" here might be
-        // larger than for double hashing.
-        assert(used_length <= 256);
-        ++cycles;
-        if (cycles > 2) {
-          // Fall back on standalone insert in case something goes awry to
-          // cause this
+        if (idx == start) {
+          // We have just completed a cycle that might not have covered all
+          // slots. (incr and used_length could have common factors.)
+          // Increment for the next cycle, which eventually ensures complete
+          // iteration over the set of slots before repeating.
+          idx++;
+          if (idx >= used_length) {
+            idx -= used_length;
+          }
+          start++;
+          if (start >= used_length) {
+            start -= used_length;
+          }
+          if (i >= used_length) {
+            used_length = LengthInfoToUsedLength(
+                length_info_.load(std::memory_order_acquire));
+            if (i >= used_length * 2) {
+              // Cycling back should not happen unless there is enough random
+              // churn in parallel that we happen to hit each slot at a time
+              // that it's occupied, which is really only feasible for small
+              // structures, though with linear probing to find empty slots,
+              // "small" here might be larger than for double hashing.
+              assert(used_length <= 256);
+              // Fall back on standalone insert in case something goes awry to
+              // cause this
+              return nullptr;
+            }
+          }
+        }
+        if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+                      &already_matches)) {
+          break;
+        }
+        if (already_matches) {
           return nullptr;
         }
       }
@@ -3207,7 +3255,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     // Follow the next and check for full key match, home match, or neither
     h = &arr[GetNextFromNextWithShift(next_with_shift)];
     bool full_match_or_unknown = false;
-    if (MatchAndRef(&hashed_key, *h, home_shift, home,
+    if (MatchAndRef(&hashed_key, *h, shift, effective_home,
                     &full_match_or_unknown)) {
       // Got a read ref on next (h).
       //
@@ -3216,29 +3264,16 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
       // reinserted it into the same chain, causing us to cycle back in the
       // same chain and potentially see some entries again if we keep walking.
       // Newly-inserted entries are inserted before older ones, so we are at
-      // least guaranteed not to miss anything.
-      // * For kIsLookup, this is ok, as it's just a transient, slight hiccup
-      // in performance.
-      // * For kIsRemove, we are careful in overwriting the next pointer. The
-      // replacement value comes from the next pointer on an entry that we
-      // exclusively own. If that entry is still connected to the chain, its
-      // next must be valid for the chain. If it's not still connected to the
-      // chain (e.g. to unblock another thread Grow op), we will either not
-      // find the entry to remove on the chain or the CAS attempt to replace
-      // the appropriate next will fail, in which case we'll try again to find
-      // the removal target on the chain.
-      // * For kIsClockUpdateChain, we essentially have a special case of
-      // kIsRemove, as we only need to remove entries where we have taken
-      // ownership of one for eviction. In rare cases, we might
-      // double-clock-update some entries (ok as long as it's rare).
+      // least guaranteed not to miss anything. Here in Lookup, it's just a
+      // transient, slight hiccup in performance.
 
-      // With new usable read ref, can release old one if applicable
-      if (read_ref_on_chain) {
-        // Pretend we never took the reference.
-        Unref(*read_ref_on_chain);
-      }
       if (full_match_or_unknown) {
         // Full match.
+        // Release old read ref on chain if applicable
+        if (read_ref_on_chain) {
+          // Pretend we never took the reference.
+          Unref(*read_ref_on_chain);
+        }
         // Update the hit bit
         if (eviction_callback_) {
           h->meta.fetch_or(uint64_t{1} << ClockHandle::kHitBitShift,
@@ -3246,8 +3281,26 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
         }
         // All done.
         return h;
+      } else if (UNLIKELY(shift != home_shift) &&
+                 home != BottomNBits(h->hashed_key[1], home_shift)) {
+        // This chain is in a Grow operation and we've landed on an entry
+        // that belongs to the wrong destination chain. We can keep going, but
+        // there's a chance we'll need to backtrack back *before* this entry,
+        // if the Grow finishes before this Lookup. We cannot save this entry
+        // for backtracking because it might soon or already be on the wrong
+        // chain.
+        // NOTE: if we simply backtrack rather than continuing, we would
+        // be in a wait loop (not allowed in Lookup!) until the other thread
+        // finishes its Grow.
+        Unref(*h);
       } else {
-        // Correct home location, so we are on the right chain
+        // Correct home location, so we are on the right chain.
+        // With new usable read ref, can release old one (if applicable).
+        if (read_ref_on_chain) {
+          // Pretend we never took the reference.
+          Unref(*read_ref_on_chain);
+        }
+        // And keep the new one.
         read_ref_on_chain = h;
       }
     } else {
@@ -3481,6 +3534,10 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
 
     for (HandleImpl* h : to_finish_eviction) {
       TrackAndReleaseEvictedEntry(h, data);
+      // NOTE: setting likely_empty_slot here can cause us to reduce the
+      // portion of "at home" entries, probably because an evicted entry
+      // is more likely to come back than a random new entry and would be
+      // unable to go into its home slot.
     }
     to_finish_eviction.clear();
 

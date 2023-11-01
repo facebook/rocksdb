@@ -294,12 +294,12 @@ Status BuildTable(
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
-      std::string seqno_time_mapping_str;
+      std::string seqno_to_time_mapping_str;
       seqno_to_time_mapping.Encode(
-          seqno_time_mapping_str, meta->fd.smallest_seqno,
+          seqno_to_time_mapping_str, meta->fd.smallest_seqno,
           meta->fd.largest_seqno, meta->file_creation_time);
       builder->SetSeqnoTimeTableProperties(
-          seqno_time_mapping_str,
+          seqno_to_time_mapping_str,
           ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
               ? meta->file_creation_time
               : meta->oldest_ancester_time);

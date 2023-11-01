@@ -183,6 +183,7 @@ TEST_P(DBIteratorTest, NonBlockingIteration) {
       ASSERT_OK(iter->status());
       count++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 1);
     delete iter;
 
@@ -217,6 +218,7 @@ TEST_P(DBIteratorTest, NonBlockingIteration) {
       ASSERT_OK(iter->status());
       count++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 1);
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
@@ -870,6 +872,7 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
       }
     }
     db_->ReleaseSnapshot(snapshot);
+    ASSERT_OK(iter->status());
     delete iter;
   } while (ChangeOptions());
 }
@@ -1214,6 +1217,7 @@ TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     ASSERT_EQ(upper_bound_hits, 1);
   }
 }
@@ -1338,6 +1342,7 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
     EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
   }
@@ -1579,6 +1584,7 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
         ASSERT_EQ("1", prop_value);
         all_keys.push_back(iter->key());
       }
+      ASSERT_OK(iter->status());
       ASSERT_EQ(all_keys.size(), true_data.size());
 
       // Verify that all keys slices are valid (backward)
@@ -1682,7 +1688,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
     ASSERT_EQ(kv.first, data_iter->first);
     ASSERT_EQ(kv.second, data_iter->second);
   }
-
+  ASSERT_OK(iter->status());
   delete iter;
 }
 
@@ -1728,6 +1734,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
     ASSERT_EQ("1", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
+  ASSERT_OK(iter->status());
 
   ASSERT_EQ(results.size(), 1000);
   for (size_t i = 0; i < results.size(); i++) {
@@ -1785,6 +1792,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
     ASSERT_EQ("1", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
+  ASSERT_OK(iter->status());
 
   auto data_iter = true_data.begin();
   for (size_t i = 0; i < results.size(); i++, data_iter++) {
@@ -2079,6 +2087,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
       ASSERT_EQ(iter->value().ToString(), data_iter->second);
       data_iter++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.rend());
 
     delete iter;
@@ -2136,6 +2145,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
       entries_right++;
       data_iter++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(data_iter, true_data.rend());
 
     delete iter;
@@ -2175,6 +2185,7 @@ TEST_P(DBIteratorTest, IteratorWithLocalStatistics) {
       total_next++;
 
       if (!iter->Valid()) {
+        EXPECT_OK(iter->status());
         break;
       }
       total_next_found++;
@@ -2202,6 +2213,7 @@ TEST_P(DBIteratorTest, IteratorWithLocalStatistics) {
       total_prev++;
 
       if (!iter->Valid()) {
+        EXPECT_OK(iter->status());
         break;
       }
       total_prev_found++;
@@ -2416,6 +2428,7 @@ TEST_P(DBIteratorTest, Refresh) {
   ASSERT_EQ(iter->key().compare(Slice("x")), 0);
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 
   iter.reset();
 }
@@ -2469,32 +2482,32 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
     verify_iter(1, 3);
     // Refresh to same snapshot
     ASSERT_OK(iter->Refresh(snapshot));
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
     iter->Seek(Key(3));
     verify_iter(3, 6);
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
     // Refresh to a newer snapshot
     ASSERT_OK(iter->Refresh(snapshot2));
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
     iter->SeekToFirst();
     verify_iter(0, 4, /*new_key2=*/true);
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
     // Refresh to an older snapshot
     ASSERT_OK(iter->Refresh(snapshot));
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
     iter->Seek(Key(3));
     verify_iter(3, 6);
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
     // Refresh to no snapshot
     ASSERT_OK(iter->Refresh());
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
     iter->Seek(Key(2));
     verify_iter(2, 4, /*new_key2=*/true);
     verify_iter(6, 7);
-    ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+    ASSERT_TRUE(!iter->Valid() && iter->status().ok());
 
     // Change LSM shape, new SuperVersion is created.
     ASSERT_OK(Flush());
@@ -2599,6 +2612,7 @@ TEST_P(DBIteratorTest, TableFilter) {
     ASSERT_EQ(IterStatus(iter), "f->6");
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     ASSERT_TRUE(unseen.empty());
     delete iter;
   }
@@ -2621,6 +2635,7 @@ TEST_P(DBIteratorTest, TableFilter) {
     ASSERT_EQ(IterStatus(iter), "f->6");
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     delete iter;
   }
 }
@@ -2705,6 +2720,7 @@ TEST_P(DBIteratorTest, SkipStatistics) {
     ASSERT_OK(iter->status());
     count++;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(count, 3);
   delete iter;
   skip_count += 8;  // Same as above, but in reverse order
@@ -2740,6 +2756,7 @@ TEST_P(DBIteratorTest, SkipStatistics) {
     ASSERT_OK(iter->status());
     count++;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(count, 2);
   delete iter;
   // 3 deletes + 3 original keys + lower sequence of "a"
@@ -3322,6 +3339,7 @@ TEST_F(DBIteratorTest, BackwardIterationOnInplaceUpdateMemtable) {
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ++count;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(kNumKeys, count);
   }
 

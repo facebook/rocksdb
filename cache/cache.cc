@@ -66,6 +66,41 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
 };
 
+namespace {
+static void NoopDelete(Cache::ObjectPtr /*obj*/,
+                       MemoryAllocator* /*allocator*/) {
+  assert(false);
+}
+
+static size_t SliceSize(Cache::ObjectPtr obj) {
+  return static_cast<Slice*>(obj)->size();
+}
+
+static Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset,
+                          size_t length, char* out) {
+  const Slice& slice = *static_cast<Slice*>(from_obj);
+  std::memcpy(out, slice.data() + from_offset, length);
+  return Status::OK();
+}
+
+static Status NoopCreate(const Slice& /*data*/, CompressionType /*type*/,
+                         CacheTier /*source*/, Cache::CreateContext* /*ctx*/,
+                         MemoryAllocator* /*allocator*/,
+                         Cache::ObjectPtr* /*out_obj*/,
+                         size_t* /*out_charge*/) {
+  assert(false);
+  return Status::NotSupported();
+}
+
+static Cache::CacheItemHelper kBasicCacheItemHelper(CacheEntryRole::kMisc,
+                                                    &NoopDelete);
+}  // namespace
+
+const Cache::CacheItemHelper kSliceCacheItemHelper{
+    CacheEntryRole::kMisc, &NoopDelete, &SliceSize,
+    &SliceSaveTo,          &NoopCreate, &kBasicCacheItemHelper,
+};
+
 Status SecondaryCache::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<SecondaryCache>* result) {

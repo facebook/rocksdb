@@ -100,7 +100,7 @@ bool Mutex::TryLock() {
   return ret;
 }
 
-void Mutex::AssertHeld() {
+void Mutex::AssertHeld() const {
 #ifndef NDEBUG
   assert(locked_);
 #endif

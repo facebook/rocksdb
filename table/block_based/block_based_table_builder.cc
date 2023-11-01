@@ -488,7 +488,7 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        create_context(&table_options, ioptions.stats,
+        create_context(&table_options, &ioptions, ioptions.stats,
                        compression_type == kZSTD ||
                            compression_type == kZSTDNotFinalCompression,
                        tbo.moptions.block_protection_bytes_per_key,

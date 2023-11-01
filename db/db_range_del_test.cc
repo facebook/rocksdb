@@ -682,6 +682,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
     // soon as its refcount drops to zero.
     bbto.block_cache->EraseUnRefEntries();
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(kNum, expected);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -840,6 +841,7 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
       ++expected;
     }
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(kNum, expected);
   delete iter;
 }
@@ -908,6 +910,7 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
     std::string key;
     ASSERT_EQ(expected[i], iter->key());
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(3, i);
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -1382,6 +1385,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
     for (; iter->Valid(); iter->Next()) {
       ++keys_found;
     }
+    EXPECT_OK(iter->status());
     delete iter;
     return keys_found;
   };
@@ -1485,6 +1489,7 @@ TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
   for (; iter->Valid(); iter->Prev()) {
     ++keys_found;
   }
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(kNumKeys, keys_found);
 
@@ -1519,6 +1524,7 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
   db_->ReleaseSnapshot(snapshot);
@@ -1564,6 +1570,7 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInImmMemTables) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
@@ -1978,6 +1985,7 @@ TEST_F(DBRangeDelTest, IteratorRefresh) {
     ASSERT_EQ("key1", iter->key());
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
 
     delete iter;
   }

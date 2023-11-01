@@ -299,7 +299,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* heap_buf_allocator,
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
-                  CompressionType* compresstion_type) {
+                  CompressionType* compression_type) {
     ImmutableOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
@@ -318,7 +318,11 @@ class BlockFetcherTest : public testing::Test {
     stats->num_compressed_buf_memcpy =
         fetcher->TEST_GetNumCompressedBufMemcpy();
 
-    *compresstion_type = fetcher->get_compression_type();
+    if (do_uncompress) {
+      *compression_type = kNoCompression;
+    } else {
+      *compression_type = fetcher->get_compression_type();
+    }
   }
 
   // NOTE: expected_compression_type is the expected compression
