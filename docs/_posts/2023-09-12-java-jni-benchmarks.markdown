@@ -156,7 +156,7 @@ of result.
   the access is presumably word by word, using normal
   Java mechanisms.
 
-![Copy out JNI Get - TODO - replace the plots](./jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
+![Copy out JNI Get](./jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
 
 ### PutJNIBenchmark
 
@@ -284,7 +284,7 @@ Luckily this is easy to fix. In the Java API (JNI) implementation:
 
 In the case where the `PinnableSlice` has succesfully pinned the data, this saves us the intermediate copy to the `std::string`. In the case where it hasn't, we still have the extra copy so the observed performance improvement depends on when the data can be pinned. Luckily, our benchmarking suggests that the pin is happening in a significant number of cases.
 
-On discussion with the RocksDB core team we understand that the core `PinnableSlice` optimization is most likely to succeed when pages are loaded from the buffer cache, rather than when they are in `memtable`. There is also a suggestion that with some coding effort, it might be possible to successfully pin in the buffer cache as well. This would likely improve the results for these benchmarks.
+On discussion with the RocksDB core team we understand that the core `PinnableSlice` optimization is most likely to succeed when pages are loaded from the block cache, rather than when they are in `memtable`. And it might be possible to successfully pin in the `memtable` as well, with some extra coding effort. This would likely improve the results for these benchmarks.
 
 
 
