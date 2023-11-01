@@ -442,13 +442,12 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     size_t second_size = bufs_[second].async_read_in_progress_
                              ? bufs_[second].async_req_len_
                              : bufs_[second].buffer_.CurrentSize();
-    uint64_t rounddown_start = bufs_[second].offset_ + second_size;
+    uint64_t rounddown_start = bufs_[second].initial_end_offset_;
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
     if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size &&
         !IsOffsetOutOfBound(rounddown_start)) {
       size_t read_len = 0;
-      rounddown_start = bufs_[second].initial_end_offset_;
       uint64_t end_offset = rounddown_start, chunk_len = 0;
 
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
@@ -997,14 +996,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   }
 
   if (is_eligible_for_prefetching) {
-    if (DoesBufferContainData(curr_)) {
-      rounddown_start2 =
-          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
-    } else {
-      rounddown_start2 = roundup_end1;
-    }
     rounddown_start2 = bufs_[curr_].initial_end_offset_;
-
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
     if (!IsOffsetOutOfBound(rounddown_start2)) {

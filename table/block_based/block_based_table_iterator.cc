@@ -703,25 +703,20 @@ void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
 
 void BlockBasedTableIterator::InitializeStartAndEndOffsets(
     bool read_curr_block, bool& found_first_miss_block,
-    uint64_t& start_updated_offset, uint64_t end_updated_offset,
+    uint64_t& start_updated_offset, uint64_t& end_updated_offset,
     size_t& prev_handles_size) {
   prev_handles_size = block_handles_.size();
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
+
+  // It initialize start and end offset to begin which is covered by following
+  // scenarios
   if (read_curr_block) {
-    if (DoesContainBlockHandles()) {
-      // Read curr block but it already has exisiting handles.
-      // It can be due to reading error in second buffer in FilePrefetchBuffer.
-      // BlockHandles already added to the queue but there was error in reading
-      // those handles so in this call they need to be read again.
-      assert(block_handles_.front().is_cache_hit_ == false);
-      found_first_miss_block = true;
-      // Initialize prev_handles_size to 0 as all those handles need to be read
-      // again.
-      prev_handles_size = 0;
-      start_updated_offset = block_handles_.front().handle_.offset();
-      end_updated_offset = block_handles_.back().handle_.offset() + footer +
-                           block_handles_.back().handle_.size();
-    } else {
+    if (!DoesContainBlockHandles()) {
+      // Scenario 1 : read_curr_block (callback made on miss block which caller
+      //              was reading) and it has no existing handles in queue. i.e.
+      //              index_iter_ is pointing to block that is being read by
+      //              caller.
+      //
       // Add current block here as it doesn't need any lookup.
       BlockHandleInfo block_handle_info;
       block_handle_info.handle_ = index_iter_->value().handle;
@@ -735,20 +730,44 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       index_iter_->Next();
       is_index_at_curr_block_ = false;
       found_first_miss_block = true;
+    } else {
+      // Scenario 2 : read_curr_block (callback made on miss block which caller
+      //              was reading) but the queue already has some handles.
+      //
+      // It can be due to reading error in second buffer in FilePrefetchBuffer.
+      // BlockHandles already added to the queue but there was error in fetching
+      // those data blocks. So in this call they need to be read again.
+      assert(block_handles_.front().is_cache_hit_ == false);
+      found_first_miss_block = true;
+      // Initialize prev_handles_size to 0 as all those handles need to be read
+      // again.
+      prev_handles_size = 0;
+      start_updated_offset = block_handles_.front().handle_.offset();
+      end_updated_offset = block_handles_.back().handle_.offset() + footer +
+                           block_handles_.back().handle_.size();
     }
   } else {
+    // Scenario 3 : read_curr_block is false (callback made to do additional
+    //              prefetching in buffers) and the queue already has some
+    //              handles from first buffer.
     if (DoesContainBlockHandles()) {
-      start_updated_offset = end_updated_offset =
-          block_handles_.back().handle_.offset() + footer +
-          block_handles_.back().handle_.size();
+      start_updated_offset = block_handles_.back().handle_.offset() + footer +
+                             block_handles_.back().handle_.size();
+      end_updated_offset = start_updated_offset;
     } else {
-      // Doesn't have any data block handles so it'll start current index.
-      // It can be when Reseek is from block cache, it doesn't clear the buffers
-      // and reseek lies within the buffer. So Next will prefetch async data.
-      // All handles need to be added to the queue starting from index_iter_.
+      // Scenario 4 : read_curr_block is false (callback made to do additional
+      //              prefetching in buffers) but the queue has no handle
+      //              from first buffer.
+      //
+      // It can be when Reseek is from block cache (which doesn't clear the
+      // buffers in FilePrefetchBuffer but clears block handles from queue) and
+      // reseek also lies within the buffer. So Next will get data from
+      // exisiting buffers untill this callback is made to prefetch additional
+      // data. All handles need to be added to the queue starting from
+      // index_iter_.
       assert(index_iter_->Valid());
-      start_updated_offset = end_updated_offset =
-          index_iter_->value().handle.offset();
+      start_updated_offset = index_iter_->value().handle.offset();
+      end_updated_offset = start_updated_offset;
     }
   }
 }

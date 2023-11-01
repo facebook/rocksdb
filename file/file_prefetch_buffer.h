@@ -58,6 +58,8 @@ struct BufferInfo {
   // pos represents the index of this buffer in vector of BufferInfo.
   uint32_t pos_ = 0;
 
+  // initial_end_offset is used to keep track of the end offset of the buffer
+  // that was originally called.
   uint64_t initial_end_offset_ = 0;
 };
 

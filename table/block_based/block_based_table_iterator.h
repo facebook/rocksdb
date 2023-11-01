@@ -403,7 +403,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void InitializeStartAndEndOffsets(bool read_curr_block,
                                     bool& found_first_miss_block,
                                     uint64_t& start_updated_offset,
-                                    uint64_t end_updated_offset,
+                                    uint64_t& end_updated_offset,
                                     size_t& prev_handles_size);
 
   // *** END APIs relevant to auto tuning of readahead_size ***
