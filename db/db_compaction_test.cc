@@ -5100,7 +5100,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
       ASSERT_EQ("0,3", FilesPerLevel());
 
       // Move forward 5 more days and more write
-      mock_clock->MockSleepForSeconds(5 * kSecondsPerDay);
+      mock_clock->MockSleepForSeconds(5 * kSecondsPerDay + 1);
       ASSERT_OK(Put("b", "2"));
       if (if_restart) {
         Reopen(options);
@@ -5165,7 +5165,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
       }
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
       ASSERT_EQ("1,3", FilesPerLevel());
-      ASSERT_EQ(5, periodic_compactions);
+      ASSERT_EQ(2, periodic_compactions);
 
       Destroy(options);
     }

@@ -45,7 +45,9 @@ OffpeakTimeInfo OffpeakTimeOption::GetOffpeakTimeInfo(
           seconds_since_midnight_to_nearest_minute <= end_time;
     }
     offpeak_time_info.seconds_till_next_offpeak_start =
-        (start_time + kSecondsPerDay) - seconds_since_midnight;
+        seconds_since_midnight < start_time
+            ? start_time - seconds_since_midnight
+            : ((start_time + kSecondsPerDay) - seconds_since_midnight);
   }
   return offpeak_time_info;
 }
