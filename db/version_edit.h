@@ -618,6 +618,8 @@ class VersionEdit {
   }
   uint32_t GetColumnFamily() const { return column_family_; }
 
+  const std::string& GetColumnFamilyName() const { return column_family_name_; }
+
   // set column family ID by calling SetColumnFamily()
   void AddColumnFamily(const std::string& name) {
     assert(!is_column_family_drop_);
@@ -648,6 +650,9 @@ class VersionEdit {
     remaining_entries_ = remaining_entries;
   }
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
+  void SetRemainingEntries(uint32_t remaining_entries) {
+    remaining_entries_ = remaining_entries;
+  }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
   bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
@@ -678,16 +683,6 @@ class VersionEdit {
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
-  friend class ReactiveVersionSet;
-  friend class VersionEditHandlerBase;
-  friend class ListColumnFamiliesHandler;
-  friend class VersionEditHandler;
-  friend class VersionEditHandlerPointInTime;
-  friend class DumpManifestHandler;
-  friend class VersionSet;
-  friend class Version;
-  friend class AtomicGroupReadBuffer;
-
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   const char* DecodeNewFile4From(Slice* input);
