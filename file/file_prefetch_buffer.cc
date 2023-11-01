@@ -194,7 +194,7 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
   // length > 0 indicates it has consumed all data from the src buffer and it
   // still needs to read more other buffer.
   if (length > 0) {
-    bufs_[src].buffer_.Clear();
+    bufs_[src].ClearBuffer();
   }
 }
 
@@ -268,10 +268,10 @@ void FilePrefetchBuffer::UpdateBuffersIfNeeded(uint64_t offset, size_t length) {
   uint32_t second = curr_ ^ 1;
 
   if (IsBufferOutdated(offset, curr_)) {
-    bufs_[curr_].buffer_.Clear();
+    bufs_[curr_].ClearBuffer();
   }
   if (IsBufferOutdated(offset, second)) {
-    bufs_[second].buffer_.Clear();
+    bufs_[second].ClearBuffer();
   }
 
   {
@@ -286,13 +286,13 @@ void FilePrefetchBuffer::UpdateBuffersIfNeeded(uint64_t offset, size_t length) {
               IsOffsetInBuffer(offset, curr_) &&
               (offset + length >
                bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize())) {
-            bufs_[second].buffer_.Clear();
+            bufs_[second].ClearBuffer();
           }
         }
       } else {
         if (DoesBufferContainData(second) &&
             !IsOffsetInBuffer(offset, second)) {
-          bufs_[second].buffer_.Clear();
+          bufs_[second].ClearBuffer();
         }
       }
     }
@@ -398,6 +398,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 
   // Update the buffer offset.
   bufs_[index].offset_ = start_offset;
+  bufs_[index].initial_end_offset_ = initial_end_offset;
   read_len = static_cast<size_t>(roundup_len - chunk_len);
 }
 
@@ -428,7 +429,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
        (bufs_[second].async_read_in_progress_ ||
         DoesBufferContainData(second)))) {
     // Allocate new buffer to third buffer;
-    bufs_[2].buffer_.Clear();
+    bufs_[2].ClearBuffer();
     bufs_[2].buffer_.Alignment(alignment);
     bufs_[2].buffer_.AllocateNewBuffer(length);
     bufs_[2].offset_ = offset;
@@ -447,6 +448,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size &&
         !IsOffsetOutOfBound(rounddown_start)) {
       size_t read_len = 0;
+      rounddown_start = bufs_[second].initial_end_offset_;
       uint64_t end_offset = rounddown_start, chunk_len = 0;
 
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
@@ -457,7 +459,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
         s = ReadAsync(opts, reader, read_len, rounddown_start, curr_);
         if (!s.ok()) {
           DestroyAndClearIOHandle(curr_);
-          bufs_[curr_].buffer_.Clear();
+          bufs_[curr_].ClearBuffer();
           return s;
         }
       }
@@ -581,7 +583,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
       }
     }
     DestroyAndClearIOHandle(second);
-    bufs_[second].buffer_.Clear();
+    bufs_[second].ClearBuffer();
   }
 
   // 5. Data is overlapping i.e. some of the data has been copied to third
@@ -622,7 +624,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
   if (readahead_size > 0) {
     // offset and size alignment for second buffer for asynchronous
     // prefetching.
-    uint64_t rounddown_start2 = roundup_end1;
+    uint64_t rounddown_start2 = bufs_[curr_].initial_end_offset_;
 
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
@@ -638,7 +640,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
         s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
         if (!s.ok()) {
           DestroyAndClearIOHandle(second);
-          bufs_[second].buffer_.Clear();
+          bufs_[second].ClearBuffer();
           return s;
         }
       }
@@ -658,8 +660,8 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
         }
       }
       DestroyAndClearIOHandle(second);
-      bufs_[second].buffer_.Clear();
-      bufs_[curr_].buffer_.Clear();
+      bufs_[second].ClearBuffer();
+      bufs_[curr_].ClearBuffer();
       return s;
     }
   }
@@ -786,8 +788,8 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
     // Random offset called. So abort the IOs.
     if (prev_offset_ != offset) {
       AbortAllIOs();
-      bufs_[curr_].buffer_.Clear();
-      bufs_[curr_ ^ 1].buffer_.Clear();
+      bufs_[curr_].ClearBuffer();
+      bufs_[curr_ ^ 1].ClearBuffer();
       explicit_prefetch_submitted_ = false;
       return false;
     }
@@ -928,8 +930,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   //   and data in buffer.
   if (readaheadsize_cb_ != nullptr ||
       (DoesBufferContainData(curr_) && !IsOffsetInBuffer(offset, curr_))) {
-    bufs_[curr_].buffer_.Clear();
-    bufs_[second].buffer_.Clear();
+    bufs_[curr_].ClearBuffer();
+    bufs_[second].ClearBuffer();
   }
 
   UpdateReadPattern(offset, n, /*decrease_readaheadsize=*/false);
@@ -952,9 +954,9 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     }
   } else {
     // Partial data in curr_.
-    bufs_[curr_].buffer_.Clear();
+    bufs_[curr_].ClearBuffer();
   }
-  bufs_[second].buffer_.Clear();
+  bufs_[second].ClearBuffer();
 
   std::string msg;
 
@@ -1001,6 +1003,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     } else {
       rounddown_start2 = roundup_end1;
     }
+    rounddown_start2 = bufs_[curr_].initial_end_offset_;
 
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
@@ -1017,7 +1020,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     s = ReadAsync(opts, reader, read_len1, rounddown_start1, curr_);
     if (!s.ok()) {
       DestroyAndClearIOHandle(curr_);
-      bufs_[curr_].buffer_.Clear();
+      bufs_[curr_].ClearBuffer();
       return s;
     }
     explicit_prefetch_submitted_ = true;
@@ -1029,7 +1032,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
     if (!s.ok()) {
       DestroyAndClearIOHandle(second);
-      bufs_[second].buffer_.Clear();
+      bufs_[second].ClearBuffer();
       return s;
     }
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);

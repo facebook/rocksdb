@@ -32,6 +32,11 @@ struct IOOptions;
 class RandomAccessFileReader;
 
 struct BufferInfo {
+  void ClearBuffer() {
+    buffer_.Clear();
+    initial_end_offset_ = 0;
+  }
+
   AlignedBuffer buffer_;
 
   uint64_t offset_ = 0;
@@ -52,6 +57,8 @@ struct BufferInfo {
 
   // pos represents the index of this buffer in vector of BufferInfo.
   uint32_t pos_ = 0;
+
+  uint64_t initial_end_offset_ = 0;
 };
 
 enum class FilePrefetchBufferUsage {
@@ -399,7 +406,7 @@ class FilePrefetchBuffer {
       return false;
     }
 
-    bufs_[second].buffer_.Clear();
+    bufs_[second].ClearBuffer();
     return true;
   }
 
