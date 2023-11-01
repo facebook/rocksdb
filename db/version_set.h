@@ -973,7 +973,7 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
-  uint64_t GetSstFilesSize();
+  uint64_t GetSstFilesSize(bool include_bottommost = true);
 
   // Retrieves the file_creation_time of the oldest file in the DB.
   // Prerequisite for this API is max_open_files = -1

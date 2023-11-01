@@ -1123,8 +1123,8 @@ uint64_t ColumnFamilyData::GetTotalBlobFileSize() const {
   return VersionSet::GetTotalBlobFileSize(dummy_versions_);
 }
 
-uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
-  return current_->GetSstFilesSize();
+uint64_t ColumnFamilyData::GetLiveSstFilesSize(bool include_bottommost) const {
+  return current_->GetSstFilesSize(include_bottommost);
 }
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(

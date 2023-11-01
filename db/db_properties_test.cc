@@ -1743,6 +1743,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   options.env = CurrentOptions().env;
   options.disable_auto_compactions = true;
   options.listeners.push_back(listener);
+  options.level_compaction_dynamic_level_bytes = true;
   Reopen(options);
 
   for (int i = 0; i < 10; i++) {
@@ -1757,10 +1758,18 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
   ASSERT_TRUE(ok);
   ASSERT_GT(sst_size, 0);
+  ok = db_->GetIntProperty(DB::Properties::kLiveNonBottommostSstFilesSize,
+                           &sst_size);
+  ASSERT_TRUE(ok);
+  ASSERT_GT(sst_size, 0);
   listener->size_before_compaction = sst_size;
   // Compact to clean all keys and trigger listener.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_TRUE(listener->callback_triggered);
+  ok = db_->GetIntProperty(DB::Properties::kLiveNonBottommostSstFilesSize,
+                           &sst_size);
+  ASSERT_TRUE(ok);
+  ASSERT_EQ(sst_size, 0);
 }
 
 TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {

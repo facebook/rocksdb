@@ -790,6 +790,8 @@ class InternalStats {
   bool HandleBaseLevel(uint64_t* value, DBImpl* db, Version* version);
   bool HandleTotalSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
   bool HandleLiveSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleLiveNonBottommostSstFilesSize(uint64_t* value, DBImpl* db,
+                                           Version* version);
   bool HandleEstimatePendingCompactionBytes(uint64_t* value, DBImpl* db,
                                             Version* version);
   bool HandleEstimateTableReadersMem(uint64_t* value, DBImpl* db,

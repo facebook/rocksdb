@@ -284,6 +284,8 @@ static const std::string min_obsolete_sst_number_to_keep_str =
     "min-obsolete-sst-number-to-keep";
 static const std::string base_level_str = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
+static const std::string live_non_bottommost_sst_files_size =
+    "live-non-bottommost-sst-files-size";
 static const std::string live_sst_files_size = "live-sst-files-size";
 static const std::string live_sst_files_size_at_temperature =
     "live-sst-files-size-at-temperature";
@@ -382,6 +384,8 @@ const std::string DB::Properties::kMinObsoleteSstNumberToKeep =
     rocksdb_prefix + min_obsolete_sst_number_to_keep_str;
 const std::string DB::Properties::kTotalSstFilesSize =
     rocksdb_prefix + total_sst_files_size;
+const std::string DB::Properties::kLiveNonBottommostSstFilesSize =
+    rocksdb_prefix + live_non_bottommost_sst_files_size;
 const std::string DB::Properties::kLiveSstFilesSize =
     rocksdb_prefix + live_sst_files_size;
 const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level_str;
@@ -545,6 +549,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
+          nullptr}},
+        {DB::Properties::kLiveNonBottommostSstFilesSize,
+         {false, nullptr, &InternalStats::HandleLiveNonBottommostSstFilesSize, nullptr,
           nullptr}},
         {DB::Properties::kLiveSstFilesSizeAtTemperature,
          {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
@@ -1348,6 +1355,13 @@ bool InternalStats::HandleTotalSstFilesSize(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleLiveSstFilesSize(uint64_t* value, DBImpl* /*db*/,
                                            Version* /*version*/) {
   *value = cfd_->GetLiveSstFilesSize();
+  return true;
+}
+
+bool InternalStats::HandleLiveNonBottommostSstFilesSize(uint64_t* value,
+                                                        DBImpl* /*db*/,
+                                                        Version* /*version*/) {
+  *value = cfd_->GetLiveSstFilesSize(false /* include_bottommost */);
   return true;
 }
 

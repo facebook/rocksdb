@@ -1050,6 +1050,11 @@ class DB {
     //      files belong to the latest LSM tree.
     static const std::string kLiveSstFilesSize;
 
+    //  "rocksdb.live-non-bottommost-sst-files-size" - returns total size
+    //      (bytes) of all SST files not in the bottommost level that belong
+    //      to the latest LSM tree.
+    static const std::string kLiveNonBottommostSstFilesSize;
+
     // "rocksdb.live_sst_files_size_at_temperature" - returns total size (bytes)
     //      of SST files at all certain file temperature
     static const std::string kLiveSstFilesSizeAtTemperature;
