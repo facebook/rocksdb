@@ -5002,15 +5002,15 @@ struct VersionSet::ManifestWriter {
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
   assert(edit);
-  if (edit->is_in_atomic_group_) {
+  if (edit->IsInAtomicGroup()) {
     TEST_SYNC_POINT("AtomicGroupReadBuffer::AddEdit:AtomicGroup");
     if (replay_buffer_.empty()) {
-      replay_buffer_.resize(edit->remaining_entries_ + 1);
+      replay_buffer_.resize(edit->GetRemainingEntries() + 1);
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:FirstInAtomicGroup", edit);
     }
     read_edits_in_atomic_group_++;
-    if (read_edits_in_atomic_group_ + edit->remaining_entries_ !=
+    if (read_edits_in_atomic_group_ + edit->GetRemainingEntries() !=
         static_cast<uint32_t>(replay_buffer_.size())) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
@@ -5209,15 +5209,15 @@ Status VersionSet::ProcessManifestWrites(
         // don't update, then Recover can report corrupted atomic group because
         // the `remaining_entries_` do not match.
         if (!batch_edits.empty()) {
-          if (batch_edits.back()->is_in_atomic_group_ &&
-              batch_edits.back()->remaining_entries_ > 0) {
+          if (batch_edits.back()->IsInAtomicGroup() &&
+              batch_edits.back()->GetRemainingEntries() > 0) {
             assert(group_start < batch_edits.size());
             const auto& edit_list = last_writer->edit_list;
             size_t k = 0;
             while (k < edit_list.size()) {
-              if (!edit_list[k]->is_in_atomic_group_) {
+              if (!edit_list[k]->IsInAtomicGroup()) {
                 break;
-              } else if (edit_list[k]->remaining_entries_ == 0) {
+              } else if (edit_list[k]->GetRemainingEntries() == 0) {
                 ++k;
                 break;
               }
@@ -5225,8 +5225,10 @@ Status VersionSet::ProcessManifestWrites(
             }
             for (auto i = group_start; i < batch_edits.size(); ++i) {
               assert(static_cast<uint32_t>(k) <=
-                     batch_edits.back()->remaining_entries_);
-              batch_edits[i]->remaining_entries_ -= static_cast<uint32_t>(k);
+                     batch_edits.back()->GetRemainingEntries());
+              batch_edits[i]->SetRemainingEntries(
+                  batch_edits[i]->GetRemainingEntries() -
+                  static_cast<uint32_t>(k));
             }
           }
         }
@@ -5269,10 +5271,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(ucmp);
       std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
       for (const auto& e : last_writer->edit_list) {
-        if (e->is_in_atomic_group_) {
-          if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
-              (batch_edits.back()->is_in_atomic_group_ &&
-               batch_edits.back()->remaining_entries_ == 0)) {
+        if (e->IsInAtomicGroup()) {
+          if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
+              (batch_edits.back()->IsInAtomicGroup() &&
+               batch_edits.back()->GetRemainingEntries() == 0)) {
             group_start = batch_edits.size();
           }
         } else if (group_start != std::numeric_limits<size_t>::max()) {
@@ -5311,7 +5313,7 @@ Status VersionSet::ProcessManifestWrites(
   // remaining_entries_.
   size_t k = 0;
   while (k < batch_edits.size()) {
-    while (k < batch_edits.size() && !batch_edits[k]->is_in_atomic_group_) {
+    while (k < batch_edits.size() && !batch_edits[k]->IsInAtomicGroup()) {
       ++k;
     }
     if (k == batch_edits.size()) {
@@ -5319,19 +5321,19 @@ Status VersionSet::ProcessManifestWrites(
     }
     size_t i = k;
     while (i < batch_edits.size()) {
-      if (!batch_edits[i]->is_in_atomic_group_) {
+      if (!batch_edits[i]->IsInAtomicGroup()) {
         break;
       }
-      assert(i - k + batch_edits[i]->remaining_entries_ ==
-             batch_edits[k]->remaining_entries_);
-      if (batch_edits[i]->remaining_entries_ == 0) {
+      assert(i - k + batch_edits[i]->GetRemainingEntries() ==
+             batch_edits[k]->GetRemainingEntries());
+      if (batch_edits[i]->GetRemainingEntries() == 0) {
         ++i;
         break;
       }
       ++i;
     }
-    assert(batch_edits[i - 1]->is_in_atomic_group_);
-    assert(0 == batch_edits[i - 1]->remaining_entries_);
+    assert(batch_edits[i - 1]->IsInAtomicGroup());
+    assert(0 == batch_edits[i - 1]->GetRemainingEntries());
     std::vector<VersionEdit*> tmp;
     for (size_t j = k; j != i; ++j) {
       tmp.emplace_back(batch_edits[j]);
@@ -5514,7 +5516,7 @@ Status VersionSet::ProcessManifestWrites(
       new_manifest_file_size = descriptor_log_->file()->GetFileSize();
     }
 
-    if (first_writer.edit_list.front()->is_column_family_drop_) {
+    if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
@@ -5556,13 +5558,13 @@ Status VersionSet::ProcessManifestWrites(
 
   // Install the new versions
   if (s.ok()) {
-    if (first_writer.edit_list.front()->is_column_family_add_) {
+    if (first_writer.edit_list.front()->IsColumnFamilyAdd()) {
       assert(batch_edits.size() == 1);
       assert(new_cf_options != nullptr);
       assert(max_last_sequence == descriptor_last_sequence_);
       CreateColumnFamily(*new_cf_options, read_options,
                          first_writer.edit_list.front());
-    } else if (first_writer.edit_list.front()->is_column_family_drop_) {
+    } else if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
       assert(batch_edits.size() == 1);
       assert(max_last_sequence == descriptor_last_sequence_);
       first_writer.cfd->SetDropped();
@@ -5575,22 +5577,22 @@ Status VersionSet::ProcessManifestWrites(
       for (const auto& e : batch_edits) {
         ColumnFamilyData* cfd = nullptr;
         if (!e->IsColumnFamilyManipulation()) {
-          cfd = column_family_set_->GetColumnFamily(e->column_family_);
+          cfd = column_family_set_->GetColumnFamily(e->GetColumnFamily());
           // e would not have been added to batch_edits if its corresponding
           // column family is dropped.
           assert(cfd);
         }
         if (cfd) {
-          if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
-            cfd->SetLogNumber(e->log_number_);
+          if (e->HasLogNumber() && e->GetLogNumber() > cfd->GetLogNumber()) {
+            cfd->SetLogNumber(e->GetLogNumber());
           }
           if (e->HasFullHistoryTsLow()) {
             cfd->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
           }
         }
-        if (e->has_min_log_number_to_keep_) {
+        if (e->HasMinLogNumberToKeep()) {
           last_min_log_number_to_keep =
-              std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
+              std::max(last_min_log_number_to_keep, e->GetMinLogNumberToKeep());
         }
       }
 
@@ -5607,7 +5609,7 @@ Status VersionSet::ProcessManifestWrites(
     descriptor_last_sequence_ = max_last_sequence;
     manifest_file_number_ = pending_manifest_file_number_;
     manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
+    prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
   } else {
     std::string version_edits;
     for (auto& e : batch_edits) {
@@ -5755,7 +5757,7 @@ Status VersionSet::LogAndApply(
   int num_cfds = static_cast<int>(column_family_datas.size());
   if (num_cfds == 1 && column_family_datas[0] == nullptr) {
     assert(edit_lists.size() == 1 && edit_lists[0].size() == 1);
-    assert(edit_lists[0][0]->is_column_family_add_);
+    assert(edit_lists[0][0]->IsColumnFamilyAdd());
     assert(new_cf_options != nullptr);
   }
   std::deque<ManifestWriter> writers;
@@ -5819,7 +5821,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   edit->SetNextFile(next_file_number_.load());
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
-  if (edit->is_column_family_drop_) {
+  if (edit->IsColumnFamilyDrop()) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
     edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
@@ -5837,12 +5839,12 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   assert(!edit->IsColumnFamilyManipulation());
   assert(max_last_sequence != nullptr);
 
-  if (edit->has_log_number_) {
-    assert(edit->log_number_ >= cfd->GetLogNumber());
-    assert(edit->log_number_ < next_file_number_.load());
+  if (edit->HasLogNumber()) {
+    assert(edit->GetLogNumber() >= cfd->GetLogNumber());
+    assert(edit->GetLogNumber() < next_file_number_.load());
   }
 
-  if (!edit->has_prev_log_number_) {
+  if (!edit->HasPrevLogNumber()) {
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
@@ -5934,7 +5936,7 @@ Status VersionSet::Recover(
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
-      log_number = handler.GetVersionEditParams().log_number_;
+      log_number = handler.GetVersionEditParams().GetLogNumber();
       current_manifest_file_size = reader.GetReadOffset();
       assert(current_manifest_file_size != 0);
       handler.GetDbId(db_id);
@@ -7105,7 +7107,7 @@ uint64_t VersionSet::GetObsoleteSstFilesSize() const {
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
     const VersionEdit* edit) {
-  assert(edit->is_column_family_add_);
+  assert(edit->IsColumnFamilyAdd());
 
   MutableCFOptions dummy_cf_options;
   Version* dummy_versions =
@@ -7114,7 +7116,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
   auto new_cfd = column_family_set_->CreateColumnFamily(
-      edit->column_family_name_, edit->column_family_, dummy_versions,
+      edit->GetColumnFamilyName(), edit->GetColumnFamily(), dummy_versions,
       cf_options);
 
   Version* v = new Version(new_cfd, this, file_options_,
@@ -7131,7 +7133,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   // cfd is not available to client
   new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
                              LastSequence());
-  new_cfd->SetLogNumber(edit->log_number_);
+  new_cfd->SetLogNumber(edit->GetLogNumber());
   return new_cfd;
 }
 
