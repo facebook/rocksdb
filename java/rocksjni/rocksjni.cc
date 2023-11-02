@@ -1168,6 +1168,61 @@ void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    clipColumnFamily
+ * Signature: (JJ[BII[BII)V
+ */
+void Java_org_rocksdb_RocksDB_clipColumnFamily(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jbyteArray jbegin_key, jint jbegin_key_off, jint jbegin_key_len,
+    jbyteArray jend_key, jint jend_key_off, jint jend_key_len) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    jbyte* begin_key = new jbyte[jbegin_key_len];
+    env->GetByteArrayRegion(jbegin_key, jbegin_key_off, jbegin_key_len,
+                            begin_key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      delete[] begin_key;
+      return;
+    }
+    ROCKSDB_NAMESPACE::Slice begin_key_slice(reinterpret_cast<char*>(begin_key),
+                                             jbegin_key_len);
+
+    jbyte* end_key = new jbyte[jend_key_len];
+    env->GetByteArrayRegion(jend_key, jend_key_off, jend_key_len, end_key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      delete[] begin_key;
+      delete[] end_key;
+      return;
+    }
+    ROCKSDB_NAMESPACE::Slice end_key_slice(reinterpret_cast<char*>(end_key),
+                                           jend_key_len);
+
+    ROCKSDB_NAMESPACE::Status s =
+        db->ClipColumnFamily(cf_handle, begin_key_slice, end_key_slice);
+
+    // cleanup
+    delete[] begin_key;
+    delete[] end_key;
+
+    if (s.ok()) {
+      return;
+    }
+
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return;
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                 "Invalid ColumnFamilyHandle."));
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    getDirect
  * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)I
  */
