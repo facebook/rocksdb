@@ -370,15 +370,26 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
         // Not Support SeekToLast , have to iter all key
         // mostly would happen in PlainTable
-        iter->SeekToFirst();
+        if (!iter->status().ok()) {
+          return iter->status();
+        }
         largest = iter->key();
-        for (; iter->Valid(); iter->Next()) {
+        for (; iter->Valid() && iter->status().ok(); iter->Next()) {
           if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
+            if (!iter->status().ok()) {
+              return iter->status();
+            }
             largest = iter->key();
           }
         }
       } else {
         iter->SeekToLast();
+        if (!iter->Valid()) {
+          return Status::Corruption("can not find largest key in sst file");
+        }
+        if (!iter->status().ok()) {
+          return iter->status();
+        }
         largest = iter->key();
       }
       file_to_import->largest_internal_key.DecodeFrom(largest);
