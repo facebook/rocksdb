@@ -1952,7 +1952,6 @@ Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
     // from object registry.
     assert(options->comparator);
     assert(options->comparator == test::BytewiseComparatorWithU64TsWrapper());
-    CheckAndSetOptionsForUserTimestamp(*options);
   }
 
   return Status::OK();
