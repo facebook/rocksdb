@@ -368,27 +368,26 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       file_to_import->smallest_internal_key.DecodeFrom(iter->key());
       Slice largest;
       if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
-        // Not Support SeekToLast , have to iter all key
-        // mostly would happen in PlainTable
-        if (!iter->status().ok()) {
-          return iter->status();
-        }
+        // PlainTable iterator does not support SeekToLast().
         largest = iter->key();
-        for (; iter->Valid() && iter->status().ok(); iter->Next()) {
+        for (; iter->Valid(); iter->Next()) {
           if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
-            if (!iter->status().ok()) {
-              return iter->status();
-            }
             largest = iter->key();
           }
+        }
+        if (!iter->status().ok()) {
+          return iter->status();
         }
       } else {
         iter->SeekToLast();
         if (!iter->Valid()) {
-          return Status::Corruption("can not find largest key in sst file");
-        }
-        if (!iter->status().ok()) {
-          return iter->status();
+          if (iter->status().ok()) {
+            // The file contains at least 1 key since iter is valid after
+            // SeekToFirst().
+            return Status::Corruption("Can not find largest key in sst file");
+          } else {
+            return iter->status();
+          }
         }
         largest = iter->key();
       }
