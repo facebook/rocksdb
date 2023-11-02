@@ -59,7 +59,10 @@ struct BufferInfo {
   uint32_t pos_ = 0;
 
   // initial_end_offset is used to keep track of the end offset of the buffer
-  // that was originally called.
+  // that was originally called. It's helpful in case of autotuning of readahead
+  // size when callback is made to BlockBasedTableIterator.
+  // initial end offset of this buffer which will be the starting
+  // offset of next prefetch.
   uint64_t initial_end_offset_ = 0;
 };
 
@@ -458,7 +461,7 @@ class FilePrefetchBuffer {
   }
 
   void ReadAheadSizeTuning(bool read_curr_block, bool refit_tail,
-                           uint64_t prev_buf_offset, uint32_t index,
+                           uint64_t prev_buf_end_offset, uint32_t index,
                            size_t alignment, size_t length,
                            size_t readahead_size, uint64_t& offset,
                            uint64_t& end_offset, size_t& read_len,

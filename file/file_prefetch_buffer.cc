@@ -338,15 +338,16 @@ void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset,
 // cache and tune the start and end offsets based on cache hits/misses.
 //
 // Arguments -
-// read_curr_block : True if this call was due to miss in the cache and
-//                   FilePrefetchBuffer wants to read that block synchronously.
-//                   False if current call is to prefetch additional data in
-//                   extra buffers through ReadAsync API.
-// prev_buf_offset : End offset of the previous buffer. It's used in case
-//                   of ReadAsync to make sure it doesn't read anything from
-//                   previous buffer which is already prefetched.
+// read_curr_block   :   True if this call was due to miss in the cache and
+//                         FilePrefetchBuffer wants to read that block
+//                         synchronously.
+//                       False if current call is to prefetch additional data in
+//                         extra buffers through ReadAsync API.
+// prev_buf_end_offset : End offset of the previous buffer. It's used in case
+//                       of ReadAsync to make sure it doesn't read anything from
+//                       previous buffer which is already prefetched.
 void FilePrefetchBuffer::ReadAheadSizeTuning(
-    bool read_curr_block, bool refit_tail, uint64_t prev_buf_offset,
+    bool read_curr_block, bool refit_tail, uint64_t prev_buf_end_offset,
     uint32_t index, size_t alignment, size_t length, size_t readahead_size,
     uint64_t& start_offset, uint64_t& end_offset, size_t& read_len,
     uint64_t& chunk_len) {
@@ -373,9 +374,9 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   assert(updated_start_offset < updated_end_offset);
 
   if (!read_curr_block) {
-    if (updated_end_offset <= prev_buf_offset) {
-      // It can be when this call only added previous block handles.
-      start_offset = end_offset = prev_buf_offset;
+    if (updated_end_offset <= prev_buf_end_offset) {
+      // It can be when this callback only added previous block handles.
+      start_offset = end_offset = prev_buf_end_offset;
       return;
     }
   }
@@ -384,10 +385,11 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   start_offset = Rounddown(updated_start_offset, alignment);
   end_offset = Roundup(updated_end_offset, alignment);
 
-  if (!read_curr_block && start_offset < prev_buf_offset) {
-    // Previous buffer already contains the data till prev_buf_offset because of
-    // alignment. Update the start offset after that.
-    start_offset = prev_buf_offset;
+  if (!read_curr_block && start_offset < prev_buf_end_offset) {
+    // Previous buffer already contains the data till prev_buf_end_offset
+    // because of alignment. Update the start offset after that to avoid
+    // prefetching it again.
+    start_offset = prev_buf_end_offset;
   }
 
   uint64_t roundup_len = end_offset - start_offset;
@@ -398,6 +400,8 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 
   // Update the buffer offset.
   bufs_[index].offset_ = start_offset;
+  // Update the initial end offset of this buffer which will be the starting
+  // offset of next prefetch.
   bufs_[index].initial_end_offset_ = initial_end_offset;
   read_len = static_cast<size_t>(roundup_len - chunk_len);
 }
@@ -632,7 +636,8 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
       size_t read_len2 = 0;
       uint64_t roundup_end2 = rounddown_start2, chunk_len2 = 0;
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
-                          /*prev_buf_offset=*/roundup_end1, second, alignment,
+                          /*prev_buf_end_offset=*/roundup_end1, second,
+                          alignment,
                           /*length=*/0, readahead_size, rounddown_start2,
                           roundup_end2, read_len2, chunk_len2);
       if (read_len2 > 0) {
@@ -978,7 +983,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // Prefetch full data + readahead_size in curr_.
     if (is_eligible_for_prefetching || reader->use_direct_io()) {
       ReadAheadSizeTuning(/*read_curr_block=*/true, /*refit_tail=*/false,
-                          /*prev_buf_offset=*/rounddown_start1, curr_,
+                          /*prev_buf_end_offset=*/rounddown_start1, curr_,
                           alignment, n, readahead_size, rounddown_start1,
                           roundup_end1, read_len1, chunk_len1);
     } else {
@@ -1002,7 +1007,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     if (!IsOffsetOutOfBound(rounddown_start2)) {
       uint64_t roundup_end2 = rounddown_start2, chunk_len2 = 0;
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
-                          /*prev_buf_offset=*/roundup_end1, second, alignment,
+                          /*prev_buf_end_offset=*/roundup_end1, second,
+                          alignment,
                           /*length=*/0, readahead_size, rounddown_start2,
                           roundup_end2, read_len2, chunk_len2);
     }
