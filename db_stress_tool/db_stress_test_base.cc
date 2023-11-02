@@ -1485,11 +1485,11 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (op == kLastOpSeekToFirst && ro.iterate_lower_bound != nullptr) {
-    // SeekToFirst() with lower bound is not well defined.
+    // SeekToFirst() with lower bound is not well-defined.
     *diverged = true;
     return;
   } else if (op == kLastOpSeekToLast && ro.iterate_upper_bound != nullptr) {
-    // SeekToLast() with higher bound is not well defined.
+    // SeekToLast() with higher bound is not well-defined.
     *diverged = true;
     return;
   } else if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
@@ -1500,7 +1500,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
                options_.comparator->CompareWithoutTimestamp(
                    *ro.iterate_lower_bound, /*a_has_ts=*/false,
                    *ro.iterate_upper_bound, /*b_has_ts*/ false) >= 0))) {
-    // Lower bound behavior is not well defined if it is larger than
+    // Lower bound behavior is not well-defined if it is larger than
     // seek key or upper bound. Disable the check for now.
     *diverged = true;
     return;
@@ -1512,7 +1512,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
                options_.comparator->CompareWithoutTimestamp(
                    *ro.iterate_lower_bound, /*a_has_ts=*/false,
                    *ro.iterate_upper_bound, /*b_has_ts=*/false) >= 0))) {
-    // Uppder bound behavior is not well defined if it is smaller than
+    // Upper bound behavior is not well-defined if it is smaller than
     // seek key or lower bound. Disable the check for now.
     *diverged = true;
     return;
@@ -1540,13 +1540,13 @@ void StressTest::VerifyIterator(ThreadState* thread,
       }
     }
     fprintf(stderr,
-            "Control interator is invalid but iterator has key %s "
+            "Control iterator is invalid but iterator has key %s "
             "%s\n",
             iter->key().ToString(true).c_str(), op_logs.c_str());
 
     *diverged = true;
   } else if (cmp_iter->Valid()) {
-    // Iterator is not valid. It can be legimate if it has already been
+    // Iterator is not valid. It can be legitimate if it has already been
     // out of upper or lower bound, or filtered out by prefix iterator.
     const Slice& total_order_key = cmp_iter->key();
 
@@ -1569,7 +1569,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
           return;
         }
         fprintf(stderr,
-                "Iterator stays in prefix but contol doesn't"
+                "Iterator stays in prefix but control doesn't"
                 " iterator key %s control iterator key %s %s\n",
                 iter->key().ToString(true).c_str(),
                 cmp_iter->key().ToString(true).c_str(), op_logs.c_str());
@@ -1616,7 +1616,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (*diverged) {
-    fprintf(stderr, "Control CF %s\n", cmp_cfh->GetName().c_str());
+    fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
+            cmp_cfh->GetName().c_str());
     thread->stats.AddErrors(1);
     // Fail fast to preserve the DB state.
     thread->shared->SetVerificationFailure();
