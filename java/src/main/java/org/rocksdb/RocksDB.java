@@ -776,15 +776,15 @@ public class RocksDB extends RocksObject {
       final ImportColumnFamilyOptions importColumnFamilyOptions,
       final List<ExportImportFilesMetaData> metadatas) throws RocksDBException {
     final int metadataNum = metadatas.size();
-    final long[] metadataHandeList = new long[metadataNum];
+    final long[] metadataHandleList = new long[metadataNum];
     for (int i = 0; i < metadataNum; i++) {
-      metadataHandeList[i] = metadatas.get(i).getNativeHandle();
+      metadataHandleList[i] = metadatas.get(i).getNativeHandle();
     }
     final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
         createColumnFamilyWithImport(nativeHandle_, columnFamilyDescriptor.getName(),
             columnFamilyDescriptor.getName().length,
             columnFamilyDescriptor.getOptions().nativeHandle_,
-            importColumnFamilyOptions.nativeHandle_, metadataHandeList));
+            importColumnFamilyOptions.nativeHandle_, metadataHandleList));
     ownedColumnFamilyHandles.add(columnFamilyHandle);
     return columnFamilyHandle;
   }
@@ -4436,7 +4436,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native long createColumnFamilyWithImport(final long handle, final byte[] columnFamilyName,
       final int columnFamilyNamelen, final long columnFamilyOptions,
-      final long importColumnFamilyOptions, final long[] metadataHandeList) throws RocksDBException;
+      final long importColumnFamilyOptions, final long[] metadataHandleList)
+      throws RocksDBException;
   private native void dropColumnFamily(
       final long handle, final long cfHandle) throws RocksDBException;
   private native void dropColumnFamilies(final long handle,

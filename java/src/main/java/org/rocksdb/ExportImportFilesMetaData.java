@@ -6,14 +6,11 @@
 
 package org.rocksdb;
 
-import java.util.Arrays;
-import java.util.List;
-
 /**
  * The metadata that describes a column family.
  */
 public class ExportImportFilesMetaData extends RocksObject {
-  private ExportImportFilesMetaData(final long nativeHandle) {
+  public ExportImportFilesMetaData(final long nativeHandle) {
     super(nativeHandle);
   }
 

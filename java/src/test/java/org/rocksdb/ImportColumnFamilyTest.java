@@ -40,13 +40,14 @@ public class ImportColumnFamilyTest {
         db.put("key".getBytes(), "value".getBytes());
         db.put("key1".getBytes(), "value1".getBytes());
 
-        try (final Checkpoint checkpoint = Checkpoint.create(db)) {
+        try (final Checkpoint checkpoint = Checkpoint.create(db);
+             final ImportColumnFamilyOptions importColumnFamilyOptions =
+                 new ImportColumnFamilyOptions()) {
           ExportImportFilesMetaData default_cf_metadata =
               checkpoint.exportColumnFamily(db.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/default_cf_metadata");
           ColumnFamilyDescriptor columnFamilyDescriptor =
               new ColumnFamilyDescriptor("new_cf".getBytes());
-          ImportColumnFamilyOptions importColumnFamilyOptions = new ImportColumnFamilyOptions();
           final ColumnFamilyHandle importCfHandle = db.createColumnFamilyWithImport(
               columnFamilyDescriptor, importColumnFamilyOptions, default_cf_metadata);
           assertThat(db.get(importCfHandle, "key".getBytes())).isEqualTo("value".getBytes());
@@ -67,7 +68,9 @@ public class ImportColumnFamilyTest {
         db2.put("key2".getBytes(), "value2".getBytes());
         db2.put("key3".getBytes(), "value3".getBytes());
         try (final Checkpoint checkpoint1 = Checkpoint.create(db1);
-             final Checkpoint checkpoint2 = Checkpoint.create(db2);) {
+             final Checkpoint checkpoint2 = Checkpoint.create(db2);
+             final ImportColumnFamilyOptions importColumnFamilyOptions =
+                 new ImportColumnFamilyOptions()) {
           ExportImportFilesMetaData default_cf_metadata1 =
               checkpoint1.exportColumnFamily(db1.getDefaultColumnFamily(),
                   checkpointFolder.getRoot().getAbsolutePath() + "/default_cf_metadata1");
@@ -77,7 +80,6 @@ public class ImportColumnFamilyTest {
 
           ColumnFamilyDescriptor columnFamilyDescriptor =
               new ColumnFamilyDescriptor("new_cf".getBytes());
-          ImportColumnFamilyOptions importColumnFamilyOptions = new ImportColumnFamilyOptions();
 
           List<ExportImportFilesMetaData> importMetaDatas = new ArrayList();
           importMetaDatas.add(default_cf_metadata1);

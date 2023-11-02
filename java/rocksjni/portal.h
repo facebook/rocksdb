@@ -7573,38 +7573,6 @@ class LevelMetaDataJni : public JavaClass {
   }
 };
 
-class ExportImportFilesMetaDataJni : public JavaClass {
- public:
-  /**
-   * Create a new Java org.rocksdb.ExportImportFilesMetaData object.
-   *
-   * @param env A pointer to the Java environment
-   * @param export_import_files_meta_data A Cpp export import files meta data
-   * object
-   *
-   * @return A reference to a Java org.rocksdb.ExportImportFilesMetaData object,
-   * or nullptr if an an exception occurs
-   */
-  static jobject fromCppExportImportFilesMetaData(
-      JNIEnv* env, ROCKSDB_NAMESPACE::ExportImportFilesMetaData*
-                       export_import_files_meta_data) {
-    jclass jclazz = getJClass(env);
-    assert(jclazz != nullptr);
-    static jmethodID ctor = getConstructorMethodId(env, jclazz);
-    assert(ctor != nullptr);
-    return env->NewObject(
-        jclazz, ctor, reinterpret_cast<jlong>(export_import_files_meta_data));
-  }
-
-  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
-    return env->GetMethodID(clazz, "<init>", "(J)V");
-  }
-
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "org/rocksdb/ExportImportFilesMetaData");
-  }
-};
-
 class ColumnFamilyMetaDataJni : public JavaClass {
  public:
   /**

@@ -7,11 +7,9 @@
 package org.rocksdb;
 
 /**
- * ImportColumnFamilyOptions is used by ImportColumnFamily()
- * <p>
- * Note that dispose() must be called before this instance become out-of-scope
- * to release the allocated memory in c++.
- *
+ * ImportColumnFamilyOptions is used by
+ * {@link RocksDB#createColumnFamilyWithImport(ColumnFamilyDescriptor, ImportColumnFamilyOptions,
+ * ExportImportFilesMetaData)}.
  */
 public class ImportColumnFamilyOptions extends RocksObject {
   public ImportColumnFamilyOptions() {

@@ -54,7 +54,8 @@ public class Checkpoint extends RocksObject {
 
   public ExportImportFilesMetaData exportColumnFamily(final ColumnFamilyHandle columnFamilyHandle,
       final String exportPath) throws RocksDBException {
-    return exportColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_, exportPath);
+    return new ExportImportFilesMetaData(
+        exportColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_, exportPath));
   }
 
   private Checkpoint(final RocksDB db) {
@@ -67,6 +68,6 @@ public class Checkpoint extends RocksObject {
   private native void createCheckpoint(long handle, String checkpointPath)
       throws RocksDBException;
 
-  private native ExportImportFilesMetaData exportColumnFamily(
-      long handle, long columnFamilyHandle, String exportPath) throws RocksDBException;
+  private native long exportColumnFamily(long handle, long columnFamilyHandle, String exportPath)
+      throws RocksDBException;
 }
