@@ -1948,7 +1948,11 @@ Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
   // GetColumnFamilyOptionsFromString does not create customized merge operator.
   InitializeMergeOperator(*options);
   if (FLAGS_user_timestamp_size > 0) {
-    CheckAndSetOptionsForUserTimestamp(*options, /*from_restore=*/true);
+    // Check OPTIONS string loading can bootstrap the correct user comparator
+    // from object registry.
+    assert(options->comparator);
+    assert(options->comparator == test::BytewiseComparatorWithU64TsWrapper());
+    CheckAndSetOptionsForUserTimestamp(*options);
   }
 
   return Status::OK();
@@ -3146,7 +3150,7 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   read_opts.timestamp = saved_ts;
 }
 
-void CheckAndSetOptionsForUserTimestamp(Options& options, bool from_restore) {
+void CheckAndSetOptionsForUserTimestamp(Options& options) {
   assert(FLAGS_user_timestamp_size > 0);
   const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
@@ -3169,12 +3173,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options, bool from_restore) {
   if (FLAGS_ingest_external_file_one_in > 0) {
     fprintf(stderr, "Bulk loading may not support timestamp yet.\n");
     exit(1);
-  }
-  if (from_restore) {
-    // Check OPTIONS string loading for the restore flow can bootstrap the
-    // correct user comparator from object registry.
-    assert(options.comparator);
-    assert(options.comparator == cmp);
   }
   options.comparator = cmp;
 }
@@ -3454,7 +3452,7 @@ void InitializeOptionsFromFlags(
   options.fail_if_options_file_error = FLAGS_fail_if_options_file_error;
 
   if (FLAGS_user_timestamp_size > 0) {
-    CheckAndSetOptionsForUserTimestamp(options, /*from_restore=*/false);
+    CheckAndSetOptionsForUserTimestamp(options);
   }
 
   options.allow_data_in_errors = FLAGS_allow_data_in_errors;
