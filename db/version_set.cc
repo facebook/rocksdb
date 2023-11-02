@@ -3676,7 +3676,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   // Find the adjust_allowed_time_limit such that it includes files that are
   // going to expire by the time next daily offpeak starts.
   const OffpeakTimeInfo offpeak_time_info =
-      offpeak_time_option_.GetOffpeakTimeInfo(ioptions.clock);
+      offpeak_time_option_.GetOffpeakTimeInfo(current_time);
   const uint64_t adjusted_allowed_time_limit =
       allowed_time_limit +
       (offpeak_time_info.is_now_offpeak

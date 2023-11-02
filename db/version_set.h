@@ -1512,7 +1512,7 @@ class VersionSet {
     return offpeak_time_option_;
   }
   void ChangeOffpeakTimeOption(const std::string& daily_offpeak_time_utc) {
-    offpeak_time_option_.daily_offpeak_time_utc = daily_offpeak_time_utc;
+    offpeak_time_option_.SetFromOffpeakTimeString(daily_offpeak_time_utc);
   }
 
   const ImmutableDBOptions* db_options() const { return db_options_; }

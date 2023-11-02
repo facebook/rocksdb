@@ -5,49 +5,53 @@
 
 #include "options/offpeak_time_info.h"
 
+#include "offpeak_time_info.h"
 #include "rocksdb/system_clock.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-OffpeakTimeOption::OffpeakTimeOption() : daily_offpeak_time_utc("") {}
-OffpeakTimeOption::OffpeakTimeOption(const std::string& offpeak_time)
-    : daily_offpeak_time_utc(offpeak_time) {}
+OffpeakTimeOption::OffpeakTimeOption() : OffpeakTimeOption("") {}
+OffpeakTimeOption::OffpeakTimeOption(const std::string& offpeak_time_string) {
+  SetFromOffpeakTimeString(offpeak_time_string);
+}
+
+void OffpeakTimeOption::SetFromOffpeakTimeString(
+    const std::string& offpeak_time_string) {
+  if (TryParseTimeRangeString(offpeak_time_string, daily_offpeak_start_time_utc,
+                              daily_offpeak_end_time_utc)) {
+    daily_offpeak_time_utc = offpeak_time_string;
+  } else {
+    daily_offpeak_start_time_utc = 0;
+    daily_offpeak_end_time_utc = 0;
+  }
+}
 
 OffpeakTimeInfo OffpeakTimeOption::GetOffpeakTimeInfo(
-    SystemClock* clock) const {
+    const int64_t& current_time) const {
   OffpeakTimeInfo offpeak_time_info;
-  if (daily_offpeak_time_utc.empty()) {
+  if (daily_offpeak_start_time_utc == daily_offpeak_end_time_utc) {
     return offpeak_time_info;
   }
-  int64_t now;
-  if (clock->GetCurrentTime(&now).ok()) {
-    int seconds_since_midnight = static_cast<int>(now % kSecondsPerDay);
-    int seconds_since_midnight_to_nearest_minute =
-        (seconds_since_midnight / kSecondsPerMinute) * kSecondsPerMinute;
-    int start_time = 0, end_time = 0;
-    bool is_valid =
-        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time) &&
-        start_time != end_time;
-    assert(is_valid);
-    if (!is_valid) {
-      // If the validation was done properly, we should never reach here
-      return offpeak_time_info;
-    }
-    // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
-    if (start_time > end_time) {
-      offpeak_time_info.is_now_offpeak =
-          start_time <= seconds_since_midnight_to_nearest_minute ||
-          seconds_since_midnight_to_nearest_minute <= end_time;
-    } else {
-      offpeak_time_info.is_now_offpeak =
-          start_time <= seconds_since_midnight_to_nearest_minute &&
-          seconds_since_midnight_to_nearest_minute <= end_time;
-    }
-    offpeak_time_info.seconds_till_next_offpeak_start =
-        seconds_since_midnight < start_time
-            ? start_time - seconds_since_midnight
-            : ((start_time + kSecondsPerDay) - seconds_since_midnight);
+  int seconds_since_midnight = static_cast<int>(current_time % kSecondsPerDay);
+  int seconds_since_midnight_to_nearest_minute =
+      (seconds_since_midnight / kSecondsPerMinute) * kSecondsPerMinute;
+  // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
+  if (daily_offpeak_start_time_utc > daily_offpeak_end_time_utc) {
+    offpeak_time_info.is_now_offpeak =
+        daily_offpeak_start_time_utc <=
+            seconds_since_midnight_to_nearest_minute ||
+        seconds_since_midnight_to_nearest_minute <= daily_offpeak_end_time_utc;
+  } else {
+    offpeak_time_info.is_now_offpeak =
+        daily_offpeak_start_time_utc <=
+            seconds_since_midnight_to_nearest_minute &&
+        seconds_since_midnight_to_nearest_minute <= daily_offpeak_end_time_utc;
   }
+  offpeak_time_info.seconds_till_next_offpeak_start =
+      seconds_since_midnight < daily_offpeak_start_time_utc
+          ? daily_offpeak_start_time_utc - seconds_since_midnight
+          : ((daily_offpeak_start_time_utc + kSecondsPerDay) -
+             seconds_since_midnight);
   return offpeak_time_info;
 }
 

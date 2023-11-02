@@ -2206,83 +2206,83 @@ TEST_F(VersionSetTest, OffpeakTimeInfoTest) {
   // Add some extra random days to current time
   int days = rnd.Uniform(100);
   mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
+  int64_t now;
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
 
   // Starting at 1:30PM. It's not off-peak
-  ASSERT_FALSE(versions_->offpeak_time_option()
-                   .GetOffpeakTimeInfo(mock_clock.get())
-                   .is_now_offpeak);
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Now it's at 4:30PM. Still not off-peak
   mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_FALSE(versions_->offpeak_time_option()
-                   .GetOffpeakTimeInfo(mock_clock.get())
-                   .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Now it's at 11:30PM. It's off-peak
   mock_clock->MockSleepForSeconds(7 * 3600);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Now it's at 2:30AM next day. It's still off-peak
   mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Now it's at 4:30AM. It's still off-peak
   mock_clock->MockSleepForSeconds(2 * 3600);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
   mock_clock->MockSleepForSeconds(60);
-  ASSERT_FALSE(versions_->offpeak_time_option()
-                   .GetOffpeakTimeInfo(mock_clock.get())
-                   .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_FALSE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Entire day offpeak
   versions_->ChangeOffpeakTimeOption("00:00-23:59");
   // It doesn't matter what time it is. It should be just offpeak.
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Mock Sleep for 3 hours. It's still off-peak
   mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Mock Sleep for 20 hours. It's still off-peak
   mock_clock->MockSleepForSeconds(20 * 3600);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Mock Sleep for 59 minutes. It's still off-peak
   mock_clock->MockSleepForSeconds(59 * 60);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Mock Sleep for 59 seconds. It's still off-peak
   mock_clock->MockSleepForSeconds(59);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 
   // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
   mock_clock->MockSleepForSeconds(1);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
   // Another second for sanity check
   mock_clock->MockSleepForSeconds(1);
-  ASSERT_TRUE(versions_->offpeak_time_option()
-                  .GetOffpeakTimeInfo(mock_clock.get())
-                  .is_now_offpeak);
+  ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+  ASSERT_TRUE(
+      versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 }
 
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {

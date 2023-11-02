@@ -23,10 +23,14 @@ struct OffpeakTimeOption {
   static constexpr int kSecondsPerMinute = 60;
 
   OffpeakTimeOption();
-  explicit OffpeakTimeOption(const std::string& offpeak_time);
-  std::string daily_offpeak_time_utc;
+  explicit OffpeakTimeOption(const std::string& offpeak_time_string);
+  std::string daily_offpeak_time_utc = "";
+  int daily_offpeak_start_time_utc = 0;
+  int daily_offpeak_end_time_utc = 0;
 
-  OffpeakTimeInfo GetOffpeakTimeInfo(SystemClock* clock) const;
+  void SetFromOffpeakTimeString(const std::string& offpeak_time_string);
+
+  OffpeakTimeInfo GetOffpeakTimeInfo(const int64_t& current_time) const;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

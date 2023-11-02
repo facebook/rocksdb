@@ -1169,7 +1169,9 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
     auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
-    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(mock_clock.get());
+    int64_t now;
+    ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(now);
     ASSERT_EQ(expected_is_now_off_peak, offpeak_info.is_now_offpeak);
     ASSERT_EQ(expected_seconds_till_next_offpeak_start,
               offpeak_info.seconds_till_next_offpeak_start);
