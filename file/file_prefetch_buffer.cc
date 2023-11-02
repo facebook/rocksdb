@@ -82,9 +82,9 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
 Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 RandomAccessFileReader* reader,
                                 uint64_t read_len, uint64_t chunk_len,
-                                uint64_t rounddown_start, uint32_t index) {
+                                uint64_t start_offset, uint32_t index) {
   Slice result;
-  Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
+  Status s = reader->Read(opts, start_offset + chunk_len, read_len, &result,
                           bufs_[index].buffer_.BufferStart() + chunk_len,
                           /*aligned_buf=*/nullptr);
 #ifndef NDEBUG
@@ -102,15 +102,15 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
     RecordTick(stats_, PREFETCH_BYTES, read_len);
   }
   // Update the buffer offset and size.
-  bufs_[index].offset_ = rounddown_start;
+  bufs_[index].offset_ = start_offset;
   bufs_[index].buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;
 }
 
 Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      RandomAccessFileReader* reader,
-                                     uint64_t read_len,
-                                     uint64_t rounddown_start, uint32_t index) {
+                                     uint64_t read_len, uint64_t start_offset,
+                                     uint32_t index) {
   TEST_SYNC_POINT("FilePrefetchBuffer::ReadAsync");
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
@@ -118,7 +118,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   FSReadRequest req;
   Slice result;
   req.len = read_len;
-  req.offset = rounddown_start;
+  req.offset = start_offset;
   req.result = result;
   req.scratch = bufs_[index].buffer_.BufferStart();
   bufs_[index].async_req_len_ = req.len;
@@ -446,20 +446,20 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     size_t second_size = bufs_[second].async_read_in_progress_
                              ? bufs_[second].async_req_len_
                              : bufs_[second].buffer_.CurrentSize();
-    uint64_t rounddown_start = bufs_[second].initial_end_offset_;
+    uint64_t start_offset = bufs_[second].initial_end_offset_;
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
     if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size &&
-        !IsOffsetOutOfBound(rounddown_start)) {
+        !IsOffsetOutOfBound(start_offset)) {
       size_t read_len = 0;
-      uint64_t end_offset = rounddown_start, chunk_len = 0;
+      uint64_t end_offset = start_offset, chunk_len = 0;
 
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
                           bufs_[second].offset_ + second_size, curr_, alignment,
-                          /*length=*/0, readahead_size, rounddown_start,
+                          /*length=*/0, readahead_size, start_offset,
                           end_offset, read_len, chunk_len);
       if (read_len > 0) {
-        s = ReadAsync(opts, reader, read_len, rounddown_start, curr_);
+        s = ReadAsync(opts, reader, read_len, start_offset, curr_);
         if (!s.ok()) {
           DestroyAndClearIOHandle(curr_);
           bufs_[curr_].ClearBuffer();
@@ -610,38 +610,37 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
          !DoesBufferContainData(second));
 
   // offset and size alignment for curr_ buffer with synchronous prefetching
-  uint64_t rounddown_start1 = offset, roundup_end1 = 0, chunk_len1 = 0;
+  uint64_t start_offset1 = offset, end_offset1 = 0, chunk_len1 = 0;
   size_t read_len1 = 0;
 
   // For length == 0, skip the synchronous prefetching. read_len1 will be 0.
   if (length > 0) {
     ReadAheadSizeTuning(/*read_curr_block=*/true, /*refit_tail=*/false,
-                        rounddown_start1, curr_, alignment, length,
-                        readahead_size, rounddown_start1, roundup_end1,
-                        read_len1, chunk_len1);
+                        start_offset1, curr_, alignment, length, readahead_size,
+                        start_offset1, end_offset1, read_len1, chunk_len1);
   } else {
-    roundup_end1 = bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
+    end_offset1 = bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
   }
 
   // Prefetch in second buffer only if readahead_size > 0.
   if (readahead_size > 0) {
     // offset and size alignment for second buffer for asynchronous
     // prefetching.
-    uint64_t rounddown_start2 = bufs_[curr_].initial_end_offset_;
+    uint64_t start_offset2 = bufs_[curr_].initial_end_offset_;
 
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (!IsOffsetOutOfBound(rounddown_start2)) {
+    if (!IsOffsetOutOfBound(start_offset2)) {
       // Find updated readahead size after tuning
       size_t read_len2 = 0;
-      uint64_t roundup_end2 = rounddown_start2, chunk_len2 = 0;
+      uint64_t end_offset2 = start_offset2, chunk_len2 = 0;
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
-                          /*prev_buf_end_offset=*/roundup_end1, second,
+                          /*prev_buf_end_offset=*/end_offset1, second,
                           alignment,
-                          /*length=*/0, readahead_size, rounddown_start2,
-                          roundup_end2, read_len2, chunk_len2);
+                          /*length=*/0, readahead_size, start_offset2,
+                          end_offset2, read_len2, chunk_len2);
       if (read_len2 > 0) {
-        s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
+        s = ReadAsync(opts, reader, read_len2, start_offset2, second);
         if (!s.ok()) {
           DestroyAndClearIOHandle(second);
           bufs_[second].ClearBuffer();
@@ -652,7 +651,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(opts, reader, read_len1, chunk_len1, rounddown_start1, curr_);
+    s = Read(opts, reader, read_len1, chunk_len1, start_offset1, curr_);
     if (!s.ok()) {
       if (bufs_[second].io_handle_ != nullptr) {
         std::vector<void*> handles;
@@ -968,7 +967,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   size_t readahead_size = is_eligible_for_prefetching ? readahead_size_ / 2 : 0;
   size_t offset_to_read = static_cast<size_t>(offset);
-  uint64_t rounddown_start1 = offset, roundup_end1 = 0, rounddown_start2 = 0,
+  uint64_t start_offset1 = offset, end_offset1 = 0, start_offset2 = 0,
            chunk_len1 = 0;
   size_t read_len1 = 0, read_len2 = 0;
 
@@ -983,39 +982,39 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // Prefetch full data + readahead_size in curr_.
     if (is_eligible_for_prefetching || reader->use_direct_io()) {
       ReadAheadSizeTuning(/*read_curr_block=*/true, /*refit_tail=*/false,
-                          /*prev_buf_end_offset=*/rounddown_start1, curr_,
-                          alignment, n, readahead_size, rounddown_start1,
-                          roundup_end1, read_len1, chunk_len1);
+                          /*prev_buf_end_offset=*/start_offset1, curr_,
+                          alignment, n, readahead_size, start_offset1,
+                          end_offset1, read_len1, chunk_len1);
     } else {
       // No alignment or extra prefetching.
-      rounddown_start1 = offset_to_read;
-      roundup_end1 = offset_to_read + n;
-      roundup_len1 = roundup_end1 - rounddown_start1;
-      CalculateOffsetAndLen(alignment, rounddown_start1, roundup_len1, curr_,
+      start_offset1 = offset_to_read;
+      end_offset1 = offset_to_read + n;
+      roundup_len1 = end_offset1 - start_offset1;
+      CalculateOffsetAndLen(alignment, start_offset1, roundup_len1, curr_,
                             false, chunk_len1);
       assert(chunk_len1 == 0);
       assert(roundup_len1 >= chunk_len1);
       read_len1 = static_cast<size_t>(roundup_len1);
-      bufs_[curr_].offset_ = rounddown_start1;
+      bufs_[curr_].offset_ = start_offset1;
     }
   }
 
   if (is_eligible_for_prefetching) {
-    rounddown_start2 = bufs_[curr_].initial_end_offset_;
+    start_offset2 = bufs_[curr_].initial_end_offset_;
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (!IsOffsetOutOfBound(rounddown_start2)) {
-      uint64_t roundup_end2 = rounddown_start2, chunk_len2 = 0;
+    if (!IsOffsetOutOfBound(start_offset2)) {
+      uint64_t end_offset2 = start_offset2, chunk_len2 = 0;
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
-                          /*prev_buf_end_offset=*/roundup_end1, second,
+                          /*prev_buf_end_offset=*/end_offset1, second,
                           alignment,
-                          /*length=*/0, readahead_size, rounddown_start2,
-                          roundup_end2, read_len2, chunk_len2);
+                          /*length=*/0, readahead_size, start_offset2,
+                          end_offset2, read_len2, chunk_len2);
     }
   }
 
   if (read_len1) {
-    s = ReadAsync(opts, reader, read_len1, rounddown_start1, curr_);
+    s = ReadAsync(opts, reader, read_len1, start_offset1, curr_);
     if (!s.ok()) {
       DestroyAndClearIOHandle(curr_);
       bufs_[curr_].ClearBuffer();
@@ -1027,7 +1026,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   if (read_len2) {
     TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching");
-    s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
+    s = ReadAsync(opts, reader, read_len2, start_offset2, second);
     if (!s.ok()) {
       DestroyAndClearIOHandle(second);
       bufs_[second].ClearBuffer();

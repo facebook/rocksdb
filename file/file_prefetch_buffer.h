@@ -63,6 +63,10 @@ struct BufferInfo {
   // size when callback is made to BlockBasedTableIterator.
   // initial end offset of this buffer which will be the starting
   // offset of next prefetch.
+  //
+  // Note: No need to update/use in case async_io disabled. Prefetching will
+  // happen only when there is a cache miss. So start offset for prefetching
+  // will always be the passed offset to FilePrefetchBuffer (offset to read).
   uint64_t initial_end_offset_ = 0;
 };
 
@@ -321,11 +325,11 @@ class FilePrefetchBuffer {
                                bool& copy_to_third_buffer);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
-              uint64_t read_len, uint64_t chunk_len, uint64_t rounddown_start,
+              uint64_t read_len, uint64_t chunk_len, uint64_t start_offset,
               uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   uint64_t read_len, uint64_t rounddown_start, uint32_t index);
+                   uint64_t read_len, uint64_t start_offset, uint32_t index);
 
   // Copy the data from src to third buffer.
   void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);
