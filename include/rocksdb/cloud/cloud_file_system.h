@@ -652,7 +652,15 @@ class CloudFileSystem : public FileSystem {
   virtual IOStatus GetMaxFileNumberFromCurrentManifest(
       const std::string& local_dbname, uint64_t* max_file_number) = 0;
 
+  // Delete both local and cloud invisble files
   virtual IOStatus DeleteCloudInvisibleFiles(
+      const std::vector<std::string>& active_cookies) = 0;
+  // Delete local invisible files. This could be helpful when there is one
+  // single instance managing lifetime of files in cloud while the other
+  // instances reference and download the files in cloud. The other instances
+  // can actively cleanup the local files once they are not needed.
+  virtual IOStatus DeleteLocalInvisibleFiles(
+      const std::string& dbname,
       const std::vector<std::string>& active_cookies) = 0;
 
   // Create a new AWS file system.

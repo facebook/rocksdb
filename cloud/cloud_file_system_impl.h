@@ -368,7 +368,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
   // Delete all local files that are invisible
   IOStatus DeleteLocalInvisibleFiles(
       const std::string& dbname,
-      const std::vector<std::string>& active_cookies);
+      const std::vector<std::string>& active_cookies) override;
  private:
   // Files are invisibile if:
   // - It's CLOUDMANFIEST file and cookie is not active. NOTE: empty cookie is
