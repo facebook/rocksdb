@@ -16,7 +16,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/ttl/db_ttl_impl.h"
-#include <iostream>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
