@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <string>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
@@ -2266,171 +2268,103 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompactionOffpeak) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Case 1: Periodic Compaction during non-offpeak time
-  {
-    // Starting at 1:30PM
-    int now_hour = 13;
-    int now_minute = 30;
-    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-    opts.env = mock_env.get();
-    mock_clock->SetCurrentTime(days * kSecondsPerDay +
-                               now_hour * kSecondsPerHour +
-                               now_minute * kSecondsPerMinute);
-    // Offpeak is set from 12:30AM to 4:30AM
-    opts.daily_offpeak_time_utc = "00:30-04:30";
-    Reopen(opts);
+  for (std::string preset_offpeak_time : {"", "00:30-04:30", "10:30-02:30"}) {
+    SCOPED_TRACE("preset_offpeak_time=" + preset_offpeak_time);
+    for (std::string new_offpeak_time : {"", "23:30-02:30"}) {
+      SCOPED_TRACE("new_offpeak_time=" + new_offpeak_time);
+      std::vector<std::pair<int, int>> times_to_test = {
+          {0, 0}, {2, 30}, {3, 15}, {5, 10}, {13, 30}, {23, 30}};
+      for (std::pair<int, int> now : times_to_test) {
+        int now_hour = now.first;
+        int now_minute = now.second;
+        SCOPED_TRACE("now=" + std::to_string(now_hour) + ":" +
+                     std::to_string(now_minute));
 
-    ASSERT_OK(Put("foo", "bar"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
-    // Move clock forward by 4 days. No compaction.
-    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
-    ASSERT_OK(Put("foo", "bar2"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
+        auto mock_clock =
+            std::make_shared<MockSystemClock>(env_->GetSystemClock());
+        auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+        opts.env = mock_env.get();
+        mock_clock->SetCurrentTime(days * kSecondsPerDay +
+                                   now_hour * kSecondsPerHour +
+                                   now_minute * kSecondsPerMinute);
+        opts.daily_offpeak_time_utc = preset_offpeak_time;
+        Reopen(opts);
 
-    // Move clock forward one more day (and one second) and check if it triggers
-    // periodic comapaction
-    mock_clock->MockSleepForSeconds(1 * kSecondsPerDay + 1);
-    ASSERT_OK(Put("foo", "bar3"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+        ASSERT_OK(Put("foo", "bar1"));
+        ASSERT_OK(Flush());
+        ASSERT_EQ(0, periodic_compactions);
 
-    ASSERT_EQ(1, periodic_compactions);
-    ASSERT_EQ(0, start_level);
-    ASSERT_EQ(4, output_level);
-    Destroy(opts);
-  }
-  periodic_compactions = 0;
+        // Move clock forward by 8 hours. There should be no periodic
+        // compaction, yet.
+        mock_clock->MockSleepForSeconds(8 * kSecondsPerHour);
+        ASSERT_OK(Put("foo", "bar2"));
+        ASSERT_OK(Flush());
+        ASSERT_OK(dbfull()->TEST_WaitForCompact());
+        ASSERT_EQ(0, periodic_compactions);
 
-  // Case 2: Periodic Compaction during off-peak.
-  // Off-peak is within the same day (12:30AM to 4:30AM)
-  {
-    // Starting at 12:15AM
-    int now_hour = 0;
-    int now_minute = 15;
-    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-    opts.env = mock_env.get();
-    mock_clock->SetCurrentTime(days * kSecondsPerDay +
-                               now_hour * kSecondsPerHour +
-                               now_minute * kSecondsPerMinute);
-    // Offpeak is set from 12:30AM to 4:30AM
-    opts.daily_offpeak_time_utc = "00:30-04:30";
-    Reopen(opts);
+        // Move clock forward by 4 days
+        mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
+        ASSERT_OK(Put("foo", "bar3"));
+        ASSERT_OK(Flush());
+        ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-    // File created at 12:15AM Day 0
-    ASSERT_OK(Put("foo", "bar"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
+        int64_t mock_now;
+        ASSERT_OK(mock_clock->GetCurrentTime(&mock_now));
 
-    // Move clock forward by 1 hour. Now at 1:15AM Day 0. No compaction.
-    mock_clock->MockSleepForSeconds(1 * kSecondsPerHour);
-    ASSERT_OK(Put("foo", "bar2"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
+        auto offpeak_time_info =
+            dbfull()->GetVersionSet()->offpeak_time_option().GetOffpeakTimeInfo(
+                mock_now);
+        // At this point, the first file is 4 days and 8 hours old.
+        // If it's offpeak now and the file is expected to expire before the
+        // next offpeak starts
+        if (offpeak_time_info.is_now_offpeak &&
+            offpeak_time_info.seconds_till_next_offpeak_start /
+                    kSecondsPerHour >
+                16) {
+          ASSERT_EQ(1, periodic_compactions);
+        } else {
+          ASSERT_EQ(0, periodic_compactions);
+          // Change offpeak option by SetDBOption()
+          if (preset_offpeak_time != new_offpeak_time) {
+            ASSERT_OK(dbfull()->SetDBOptions(
+                {{"daily_offpeak_time_utc", new_offpeak_time}}));
+            ASSERT_OK(Put("foo", "bar4"));
+            ASSERT_OK(Flush());
+            ASSERT_OK(dbfull()->TEST_WaitForCompact());
+            offpeak_time_info = dbfull()
+                                    ->GetVersionSet()
+                                    ->offpeak_time_option()
+                                    .GetOffpeakTimeInfo(mock_now);
+            // if the first file is now eligible to be picked up
+            if (offpeak_time_info.is_now_offpeak &&
+                offpeak_time_info.seconds_till_next_offpeak_start /
+                        kSecondsPerHour >
+                    16) {
+              ASSERT_OK(Put("foo", "bar5"));
+              ASSERT_OK(Flush());
+              ASSERT_OK(dbfull()->TEST_WaitForCompact());
+              ASSERT_EQ(1, periodic_compactions);
+            }
+          }
 
-    // Move clock forward by 4 days and check if it triggers periodic
-    // comapaction
-    // Now at 1:15 AM Day 4. File created on Day 0 at 12:15AM is expected to
-    // expire when the offpeak starts next day at 12:30AM
-    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
-    ASSERT_OK(Put("foo", "bar3"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+          // If the file has not been picked up yet (no offpeak set, or offpeak
+          // set but then unset before the file becomes eligible)
+          if (periodic_compactions == 0) {
+            // move clock forward by one more day
+            mock_clock->MockSleepForSeconds(1 * kSecondsPerDay);
+            ASSERT_OK(Put("foo", "bar6"));
+            ASSERT_OK(Flush());
+            ASSERT_OK(dbfull()->TEST_WaitForCompact());
+          }
+        }
+        ASSERT_EQ(1, periodic_compactions);
+        ASSERT_EQ(0, start_level);
+        ASSERT_EQ(4, output_level);
+        Destroy(opts);
 
-    ASSERT_EQ(1, periodic_compactions);
-    ASSERT_EQ(0, start_level);
-    ASSERT_EQ(4, output_level);
-    Destroy(opts);
-  }
-  periodic_compactions = 0;
-
-  // Case 3: Periodic Compaction during off-peak.
-  // Off-peak spans out to the next day (10:30PM to 2:30AM)
-  {
-    // Starting at 8:15PM
-    int now_hour = 8;
-    int now_minute = 15;
-    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-    opts.env = mock_env.get();
-    mock_clock->SetCurrentTime(days * kSecondsPerDay +
-                               now_hour * kSecondsPerHour +
-                               now_minute * kSecondsPerMinute);
-    // Offpeak is set from 10:30PM to 2:30AM
-    opts.daily_offpeak_time_utc = "10:30-02:30";
-    Reopen(opts);
-
-    // File created at 08:15PM Day 0
-    ASSERT_OK(Put("foo", "bar"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
-
-    // Move clock forward by 5 hours. Now at 01:15AM Day 1. No compaction.
-    mock_clock->MockSleepForSeconds(5 * kSecondsPerHour);
-    ASSERT_OK(Put("foo", "bar2"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
-
-    // Move clock forward by 4 days and check if it triggers periodic
-    // comapaction
-    // Now at 01:15 AM Day 5. File created on Day 0 at 8:15PM is expected to
-    // expire when the offpeak starts on the same day at 10:30PM
-    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
-    ASSERT_OK(Put("foo", "bar3"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ASSERT_EQ(1, periodic_compactions);
-    ASSERT_EQ(0, start_level);
-    ASSERT_EQ(4, output_level);
-    Destroy(opts);
-  }
-  periodic_compactions = 0;
-
-  // Case 4: Offpeak Time Option set by SetDBOptions during offpeak
-  {
-    // Starting at 12:15AM
-    int now_hour = 0;
-    int now_minute = 15;
-    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-    opts.env = mock_env.get();
-    mock_clock->SetCurrentTime(days * kSecondsPerDay +
-                               now_hour * kSecondsPerHour +
-                               now_minute * kSecondsPerMinute);
-    // Offpeak is set from 12:30AM to 4:30AM
-    opts.daily_offpeak_time_utc = "";
-    Reopen(opts);
-
-    // File created at 12:15AM Day 0
-    ASSERT_OK(Put("foo", "bar"));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0, periodic_compactions);
-
-    // Move clock forward by 4 days and and one hour check if it triggers
-    // periodic comapaction. Since offpeak is not set, we should expect no
-    // periodic compaction.
-    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay + 1 * kSecondsPerHour);
-    ASSERT_OK(Put("foo", "bar3"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, periodic_compactions);
-
-    // Now set offpeak time info by calling SetDBOption()
-    // We now should expect periodic compaction
-    ASSERT_OK(
-        dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "00:30-04:30"}}));
-    ASSERT_OK(Put("foo", "bar4"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ASSERT_EQ(1, periodic_compactions);
-    ASSERT_EQ(0, start_level);
-    ASSERT_EQ(4, output_level);
-    Destroy(opts);
+        periodic_compactions = 0;
+      }
+    }
   }
 }
 
