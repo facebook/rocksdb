@@ -5,7 +5,6 @@
 
 #include "options/offpeak_time_info.h"
 
-#include "offpeak_time_info.h"
 #include "rocksdb/system_clock.h"
 #include "util/string_util.h"
 
