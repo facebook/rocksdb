@@ -573,14 +573,14 @@ public class ReadOptions extends RocksObject {
    * @see #iterStartTs()
    * @return Reference to timestamp or null if there is no timestamp defined.
    */
+  @SuppressWarnings("PMD.ConfusingTernary")
   public Slice timestamp() {
     assert (isOwningHandle());
     final long timestampSliceHandle = timestamp(nativeHandle_);
-    if (timestampSliceHandle != 0) {
-      return new Slice(timestampSliceHandle);
-    } else {
+    if (timestampSliceHandle == 0) {
       return null;
     }
+    return new Slice(timestampSliceHandle);
   }
 
   /**
@@ -623,14 +623,14 @@ public class ReadOptions extends RocksObject {
    * @return Reference to lower bound timestamp or null if there is no lower bound timestamp
    *     defined.
    */
+  @SuppressWarnings("PMD.ConfusingTernary")
   public Slice iterStartTs() {
     assert (isOwningHandle());
     final long iterStartTsHandle = iterStartTs(nativeHandle_);
-    if (iterStartTsHandle != 0) {
-      return new Slice(iterStartTsHandle);
-    } else {
+    if (iterStartTsHandle == 0) {
       return null;
     }
+    return new Slice(iterStartTsHandle);
   }
 
   /**

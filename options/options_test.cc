@@ -1588,6 +1588,7 @@ TEST_F(OptionsTest, GetMutableCFOptions) {
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
   ColumnFamilyOptions base_opt, new_opt;
+  base_opt.comparator = test::BytewiseComparatorWithU64TsWrapper();
   Random rnd(302);
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
@@ -1608,6 +1609,7 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
                                        base_options_file_content, &new_opt));
   ASSERT_OK(
       RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
+  ASSERT_EQ(base_opt.comparator, new_opt.comparator);
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }

@@ -136,9 +136,7 @@ struct MutableDBOptions {
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
   int max_background_flushes;
-
   std::string daily_offpeak_time_utc;
-  bool IsNowOffPeak(SystemClock* clock) const;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

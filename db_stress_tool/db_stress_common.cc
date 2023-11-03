@@ -13,6 +13,7 @@
 
 #include <cmath>
 
+#include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
@@ -21,6 +22,8 @@ ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 // If non-null, injects read error at a rate specified by the
 // read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
+std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -145,6 +148,88 @@ void DbVerificationThread(void* v) {
     db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_continuous_verification_interval * 1000 +
         1);
+  }
+}
+
+void CompressedCacheSetCapacityThread(void* v) {
+  assert(FLAGS_compressed_secondary_cache_size > 0 ||
+         FLAGS_compressed_secondary_cache_ratio > 0.0);
+  auto* thread = reinterpret_cast<ThreadState*>(v);
+  SharedState* shared = thread->shared;
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+    db_stress_env->SleepForMicroseconds(FLAGS_secondary_cache_update_interval);
+    if (FLAGS_compressed_secondary_cache_size > 0) {
+      Status s = compressed_secondary_cache->SetCapacity(0);
+      size_t capacity;
+      if (s.ok()) {
+        s = compressed_secondary_cache->GetCapacity(capacity);
+        assert(capacity == 0);
+      }
+      db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+      if (s.ok()) {
+        s = compressed_secondary_cache->SetCapacity(
+            FLAGS_compressed_secondary_cache_size);
+      }
+      if (s.ok()) {
+        s = compressed_secondary_cache->GetCapacity(capacity);
+        assert(capacity == FLAGS_compressed_secondary_cache_size);
+      }
+      if (!s.ok()) {
+        fprintf(stderr, "Compressed cache Set/GetCapacity returned error: %s\n",
+                s.ToString().c_str());
+      }
+    } else if (FLAGS_compressed_secondary_cache_ratio > 0.0) {
+      if (thread->rand.OneIn(2)) {
+        size_t capacity = block_cache->GetCapacity();
+        size_t adjustment;
+        if (FLAGS_use_write_buffer_manager && FLAGS_db_write_buffer_size > 0) {
+          adjustment = (capacity - FLAGS_db_write_buffer_size);
+        } else {
+          adjustment = capacity;
+        }
+        // Lower by upto 50% of usable block cache capacity
+        adjustment = (adjustment * thread->rand.Uniform(50)) / 100;
+        block_cache->SetCapacity(capacity - adjustment);
+        fprintf(stderr, "New cache capacity = %lu\n",
+                block_cache->GetCapacity());
+        db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+        block_cache->SetCapacity(capacity);
+      } else {
+        Status s;
+        double new_comp_cache_ratio =
+            (double)thread->rand.Uniform(
+                FLAGS_compressed_secondary_cache_ratio * 100) /
+            100;
+        if (new_comp_cache_ratio == 0.0) {
+          new_comp_cache_ratio = 0.05;
+        }
+        fprintf(stderr, "New comp cache ratio = %f\n", new_comp_cache_ratio);
+
+        s = UpdateTieredCache(block_cache, /*capacity*/ -1,
+                              new_comp_cache_ratio);
+        if (s.ok()) {
+          db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+        }
+        if (s.ok()) {
+          s = UpdateTieredCache(block_cache, /*capacity*/ -1,
+                                FLAGS_compressed_secondary_cache_ratio);
+        }
+        if (!s.ok()) {
+          fprintf(stderr, "UpdateTieredCache returned error: %s\n",
+                  s.ToString().c_str());
+        }
+      }
+    }
   }
 }
 

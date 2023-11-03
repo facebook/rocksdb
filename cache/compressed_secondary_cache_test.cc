@@ -1276,6 +1276,13 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
   ASSERT_EQ(sec_capacity, (30 << 20));
 
+  ASSERT_OK(tiered_cache->GetSecondaryCacheCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 30 << 20);
+  size_t sec_usage;
+  ASSERT_OK(tiered_cache->GetSecondaryCachePinnedUsage(sec_usage));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_usage, 3 << 20,
+               GetPercent(3 << 20, 1));
+
   ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.39));
   EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (45 << 20),
                GetPercent(45 << 20, 1));
@@ -1310,6 +1317,27 @@ TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
   ASSERT_EQ(sec_capacity, 0);
 
   ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
+}
+
+TEST_P(CompressedSecCacheTestWithTiered,
+       DynamicUpdateWithReservationUnderflow) {
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CacheWithSecondaryAdapter::Release:ChargeSecCache1",
+        "CacheWithSecondaryAdapter::UpdateCacheReservationRatio:Begin"},
+       {"CacheWithSecondaryAdapter::UpdateCacheReservationRatio:End",
+        "CacheWithSecondaryAdapter::Release:ChargeSecCache2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread reserve_release_thread([&]() {
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(50), Status::OK());
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(0), Status::OK());
+  });
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.01));
+  reserve_release_thread.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.3));
 }
 
 INSTANTIATE_TEST_CASE_P(

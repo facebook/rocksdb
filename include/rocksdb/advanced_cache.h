@@ -68,7 +68,7 @@ class Cache {
   enum class Priority { HIGH, LOW, BOTTOM };
 
   // A set of callbacks to allow objects in the primary block cache to be
-  // be persisted in a secondary cache. The purpose of the secondary cache
+  // persisted in a secondary cache. The purpose of the secondary cache
   // is to support other ways of caching the object, such as persistent or
   // compressed data, that may require the object to be parsed and transformed
   // in some way. Since the primary cache holds C++ objects and the secondary
@@ -374,6 +374,14 @@ class Cache {
 
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
+
+  virtual Status GetSecondaryCacheCapacity(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
+  virtual Status GetSecondaryCachePinnedUsage(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak

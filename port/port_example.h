@@ -43,7 +43,7 @@ class Mutex {
   // Optionally crash if this thread does not hold this mutex.
   // The implementation must be fast, especially if NDEBUG is
   // defined.  The implementation is allowed to skip all checks.
-  void AssertHeld();
+  void AssertHeld() const;
 };
 
 class CondVar {

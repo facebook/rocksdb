@@ -5,13 +5,13 @@
 package org.rocksdb;
 
 /**
- * The config for plain table sst format.
+ * The config for block based table sst format.
  * <p>
  * BlockBasedTable is a RocksDB's default SST file format.
  */
 // TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
-
+  @SuppressWarnings("PMD.NullAssignment")
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;
@@ -21,7 +21,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     indexType = IndexType.kBinarySearch;
     dataBlockIndexType = DataBlockIndexType.kDataBlockBinarySearch;
     dataBlockHashTableUtilRatio = 0.75;
-    checksumType = ChecksumType.kCRC32c;
+    checksumType = ChecksumType.kXXH3;
     noBlockCache = false;
     blockCache = null;
     persistentCache = null;
@@ -45,6 +45,55 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
     blockCacheNumShardBits = 0;
+  }
+
+  /**
+   * Constructor for use by C++ via JNI
+   */
+  private BlockBasedTableConfig(final boolean cacheIndexAndFilterBlocks,
+      final boolean cacheIndexAndFilterBlocksWithHighPriority,
+      final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
+      final byte indexType, final byte dataBlockIndexType, final double dataBlockHashTableUtilRatio,
+      final byte checksumType, final boolean noBlockCache, final long blockSize,
+      final int blockSizeDeviation, final int blockRestartInterval,
+      final int indexBlockRestartInterval, final long metadataBlockSize,
+      final boolean partitionFilters, final boolean optimizeFiltersForMemory,
+      final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
+      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
+      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
+      final byte filterPolicyType, final long filterPolicyHandle,
+      final double filterPolicyConfigValue) {
+    this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
+    this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
+    this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
+    this.pinTopLevelIndexAndFilter = pinTopLevelIndexAndFilter;
+    this.indexType = IndexType.values()[indexType];
+    this.dataBlockIndexType = DataBlockIndexType.values()[dataBlockIndexType];
+    this.dataBlockHashTableUtilRatio = dataBlockHashTableUtilRatio;
+    this.checksumType = ChecksumType.values()[checksumType];
+    this.noBlockCache = noBlockCache;
+    this.blockSize = blockSize;
+    this.blockSizeDeviation = blockSizeDeviation;
+    this.blockRestartInterval = blockRestartInterval;
+    this.indexBlockRestartInterval = indexBlockRestartInterval;
+    this.metadataBlockSize = metadataBlockSize;
+    this.partitionFilters = partitionFilters;
+    this.optimizeFiltersForMemory = optimizeFiltersForMemory;
+    this.useDeltaEncoding = useDeltaEncoding;
+    this.wholeKeyFiltering = wholeKeyFiltering;
+    this.verifyCompression = verifyCompression;
+    this.readAmpBytesPerBit = readAmpBytesPerBit;
+    this.formatVersion = formatVersion;
+    this.enableIndexCompression = enableIndexCompression;
+    this.blockAlign = blockAlign;
+    this.indexShortening = IndexShorteningMode.values()[indexShortening];
+    try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
+             filterPolicyHandle, filterPolicyConfigValue)) {
+      if (filterPolicy != null) {
+        filterPolicy.disOwnNativeHandle();
+        this.setFilterPolicy(filterPolicy);
+      }
+    }
   }
 
   /**

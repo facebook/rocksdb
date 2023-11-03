@@ -318,7 +318,7 @@ void BlockBasedTableIterator::InitDataBlock() {
   bool use_block_cache_for_lookup = true;
 
   if (DoesContainBlockHandles()) {
-    data_block_handle = block_handles_.front().index_val_.handle;
+    data_block_handle = block_handles_.front().handle_;
     is_in_cache = block_handles_.front().is_cache_hit_;
     use_block_cache_for_lookup = false;
   } else {
@@ -483,15 +483,15 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   // handles placed in blockhandle. So index_ will be pointing to current block.
   // After InitDataBlock, index_iter_ can point to different block if
   // BlockCacheLookupForReadAheadSize is called.
-  IndexValue index_val;
+  Slice first_internal_key;
   if (DoesContainBlockHandles()) {
-    index_val = block_handles_.front().index_val_;
+    first_internal_key = block_handles_.front().first_internal_key_;
   } else {
-    index_val = index_iter_->value();
+    first_internal_key = index_iter_->value().first_internal_key;
   }
 
   if (!block_iter_.Valid() ||
-      icomp_.Compare(block_iter_.key(), index_val.first_internal_key) != 0) {
+      icomp_.Compare(block_iter_.key(), first_internal_key) != 0) {
     block_iter_.Invalidate(Status::Corruption(
         "first key in index doesn't match first key in block"));
     return false;
@@ -701,7 +701,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // Add the current block to block_handles_.
   {
     BlockHandleInfo block_handle_info;
-    block_handle_info.index_val_ = index_iter_->value();
+    block_handle_info.handle_ = index_iter_->value().handle;
+    block_handle_info.SetFirstInternalKey(
+        index_iter_->value().first_internal_key);
     block_handles_.emplace_back(std::move(block_handle_info));
   }
 
@@ -726,7 +728,9 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     // For current data block, do the lookup in the cache. Lookup should pin the
     // data block and add the placeholder for cache.
     BlockHandleInfo block_handle_info;
-    block_handle_info.index_val_ = index_iter_->value();
+    block_handle_info.handle_ = index_iter_->value().handle;
+    block_handle_info.SetFirstInternalKey(
+        index_iter_->value().first_internal_key);
 
     Status s = table_->LookupAndPinBlocksInCache<Block_kData>(
         read_options_, block_handle,
@@ -758,7 +762,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // update the readahead_size.
   for (auto it = block_handles_.rbegin();
        it != block_handles_.rend() && (*it).is_cache_hit_ == true; ++it) {
-    current_readahead_size -= (*it).index_val_.handle.size();
+    current_readahead_size -= (*it).handle_.size();
     current_readahead_size -= footer;
   }
   updated_readahead_size = current_readahead_size;

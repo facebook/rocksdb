@@ -156,6 +156,7 @@ LIB_SOURCES =                                                   \
   options/configurable.cc                                       \
   options/customizable.cc                                       \
   options/db_options.cc                                         \
+  options/offpeak_time_info.cc                                  \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
@@ -670,6 +671,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/ingest_external_file_options.cc               \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \
+  java/rocksjni/jni_perf_context.cc                           \
   java/rocksjni/jnicallback.cc                                \
   java/rocksjni/loggerjnicallback.cc                          \
   java/rocksjni/lru_cache.cc                                  \

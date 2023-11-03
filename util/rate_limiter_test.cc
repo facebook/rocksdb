@@ -553,6 +553,35 @@ TEST_F(RateLimiterTest, WaitHangingBug) {
   }
 }
 
+TEST_F(RateLimiterTest, RuntimeSingleBurstBytesChange) {
+  constexpr int kMicrosecondsPerSecond = 1000000;
+
+  const int64_t kRateBytesPerSec = 400;
+
+  const int64_t kOldSingleBurstBytes = 100;
+  const int64_t kOldRefillPeriodUs =
+      kOldSingleBurstBytes * kMicrosecondsPerSecond / kRateBytesPerSec;
+  const int64_t kNewSingleBurstBytes = kOldSingleBurstBytes * 2;
+
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(
+      kRateBytesPerSec, kOldRefillPeriodUs, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, special_env.GetSystemClock(),
+      false /* auto_tuned */));
+
+  ASSERT_EQ(kOldSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  ASSERT_TRUE(limiter->SetSingleBurstBytes(0).IsInvalidArgument());
+  ASSERT_OK(limiter->SetSingleBurstBytes(kNewSingleBurstBytes));
+  ASSERT_EQ(kNewSingleBurstBytes, limiter->GetSingleBurstBytes());
+
+  // If the updated single burst bytes is not reflected in the bytes
+  // granting process, this request will hang forever.
+  limiter->Request(limiter->GetSingleBurstBytes() /* bytes */,
+                   Env::IOPriority::IO_USER, nullptr /* stats */,
+                   RateLimiter::OpType::kWrite);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

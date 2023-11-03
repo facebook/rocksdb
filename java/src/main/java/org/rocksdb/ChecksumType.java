@@ -37,7 +37,7 @@ public enum ChecksumType {
     return value_;
   }
 
-  private ChecksumType(final byte value) {
+  ChecksumType(final byte value) {
     value_ = value;
   }
 
