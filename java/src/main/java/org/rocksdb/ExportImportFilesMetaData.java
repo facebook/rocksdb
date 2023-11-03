@@ -10,7 +10,7 @@ package org.rocksdb;
  * The metadata that describes a column family.
  */
 public class ExportImportFilesMetaData extends RocksObject {
-  public ExportImportFilesMetaData(final long nativeHandle) {
+  ExportImportFilesMetaData(final long nativeHandle) {
     super(nativeHandle);
   }
 
