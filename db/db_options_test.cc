@@ -1212,9 +1212,10 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
   verify_offpeak_info(true, 59, 23, 59, 1);
   verify_offpeak_info(true, 1, 23, 59, 59);
 
-  options.daily_offpeak_time_utc = "";
+  // Start with a valid option
+  options.daily_offpeak_time_utc = "01:30-04:15";
   DestroyAndReopen(options);
-  ASSERT_EQ("", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+  ASSERT_EQ("01:30-04:15", dbfull()->GetDBOptions().daily_offpeak_time_utc);
 
   int may_schedule_compaction_called = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1222,15 +1223,25 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
       [&](void*) { may_schedule_compaction_called++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure calling SetDBOptions with invalid option does not set the value
-  // nor call MaybeScheduleFlushOrCompaction()
+  // Make sure calling SetDBOptions with invalid option does not change the
+  // value nor call MaybeScheduleFlushOrCompaction()
   for (std::string invalid_case : invalid_cases) {
     ASSERT_NOK(
         dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
-    ASSERT_EQ("", dbfull()
-                      ->GetVersionSet()
-                      ->offpeak_time_option()
-                      .daily_offpeak_time_utc);
+    ASSERT_EQ("01:30-04:15", dbfull()
+                                 ->GetVersionSet()
+                                 ->offpeak_time_option()
+                                 .daily_offpeak_time_utc);
+    ASSERT_EQ(1 * kSecondInHour + 30 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_start_time_utc);
+    ASSERT_EQ(4 * kSecondInHour + 15 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_end_time_utc);
   }
   ASSERT_EQ(0, may_schedule_compaction_called);
 

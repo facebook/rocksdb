@@ -17,12 +17,14 @@ OffpeakTimeOption::OffpeakTimeOption(const std::string& offpeak_time_string) {
 
 void OffpeakTimeOption::SetFromOffpeakTimeString(
     const std::string& offpeak_time_string) {
+  const int old_start_time = daily_offpeak_start_time_utc;
+  const int old_end_time = daily_offpeak_end_time_utc;
   if (TryParseTimeRangeString(offpeak_time_string, daily_offpeak_start_time_utc,
                               daily_offpeak_end_time_utc)) {
     daily_offpeak_time_utc = offpeak_time_string;
   } else {
-    daily_offpeak_start_time_utc = 0;
-    daily_offpeak_end_time_utc = 0;
+    daily_offpeak_start_time_utc = old_start_time;
+    daily_offpeak_end_time_utc = old_end_time;
   }
 }
 

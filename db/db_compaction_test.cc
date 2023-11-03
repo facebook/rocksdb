@@ -4795,9 +4795,9 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintOldestAncesterTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -4943,9 +4943,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -5044,9 +5044,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
           if (if_restart) {
-            std::string* encoded_fieled = static_cast<std::string*>(arg);
-            *encoded_fieled = "";
-            PutVarint64(encoded_fieled, 0);
+            std::string* encoded_field = static_cast<std::string*>(arg);
+            *encoded_field = "";
+            PutVarint64(encoded_field, 0);
           }
         });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
