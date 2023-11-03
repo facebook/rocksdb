@@ -188,6 +188,9 @@ class BlockBasedTable : public TableReader {
   // REQUIRES: key is in this table && block cache enabled
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
+  void TEST_GetDataBlockHandle(const ReadOptions& options, const Slice& key,
+                               BlockHandle& handle);
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;

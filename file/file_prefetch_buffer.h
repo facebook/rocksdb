@@ -300,6 +300,12 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_auto_readahead_size_;
   }
 
+  void TEST_GetBufferOffsetandSize(uint32_t index, uint64_t& offset,
+                                   size_t& len) {
+    offset = bufs_[index].offset_;
+    len = bufs_[index].buffer_.CurrentSize();
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if

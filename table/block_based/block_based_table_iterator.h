@@ -199,6 +199,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  FilePrefetchBuffer* prefetch_buffer() {
+    return block_prefetcher_.prefetch_buffer();
+  }
+
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
 
  private:
