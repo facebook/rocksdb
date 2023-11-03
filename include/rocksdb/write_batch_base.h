@@ -42,6 +42,13 @@ class WriteBatchBase {
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
 
+  // Store the mapping "key->value" in the database with the specified write
+  // time in the default column family.
+  // Note: this feature is currently not compatible with user-defined timestamps
+  // and wide columns.
+  virtual Status TimedPut(const Slice& key, const Slice& value,
+                          uint64_t write_unix_time) = 0;
+
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
   // column family specified by "column_family".
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,

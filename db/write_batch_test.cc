@@ -397,6 +397,15 @@ TEST_F(WriteBatchTest, MergeWithoutOperatorInsertionFailure) {
       PrintContents(&batch, false /* merge_operator_supported */));
 }
 
+TEST_F(WriteBatchTest, TimedPutNotSupported) {
+  WriteBatch batch;
+  // TODO(yuzhangyu):implement this.
+  ASSERT_TRUE(batch.TimedPut(Slice("k2"), Slice("v1"), 1u).IsNotSupported());
+
+  WriteBatchWithIndex batch_with_index;
+  ASSERT_TRUE(batch.TimedPut(Slice("k2"), Slice("v1"), 1u).IsNotSupported());
+}
+
 TEST_F(WriteBatchTest, Blob) {
   WriteBatch batch;
   ASSERT_OK(batch.Put(Slice("k1"), Slice("v1")));
