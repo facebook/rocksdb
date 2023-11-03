@@ -829,6 +829,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->largest_internal_key.SetFrom(key);
 
     bounds_set = true;
+  } else if (!iter->status().ok()) {
+    return iter->status();
   }
 
   // We may need to adjust these key bounds, depending on whether any range
