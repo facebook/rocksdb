@@ -129,6 +129,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                         /*aligned_buf=*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
+    RecordTick(stats_, PREFETCH_BYTES, read_len);
     bufs_[index].async_read_in_progress_ = true;
   }
   return s;
@@ -361,9 +362,6 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
       !explicit_prefetch_submitted_) {
     readaheadsize_cb_(read_curr_block, updated_start_offset,
                       updated_end_offset);
-    if (initial_end_offset != updated_end_offset) {
-      RecordTick(stats_, READAHEAD_TRIMMED);
-    }
   }
 
   // read_len will be 0 and there is nothing to read/prefetch.
@@ -507,6 +505,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
   Status s;
   uint64_t tmp_offset = offset;
   size_t tmp_length = length;
+  size_t original_length = length;
 
   // 1. Abort IO and swap buffers if needed to point curr_ to first buffer with
   // data.
@@ -537,6 +536,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
     // Whole data is in curr_.
     UpdateBuffersIfNeeded(offset, length);
     if (!IsSecondBuffEligibleForPrefetching()) {
+      UpdateStats(/*found_in_buffer=*/true, original_length);
       return s;
     }
   } else {
@@ -565,6 +565,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
       return s;
     }
     if (!IsSecondBuffEligibleForPrefetching()) {
+      UpdateStats(/*found_in_buffer=*/true, original_length);
       return s;
     }
   }
@@ -601,6 +602,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
     // and sync prefetching and copy the remaining data to third buffer in the
     // end.
     if (length == 0) {
+      UpdateStats(/*found_in_buffer=*/true, original_length);
       return s;
     }
   }
@@ -618,8 +620,11 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
     ReadAheadSizeTuning(/*read_curr_block=*/true, /*refit_tail=*/false,
                         start_offset1, curr_, alignment, length, readahead_size,
                         start_offset1, end_offset1, read_len1, chunk_len1);
+    UpdateStats(/*found_in_buffer=*/false,
+                /*length_found=*/original_length - length);
   } else {
     end_offset1 = bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
+    UpdateStats(/*found_in_buffer=*/true, original_length);
   }
 
   // Prefetch in second buffer only if readahead_size > 0.
@@ -850,6 +855,8 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
     } else {
       return false;
     }
+  } else {
+    UpdateStats(/*found_in_buffer=*/true, n);
   }
 
   UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
@@ -946,6 +953,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     uint64_t offset_in_buffer = offset - bufs_[curr_].offset_;
     *result = Slice(bufs_[curr_].buffer_.BufferStart() + offset_in_buffer, n);
     data_found = true;
+    UpdateStats(/*found_in_buffer=*/true, n);
+
     // Update num_file_reads_ as TryReadFromCacheAsync won't be called for
     // poll and update num_file_reads_ if data is found.
     num_file_reads_++;

@@ -471,6 +471,15 @@ class FilePrefetchBuffer {
                            uint64_t& end_offset, size_t& read_len,
                            uint64_t& chunk_len);
 
+  void UpdateStats(bool found_in_buffer, size_t length_found) {
+    if (found_in_buffer) {
+      RecordTick(stats_, PREFETCH_HITS);
+    }
+    if (length_found > 0) {
+      RecordTick(stats_, PREFETCH_BYTES_USEFUL, length_found);
+    }
+  }
+
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
