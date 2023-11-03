@@ -5096,13 +5096,12 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // Assert that the files stay in the same level
     ASSERT_EQ("3", FilesPerLevel());
-    // The two old files go through the periodic compaction process
     ASSERT_EQ(0, periodic_compactions);
     MoveFilesToLevel(1);
     ASSERT_EQ("0,3", FilesPerLevel());
 
     // Move clock forward by 4 days and check if it triggers periodic
-    // comapaction at 1:15AM Day 4. File created on Day 0 at 12:15AM is
+    // comapaction at 1:15AM Day 4. Files created on Day 0 at 12:15AM is
     // expected to expire before the offpeak starts next day at 12:30AM
     mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
     ASSERT_OK(Put("b", "2"));
@@ -5113,6 +5112,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ("1,3", FilesPerLevel());
+    // The two old files go through the periodic compaction process
     ASSERT_EQ(2, periodic_compactions);
 
     Destroy(options);
