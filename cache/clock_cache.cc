@@ -2903,13 +2903,18 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   // Approximate average cache lines read to find an existing entry:
   // = 1.65 cache lines
 
+  // Even if we aren't saving a ref to this entry (take_ref == false), we need
+  // to keep a reference while we are inserting the entry into a chain, so that
+  // it is not erased by another thread while trying to insert it on the chain.
+  constexpr bool initial_take_ref = true;
+
   size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
   assert(home < used_length);
 
   size_t idx = home;
   bool already_matches = false;
   bool already_matches_ignore = false;
-  if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+  if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                 &already_matches)) {
     assert(idx == home);
   } else if (already_matches) {
@@ -2921,7 +2926,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     // incorporate logic for here cleanly and efficiently.
   } else if (UNLIKELY(state.likely_empty_slot > 0) &&
              TryInsert(proto, arr[state.likely_empty_slot], initial_countdown,
-                       take_ref, &already_matches_ignore)) {
+                       initial_take_ref, &already_matches_ignore)) {
     idx = state.likely_empty_slot;
   } else {
     // We need to search for an available slot outside of the home.
@@ -2955,7 +2960,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
       if (idx >= used_length) {
         idx -= used_length;
       }
-      if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+      if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                     &already_matches)) {
         break;
       }
@@ -3010,7 +3015,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
             }
           }
         }
-        if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+        if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                       &already_matches)) {
           break;
         }
@@ -3073,6 +3078,9 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     if (arr[home].head_next_with_shift.compare_exchange_weak(
             next_with_shift, head_next_with_shift, std::memory_order_acq_rel)) {
       // Success
+      if (!take_ref) {
+        Unref(arr[idx]);
+      }
       return arr + idx;
     }
   }
