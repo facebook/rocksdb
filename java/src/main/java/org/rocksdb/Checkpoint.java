@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
-
 /**
  * Provides Checkpoint functionality. Checkpoints
  * provide persistent snapshots of RocksDB databases.
