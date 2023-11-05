@@ -64,7 +64,7 @@ DEFINE_uint32(skew, 5, "Degree of skew in key selection. 0 = no skew");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
 
 DEFINE_double(pinned_ratio, 0.25,
-              "Keep this roughly this portion of entries pinned in cache.");
+              "Keep roughly this portion of entries pinned in cache.");
 DEFINE_double(
     vary_capacity_ratio, 0.0,
     "If greater than 0.0, will periodically vary the capacity between this "
@@ -676,11 +676,11 @@ class CacheBench {
     uint64_t lookup_hits = 0;
     // To hold handles for a non-trivial amount of time
     std::deque<Cache::Handle*> pinned;
-    size_t pin_count =
-        ((FLAGS_cache_size * FLAGS_pinned_ratio + FLAGS_value_bytes) /
-             FLAGS_value_bytes +
-         thread->tid) /
-        FLAGS_threads;
+    size_t total_pin_count = static_cast<size_t>(
+        (FLAGS_cache_size * FLAGS_pinned_ratio) / FLAGS_value_bytes + 0.999999);
+    // For this thread. Some round up, some round down, as appropriate
+    size_t pin_count = (total_pin_count + thread->tid) / FLAGS_threads;
+
     KeyGen gen;
     const auto clock = SystemClock::Default().get();
     uint64_t start_time = clock->NowMicros();
