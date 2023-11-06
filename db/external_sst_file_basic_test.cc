@@ -1548,6 +1548,11 @@ TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  if (!verify_checksums_before_ingest) {
+    ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
+    return;
+  }
   bool change_checksum_called = false;
   const auto& change_checksum = [&](void* arg) {
     if (!change_checksum_called) {
@@ -1565,24 +1570,20 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   SyncPoint::GetInstance()->EnableProcessing();
   int file_id = 0;
   bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
   do {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
     Status s = GenerateAndAddExternalFile(
         options, {1, 2, 3, 4, 5, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data);
-    if (verify_checksums_before_ingest) {
-      ASSERT_NOK(s);
-    } else {
-      ASSERT_OK(s);
-    }
+        write_global_seqno, /*verify_checksums_before_ingest=*/true,
+        &true_data);
+    ASSERT_NOK(s);
     change_checksum_called = false;
   } while (ChangeOptionsForFileIngestionTest());
 }
 
-TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
+TEST_P(ExternalSSTFileBasicTest, IngestFileWithCorruptedDataBlock) {
   if (!random_rwfile_supported_) {
     ROCKSDB_GTEST_SKIP("Test requires NewRandomRWFile support");
     return;
@@ -1590,15 +1591,21 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
   SyncPoint::GetInstance()->DisableProcessing();
   int file_id = 0;
   EnvOptions env_options;
+  Random rnd(301);
   do {
     Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    BlockBasedTableOptions table_options;
+    table_options.block_size = 4 * 1024;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     std::string file_path = sst_files_dir_ + std::to_string(file_id++);
     SstFileWriter sst_file_writer(env_options, options);
     Status s = sst_file_writer.Open(file_path);
     ASSERT_OK(s);
+    // This should write more than 2 data blocks.
     for (int i = 0; i != 100; ++i) {
       std::string key = Key(i);
-      std::string value = Key(i) + std::to_string(0);
+      std::string value = rnd.RandomString(200);
       ASSERT_OK(sst_file_writer.Put(key, value));
     }
     ASSERT_OK(sst_file_writer.Finish());
@@ -1609,11 +1616,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithFirstByteTampered) {
       ASSERT_GT(file_size, 8);
       std::unique_ptr<RandomRWFile> rwfile;
       ASSERT_OK(env_->NewRandomRWFile(file_path, &rwfile, EnvOptions()));
-      // Manually corrupt the file
-      // We deterministically corrupt the first byte because we currently
-      // cannot choose a random offset. The reason for this limitation is that
-      // we do not checksum property block at present.
-      const uint64_t offset = 0;
+      // Corrupt the second data block.
+      // We need to corrupt a non-first and non-last data block
+      // since we access them to get smallest and largest internal
+      // key in the file in GetIngestedFileInfo().
+      const uint64_t offset = 5000;
       char scratch[8] = {0};
       Slice buf;
       ASSERT_OK(rwfile->Read(offset, sizeof(scratch), &buf, scratch));
