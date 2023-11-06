@@ -602,6 +602,16 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  // Returns logically grouped wide-column entities per column family (a.k.a.
+  // attribute groups) for a single key. PinnableAttributeGroups is a vector of
+  // PinnableAttributeGroup. Each PinnableAttributeGroup will have
+  // ColumnFamilyHandle* as input, and Status and PinnableWideColumns as output.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           const Slice& /* key */,
+                           PinnableAttributeGroups* /* result */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be
