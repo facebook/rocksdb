@@ -136,7 +136,7 @@ class VersionStorageInfo {
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
                      uint32_t bottommost_file_compaction_delay,
-                     OffpeakTimeInfo offpeak_time_info);
+                     OffpeakTimeOption offpeak_time_option);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -766,7 +766,7 @@ class VersionStorageInfo {
 
   EpochNumberRequirement epoch_number_requirement_;
 
-  OffpeakTimeInfo offpeak_time_info_;
+  OffpeakTimeOption offpeak_time_option_;
 
   friend class Version;
   friend class VersionSet;
@@ -1508,9 +1508,11 @@ class VersionSet {
   }
 
   // TODO - Consider updating together when file options change in SetDBOptions
-  const OffpeakTimeInfo& offpeak_time_info() { return offpeak_time_info_; }
-  void ChangeOffpeakTimeInfo(const std::string& daily_offpeak_time_utc) {
-    offpeak_time_info_.daily_offpeak_time_utc = daily_offpeak_time_utc;
+  const OffpeakTimeOption& offpeak_time_option() {
+    return offpeak_time_option_;
+  }
+  void ChangeOffpeakTimeOption(const std::string& daily_offpeak_time_utc) {
+    offpeak_time_option_.SetFromOffpeakTimeString(daily_offpeak_time_utc);
   }
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
@@ -1663,8 +1665,8 @@ class VersionSet {
 
   std::string db_session_id_;
 
-  // Off-peak time information used for compaction scoring
-  OffpeakTimeInfo offpeak_time_info_;
+  // Off-peak time option used for compaction scoring
+  OffpeakTimeOption offpeak_time_option_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
