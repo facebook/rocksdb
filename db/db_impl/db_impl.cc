@@ -2063,14 +2063,18 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
     return Status::InvalidArgument(
         "Cannot call GetEntity without PinnableAttributeGroups object");
   }
+  const size_t num_column_families = result->size();
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
-    return Status::InvalidArgument(
+    Status s = Status::InvalidArgument(
         "Cannot call GetEntity with `ReadOptions::io_activity` != "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+    for (size_t i = 0; i < num_column_families; ++i) {
+      (*result)[i].SetStatus(s);
+    }
+    return s;
   }
   // return early if no CF was passed in
-  const size_t num_column_families = result->size();
   if (num_column_families == 0) {
     return Status::OK();
   }
@@ -2092,12 +2096,10 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
       /* values */ nullptr, columns.data(),
       /* timestamps */ nullptr, statuses.data(), /* sorted_input */ false);
   // Set results
-  size_t index = 0;
   for (size_t i = 0; i < num_column_families; ++i) {
     (*result)[i].Reset();
-    (*result)[i].SetStatus(statuses[index]);
-    (*result)[i].SetColumns(std::move(columns[index]));
-    ++index;
+    (*result)[i].SetStatus(statuses[i]);
+    (*result)[i].SetColumns(std::move(columns[i]));
   }
   return Status::OK();
 }
