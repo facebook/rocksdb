@@ -557,13 +557,12 @@ else ()
 
 endif()
 
-get_target_property(ROCKSDBJNI_CLASSES_JAR_FILE rocksdbjni_classes JAR_FILE)
 add_jar(
     rocksdbjni_test_classes
     SOURCES
     ${JAVA_MAIN_CLASSES}
     ${JAVA_TEST_CLASSES}
-    INCLUDE_JARS ${ROCKSDBJNI_CLASSES_JAR_FILE} ${JAVA_TESTCLASSPATH}
+    INCLUDE_JARS ${JAVA_TESTCLASSPATH}
     GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
 )
 
