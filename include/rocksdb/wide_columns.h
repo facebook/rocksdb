@@ -238,7 +238,7 @@ class AttributeGroup {
   WideColumns columns_;
 };
 
-// A collection of Pinnable Attribute Groups.
+// A collection of Attribute Groups.
 using AttributeGroups = std::vector<AttributeGroup>;
 
 // Used in Read Path. Wide-columns returned from the query are pinnable.
