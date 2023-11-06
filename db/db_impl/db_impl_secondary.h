@@ -138,7 +138,7 @@ class DBImplSecondary : public DBImpl {
   }
   Status PutEntity(const WriteOptions& /* options */, const Slice& /* key */,
                    const AttributeGroups& /* attribute_groups */) override {
-    return Status::NotSupported("Not supported operation in read only mode.");
+    return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
   using DBImpl::Merge;
