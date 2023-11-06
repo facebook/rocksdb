@@ -60,7 +60,7 @@ C++
 
 #### Byte Buffer
 
-A `ByterBuffer` abstracts the contents of a collection of bytes, and was in fact
+A `ByteBuffer` abstracts the contents of a collection of bytes, and was in fact
 introduced to support a range of higher-performance I/O operations in some
 circumstances.
 
@@ -206,7 +206,7 @@ High performance Java interaction with RocksDB ultimately requires architectural
  * Use more complex (client supplied buffer) API methods where performance matters
  * Don't allocate/deallocate where you don't need to
    * recycle your own buffers where this makes sense
-   * or make sure that you are supplying the ultimate destination buffer (your cache, or a target network buffer) as input to RockSDB `get()` and `put()` calls
+   * or make sure that you are supplying the ultimate destination buffer (your cache, or a target network buffer) as input to RocksDB `get()` and `put()` calls
 
 We are currently implementing a number of extra methods consistently across the Java fetch and store APIs to RocksDB in the PR [Java API consistency between RocksDB.put() , .merge() and Transaction.put() , .merge()](https://github.com/facebook/rocksdb/pull/11019) according to these principles.
 
