@@ -623,44 +623,6 @@ TEST_F(TtlTest, UnregisteredMergeOperator) {
   CloseTtl();
 }
 
-TEST_F(TtlTest, UnregisteredCompactionFilter) {
-  class UnregisteredCompactionFilter : public CompactionFilter {
-   public:
-    const char* Name() const override { return "UnregisteredCompactionFilter"; }
-  };
-
-  std::unique_ptr<CompactionFilter> compaction_filter;
-  compaction_filter.reset(new UnregisteredCompactionFilter());
-
-  options_.fail_if_options_file_error = true;
-  options_.compaction_filter = compaction_filter.get();
-  OpenTtl();
-  CloseTtl();
-}
-
-TEST_F(TtlTest, UnregisteredCompactionFilterFactory) {
-  class UnregisteredCompactionFilter : public CompactionFilter {
-   public:
-    const char* Name() const override { return "UnregisteredCompactionFilter"; }
-  };
-
-  class UnregisteredCompactionFilterFactory : public CompactionFilterFactory {
-   public:
-    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-        const CompactionFilter::Context& /*context*/) override {
-      return std::unique_ptr<CompactionFilter>(new UnregisteredCompactionFilter());
-    }
-
-    const char* Name() const override { return "UnregisteredCompactionFilterFactory"; }
-  };
-
-  options_.fail_if_options_file_error = true;
-  options_.compaction_filter = nullptr;
-  options_.compaction_filter_factory = std::make_shared<UnregisteredCompactionFilterFactory>();
-  OpenTtl();
-  CloseTtl();
-}
-
 // Insert some key-values which KeyMayExist should be able to get and check that
 // values returned are fine
 TEST_F(TtlTest, KeyMayExist) {

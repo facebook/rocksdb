@@ -1385,7 +1385,11 @@ Status OptionTypeInfo::Prepare(const ConfigOptions& config_options,
     } else if (IsConfigurable()) {
       Configurable* config = AsRawPointer<Configurable>(opt_ptr);
       if (config != nullptr) {
-        return config->PrepareOptions(config_options);
+        Status s = config->PrepareOptions(config_options);
+        if (s.IsNotFound() && CanBeNull()) {
+          return Status::OK();
+        }
+        return s;
       } else if (!CanBeNull()) {
         return Status::NotFound("Missing configurable object", name);
       }
