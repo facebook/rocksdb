@@ -1024,8 +1024,8 @@ Status WriteBatch::PutEntity(const Slice& key,
         "Cannot call this method with empty attribute groups");
   }
   Status s;
-  for (AttributeGroup ag : attribute_groups) {
-    s = WriteBatch::PutEntity(ag.column_family(), key, ag.columns());
+  for (const AttributeGroup& ag : attribute_groups) {
+    s = PutEntity(ag.column_family(), key, ag.columns());
     if (!s.ok()) {
       return s;
     }

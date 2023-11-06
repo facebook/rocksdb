@@ -227,6 +227,7 @@ class AttributeGroup {
  public:
   ColumnFamilyHandle* column_family() const { return column_family_; }
   const WideColumns& columns() const { return columns_; }
+  WideColumns& columns() { return columns_; }
 
   explicit AttributeGroup(ColumnFamilyHandle* column_family,
                           const WideColumns& columns)

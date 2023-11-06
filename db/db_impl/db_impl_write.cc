@@ -50,7 +50,7 @@ Status DBImpl::PutEntity(const WriteOptions& options,
 
 Status DBImpl::PutEntity(const WriteOptions& options, const Slice& key,
                          const AttributeGroups& attribute_groups) {
-  for (AttributeGroup ag : attribute_groups) {
+  for (const AttributeGroup& ag : attribute_groups) {
     const Status s = FailIfCfHasTs(ag.column_family());
     if (!s.ok()) {
       return s;

@@ -286,10 +286,10 @@ struct TestHandler : public WriteBatch::Handler {
       return s;
     }
     if (column_family_id == 0) {
-      seen += "PutEntity(" + key.ToString() + ", " + oss.str().c_str() + ")";
+      seen += "PutEntity(" + key.ToString() + ", " + oss.str() + ")";
     } else {
       seen += "PutEntityCF(" + std::to_string(column_family_id) + ", " +
-              key.ToString() + ", " + oss.str().c_str() + ")";
+              key.ToString() + ", " + oss.str() + ")";
     }
     return Status::OK();
   }
@@ -697,7 +697,7 @@ TEST_F(WriteBatchTest, AttributeGroupTest) {
   foo_ags.emplace_back(&zero, zero_col_1_col_2);
   foo_ags.emplace_back(&two, two_col_1_col_2);
 
-  ASSERT_OK(batch.PutEntity(Slice("foo"), foo_ags));
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -734,10 +734,10 @@ TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
   bar_ags.emplace_back(&zero, zero_col_1_col_2);
   bar_ags.emplace_back(&three, three_col_1_col_2);
 
-  ASSERT_OK(batch.PutEntity(Slice("foo"), foo_ags));
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
   batch.SetSavePoint();
 
-  ASSERT_OK(batch.PutEntity(Slice("bar"), bar_ags));
+  ASSERT_OK(batch.PutEntity("bar", bar_ags));
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
