@@ -769,8 +769,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
-  std::unique_ptr<InternalIterator> range_del_iter(
-      table_reader->NewRangeTombstoneIterator(ro));
 
   // Get first (smallest) and last (largest) key from file.
   file_to_ingest->smallest_internal_key =
@@ -829,8 +827,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->largest_internal_key.SetFrom(key);
 
     bounds_set = true;
+  } else if (!iter->status().ok()) {
+    return iter->status();
   }
 
+  std::unique_ptr<InternalIterator> range_del_iter(
+      table_reader->NewRangeTombstoneIterator(ro));
   // We may need to adjust these key bounds, depending on whether any range
   // deletion tombstones extend past them.
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
