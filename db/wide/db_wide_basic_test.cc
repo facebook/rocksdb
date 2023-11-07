@@ -260,17 +260,17 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
   WideColumns second_cold_columns{
       {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
 
-  // TODO - update this to use the multi-attribute-group PutEntity when ready
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kDefaultCfHandleIndex],
-                           first_key, first_default_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kHotCfHandleIndex],
-                           first_key, first_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kColdCfHandleIndex],
-                           first_key, first_cold_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kHotCfHandleIndex],
-                           second_key, second_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kColdCfHandleIndex],
-                           second_key, second_cold_columns));
+  AttributeGroups first_key_attribute_groups{
+      AttributeGroup(handles_[kDefaultCfHandleIndex], first_default_columns),
+      AttributeGroup(handles_[kHotCfHandleIndex], first_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], first_cold_columns)};
+  AttributeGroups second_key_attribute_groups{
+      AttributeGroup(handles_[kHotCfHandleIndex], second_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], second_cold_columns)};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), first_key, first_key_attribute_groups));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), second_key, second_key_attribute_groups));
 
   std::vector<ColumnFamilyHandle*> all_cfs = handles_;
   std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
@@ -408,17 +408,18 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
   WideColumns second_cold_columns{
       {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
 
-  // TODO - update this to use the multi-attribute-group PutEntity when ready
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kDefaultCfHandleIndex],
-                           first_key, first_default_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kHotCfHandleIndex],
-                           first_key, first_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kColdCfHandleIndex],
-                           first_key, first_cold_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kHotCfHandleIndex],
-                           second_key, second_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[kColdCfHandleIndex],
-                           second_key, second_cold_columns));
+  AttributeGroups first_key_attribute_groups{
+      AttributeGroup(handles_[kDefaultCfHandleIndex], first_default_columns),
+      AttributeGroup(handles_[kHotCfHandleIndex], first_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], first_cold_columns)};
+  AttributeGroups second_key_attribute_groups{
+      AttributeGroup(handles_[kHotCfHandleIndex], second_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], second_cold_columns)};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), first_key, first_key_attribute_groups));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), second_key, second_key_attribute_groups));
 
   constexpr size_t num_keys = 2;
   std::array<Slice, num_keys> keys = {first_key, second_key};

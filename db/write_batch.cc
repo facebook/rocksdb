@@ -39,6 +39,7 @@
 #include "rocksdb/write_batch.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <stack>
@@ -1014,6 +1015,22 @@ Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
   }
 
   return WriteBatchInternal::PutEntity(this, cf_id, key, columns);
+}
+
+Status WriteBatch::PutEntity(const Slice& key,
+                             const AttributeGroups& attribute_groups) {
+  if (attribute_groups.empty()) {
+    return Status::InvalidArgument(
+        "Cannot call this method with empty attribute groups");
+  }
+  Status s;
+  for (const AttributeGroup& ag : attribute_groups) {
+    s = PutEntity(ag.column_family(), key, ag.columns());
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
