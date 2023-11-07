@@ -106,7 +106,7 @@ Benchmarks ran for a duration of order 6 hours on an otherwise unloaded VM,
   the error bars are small and we can have strong confidence in the values
   derived and plotted.
 
-![Raw JNI Get small](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolbig.png).
+![Raw JNI Get small](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolbig.png)
 
 Comparing all the benchmarks as the data size tends large, the conclusions we
 can draw are:
@@ -156,7 +156,7 @@ of result.
   the access is presumably word by word, using normal
   Java mechanisms.
 
-![Copy out JNI Get](/static/images/jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
+![Copy out JNI Get](/static/images/jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png)
 
 ### PutJNIBenchmark
 
