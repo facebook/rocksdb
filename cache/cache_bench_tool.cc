@@ -71,11 +71,14 @@ DEFINE_double(
     "ratio less than full size and full size. If vary_capacity_ratio + "
     "pinned_ratio is close to or exceeds 1.0, the cache might thrash.");
 
-DEFINE_uint32(lookup_insert_percent, 87,
+DEFINE_uint32(lookup_insert_percent, 82,
               "Ratio of lookup (+ insert on not found) to total workload "
               "(expressed as a percentage)");
 DEFINE_uint32(insert_percent, 2,
               "Ratio of insert to total workload (expressed as a percentage)");
+DEFINE_uint32(blind_insert_percent, 5,
+              "Ratio of insert without keeping handle to total workload "
+              "(expressed as a percentage)");
 DEFINE_uint32(lookup_percent, 10,
               "Ratio of lookup to total workload (expressed as a percentage)");
 DEFINE_uint32(erase_percent, 1,
@@ -360,7 +363,9 @@ class CacheBench {
                                  FLAGS_lookup_insert_percent),
         insert_threshold_(lookup_insert_threshold_ +
                           kHundredthUint64 * FLAGS_insert_percent),
-        lookup_threshold_(insert_threshold_ +
+        blind_insert_threshold_(insert_threshold_ +
+                                kHundredthUint64 * FLAGS_blind_insert_percent),
+        lookup_threshold_(blind_insert_threshold_ +
                           kHundredthUint64 * FLAGS_lookup_percent),
         erase_threshold_(lookup_threshold_ +
                          kHundredthUint64 * FLAGS_erase_percent) {
@@ -560,6 +565,7 @@ class CacheBench {
   // Cumulative thresholds in the space of a random uint64_t
   const uint64_t lookup_insert_threshold_;
   const uint64_t insert_threshold_;
+  const uint64_t blind_insert_threshold_;
   const uint64_t lookup_threshold_;
   const uint64_t erase_threshold_;
 
@@ -734,6 +740,12 @@ class CacheBench {
         Status s = cache_->Insert(
             key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
             FLAGS_value_bytes, &pinned.emplace_back());
+        assert(s.ok());
+      } else if (random_op < blind_insert_threshold_) {
+        // insert without keeping a handle
+        Status s = cache_->Insert(
+            key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
+            FLAGS_value_bytes);
         assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         // do lookup
