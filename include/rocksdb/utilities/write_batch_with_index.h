@@ -113,7 +113,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
              const Slice& ts, const Slice& value) override;
 
   using WriteBatchBase::TimedPut;
-  Status TimedPut(const Slice& /* key */, const Slice& /* value */,
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
                   uint64_t /* write_unix_time */) override {
     return Status::NotSupported(
         "TimedPut not supported by WriteBatchWithIndex");

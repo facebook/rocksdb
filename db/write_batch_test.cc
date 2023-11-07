@@ -397,15 +397,6 @@ TEST_F(WriteBatchTest, MergeWithoutOperatorInsertionFailure) {
       PrintContents(&batch, false /* merge_operator_supported */));
 }
 
-TEST_F(WriteBatchTest, TimedPutNotSupported) {
-  WriteBatch batch;
-  // TODO(yuzhangyu):implement this.
-  ASSERT_TRUE(batch.TimedPut(Slice("k2"), Slice("v1"), 1u).IsNotSupported());
-
-  WriteBatchWithIndex batch_with_index;
-  ASSERT_TRUE(batch.TimedPut(Slice("k2"), Slice("v1"), 1u).IsNotSupported());
-}
-
 TEST_F(WriteBatchTest, Blob) {
   WriteBatch batch;
   ASSERT_OK(batch.Put(Slice("k1"), Slice("v1")));
@@ -686,6 +677,9 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  // TODO(yuzhangyu): implement this.
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -713,6 +707,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   std::unique_ptr<WBWIIterator> iter;
 
