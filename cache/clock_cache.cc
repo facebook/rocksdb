@@ -1850,16 +1850,21 @@ size_t CalcOccupancyLimit(size_t used_length) {
 class AutoHyperClockTable::ChainRewriteLock {
  public:
   using HandleImpl = AutoHyperClockTable::HandleImpl;
-  explicit ChainRewriteLock(HandleImpl* h, std::atomic<uint64_t>& yield_count,
-                            bool already_locked_or_end = false)
+
+  // Acquire lock if head of h is not an end
+  explicit ChainRewriteLock(HandleImpl* h, std::atomic<uint64_t>& yield_count)
       : head_ptr_(&h->head_next_with_shift) {
-    if (already_locked_or_end) {
-      new_head_ = head_ptr_->load(std::memory_order_acquire);
-      // already locked or end
-      assert(new_head_ & HandleImpl::kHeadLocked);
-      return;
-    }
     Acquire(yield_count);
+  }
+
+  // RAII wrap existing lock held (or end)
+  explicit ChainRewriteLock(HandleImpl* h,
+                            std::atomic<uint64_t>& /*yield_count*/,
+                            uint64_t already_locked_or_end)
+      : head_ptr_(&h->head_next_with_shift) {
+    new_head_ = already_locked_or_end;
+    // already locked or end
+    assert(new_head_ & HandleImpl::kHeadLocked);
   }
 
   ~ChainRewriteLock() {
@@ -1879,13 +1884,6 @@ class AutoHyperClockTable::ChainRewriteLock {
 
   // Expected current state, assuming no parallel updates.
   uint64_t GetNewHead() const { return new_head_; }
-
-  // Only safe if we know that the value hasn't changed from other threads
-  void SimpleUpdate(uint64_t next_with_shift) {
-    assert(head_ptr_->load(std::memory_order_acquire) == new_head_);
-    new_head_ = next_with_shift | HandleImpl::kHeadLocked;
-    head_ptr_->store(new_head_, std::memory_order_release);
-  }
 
   bool CasUpdate(uint64_t next_with_shift, std::atomic<uint64_t>& yield_count) {
     uint64_t new_head = next_with_shift | HandleImpl::kHeadLocked;
@@ -1960,6 +1958,7 @@ AutoHyperClockTable::AutoHyperClockTable(
       length_info_(UsedLengthToLengthInfo(GetStartingLength(capacity))),
       occupancy_limit_(
           CalcOccupancyLimit(LengthInfoToUsedLength(length_info_.load()))),
+      grow_frontier_(GetTableSize()),
       clock_pointer_mask_(
           BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.load()))) {
   if (metadata_charge_policy ==
@@ -2128,7 +2127,7 @@ bool AutoHyperClockTable::GrowIfNeeded(size_t new_occupancy,
   // However, there's an awkward state where other threads own growing the
   // table to sufficient usable size, but the udpated size is not yet
   // published. If we wait, then that likely slows the ramp-up cache
-  // performance. If we unblock ourselves by ensure we grow by at least one
+  // performance. If we unblock ourselves by ensuring we grow by at least one
   // slot, we could technically overshoot required size by number of parallel
   // threads accessing block cache. On balance considering typical cases and
   // the modest consequences of table being slightly too large, the latter
@@ -2152,35 +2151,14 @@ bool AutoHyperClockTable::GrowIfNeeded(size_t new_occupancy,
 }
 
 bool AutoHyperClockTable::Grow(InsertState& state) {
-  size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
-
-  // Try to take ownership of a grow slot as the first thread to set its
-  // head_next_with_shift to non-zero, specifically a valid empty chain
-  // in case that is to be the final value.
-  // (We don't need to be super efficient here.)
-  size_t grow_home = used_length;
-  int old_shift;
-  for (;; ++grow_home) {
-    if (grow_home >= array_.Count()) {
-      // Can't grow any more.
-      // (Tested by unit test ClockCacheTest/Limits)
-      return false;
-    }
-
-    old_shift = FloorLog2(grow_home);
-    assert(old_shift >= 1);
-
-    uint64_t empty_head = MakeNextWithShiftEnd(grow_home, old_shift + 1);
-    uint64_t expected_zero = HandleImpl::kUnusedMarker;
-    bool own = array_[grow_home].head_next_with_shift.compare_exchange_strong(
-        expected_zero, empty_head, std::memory_order_acq_rel);
-    if (own) {
-      assert(array_[grow_home].meta.load(std::memory_order_acquire) == 0);
-      break;
-    } else {
-      // Taken by another thread. Try next slot.
-      assert(expected_zero != 0);
-    }
+  // Allocate the next grow slot
+  size_t grow_home = grow_frontier_.fetch_add(1, std::memory_order_relaxed);
+  if (grow_home >= array_.Count()) {
+    // Can't grow any more.
+    // (Tested by unit test ClockCacheTest/Limits)
+    // Make sure we don't overflow grow_frontier_ by reaching here repeatedly
+    grow_frontier_.store(array_.Count(), std::memory_order_relaxed);
+    return false;
   }
 #ifdef COERCE_CONTEXT_SWITCH
   // This is useful in reproducing concurrency issues in Grow()
@@ -2191,12 +2169,15 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
   // Basically, to implement https://en.wikipedia.org/wiki/Linear_hashing
   // entries that belong in a new chain starting at grow_home will be
   // split off from the chain starting at old_home, which is computed here.
+  int old_shift = FloorLog2(grow_home);
   size_t old_home = BottomNBits(grow_home, old_shift);
   assert(old_home + (size_t{1} << old_shift) == grow_home);
 
   // Wait here to ensure any Grow operations that would directly feed into
   // this one are finished, though the full waiting actually completes in
-  // acquiring the rewrite lock for old_home in SplitForGrow.
+  // acquiring the rewrite lock for old_home in SplitForGrow. Here we ensure
+  // the expected shift amount has been reached, and there we ensure the
+  // chain rewrite lock has been released.
   size_t old_old_home = BottomNBits(grow_home, old_shift - 1);
   for (;;) {
     uint64_t old_old_head = array_[old_old_home].head_next_with_shift.load(
@@ -2416,12 +2397,12 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
 
   // Acquire rewrite lock on zero chain (if it's non-empty)
   ChainRewriteLock zero_head_lock(&arr[old_home], yield_count_);
-  // Create an RAII wrapper for one chain rewrite lock, for once it becomes
-  // non-empty. This head is unused by Lookup and DoInsert until the zero
-  // head is updated with new shift amount.
-  ChainRewriteLock one_head_lock(&arr[grow_home], yield_count_,
-                                 /*already_locked_or_end=*/true);
-  assert(one_head_lock.IsEnd());
+
+  // Used for locking the one chain below
+  uint64_t saved_one_head;
+  // One head has not been written to
+  assert(arr[grow_home].head_next_with_shift.load(std::memory_order_acquire) ==
+         0);
 
   // old_home will also the head of the new "zero chain" -- all entries in the
   // "from" chain whose next hash bit is 0. grow_home will be head of the new
@@ -2504,11 +2485,13 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     assert((chain_frontier_first < 0) ==
            (zero_chain_frontier == SIZE_MAX && one_chain_frontier == SIZE_MAX));
 
-    // Always update one chain's head first (safe).
-    one_head_lock.SimpleUpdate(
-        one_chain_frontier != SIZE_MAX
-            ? MakeNextWithShift(one_chain_frontier, new_shift)
-            : MakeNextWithShiftEnd(grow_home, new_shift));
+    // Always update one chain's head first (safe), and mark it as locked
+    saved_one_head = HandleImpl::kHeadLocked |
+                     (one_chain_frontier != SIZE_MAX
+                          ? MakeNextWithShift(one_chain_frontier, new_shift)
+                          : MakeNextWithShiftEnd(grow_home, new_shift));
+    arr[grow_home].head_next_with_shift.store(saved_one_head,
+                                              std::memory_order_release);
 
     // Make sure length_info_ hasn't been updated too early, as we're about
     // to make the change that makes it safe to update (e.g. in DoInsert())
@@ -2534,6 +2517,11 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       continue;
     }
   }
+
+  // Create an RAII wrapper for the one chain rewrite lock we are already
+  // holding (if was not end) and is now "published" after successful CAS on
+  // zero chain head.
+  ChainRewriteLock one_head_lock(&arr[grow_home], yield_count_, saved_one_head);
 
   // Except for trivial cases, we have something like
   // AHome -New-> [A0] -Old-> [B0] -Old-> [C0] \                        |
@@ -2903,13 +2891,18 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   // Approximate average cache lines read to find an existing entry:
   // = 1.65 cache lines
 
+  // Even if we aren't saving a ref to this entry (take_ref == false), we need
+  // to keep a reference while we are inserting the entry into a chain, so that
+  // it is not erased by another thread while trying to insert it on the chain.
+  constexpr bool initial_take_ref = true;
+
   size_t used_length = LengthInfoToUsedLength(state.saved_length_info);
   assert(home < used_length);
 
   size_t idx = home;
   bool already_matches = false;
   bool already_matches_ignore = false;
-  if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+  if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                 &already_matches)) {
     assert(idx == home);
   } else if (already_matches) {
@@ -2921,7 +2914,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     // incorporate logic for here cleanly and efficiently.
   } else if (UNLIKELY(state.likely_empty_slot > 0) &&
              TryInsert(proto, arr[state.likely_empty_slot], initial_countdown,
-                       take_ref, &already_matches_ignore)) {
+                       initial_take_ref, &already_matches_ignore)) {
     idx = state.likely_empty_slot;
   } else {
     // We need to search for an available slot outside of the home.
@@ -2955,7 +2948,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
       if (idx >= used_length) {
         idx -= used_length;
       }
-      if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+      if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                     &already_matches)) {
         break;
       }
@@ -3010,7 +3003,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
             }
           }
         }
-        if (TryInsert(proto, arr[idx], initial_countdown, take_ref,
+        if (TryInsert(proto, arr[idx], initial_countdown, initial_take_ref,
                       &already_matches)) {
           break;
         }
@@ -3073,6 +3066,9 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     if (arr[home].head_next_with_shift.compare_exchange_weak(
             next_with_shift, head_next_with_shift, std::memory_order_acq_rel)) {
       // Success
+      if (!take_ref) {
+        Unref(arr[idx]);
+      }
       return arr + idx;
     }
   }

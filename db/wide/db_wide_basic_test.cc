@@ -236,6 +236,121 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
+TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"hot_cf", "cold_cf"}, options);
+
+  constexpr int kDefaultCfHandleIndex = 0;
+  constexpr int kHotCfHandleIndex = 1;
+  constexpr int kColdCfHandleIndex = 2;
+
+  constexpr char first_key[] = "first";
+  WideColumns first_default_columns{
+      {"default_cf_col_1_name", "first_key_default_cf_col_1_value"},
+      {"default_cf_col_2_name", "first_key_default_cf_col_2_value"}};
+  WideColumns first_hot_columns{
+      {"hot_cf_col_1_name", "first_key_hot_cf_col_1_value"},
+      {"hot_cf_col_2_name", "first_key_hot_cf_col_2_value"}};
+  WideColumns first_cold_columns{
+      {"cold_cf_col_1_name", "first_key_cold_cf_col_1_value"}};
+
+  constexpr char second_key[] = "second";
+  WideColumns second_hot_columns{
+      {"hot_cf_col_1_name", "second_key_hot_cf_col_1_value"}};
+  WideColumns second_cold_columns{
+      {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
+
+  AttributeGroups first_key_attribute_groups{
+      AttributeGroup(handles_[kDefaultCfHandleIndex], first_default_columns),
+      AttributeGroup(handles_[kHotCfHandleIndex], first_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], first_cold_columns)};
+  AttributeGroups second_key_attribute_groups{
+      AttributeGroup(handles_[kHotCfHandleIndex], second_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], second_cold_columns)};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), first_key, first_key_attribute_groups));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), second_key, second_key_attribute_groups));
+
+  std::vector<ColumnFamilyHandle*> all_cfs = handles_;
+  std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
+      {handles_[kDefaultCfHandleIndex], handles_[kHotCfHandleIndex]}};
+  std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
+      {handles_[kHotCfHandleIndex], handles_[kColdCfHandleIndex]}};
+  auto create_result =
+      [](const std::vector<ColumnFamilyHandle*>& column_families)
+      -> PinnableAttributeGroups {
+    PinnableAttributeGroups result;
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      result.emplace_back(column_families[i]);
+    }
+    return result;
+  };
+
+  {
+    // Case 1. Get first key from default cf and hot_cf and second key from
+    // hot_cf and cold_cf
+    constexpr size_t num_column_families = 2;
+    PinnableAttributeGroups first_key_result =
+        create_result(default_and_hot_cfs);
+    PinnableAttributeGroups second_key_result = create_result(hot_and_cold_cfs);
+
+    // GetEntity for first_key
+    ASSERT_OK(db_->GetEntity(ReadOptions(), first_key, &first_key_result));
+    ASSERT_EQ(num_column_families, first_key_result.size());
+    // We expect to get values for all keys and CFs
+    for (size_t i = 0; i < num_column_families; ++i) {
+      ASSERT_OK(first_key_result[i].status());
+    }
+    // verify values for first key (default cf and hot cf)
+    ASSERT_EQ(first_default_columns, first_key_result[0].columns());
+    ASSERT_EQ(first_hot_columns, first_key_result[1].columns());
+
+    // GetEntity for second_key
+    ASSERT_OK(db_->GetEntity(ReadOptions(), second_key, &second_key_result));
+    ASSERT_EQ(num_column_families, second_key_result.size());
+    // We expect to get values for all keys and CFs
+    for (size_t i = 0; i < num_column_families; ++i) {
+      ASSERT_OK(second_key_result[i].status());
+    }
+    // verify values for second key (hot cf and cold cf)
+    ASSERT_EQ(second_hot_columns, second_key_result[0].columns());
+    ASSERT_EQ(second_cold_columns, second_key_result[1].columns());
+  }
+  {
+    // Case 2. Get first key and second key from all cfs. For the second key, we
+    // don't expect to get columns from default cf.
+    constexpr size_t num_column_families = 3;
+    PinnableAttributeGroups first_key_result = create_result(all_cfs);
+    PinnableAttributeGroups second_key_result = create_result(all_cfs);
+
+    // GetEntity for first_key
+    ASSERT_OK(db_->GetEntity(ReadOptions(), first_key, &first_key_result));
+    ASSERT_EQ(num_column_families, first_key_result.size());
+    // We expect to get values for all keys and CFs
+    for (size_t i = 0; i < num_column_families; ++i) {
+      ASSERT_OK(first_key_result[i].status());
+    }
+    // verify values for first key
+    ASSERT_EQ(first_default_columns, first_key_result[0].columns());
+    ASSERT_EQ(first_hot_columns, first_key_result[1].columns());
+    ASSERT_EQ(first_cold_columns, first_key_result[2].columns());
+
+    // GetEntity for second_key
+    ASSERT_OK(db_->GetEntity(ReadOptions(), second_key, &second_key_result));
+    ASSERT_EQ(num_column_families, second_key_result.size());
+    // key does not exist in default cf
+    ASSERT_NOK(second_key_result[0].status());
+    ASSERT_TRUE(second_key_result[0].status().IsNotFound());
+
+    // verify values for second key (hot cf and cold cf)
+    ASSERT_OK(second_key_result[1].status());
+    ASSERT_OK(second_key_result[2].status());
+    ASSERT_EQ(second_hot_columns, second_key_result[1].columns());
+    ASSERT_EQ(second_cold_columns, second_key_result[2].columns());
+  }
+}
+
 TEST_F(DBWideBasicTest, MultiCFMultiGetEntity) {
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"corinthian"}, options);
@@ -274,9 +389,9 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
   Options options = GetDefaultOptions();
   CreateAndReopenWithCF({"hot_cf", "cold_cf"}, options);
 
-  constexpr int DEFAULT_CF_HANDLE_INDEX = 0;
-  constexpr int HOT_CF_HANDLE_INDEX = 1;
-  constexpr int COLD_CF_HANDLE_INDEX = 2;
+  constexpr int kDefaultCfHandleIndex = 0;
+  constexpr int kHotCfHandleIndex = 1;
+  constexpr int kColdCfHandleIndex = 2;
 
   constexpr char first_key[] = "first";
   WideColumns first_default_columns{
@@ -293,25 +408,26 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
   WideColumns second_cold_columns{
       {"cold_cf_col_1_name", "second_key_cold_cf_col_1_value"}};
 
-  // TODO - update this to use the multi-attribute-group PutEntity when ready
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[DEFAULT_CF_HANDLE_INDEX],
-                           first_key, first_default_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
-                           first_key, first_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[COLD_CF_HANDLE_INDEX],
-                           first_key, first_cold_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[HOT_CF_HANDLE_INDEX],
-                           second_key, second_hot_columns));
-  ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[COLD_CF_HANDLE_INDEX],
-                           second_key, second_cold_columns));
+  AttributeGroups first_key_attribute_groups{
+      AttributeGroup(handles_[kDefaultCfHandleIndex], first_default_columns),
+      AttributeGroup(handles_[kHotCfHandleIndex], first_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], first_cold_columns)};
+  AttributeGroups second_key_attribute_groups{
+      AttributeGroup(handles_[kHotCfHandleIndex], second_hot_columns),
+      AttributeGroup(handles_[kColdCfHandleIndex], second_cold_columns)};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), first_key, first_key_attribute_groups));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), second_key, second_key_attribute_groups));
 
   constexpr size_t num_keys = 2;
   std::array<Slice, num_keys> keys = {first_key, second_key};
   std::vector<ColumnFamilyHandle*> all_cfs = handles_;
   std::vector<ColumnFamilyHandle*> default_and_hot_cfs{
-      {handles_[DEFAULT_CF_HANDLE_INDEX], handles_[HOT_CF_HANDLE_INDEX]}};
+      {handles_[kDefaultCfHandleIndex], handles_[kHotCfHandleIndex]}};
   std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
-      {handles_[HOT_CF_HANDLE_INDEX], handles_[COLD_CF_HANDLE_INDEX]}};
+      {handles_[kHotCfHandleIndex], handles_[kColdCfHandleIndex]}};
   auto create_result =
       [](const std::vector<ColumnFamilyHandle*>& column_families)
       -> PinnableAttributeGroups {

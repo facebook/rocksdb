@@ -1155,48 +1155,67 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
     verify_valid();
   }
 
-  auto verify_is_now_offpeak = [&](bool expected, int now_utc_hour,
-                                   int now_utc_minute, int now_utc_second = 0) {
+  auto verify_offpeak_info = [&](bool expected_is_now_off_peak,
+                                 int expected_seconds_till_next_offpeak_start,
+                                 int now_utc_hour, int now_utc_minute,
+                                 int now_utc_second = 0) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     // Add some extra random days to current time
     int days = rnd.Uniform(100);
-    mock_clock->SetCurrentTime(days * 86400 + now_utc_hour * 3600 +
-                               now_utc_minute * 60 + now_utc_second);
+    mock_clock->SetCurrentTime(
+        days * OffpeakTimeOption::kSecondsPerDay +
+        now_utc_hour * OffpeakTimeOption::kSecondsPerHour +
+        now_utc_minute * OffpeakTimeOption::kSecondsPerMinute + now_utc_second);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
-    auto offpeak_info = OffpeakTimeInfo(options.daily_offpeak_time_utc);
-    ASSERT_EQ(expected, offpeak_info.IsNowOffpeak(mock_clock.get()));
+    auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
+    int64_t now;
+    ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(now);
+    ASSERT_EQ(expected_is_now_off_peak, offpeak_info.is_now_offpeak);
+    ASSERT_EQ(expected_seconds_till_next_offpeak_start,
+              offpeak_info.seconds_till_next_offpeak_start);
   };
 
   options.daily_offpeak_time_utc = "";
-  verify_is_now_offpeak(false, 12, 30);
+  verify_offpeak_info(false, 0, 12, 30);
 
   options.daily_offpeak_time_utc = "06:30-11:30";
-  verify_is_now_offpeak(false, 5, 30);
-  verify_is_now_offpeak(true, 6, 30);
-  verify_is_now_offpeak(true, 10, 30);
-  verify_is_now_offpeak(true, 11, 30);
-  verify_is_now_offpeak(false, 13, 30);
+  verify_offpeak_info(false, 1 * OffpeakTimeOption::kSecondsPerHour, 5, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 20 * OffpeakTimeOption::kSecondsPerHour, 10, 30);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 11, 30);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 13, 30);
 
   options.daily_offpeak_time_utc = "23:30-04:30";
-  verify_is_now_offpeak(false, 6, 30);
-  verify_is_now_offpeak(true, 23, 30);
-  verify_is_now_offpeak(true, 0, 0);
-  verify_is_now_offpeak(true, 1, 0);
-  verify_is_now_offpeak(true, 4, 30);
-  verify_is_now_offpeak(false, 4, 31);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 23, 30);
+  verify_offpeak_info(true,
+                      23 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      0, 0);
+  verify_offpeak_info(true,
+                      22 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      1, 0);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 4, 30);
+  verify_offpeak_info(false,
+                      18 * OffpeakTimeOption::kSecondsPerHour +
+                          59 * OffpeakTimeOption::kSecondsPerMinute,
+                      4, 31);
 
   // Entire day offpeak
   options.daily_offpeak_time_utc = "00:00-23:59";
-  verify_is_now_offpeak(true, 0, 0);
-  verify_is_now_offpeak(true, 12, 00);
-  verify_is_now_offpeak(true, 23, 59);
-  verify_is_now_offpeak(true, 23, 59, 1);
-  verify_is_now_offpeak(true, 23, 59, 59);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 0, 0);
+  verify_offpeak_info(true, 12 * OffpeakTimeOption::kSecondsPerHour, 12, 00);
+  verify_offpeak_info(true, 1 * OffpeakTimeOption::kSecondsPerMinute, 23, 59);
+  verify_offpeak_info(true, 59, 23, 59, 1);
+  verify_offpeak_info(true, 1, 23, 59, 59);
 
-  options.daily_offpeak_time_utc = "";
+  // Start with a valid option
+  options.daily_offpeak_time_utc = "01:30-04:15";
   DestroyAndReopen(options);
-  ASSERT_EQ("", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+  ASSERT_EQ("01:30-04:15", dbfull()->GetDBOptions().daily_offpeak_time_utc);
 
   int may_schedule_compaction_called = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1204,30 +1223,44 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
       [&](void*) { may_schedule_compaction_called++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure calling SetDBOptions with invalid option does not set the value
-  // nor call MaybeScheduleFlushOrCompaction()
+  // Make sure calling SetDBOptions with invalid option does not change the
+  // value nor call MaybeScheduleFlushOrCompaction()
   for (std::string invalid_case : invalid_cases) {
     ASSERT_NOK(
         dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
-    ASSERT_EQ(
-        "",
-        dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc);
+    ASSERT_EQ("01:30-04:15", dbfull()
+                                 ->GetVersionSet()
+                                 ->offpeak_time_option()
+                                 .daily_offpeak_time_utc);
+    ASSERT_EQ(1 * kSecondInHour + 30 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_start_time_utc);
+    ASSERT_EQ(4 * kSecondInHour + 15 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_end_time_utc);
   }
   ASSERT_EQ(0, may_schedule_compaction_called);
 
   // Changing to new valid values should call MaybeScheduleFlushOrCompaction()
-  // and sets the offpeak_time_info in VersionSet
+  // and sets the offpeak_time_option in VersionSet
   int expected_count = 0;
   for (std::string valid_case : valid_cases) {
-    if (dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc !=
-        valid_case) {
+    if (dbfull()
+            ->GetVersionSet()
+            ->offpeak_time_option()
+            .daily_offpeak_time_utc != valid_case) {
       expected_count++;
     }
     ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
     ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
-    ASSERT_EQ(
-        valid_case,
-        dbfull()->GetVersionSet()->offpeak_time_info().daily_offpeak_time_utc);
+    ASSERT_EQ(valid_case, dbfull()
+                              ->GetVersionSet()
+                              ->offpeak_time_option()
+                              .daily_offpeak_time_utc);
   }
   ASSERT_EQ(expected_count, may_schedule_compaction_called);
 

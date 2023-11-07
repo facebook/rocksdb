@@ -2107,7 +2107,7 @@ LZ4_VER ?= 1.9.4
 LZ4_SHA256 ?= 0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 ZSTD_VER ?= 1.5.5
-ZSTD_SHA256 ?= 9c4396cc829cfae319a6e2615202e82aad41372073482fce286fac78646d3ee4
+ZSTD_SHA256 ?= 98e9c3d949d1b924e28e01eccb7deed865eefebf25c2f21c702e5cd5b63b85e1
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
