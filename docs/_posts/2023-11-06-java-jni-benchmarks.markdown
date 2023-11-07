@@ -106,7 +106,7 @@ Benchmarks ran for a duration of order 6 hours on an otherwise unloaded VM,
   the error bars are small and we can have strong confidence in the values
   derived and plotted.
 
-![Raw JNI Get](./jni-get-benchmarks/fig_1024_1_none_nopoolbig.png).
+![Raw JNI Get small](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolbig.png).
 
 Comparing all the benchmarks as the data size tends large, the conclusions we
 can draw are:
@@ -130,7 +130,7 @@ can draw are:
 
 At small(er) data sizes, we can see whether other factors are important.
 
-![Raw JNI Get](./jni-get-benchmarks/fig_1024_1_none_nopoolsmall.png)
+![Raw JNI Get large](/static/images/jni-get-benchmarks/fig_1024_1_none_nopoolsmall.png)
 
 - Indirect byte buffers are the most significant overhead here. Again, we can
   conclude that this is due to pure overhead compared to `byte[]` operations.
@@ -156,7 +156,7 @@ of result.
   the access is presumably word by word, using normal
   Java mechanisms.
 
-![Copy out JNI Get](./jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
+![Copy out JNI Get](/static/images/jni-get-benchmarks/fig_1024_1_copyout_nopoolbig.png).
 
 ### PutJNIBenchmark
 
@@ -227,7 +227,7 @@ java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,500
 ```
 The y-axis shows `ops/sec` in throughput, so higher is better.
 
-![image](./jni-get-benchmarks/optimization-graph.png)
+![](/static/images/jni-get-benchmarks/optimization-graph.png)
 
 ### Analysis
 
