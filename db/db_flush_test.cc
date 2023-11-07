@@ -1377,6 +1377,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
         ASSERT_EQ(value, NOT_FOUND);
       count++;
     }
+    ASSERT_OK(iter->status());
 
     // Expected count here is 3: KEY3, KEY4, KEY5.
     ASSERT_EQ(count, EXPECTED_COUNT_FORLOOP);

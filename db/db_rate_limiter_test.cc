@@ -220,6 +220,7 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
       ++expected;
     }
   }
+  ASSERT_OK(iter->status());
   // Reverse scan does not read evenly (one block per iteration) due to
   // descending seqno ordering, so wait until after the loop to check total.
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));

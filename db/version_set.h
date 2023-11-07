@@ -53,6 +53,7 @@
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/offpeak_time_info.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -134,7 +135,8 @@ class VersionStorageInfo {
                      bool _force_consistency_checks,
                      EpochNumberRequirement epoch_number_requirement,
                      SystemClock* clock,
-                     uint32_t bottommost_file_compaction_delay);
+                     uint32_t bottommost_file_compaction_delay,
+                     OffpeakTimeOption offpeak_time_option);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -751,7 +753,8 @@ class VersionStorageInfo {
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
 
-  // Used for computing bottommost files marked for compaction.
+  // Used for computing bottommost files marked for compaction and checking for
+  // offpeak time.
   SystemClock* clock_;
   uint32_t bottommost_file_compaction_delay_;
 
@@ -762,6 +765,8 @@ class VersionStorageInfo {
   bool force_consistency_checks_;
 
   EpochNumberRequirement epoch_number_requirement_;
+
+  OffpeakTimeOption offpeak_time_option_;
 
   friend class Version;
   friend class VersionSet;
@@ -1146,7 +1151,8 @@ class VersionSet {
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_id, const std::string& db_session_id);
+             const std::string& db_id, const std::string& db_session_id,
+             const std::string& daily_offpeak_time_utc);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1344,9 +1350,6 @@ class VersionSet {
     last_allocated_sequence_.store(s, std::memory_order_seq_cst);
   }
 
-  // Allocate a dummy sequence number as needed to ensure last is non-zero.
-  void EnsureNonZeroSequence();
-
   // Note: memory_order_release must be sufficient
   uint64_t FetchAddLastAllocatedSequence(uint64_t s) {
     return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
@@ -1504,6 +1507,14 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  // TODO - Consider updating together when file options change in SetDBOptions
+  const OffpeakTimeOption& offpeak_time_option() {
+    return offpeak_time_option_;
+  }
+  void ChangeOffpeakTimeOption(const std::string& daily_offpeak_time_utc) {
+    offpeak_time_option_.SetFromOffpeakTimeString(daily_offpeak_time_utc);
+  }
+
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
@@ -1653,6 +1664,9 @@ class VersionSet {
   std::shared_ptr<IOTracer> io_tracer_;
 
   std::string db_session_id_;
+
+  // Off-peak time option used for compaction scoring
+  OffpeakTimeOption offpeak_time_option_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex

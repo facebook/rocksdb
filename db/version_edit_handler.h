@@ -133,8 +133,8 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool HasMissingFiles() const;
 
   void GetDbId(std::string* db_id) const {
-    if (db_id && version_edit_params_.has_db_id_) {
-      *db_id = version_edit_params_.db_id_;
+    if (db_id && version_edit_params_.HasDbId()) {
+      *db_id = version_edit_params_.GetDbId();
     }
   }
 

@@ -897,6 +897,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }
@@ -945,6 +946,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }

@@ -52,6 +52,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorSingle) {
 
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
@@ -361,7 +362,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
     int count = 0;
     for (; iter->Valid(); iter->Next(), ++count)
       ;
-
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, num_records);
   }
   Close();
@@ -408,6 +409,7 @@ TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
 
     iter->Next();
     ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
   }
   Close();
 }

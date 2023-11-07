@@ -658,19 +658,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    // it's a const pointer of const Comparator*
                    const auto* ptr =
                        static_cast<const Comparator* const*>(addr);
-                   // Since the user-specified comparator will be wrapped by
-                   // InternalKeyComparator, we should persist the
-                   // user-specified one instead of InternalKeyComparator.
                    if (*ptr == nullptr) {
                      *value = kNullptrString;
                    } else if (opts.mutable_options_only) {
                      *value = "";
                    } else {
-                     const Comparator* root_comp = (*ptr)->GetRootComparator();
-                     if (root_comp == nullptr) {
-                       root_comp = (*ptr);
-                     }
-                     *value = root_comp->ToString(opts);
+                     *value = (*ptr)->ToString(opts);
                    }
                    return Status::OK();
                  })},

@@ -54,4 +54,18 @@ public class LiveFileMetaData extends SstFileMetaData {
   public int level() {
     return level;
   }
+
+  public long newLiveFileMetaDataHandle() {
+    return newLiveFileMetaDataHandle(columnFamilyName(), columnFamilyName().length, level(),
+        fileName(), path(), size(), smallestSeqno(), largestSeqno(), smallestKey(),
+        smallestKey().length, largestKey(), largestKey().length, numReadsSampled(),
+        beingCompacted(), numEntries(), numDeletions());
+  }
+
+  private native long newLiveFileMetaDataHandle(final byte[] columnFamilyName,
+      final int columnFamilyNameLength, final int level, final String fileName, final String path,
+      final long size, final long smallestSeqno, final long largestSeqno, final byte[] smallestKey,
+      final int smallestKeyLength, final byte[] largestKey, final int largestKeyLength,
+      final long numReadsSampled, final boolean beingCompacted, final long numEntries,
+      final long numDeletions);
 }

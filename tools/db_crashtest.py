@@ -225,6 +225,7 @@ default_params = {
         [0, 0, 0, 600, 3600, 86400]
     ),
     "auto_readahead_size" : lambda: random.choice([0, 1]),
+    "verify_iterator_with_expected_state_one_in": 5,
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -365,7 +366,6 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
-    "verify_iterator_with_expected_state_one_in": 5,
 }
 
 blackbox_simple_default_params = {
@@ -388,6 +388,8 @@ cf_consistency_params = {
     "enable_compaction_filter": 0,
     # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
     "ingest_external_file_one_in": 0,
+    # `CfConsistencyStressTest::TestIterateAgainstExpected()` is not implemented.
+    "verify_iterator_with_expected_state_one_in": 0,
 }
 
 # For pessimistic transaction db
@@ -523,6 +525,8 @@ multiops_txn_default_params = {
     "use_put_entity_one_in": 0,
     "use_get_entity": 0,
     "use_multi_get_entity": 0,
+    # `MultiOpsTxnsStressTest::TestIterateAgainstExpected()` is not implemented.
+    "verify_iterator_with_expected_state_one_in": 0,
 }
 
 multiops_wc_txn_params = {
@@ -847,6 +851,17 @@ def blackbox_crash_main(args, unknown_args):
                 print("stderr has error message:")
                 print("***" + line + "***")
 
+        stderrdata = errs.lower()
+        errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+        print("#times error occurred in output is " + str(errorcount) + "\n")
+
+        if errorcount > 0:
+            print("TEST FAILED. Output has 'error'!!!\n")
+            sys.exit(2)
+        if stderrdata.find("fail") >= 0:
+            print("TEST FAILED. Output has 'fail'!!!\n")
+            sys.exit(2)
+
         time.sleep(1)  # time to stabilize before the next run
 
         time.sleep(1)  # time to stabilize before the next run
@@ -869,6 +884,17 @@ def blackbox_crash_main(args, unknown_args):
         if line != "" and not line.startswith("WARNING"):
             print("stderr has error message:")
             print("***" + line + "***")
+
+    stderrdata = errs.lower()
+    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+    print("#times error occurred in output is " + str(errorcount) + "\n")
+
+    if errorcount > 0:
+        print("TEST FAILED. Output has 'error'!!!\n")
+        sys.exit(2)
+    if stderrdata.find("fail") >= 0:
+        print("TEST FAILED. Output has 'fail'!!!\n")
+        sys.exit(2)
 
     # we need to clean up after ourselves -- only do this on test success
     shutil.rmtree(dbname, True)

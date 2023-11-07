@@ -99,6 +99,8 @@ class ShardedCacheBase : public Cache {
 
   bool HasStrictCapacityLimit() const override;
   size_t GetCapacity() const override;
+  Status GetSecondaryCacheCapacity(size_t& size) const override;
+  Status GetSecondaryCachePinnedUsage(size_t& size) const override;
 
   using Cache::GetUsage;
   size_t GetUsage(Handle* handle) const override;

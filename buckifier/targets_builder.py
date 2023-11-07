@@ -148,3 +148,9 @@ add_c_test_wrapper()
                 ).encode("utf-8")
             )
         self.total_test = self.total_test + 1
+
+    def export_file(self, name):
+        with open(self.path, "a") as targets_file:
+            targets_file.write(
+                targets_cfg.export_file_template.format(name=name)
+            )

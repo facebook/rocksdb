@@ -1805,6 +1805,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
       ASSERT_EQ(key_value_written[key], value);
       key_value_written.erase(key);
     }
+    ASSERT_OK(db_iter->status());
     ASSERT_EQ(0, key_value_written.size());
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ASSERT_EQ(std::string(s.getState()),
@@ -3801,6 +3802,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
     count++;
   }
   ASSERT_TRUE(!it->Valid());
+  ASSERT_OK(it->status());
   ASSERT_EQ(2, count);
   delete it;
 
@@ -3880,16 +3882,26 @@ TEST_F(DBTest2, LowPriWrite) {
   ASSERT_OK(Put("", "", wo));
   ASSERT_EQ(1, rate_limit_count.load());
 
+  wo.low_pri = true;
+  std::string big_value = std::string(1 * 1024 * 1024, 'x');
+  ASSERT_OK(Put("", big_value, wo));
+  ASSERT_LT(1, rate_limit_count.load());
+  // Reset
+  rate_limit_count = 0;
+  wo.low_pri = false;
+  ASSERT_OK(Put("", big_value, wo));
+  ASSERT_EQ(0, rate_limit_count.load());
+
   TEST_SYNC_POINT("DBTest.LowPriWrite:0");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   wo.low_pri = true;
   ASSERT_OK(Put("", "", wo));
-  ASSERT_EQ(1, rate_limit_count.load());
+  ASSERT_EQ(0, rate_limit_count.load());
   wo.low_pri = false;
   ASSERT_OK(Put("", "", wo));
-  ASSERT_EQ(1, rate_limit_count.load());
+  ASSERT_EQ(0, rate_limit_count.load());
 }
 
 TEST_F(DBTest2, RateLimitedCompactionReads) {
@@ -7588,6 +7600,7 @@ TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
       ASSERT_EQ(std::to_string(cnt), it->key());
       ASSERT_EQ(expected_v, it->value());
     }
+    EXPECT_OK(it->status());
     ASSERT_EQ(expected_count, cnt);
   };
 

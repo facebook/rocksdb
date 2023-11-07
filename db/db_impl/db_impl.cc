@@ -276,10 +276,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
         this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       });
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
-                                 table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_id_, db_session_id_));
+  versions_.reset(new VersionSet(
+      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
+      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
+      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -796,10 +796,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
-  if (!from_db_open) {
-    options_mutex_.AssertHeld();
-  }
+Status DBImpl::RegisterRecordSeqnoTimeWorker(bool is_new_db) {
+  options_mutex_.AssertHeld();
 
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
@@ -853,7 +851,17 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
     // 2) In any DB, any data written after setting preserve/preclude options
     // must have a reasonable time estimate (so that we can accurately place
     // the data), which means at least one entry in seqno_to_time_mapping_.
-    if (from_db_open && GetLatestSequenceNumber() == 0) {
+    //
+    // FIXME: We don't currently guarantee that if the first column family with
+    // that setting is added or configured after initial DB::Open but before
+    // the first user Write. Fixing this causes complications with the crash
+    // test because if DB starts without preserve/preclude option, does some
+    // user writes but all those writes are lost in crash, then re-opens with
+    // preserve/preclude option, it sees seqno==1 which looks like one of the
+    // user writes was recovered, when actually it was not.
+    bool last_seqno_zero = GetLatestSequenceNumber() == 0;
+    assert(!is_new_db || last_seqno_zero);
+    if (is_new_db && last_seqno_zero) {
       // Pre-allocate seqnos and pre-populate historical mapping
       assert(mapping_was_empty);
 
@@ -862,16 +870,31 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(bool from_db_open) {
       versions_->SetLastAllocatedSequence(kMax);
       versions_->SetLastPublishedSequence(kMax);
       versions_->SetLastSequence(kMax);
+
+      // And record in manifest, to avoid going backwards in seqno on re-open
+      // (potentially with different options). Concurrency is simple because we
+      // are in DB::Open
+      {
+        InstrumentedMutexLock l(&mutex_);
+        VersionEdit edit;
+        edit.SetLastSequence(kMax);
+        s = versions_->LogAndApplyToDefaultColumnFamily(
+            {}, &edit, &mutex_, directories_.GetDbDir());
+        if (!s.ok() && versions_->io_status().IsIOError()) {
+          s = error_handler_.SetBGError(versions_->io_status(),
+                                        BackgroundErrorReason::kManifestWrite);
+        }
+      }
+
       // Pre-populate mappings for reserved sequence numbers.
       RecordSeqnoToTimeMapping(max_preserve_seconds);
     } else if (mapping_was_empty) {
-      // To ensure there is at least one mapping, we need a non-zero sequence
-      // number. Outside of DB::Open, we have to be careful.
-      versions_->EnsureNonZeroSequence();
-      assert(GetLatestSequenceNumber() > 0);
-
-      // Ensure at least one mapping (or log a warning)
-      RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      if (!last_seqno_zero) {
+        // Ensure at least one mapping (or log a warning)
+        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
+      } else {
+        // FIXME (see limitation described above)
+      }
     }
 
     s = periodic_task_scheduler_.Register(
@@ -1305,16 +1328,23 @@ Status DBImpl::SetDBOptions(
       const bool max_compactions_increased =
           new_bg_job_limits.max_compactions >
           current_bg_job_limits.max_compactions;
+      const bool offpeak_time_changed =
+          versions_->offpeak_time_option().daily_offpeak_time_utc !=
+          new_db_options.daily_offpeak_time_utc;
 
-      if (max_flushes_increased || max_compactions_increased) {
+      if (max_flushes_increased || max_compactions_increased ||
+          offpeak_time_changed) {
         if (max_flushes_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
                                              Env::Priority::HIGH);
         }
-
         if (max_compactions_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
                                              Env::Priority::LOW);
+        }
+        if (offpeak_time_changed) {
+          versions_->ChangeOffpeakTimeOption(
+              new_db_options.daily_offpeak_time_utc);
         }
 
         MaybeScheduleFlushOrCompaction();
@@ -2025,6 +2055,53 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   get_impl_options.columns = columns;
 
   return GetImpl(read_options, key, get_impl_options);
+}
+
+Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
+                         PinnableAttributeGroups* result) {
+  if (!result) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without PinnableAttributeGroups object");
+  }
+  const size_t num_column_families = result->size();
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+    for (size_t i = 0; i < num_column_families; ++i) {
+      (*result)[i].SetStatus(s);
+    }
+    return s;
+  }
+  // return early if no CF was passed in
+  if (num_column_families == 0) {
+    return Status::OK();
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+  std::vector<Slice> keys;
+  std::vector<ColumnFamilyHandle*> column_families;
+  for (size_t i = 0; i < num_column_families; ++i) {
+    // Adding the same key slice for different CFs
+    keys.emplace_back(key);
+    column_families.emplace_back((*result)[i].column_family());
+  }
+  std::vector<PinnableWideColumns> columns(num_column_families);
+  std::vector<Status> statuses(num_column_families);
+  MultiGetCommon(
+      read_options, num_column_families, column_families.data(), keys.data(),
+      /* values */ nullptr, columns.data(),
+      /* timestamps */ nullptr, statuses.data(), /* sorted_input */ false);
+  // Set results
+  for (size_t i = 0; i < num_column_families; ++i) {
+    (*result)[i].Reset();
+    (*result)[i].SetStatus(statuses[i]);
+    (*result)[i].SetColumns(std::move(columns[i]));
+  }
+  return Status::OK();
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
@@ -6493,7 +6570,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
         assert(unix_time > populate_historical_seconds);
       }
     } else {
-      assert(seqno > 0);
+      // FIXME: assert(seqno > 0);
       appended = seqno_to_time_mapping_.Append(seqno, unix_time);
     }
   }
