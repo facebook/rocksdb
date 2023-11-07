@@ -435,6 +435,10 @@ class DB {
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns);
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const WriteOptions& options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
@@ -599,6 +603,16 @@ class DB {
                            ColumnFamilyHandle* /* column_family */,
                            const Slice& /* key */,
                            PinnableWideColumns* /* columns */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
+  // Returns logically grouped wide-column entities per column family (a.k.a.
+  // attribute groups) for a single key. PinnableAttributeGroups is a vector of
+  // PinnableAttributeGroup. Each PinnableAttributeGroup will have
+  // ColumnFamilyHandle* as input, and Status and PinnableWideColumns as output.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           const Slice& /* key */,
+                           PinnableAttributeGroups* /* result */) {
     return Status::NotSupported("GetEntity not supported");
   }
 
