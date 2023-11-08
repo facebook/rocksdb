@@ -1862,9 +1862,9 @@ class AutoHyperClockTable::ChainRewriteLock {
                             std::atomic<uint64_t>& /*yield_count*/,
                             uint64_t already_locked_or_end)
       : head_ptr_(&h->head_next_with_shift) {
-    new_head_ = already_locked_or_end;
+    saved_head_ = already_locked_or_end;
     // already locked or end
-    assert(new_head_ & HandleImpl::kHeadLocked);
+    assert(saved_head_ & HandleImpl::kHeadLocked);
   }
 
   ~ChainRewriteLock() {
@@ -1883,23 +1883,23 @@ class AutoHyperClockTable::ChainRewriteLock {
   }
 
   // Expected current state, assuming no parallel updates.
-  uint64_t GetNewHead() const { return new_head_; }
+  uint64_t GetSavedHead() const { return saved_head_; }
 
   bool CasUpdate(uint64_t next_with_shift, std::atomic<uint64_t>& yield_count) {
     uint64_t new_head = next_with_shift | HandleImpl::kHeadLocked;
-    uint64_t expected = GetNewHead();
+    uint64_t expected = GetSavedHead();
     bool success = head_ptr_->compare_exchange_strong(
         expected, new_head, std::memory_order_acq_rel);
     if (success) {
       // Ensure IsEnd() is kept up-to-date, including for dtor
-      new_head_ = new_head;
+      saved_head_ = new_head;
     } else {
       // Parallel update to head, such as Insert()
       if (IsEnd()) {
         // Didn't previously hold a lock
         if (HandleImpl::IsEnd(expected)) {
           // Still don't need to
-          new_head_ = expected;
+          saved_head_ = expected;
         } else {
           // Need to acquire lock before proceeding
           Acquire(yield_count);
@@ -1908,13 +1908,13 @@ class AutoHyperClockTable::ChainRewriteLock {
         // Parallel update must preserve our lock
         assert((expected & HandleImpl::kNextEndFlags) ==
                HandleImpl::kHeadLocked);
-        new_head_ = expected;
+        saved_head_ = expected;
       }
     }
     return success;
   }
 
-  bool IsEnd() const { return HandleImpl::IsEnd(new_head_); }
+  bool IsEnd() const { return HandleImpl::IsEnd(saved_head_); }
 
  private:
   void Acquire(std::atomic<uint64_t>& yield_count) {
@@ -1928,7 +1928,7 @@ class AutoHyperClockTable::ChainRewriteLock {
                (old_head & HandleImpl::kNextEndFlags) ==
                    HandleImpl::kNextEndFlags);
 
-        new_head_ = old_head | HandleImpl::kHeadLocked;
+        saved_head_ = old_head | HandleImpl::kHeadLocked;
         break;
       }
       // NOTE: one of the few yield-wait loops, which is rare enough in practice
@@ -1940,7 +1940,7 @@ class AutoHyperClockTable::ChainRewriteLock {
   }
 
   std::atomic<uint64_t>* head_ptr_;
-  uint64_t new_head_;
+  uint64_t saved_head_;
 };
 
 AutoHyperClockTable::AutoHyperClockTable(
@@ -2424,7 +2424,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     assert(cur == SIZE_MAX);
     assert(chain_frontier_first == -1);
 
-    uint64_t next_with_shift = zero_head_lock.GetNewHead();
+    uint64_t next_with_shift = zero_head_lock.GetSavedHead();
 
     // Find a single representative for each target chain, or scan the whole
     // chain if some target chain has no representative.
@@ -2643,7 +2643,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
 
   HandleImpl* const arr = array_.Get();
 
-  uint64_t next_with_shift = rewrite_lock.GetNewHead();
+  uint64_t next_with_shift = rewrite_lock.GetSavedHead();
   assert(!HandleImpl::IsEnd(next_with_shift));
   int home_shift = GetShiftFromNextWithShift(next_with_shift);
   (void)home;
@@ -2710,8 +2710,8 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         // no risk of duplicate clock updates to entries. Any entries already
         // updated must have been evicted (purgeable) and it's OK to clock
         // update any new entries just inserted in parallel.
-        // Can simply restart (GetNewHead() already updated from CAS failure).
-        next_with_shift = rewrite_lock.GetNewHead();
+        // Can simply restart (GetSavedHead() already updated from CAS failure).
+        next_with_shift = rewrite_lock.GetSavedHead();
         assert(!HandleImpl::IsEnd(next_with_shift));
         next = GetNextFromNextWithShift(next_with_shift);
         assert(next < array_.Count());
@@ -2803,6 +2803,7 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
                          (*op_data)[1], &home, &home_shift);
     assert(home_shift > 0);
   } else {
+    assert(kIsClockUpdateChain);
     // Evict callers must specify home
     assert(home < SIZE_MAX);
   }
@@ -2812,13 +2813,14 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
   // Acquire the RAII rewrite lock (if not an empty chain)
   ChainRewriteLock rewrite_lock(&arr[home], yield_count_);
 
-  int shift;
-  for (;;) {
-    shift = GetShiftFromNextWithShift(rewrite_lock.GetNewHead());
+  if constexpr (kIsPurge) {
+    // Ensure we are at the correct home for the shift in effect for the
+    // chain head.
+    for (;;) {
+      int shift = GetShiftFromNextWithShift(rewrite_lock.GetSavedHead());
 
-    if constexpr (kIsPurge) {
       if (shift > home_shift) {
-        // At head. Thus, we know the newer shift applies to us.
+        // Found a newer shift at candidate head, which must apply to us.
         // Newer shift might not yet be reflected in length_info_ (an atomicity
         // gap in Grow), so operate as if it is. Note that other insertions
         // could happen using this shift before length_info_ is updated, and
@@ -2835,11 +2837,8 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
       } else {
         assert(shift == home_shift);
       }
-    } else {
-      assert(home_shift == 0);
-      home_shift = shift;
+      break;
     }
-    break;
   }
 
   // If the chain is empty, nothing to do
