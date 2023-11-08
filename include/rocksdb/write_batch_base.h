@@ -47,6 +47,11 @@ class WriteBatchBase {
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;
 
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const Slice& key,
+                           const AttributeGroups& attribute_groups) = 0;
+
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,

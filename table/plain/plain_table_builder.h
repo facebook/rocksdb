@@ -85,16 +85,7 @@ class PlainTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
-  TableProperties GetTableProperties() const override {
-    TableProperties ret = properties_;
-    for (const auto& collector : table_properties_collectors_) {
-      for (const auto& prop : collector->GetReadableProperties()) {
-        ret.readable_properties.insert(prop);
-      }
-      collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
-    }
-    return ret;
-  }
+  TableProperties GetTableProperties() const override { return properties_; }
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
@@ -158,4 +149,3 @@ class PlainTableBuilder : public TableBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

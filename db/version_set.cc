@@ -2125,7 +2125,7 @@ VersionStorageInfo::VersionStorageInfo(
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
     uint32_t bottommost_file_compaction_delay,
-    OffpeakTimeInfo offpeak_time_info)
+    OffpeakTimeOption offpeak_time_option)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2158,7 +2158,7 @@ VersionStorageInfo::VersionStorageInfo(
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
       epoch_number_requirement_(epoch_number_requirement),
-      offpeak_time_info_(offpeak_time_info) {
+      offpeak_time_option_(std::move(offpeak_time_option)) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2204,7 +2204,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           cfd_ == nullptr ? nullptr : cfd_->ioptions()->clock,
           cfd_ == nullptr ? 0
                           : mutable_cf_options.bottommost_file_compaction_delay,
-          vset->offpeak_time_info()),
+          vset->offpeak_time_option()),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -3672,6 +3672,16 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
+  // Find the adjust_allowed_time_limit such that it includes files that are
+  // going to expire by the time next daily offpeak starts.
+  const OffpeakTimeInfo offpeak_time_info =
+      offpeak_time_option_.GetOffpeakTimeInfo(current_time);
+  const uint64_t adjusted_allowed_time_limit =
+      allowed_time_limit +
+      (offpeak_time_info.is_now_offpeak
+           ? offpeak_time_info.seconds_till_next_offpeak_start
+           : 0);
+
   for (int level = 0; level <= last_level; level++) {
     for (auto f : files_[level]) {
       if (!f->being_compacted) {
@@ -3698,7 +3708,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
           }
         }
         if (file_modification_time > 0 &&
-            file_modification_time < allowed_time_limit) {
+            file_modification_time < adjusted_allowed_time_limit) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
@@ -5077,7 +5087,7 @@ VersionSet::VersionSet(
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
       db_session_id_(db_session_id),
-      offpeak_time_info_(OffpeakTimeInfo(daily_offpeak_time_utc)) {}
+      offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)) {}
 
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on

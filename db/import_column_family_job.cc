@@ -187,7 +187,7 @@ Status ImportColumnFamilyJob::Run() {
       nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
       EpochNumberRequirement::kMightMissing, cfd_->ioptions()->clock,
       cfd_->GetLatestMutableCFOptions()->bottommost_file_compaction_delay,
-      cfd_->current()->version_set()->offpeak_time_info());
+      cfd_->current()->version_set()->offpeak_time_option());
   Status s;
 
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
@@ -393,6 +393,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       }
       file_to_import->largest_internal_key.DecodeFrom(largest);
       bound_set = true;
+    } else if (!iter->status().ok()) {
+      return iter->status();
     }
 
     std::unique_ptr<InternalIterator> range_del_iter{
