@@ -122,12 +122,15 @@ class TablePropertiesCollector {
 
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
+  // It will be called only once by RocksDB internal.
+  //
   // @params properties  User will add their collected statistics to
   // `properties`.
   virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
+  // It will only be called after Finish() has been called by RocksDB internal.
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
   // The name of the properties collector can be used for debugging purpose.
