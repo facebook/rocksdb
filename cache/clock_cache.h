@@ -939,19 +939,19 @@ class AutoHyperClockTable : public BaseClockTable {
   // log time to find the correct chain, but normally this value enables
   // readers to find the correct chain on the first try.
   //
-  // NOTES: length_info_ is only updated at the end of a Grow operation,
-  // so that waiting in Grow operations isn't done while entries are pinned
-  // for internal operation purposes. Thus, Lookup and Insert have to
-  // detect and support cases where length_info hasn't caught up to updated
-  // chains. Winning grow thread is the one that transitions
-  // head_next_with_shift from zeros. Grow threads can spin/yield wait for
-  // preconditions and postconditions to be met.
+  // To maximize parallelization of Grow() operations, this field is only
+  // updated opportunistically after Grow() operations and in DoInsert() where
+  // it is found to be out-of-date. See CatchUpLengthInfoNoWait().
   std::atomic<uint64_t> length_info_;
 
   // An already-computed version of the usable length times the max load
   // factor. Could be slightly out of date but GrowIfNeeded()/Grow() handle
   // that internally.
   std::atomic<size_t> occupancy_limit_;
+
+  // The next index to use from array_ upon the next Grow(). Might be ahead of
+  // length_info_.
+  std::atomic<size_t> grow_frontier_;
 
   // See explanation in AutoHyperClockTable::Evict
   std::atomic<size_t> clock_pointer_mask_;

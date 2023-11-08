@@ -13,10 +13,24 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 
 struct OffpeakTimeInfo {
-  OffpeakTimeInfo();
-  explicit OffpeakTimeInfo(const std::string& offpeak_time);
-  std::string daily_offpeak_time_utc;
-  bool IsNowOffpeak(SystemClock* clock) const;
+  bool is_now_offpeak = false;
+  int seconds_till_next_offpeak_start = 0;
+};
+
+struct OffpeakTimeOption {
+  static constexpr int kSecondsPerDay = 86400;
+  static constexpr int kSecondsPerHour = 3600;
+  static constexpr int kSecondsPerMinute = 60;
+
+  OffpeakTimeOption();
+  explicit OffpeakTimeOption(const std::string& offpeak_time_string);
+  std::string daily_offpeak_time_utc = "";
+  int daily_offpeak_start_time_utc = 0;
+  int daily_offpeak_end_time_utc = 0;
+
+  void SetFromOffpeakTimeString(const std::string& offpeak_time_string);
+
+  OffpeakTimeInfo GetOffpeakTimeInfo(const int64_t& current_time) const;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
