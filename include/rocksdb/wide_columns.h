@@ -221,8 +221,27 @@ inline bool operator!=(const PinnableWideColumns& lhs,
 }
 
 // Class representing attribute group. Attribute group is a logical grouping of
-// wide-column entities by leveraging Column Families. Wide-columns returned
-// from the query are pinnable.
+// wide-column entities by leveraging Column Families.
+// Used in Write Path
+class AttributeGroup {
+ public:
+  ColumnFamilyHandle* column_family() const { return column_family_; }
+  const WideColumns& columns() const { return columns_; }
+  WideColumns& columns() { return columns_; }
+
+  explicit AttributeGroup(ColumnFamilyHandle* column_family,
+                          const WideColumns& columns)
+      : column_family_(column_family), columns_(columns) {}
+
+ private:
+  ColumnFamilyHandle* column_family_;
+  WideColumns columns_;
+};
+
+// A collection of Attribute Groups.
+using AttributeGroups = std::vector<AttributeGroup>;
+
+// Used in Read Path. Wide-columns returned from the query are pinnable.
 class PinnableAttributeGroup {
  public:
   ColumnFamilyHandle* column_family() const { return column_family_; }
@@ -255,7 +274,7 @@ inline void PinnableAttributeGroup::Reset() {
   columns_.Reset();
 }
 
-// A collection of Attribute Groups.
+// A collection of Pinnable Attribute Groups.
 using PinnableAttributeGroups = std::vector<PinnableAttributeGroup>;
 
 }  // namespace ROCKSDB_NAMESPACE

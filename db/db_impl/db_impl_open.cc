@@ -942,8 +942,11 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
       recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
   if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
-    for (const auto& fname : recovery_ctx.files_to_delete_) {
-      s = env_->DeleteFile(fname);
+    for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
+      s = DeleteDBFile(&immutable_db_options_, stale_sst_file.first,
+                       stale_sst_file.second,
+                       /*force_bg=*/false,
+                       /*force_fg=*/false);
       if (!s.ok()) {
         break;
       }

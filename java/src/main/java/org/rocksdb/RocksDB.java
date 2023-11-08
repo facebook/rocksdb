@@ -767,6 +767,46 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Creates a new column family with the name columnFamilyName and
+   * import external SST files specified in `metadata` allocates a
+   * ColumnFamilyHandle within an internal structure.
+   * The ColumnFamilyHandle is automatically disposed with DB disposal.
+   *
+   * @param columnFamilyDescriptor column family to be created.
+   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public ColumnFamilyHandle createColumnFamilyWithImport(
+      final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final ImportColumnFamilyOptions importColumnFamilyOptions,
+      final ExportImportFilesMetaData metadata) throws RocksDBException {
+    List<ExportImportFilesMetaData> metadatas = new ArrayList<>();
+    metadatas.add(metadata);
+    return createColumnFamilyWithImport(
+        columnFamilyDescriptor, importColumnFamilyOptions, metadatas);
+  }
+
+  public ColumnFamilyHandle createColumnFamilyWithImport(
+      final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final ImportColumnFamilyOptions importColumnFamilyOptions,
+      final List<ExportImportFilesMetaData> metadatas) throws RocksDBException {
+    final int metadataNum = metadatas.size();
+    final long[] metadataHandleList = new long[metadataNum];
+    for (int i = 0; i < metadataNum; i++) {
+      metadataHandleList[i] = metadatas.get(i).getNativeHandle();
+    }
+    final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
+        createColumnFamilyWithImport(nativeHandle_, columnFamilyDescriptor.getName(),
+            columnFamilyDescriptor.getName().length,
+            columnFamilyDescriptor.getOptions().nativeHandle_,
+            importColumnFamilyOptions.nativeHandle_, metadataHandleList));
+    ownedColumnFamilyHandles.add(columnFamilyHandle);
+    return columnFamilyHandle;
+  }
+
+  /**
    * Drops the column family specified by {@code columnFamilyHandle}. This call
    * only records a drop record in the manifest and prevents the column
    * family from flushing and compacting.
@@ -3688,6 +3728,26 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * ClipColumnFamily() will clip the entries in the CF according to the range
+   * [begin_key, end_key). Returns OK on success, and a non-OK status on error.
+   * Any entries outside this range will be completely deleted (including
+   * tombstones).
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance
+   * @param beginKey First key to clip within database (inclusive)
+   * @param endKey Last key to clip within database (exclusive)
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void clipColumnFamily(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
+    clipColumnFamily(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_, beginKey, 0,
+        beginKey.length, endKey, 0, endKey.length);
+  }
+
+  /**
    * Change the options for the column family handle.
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -4693,6 +4753,10 @@ public class RocksDB extends RocksObject {
   private native long[] createColumnFamilies(
       final long handle, final long[] columnFamilyOptionsHandles, final byte[][] columnFamilyNames)
       throws RocksDBException;
+  private native long createColumnFamilyWithImport(final long handle, final byte[] columnFamilyName,
+      final int columnFamilyNamelen, final long columnFamilyOptions,
+      final long importColumnFamilyOptions, final long[] metadataHandleList)
+      throws RocksDBException;
   private native void dropColumnFamily(
       final long handle, final long cfHandle) throws RocksDBException;
   private native void dropColumnFamilies(final long handle,
@@ -4751,6 +4815,9 @@ public class RocksDB extends RocksObject {
       final int beginKeyOffset, final int beginKeyLength, final byte[] endKey,
       final int endKeyOffset, final int endKeyLength, final long cfHandle)
       throws RocksDBException;
+  private native void clipColumnFamily(final long handle, final long cfHandle,
+      final byte[] beginKey, final int beginKeyOffset, final int beginKeyLength,
+      final byte[] endKey, final int endKeyOffset, final int endKeyLength) throws RocksDBException;
   private native void merge(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final byte[] value,
       final int valueOffset, final int valueLength) throws RocksDBException;

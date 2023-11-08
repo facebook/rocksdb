@@ -492,6 +492,63 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    createColumnFamilyWithImport
+ * Signature: (J[BIJJ[J)J
+ */
+jlong Java_org_rocksdb_RocksDB_createColumnFamilyWithImport(
+    JNIEnv* env, jobject, jlong jdb_handle, jbyteArray jcf_name,
+    jint jcf_name_len, jlong j_cf_options, jlong j_cf_import_options,
+    jlongArray j_metadata_handle_array) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  jboolean has_exception = JNI_FALSE;
+  const std::string cf_name =
+      ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
+          env, jcf_name, jcf_name_len,
+          [](const char* str, const size_t len) {
+            return std::string(str, len);
+          },
+          &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return 0;
+  }
+  auto* cf_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(j_cf_options);
+
+  auto* cf_import_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(
+          j_cf_import_options);
+
+  std::vector<const ROCKSDB_NAMESPACE::ExportImportFilesMetaData*> metadatas;
+  jlong* ptr_metadata_handle_array =
+      env->GetLongArrayElements(j_metadata_handle_array, nullptr);
+  if (j_metadata_handle_array == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+  const jsize array_size = env->GetArrayLength(j_metadata_handle_array);
+  for (jsize i = 0; i < array_size; ++i) {
+    const ROCKSDB_NAMESPACE::ExportImportFilesMetaData* metadata_ptr =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(
+            ptr_metadata_handle_array[i]);
+    metadatas.push_back(metadata_ptr);
+  }
+  env->ReleaseLongArrayElements(j_metadata_handle_array,
+                                ptr_metadata_handle_array, JNI_ABORT);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle = nullptr;
+  ROCKSDB_NAMESPACE::Status s = db->CreateColumnFamilyWithImport(
+      *cf_options, cf_name, *cf_import_options, metadatas, &cf_handle);
+  if (!s.ok()) {
+    // error occurred
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return 0;
+  }
+  return GET_CPLUSPLUS_POINTER(cf_handle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    dropColumnFamily
  * Signature: (JJ)V;
  */
@@ -1159,6 +1216,61 @@ void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
     rocksdb_delete_range_helper(env, db, *write_options, cf_handle, jbegin_key,
                                 jbegin_key_off, jbegin_key_len, jend_key,
                                 jend_key_off, jend_key_len);
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                 "Invalid ColumnFamilyHandle."));
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    clipColumnFamily
+ * Signature: (JJ[BII[BII)V
+ */
+void Java_org_rocksdb_RocksDB_clipColumnFamily(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jbyteArray jbegin_key, jint jbegin_key_off, jint jbegin_key_len,
+    jbyteArray jend_key, jint jend_key_off, jint jend_key_len) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    jbyte* begin_key = new jbyte[jbegin_key_len];
+    env->GetByteArrayRegion(jbegin_key, jbegin_key_off, jbegin_key_len,
+                            begin_key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      delete[] begin_key;
+      return;
+    }
+    ROCKSDB_NAMESPACE::Slice begin_key_slice(reinterpret_cast<char*>(begin_key),
+                                             jbegin_key_len);
+
+    jbyte* end_key = new jbyte[jend_key_len];
+    env->GetByteArrayRegion(jend_key, jend_key_off, jend_key_len, end_key);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      delete[] begin_key;
+      delete[] end_key;
+      return;
+    }
+    ROCKSDB_NAMESPACE::Slice end_key_slice(reinterpret_cast<char*>(end_key),
+                                           jend_key_len);
+
+    ROCKSDB_NAMESPACE::Status s =
+        db->ClipColumnFamily(cf_handle, begin_key_slice, end_key_slice);
+
+    // cleanup
+    delete[] begin_key;
+    delete[] end_key;
+
+    if (s.ok()) {
+      return;
+    }
+
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return;
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(

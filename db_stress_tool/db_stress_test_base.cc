@@ -11,6 +11,7 @@
 #include <ios>
 #include <thread>
 
+#include "rocksdb/options.h"
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
@@ -18,6 +19,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
+#include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
@@ -1483,11 +1485,11 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (op == kLastOpSeekToFirst && ro.iterate_lower_bound != nullptr) {
-    // SeekToFirst() with lower bound is not well defined.
+    // SeekToFirst() with lower bound is not well-defined.
     *diverged = true;
     return;
   } else if (op == kLastOpSeekToLast && ro.iterate_upper_bound != nullptr) {
-    // SeekToLast() with higher bound is not well defined.
+    // SeekToLast() with higher bound is not well-defined.
     *diverged = true;
     return;
   } else if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
@@ -1498,7 +1500,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
                options_.comparator->CompareWithoutTimestamp(
                    *ro.iterate_lower_bound, /*a_has_ts=*/false,
                    *ro.iterate_upper_bound, /*b_has_ts*/ false) >= 0))) {
-    // Lower bound behavior is not well defined if it is larger than
+    // Lower bound behavior is not well-defined if it is larger than
     // seek key or upper bound. Disable the check for now.
     *diverged = true;
     return;
@@ -1510,7 +1512,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
                options_.comparator->CompareWithoutTimestamp(
                    *ro.iterate_lower_bound, /*a_has_ts=*/false,
                    *ro.iterate_upper_bound, /*b_has_ts=*/false) >= 0))) {
-    // Uppder bound behavior is not well defined if it is smaller than
+    // Upper bound behavior is not well-defined if it is smaller than
     // seek key or lower bound. Disable the check for now.
     *diverged = true;
     return;
@@ -1538,13 +1540,13 @@ void StressTest::VerifyIterator(ThreadState* thread,
       }
     }
     fprintf(stderr,
-            "Control interator is invalid but iterator has key %s "
+            "Control iterator is invalid but iterator has key %s "
             "%s\n",
             iter->key().ToString(true).c_str(), op_logs.c_str());
 
     *diverged = true;
   } else if (cmp_iter->Valid()) {
-    // Iterator is not valid. It can be legimate if it has already been
+    // Iterator is not valid. It can be legitimate if it has already been
     // out of upper or lower bound, or filtered out by prefix iterator.
     const Slice& total_order_key = cmp_iter->key();
 
@@ -1567,7 +1569,7 @@ void StressTest::VerifyIterator(ThreadState* thread,
           return;
         }
         fprintf(stderr,
-                "Iterator stays in prefix but contol doesn't"
+                "Iterator stays in prefix but control doesn't"
                 " iterator key %s control iterator key %s %s\n",
                 iter->key().ToString(true).c_str(),
                 cmp_iter->key().ToString(true).c_str(), op_logs.c_str());
@@ -1614,7 +1616,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (*diverged) {
-    fprintf(stderr, "Control CF %s\n", cmp_cfh->GetName().c_str());
+    fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
+            cmp_cfh->GetName().c_str());
     thread->stats.AddErrors(1);
     // Fail fast to preserve the DB state.
     thread->shared->SetVerificationFailure();
@@ -1765,13 +1768,16 @@ Status StressTest::TestBackupRestore(
   }
   DB* restored_db = nullptr;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
+
   // Not yet implemented: opening restored BlobDB or TransactionDB
+  Options restore_options;
   if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
-    Options restore_options(options_);
-    restore_options.best_efforts_recovery = false;
-    restore_options.listeners.clear();
-    // Avoid dangling/shared file descriptors, for reliable destroy
-    restore_options.sst_file_manager = nullptr;
+    s = PrepareOptionsForRestoredDB(&restore_options);
+    if (!s.ok()) {
+      from = "PrepareRestoredDBOptions in backup/restore";
+    }
+  }
+  if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
@@ -1889,6 +1895,68 @@ Status StressTest::TestBackupRestore(
   return s;
 }
 
+void InitializeMergeOperator(Options& options) {
+  if (FLAGS_use_full_merge_v1) {
+    options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+  } else {
+    if (FLAGS_use_put_entity_one_in > 0) {
+      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
+    } else {
+      options.merge_operator = MergeOperators::CreatePutOperator();
+    }
+  }
+}
+
+Status StressTest::PrepareOptionsForRestoredDB(Options* options) {
+  assert(options);
+  // To avoid race with other threads' operations (e.g, SetOptions())
+  // on the same pointer sub-option (e.g, `std::shared_ptr<const FilterPolicy>
+  // filter_policy`) while having the same settings as `options_`, we create a
+  // new Options object from `options_`'s string to deep copy these pointer
+  // sub-options
+  Status s;
+  ConfigOptions config_opts;
+
+  std::string db_options_str;
+  s = GetStringFromDBOptions(config_opts, options_, &db_options_str);
+  if (!s.ok()) {
+    return s;
+  }
+  DBOptions db_options;
+  s = GetDBOptionsFromString(config_opts, Options(), db_options_str,
+                             &db_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string cf_options_str;
+  s = GetStringFromColumnFamilyOptions(config_opts, options_, &cf_options_str);
+  if (!s.ok()) {
+    return s;
+  }
+  ColumnFamilyOptions cf_options;
+  s = GetColumnFamilyOptionsFromString(config_opts, Options(), cf_options_str,
+                                       &cf_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  *options = Options(db_options, cf_options);
+  options->best_efforts_recovery = false;
+  options->listeners.clear();
+  // Avoid dangling/shared file descriptors, for reliable destroy
+  options->sst_file_manager = nullptr;
+  // GetColumnFamilyOptionsFromString does not create customized merge operator.
+  InitializeMergeOperator(*options);
+  if (FLAGS_user_timestamp_size > 0) {
+    // Check OPTIONS string loading can bootstrap the correct user comparator
+    // from object registry.
+    assert(options->comparator);
+    assert(options->comparator == test::BytewiseComparatorWithU64TsWrapper());
+  }
+
+  return Status::OK();
+}
 Status StressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
@@ -3371,15 +3439,8 @@ void InitializeOptionsFromFlags(
       options.memtable_factory.reset(new VectorRepFactory());
       break;
   }
-  if (FLAGS_use_full_merge_v1) {
-    options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
-  } else {
-    if (FLAGS_use_put_entity_one_in > 0) {
-      options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
-    } else {
-      options.merge_operator = MergeOperators::CreatePutOperator();
-    }
-  }
+
+  InitializeMergeOperator(options);
 
   if (FLAGS_enable_compaction_filter) {
     options.compaction_filter_factory =

@@ -276,10 +276,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
         this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       });
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
-                                 table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_id_, db_session_id_));
+  versions_.reset(new VersionSet(
+      dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
+      write_buffer_manager_, &write_controller_, &block_cache_tracer_,
+      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1328,16 +1328,23 @@ Status DBImpl::SetDBOptions(
       const bool max_compactions_increased =
           new_bg_job_limits.max_compactions >
           current_bg_job_limits.max_compactions;
+      const bool offpeak_time_changed =
+          versions_->offpeak_time_option().daily_offpeak_time_utc !=
+          new_db_options.daily_offpeak_time_utc;
 
-      if (max_flushes_increased || max_compactions_increased) {
+      if (max_flushes_increased || max_compactions_increased ||
+          offpeak_time_changed) {
         if (max_flushes_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
                                              Env::Priority::HIGH);
         }
-
         if (max_compactions_increased) {
           env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
                                              Env::Priority::LOW);
+        }
+        if (offpeak_time_changed) {
+          versions_->ChangeOffpeakTimeOption(
+              new_db_options.daily_offpeak_time_utc);
         }
 
         MaybeScheduleFlushOrCompaction();
@@ -2048,6 +2055,53 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   get_impl_options.columns = columns;
 
   return GetImpl(read_options, key, get_impl_options);
+}
+
+Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
+                         PinnableAttributeGroups* result) {
+  if (!result) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without PinnableAttributeGroups object");
+  }
+  const size_t num_column_families = result->size();
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    Status s = Status::InvalidArgument(
+        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+    for (size_t i = 0; i < num_column_families; ++i) {
+      (*result)[i].SetStatus(s);
+    }
+    return s;
+  }
+  // return early if no CF was passed in
+  if (num_column_families == 0) {
+    return Status::OK();
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+  std::vector<Slice> keys;
+  std::vector<ColumnFamilyHandle*> column_families;
+  for (size_t i = 0; i < num_column_families; ++i) {
+    // Adding the same key slice for different CFs
+    keys.emplace_back(key);
+    column_families.emplace_back((*result)[i].column_family());
+  }
+  std::vector<PinnableWideColumns> columns(num_column_families);
+  std::vector<Status> statuses(num_column_families);
+  MultiGetCommon(
+      read_options, num_column_families, column_families.data(), keys.data(),
+      /* values */ nullptr, columns.data(),
+      /* timestamps */ nullptr, statuses.data(), /* sorted_input */ false);
+  // Set results
+  for (size_t i = 0; i < num_column_families; ++i) {
+    (*result)[i].Reset();
+    (*result)[i].SetStatus(statuses[i]);
+    (*result)[i].SetColumns(std::move(columns[i]));
+  }
+  return Status::OK();
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
