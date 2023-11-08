@@ -1099,7 +1099,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_EQ(fifo_temp_opt[1].age, 30000);
 }
 
-TEST_F(DBOptionsTest, OffPeakTimes) {
+TEST_F(DBOptionsTest, OffpeakTimes) {
   Options options;
   options.create_if_missing = true;
   Random rnd(test::RandomSeed());
@@ -1155,139 +1155,125 @@ TEST_F(DBOptionsTest, OffPeakTimes) {
     verify_valid();
   }
 
-  auto verify_is_now_offpeak = [&](bool expected, int now_utc_hour,
-                                   int now_utc_minute, int now_utc_second = 0) {
+  auto verify_offpeak_info = [&](bool expected_is_now_off_peak,
+                                 int expected_seconds_till_next_offpeak_start,
+                                 int now_utc_hour, int now_utc_minute,
+                                 int now_utc_second = 0) {
     auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     // Add some extra random days to current time
     int days = rnd.Uniform(100);
-    mock_clock->SetCurrentTime(days * 86400 + now_utc_hour * 3600 +
-                               now_utc_minute * 60 + now_utc_second);
+    mock_clock->SetCurrentTime(
+        days * OffpeakTimeOption::kSecondsPerDay +
+        now_utc_hour * OffpeakTimeOption::kSecondsPerHour +
+        now_utc_minute * OffpeakTimeOption::kSecondsPerMinute + now_utc_second);
     Status s = DBImpl::TEST_ValidateOptions(options);
     ASSERT_OK(s);
-    auto db_options = MutableDBOptions(options);
-    ASSERT_EQ(expected, db_options.IsNowOffPeak(mock_clock.get()));
+    auto offpeak_option = OffpeakTimeOption(options.daily_offpeak_time_utc);
+    int64_t now;
+    ASSERT_OK(mock_clock.get()->GetCurrentTime(&now));
+    auto offpeak_info = offpeak_option.GetOffpeakTimeInfo(now);
+    ASSERT_EQ(expected_is_now_off_peak, offpeak_info.is_now_offpeak);
+    ASSERT_EQ(expected_seconds_till_next_offpeak_start,
+              offpeak_info.seconds_till_next_offpeak_start);
   };
 
   options.daily_offpeak_time_utc = "";
-  verify_is_now_offpeak(false, 12, 30);
+  verify_offpeak_info(false, 0, 12, 30);
 
   options.daily_offpeak_time_utc = "06:30-11:30";
-  verify_is_now_offpeak(false, 5, 30);
-  verify_is_now_offpeak(true, 6, 30);
-  verify_is_now_offpeak(true, 10, 30);
-  verify_is_now_offpeak(true, 11, 30);
-  verify_is_now_offpeak(false, 13, 30);
+  verify_offpeak_info(false, 1 * OffpeakTimeOption::kSecondsPerHour, 5, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 20 * OffpeakTimeOption::kSecondsPerHour, 10, 30);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 11, 30);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 13, 30);
 
   options.daily_offpeak_time_utc = "23:30-04:30";
-  verify_is_now_offpeak(false, 6, 30);
-  verify_is_now_offpeak(true, 23, 30);
-  verify_is_now_offpeak(true, 0, 0);
-  verify_is_now_offpeak(true, 1, 0);
-  verify_is_now_offpeak(true, 4, 30);
-  verify_is_now_offpeak(false, 4, 31);
+  verify_offpeak_info(false, 17 * OffpeakTimeOption::kSecondsPerHour, 6, 30);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 23, 30);
+  verify_offpeak_info(true,
+                      23 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      0, 0);
+  verify_offpeak_info(true,
+                      22 * OffpeakTimeOption::kSecondsPerHour +
+                          30 * OffpeakTimeOption::kSecondsPerMinute,
+                      1, 0);
+  verify_offpeak_info(true, 19 * OffpeakTimeOption::kSecondsPerHour, 4, 30);
+  verify_offpeak_info(false,
+                      18 * OffpeakTimeOption::kSecondsPerHour +
+                          59 * OffpeakTimeOption::kSecondsPerMinute,
+                      4, 31);
 
   // Entire day offpeak
   options.daily_offpeak_time_utc = "00:00-23:59";
-  verify_is_now_offpeak(true, 0, 0);
-  verify_is_now_offpeak(true, 12, 00);
-  verify_is_now_offpeak(true, 23, 59);
-  verify_is_now_offpeak(true, 23, 59, 1);
-  verify_is_now_offpeak(true, 23, 59, 59);
+  verify_offpeak_info(true, 24 * OffpeakTimeOption::kSecondsPerHour, 0, 0);
+  verify_offpeak_info(true, 12 * OffpeakTimeOption::kSecondsPerHour, 12, 00);
+  verify_offpeak_info(true, 1 * OffpeakTimeOption::kSecondsPerMinute, 23, 59);
+  verify_offpeak_info(true, 59, 23, 59, 1);
+  verify_offpeak_info(true, 1, 23, 59, 59);
 
-  // Open the db and test by Get/SetDBOptions
-  options.daily_offpeak_time_utc = "";
+  // Start with a valid option
+  options.daily_offpeak_time_utc = "01:30-04:15";
   DestroyAndReopen(options);
-  ASSERT_EQ("", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+  ASSERT_EQ("01:30-04:15", dbfull()->GetDBOptions().daily_offpeak_time_utc);
+
+  int may_schedule_compaction_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:Start",
+      [&](void*) { may_schedule_compaction_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Make sure calling SetDBOptions with invalid option does not change the
+  // value nor call MaybeScheduleFlushOrCompaction()
   for (std::string invalid_case : invalid_cases) {
     ASSERT_NOK(
         dbfull()->SetDBOptions({{"daily_offpeak_time_utc", invalid_case}}));
+    ASSERT_EQ("01:30-04:15", dbfull()
+                                 ->GetVersionSet()
+                                 ->offpeak_time_option()
+                                 .daily_offpeak_time_utc);
+    ASSERT_EQ(1 * kSecondInHour + 30 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_start_time_utc);
+    ASSERT_EQ(4 * kSecondInHour + 15 * kSecondInMinute,
+              dbfull()
+                  ->GetVersionSet()
+                  ->offpeak_time_option()
+                  .daily_offpeak_end_time_utc);
   }
+  ASSERT_EQ(0, may_schedule_compaction_called);
+
+  // Changing to new valid values should call MaybeScheduleFlushOrCompaction()
+  // and sets the offpeak_time_option in VersionSet
+  int expected_count = 0;
   for (std::string valid_case : valid_cases) {
+    if (dbfull()
+            ->GetVersionSet()
+            ->offpeak_time_option()
+            .daily_offpeak_time_utc != valid_case) {
+      expected_count++;
+    }
     ASSERT_OK(dbfull()->SetDBOptions({{"daily_offpeak_time_utc", valid_case}}));
     ASSERT_EQ(valid_case, dbfull()->GetDBOptions().daily_offpeak_time_utc);
+    ASSERT_EQ(valid_case, dbfull()
+                              ->GetVersionSet()
+                              ->offpeak_time_option()
+                              .daily_offpeak_time_utc);
   }
-  Close();
+  ASSERT_EQ(expected_count, may_schedule_compaction_called);
 
-  // Sets off-peak time from 11:30PM to 4:30AM next day.
-  // Starting at 1:30PM, use mock sleep to make time pass
-  // and see if IsNowOffPeak() returns correctly per time changes
-  int now_hour = 13;
-  int now_minute = 30;
-  options.daily_offpeak_time_utc = "23:30-04:30";
-  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-  auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
-  // Add some extra random days to current time
-  int days = rnd.Uniform(100);
-  mock_clock->SetCurrentTime(days * 86400 + now_hour * 3600 + now_minute * 60);
-  options.env = mock_env.get();
+  // Changing to the same value should not call MaybeScheduleFlushOrCompaction()
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  may_schedule_compaction_called = 0;
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"daily_offpeak_time_utc", "06:30-11:30"}}));
+  ASSERT_EQ(0, may_schedule_compaction_called);
 
-  // Starting at 1:30PM. It's not off-peak
-  DestroyAndReopen(options);
-  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
-                   .IsNowOffPeak(mock_clock.get()));
-
-  // Now it's at 4:30PM. Still not off-peak
-  mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
-                   .IsNowOffPeak(mock_clock.get()));
-
-  // Now it's at 11:30PM. It's off-peak
-  mock_clock->MockSleepForSeconds(7 * 3600);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Now it's at 2:30AM next day. It's still off-peak
-  mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Now it's at 4:30AM. It's still off-peak
-  mock_clock->MockSleepForSeconds(2 * 3600);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Sleep for one more minute. It's at 4:31AM It's no longer off-peak
-  mock_clock->MockSleepForSeconds(60);
-  ASSERT_FALSE(MutableDBOptions(dbfull()->GetDBOptions())
-                   .IsNowOffPeak(mock_clock.get()));
-  Close();
-
-  // Entire day offpeak
-  options.daily_offpeak_time_utc = "00:00-23:59";
-  DestroyAndReopen(options);
-  // It doesn't matter what time it is. It should be just offpeak.
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Mock Sleep for 3 hours. It's still off-peak
-  mock_clock->MockSleepForSeconds(3 * 3600);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Mock Sleep for 20 hours. It's still off-peak
-  mock_clock->MockSleepForSeconds(20 * 3600);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Mock Sleep for 59 minutes. It's still off-peak
-  mock_clock->MockSleepForSeconds(59 * 60);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Mock Sleep for 59 seconds. It's still off-peak
-  mock_clock->MockSleepForSeconds(59);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
-  // Mock Sleep for 1 second (exactly 24h passed). It's still off-peak
-  mock_clock->MockSleepForSeconds(1);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-  // Another second for sanity check
-  mock_clock->MockSleepForSeconds(1);
-  ASSERT_TRUE(MutableDBOptions(dbfull()->GetDBOptions())
-                  .IsNowOffPeak(mock_clock.get()));
-
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
 

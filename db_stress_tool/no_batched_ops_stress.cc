@@ -612,7 +612,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
-        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
+        fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
       }
     }
@@ -662,7 +662,8 @@ class NonBatchedOpsStressTest : public StressTest {
               assert(false);
           }
           if (!s.ok()) {
-            fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
+            fprintf(stderr, "Transaction put error: %s\n",
+                    s.ToString().c_str());
             thread->shared->SafeTerminate();
           }
         } else {
@@ -1696,11 +1697,14 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SetVerificationFailure();
           if (iter->Valid()) {
             fprintf(stderr,
-                    "Expected state has key %s, iterator is at key %s\n",
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is at key %s\n",
                     Slice(Key(j)).ToString(true).c_str(),
                     iter->key().ToString(true).c_str());
           } else {
-            fprintf(stderr, "Expected state has key %s, iterator is invalid\n",
+            fprintf(stderr,
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is invalid\n",
                     Slice(Key(j)).ToString(true).c_str());
           }
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
@@ -1750,7 +1754,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (static_cast<int64_t>(curr) <= last_key) {
         thread->shared->SetVerificationFailure();
         fprintf(stderr,
-                "TestIterateAgainstExpected found unexpectedly small key\n");
+                "TestIterateAgainstExpected failed: found unexpectedly small "
+                "key\n");
         fprintf(stderr, "Column family: %s, op_logs: %s\n",
                 cfh->GetName().c_str(), op_logs.c_str());
         fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
@@ -1807,7 +1812,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (last_key <= static_cast<int64_t>(curr)) {
         thread->shared->SetVerificationFailure();
         fprintf(stderr,
-                "TestIterateAgainstExpected found unexpectedly large key\n");
+                "TestIterateAgainstExpected failed: found unexpectedly large "
+                "key\n");
         fprintf(stderr, "Column family: %s, op_logs: %s\n",
                 cfh->GetName().c_str(), op_logs.c_str());
         fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
@@ -1830,7 +1836,9 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    if (thread->rand.OneIn(2)) {
+    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
+        thread->rand.OneIn(2)) {
       pre_read_expected_values.clear();
       post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV
@@ -1839,7 +1847,9 @@ class NonBatchedOpsStressTest : public StressTest {
         pre_read_expected_values.push_back(
             shared->Get(rand_column_family, i + lb));
       }
-      iter->Refresh();
+      Status rs = iter->Refresh();
+      assert(rs.ok());
+      op_logs += "Refresh ";
       for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
         post_read_expected_values.push_back(
             shared->Get(rand_column_family, i + lb));
@@ -1869,7 +1879,8 @@ class NonBatchedOpsStressTest : public StressTest {
         if (static_cast<int64_t>(curr) < mid) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
-                  "TestIterateAgainstExpected found unexpectedly small key\n");
+                  "TestIterateAgainstExpected failed: found unexpectedly small "
+                  "key\n");
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
           fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
@@ -1892,7 +1903,8 @@ class NonBatchedOpsStressTest : public StressTest {
         if (mid < static_cast<int64_t>(curr)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
-                  "TestIterateAgainstExpected found unexpectedly large key\n");
+                  "TestIterateAgainstExpected failed: found unexpectedly large "
+                  "key\n");
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
           fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
@@ -1932,7 +1944,9 @@ class NonBatchedOpsStressTest : public StressTest {
                 post_read_expected_value)) {
           // Fail fast to preserve the DB state.
           thread->shared->SetVerificationFailure();
-          fprintf(stderr, "Iterator has key %s, but expected state does not.\n",
+          fprintf(stderr,
+                  "Verification failed: iterator has key %s, but expected "
+                  "state does not.\n",
                   iter->key().ToString(true).c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
@@ -1950,9 +1964,9 @@ class NonBatchedOpsStressTest : public StressTest {
           GetIntVal(iter->key().ToString(), &next);
           if (next <= curr) {
             thread->shared->SetVerificationFailure();
-            fprintf(
-                stderr,
-                "TestIterateAgainstExpected found unexpectedly small key\n");
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "small key\n");
             fprintf(stderr, "Column family: %s, op_logs: %s\n",
                     cfh->GetName().c_str(), op_logs.c_str());
             fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
@@ -1975,9 +1989,9 @@ class NonBatchedOpsStressTest : public StressTest {
           GetIntVal(iter->key().ToString(), &prev);
           if (curr <= prev) {
             thread->shared->SetVerificationFailure();
-            fprintf(
-                stderr,
-                "TestIterateAgainstExpected found unexpectedly large key\n");
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "large key\n");
             fprintf(stderr, "Column family: %s, op_logs: %s\n",
                     cfh->GetName().c_str(), op_logs.c_str());
             fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
