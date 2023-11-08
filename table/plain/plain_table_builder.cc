@@ -265,12 +265,16 @@ Status PlainTableBuilder::Finish() {
   PropertyBlockBuilder property_block_builder;
   // -- Add basic properties
   property_block_builder.AddTableProperty(properties_);
-
+  // -- Add eixsting user collected properties
   property_block_builder.Add(properties_.user_collected_properties);
-
-  // -- Add user collected properties
+  // -- Add more user collected properties
+  UserCollectedProperties more_user_collected_properties;
   NotifyCollectTableCollectorsOnFinish(
-      table_properties_collectors_, ioptions_.logger, &property_block_builder);
+      table_properties_collectors_, ioptions_.logger, &property_block_builder,
+      more_user_collected_properties, properties_.readable_properties);
+  properties_.user_collected_properties.insert(
+      more_user_collected_properties.begin(),
+      more_user_collected_properties.end());
 
   // -- Write property block
   BlockHandle property_block_handle;
