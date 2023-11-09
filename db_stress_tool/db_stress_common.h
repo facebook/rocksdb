@@ -313,6 +313,7 @@ DECLARE_uint32(memtable_protection_bytes_per_key);
 DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_bool(persist_user_defined_timestamps);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
