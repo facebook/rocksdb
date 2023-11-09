@@ -88,12 +88,12 @@ class ErrorHandler {
   const std::vector<uint64_t>& GetFilesToQuarantine() const {
     db_mutex_->AssertHeld();
     return files_to_quarantine_;
-  };
+  }
 
   void ClearFilesToQuarantine() {
     db_mutex_->AssertHeld();
     files_to_quarantine_.clear();
-  };
+  }
 
  private:
   DBImpl* db_;

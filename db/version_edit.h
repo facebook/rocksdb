@@ -543,7 +543,8 @@ class VersionEdit {
 
   void AddBlobFile(BlobFileAddition blob_file_addition) {
     blob_file_additions_.emplace_back(std::move(blob_file_addition));
-    files_to_quarantine_.push_back(blob_file_addition.GetBlobFileNumber());
+    files_to_quarantine_.push_back(
+        blob_file_additions_.back().GetBlobFileNumber());
   }
 
   // Retrieve all the blob files added.
