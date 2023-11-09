@@ -496,6 +496,8 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
     ASSERT_TRUE(results[1][0].status().IsIncomplete());
     ASSERT_NOK(results[1][1].status());
     ASSERT_TRUE(results[1][1].status().IsIncomplete());
+    ASSERT_NOK(results[1][2].status());
+    ASSERT_TRUE(results[1][2].status().IsIncomplete());
   }
   {
     // Case 1. Get first key from default cf and hot_cf and second key from
