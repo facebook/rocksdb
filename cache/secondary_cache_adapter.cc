@@ -238,7 +238,7 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
                                          const Slice& compressed_value,
                                          CompressionType type) {
   Status s = target_->Insert(key, value, helper, charge, handle, priority);
-  if (s.ok() && value == nullptr && distribute_cache_res_) {
+  if (s.ok() && value == nullptr && distribute_cache_res_ && handle) {
     charge = target_->GetCharge(*handle);
 
     MutexLock l(&mutex_);
