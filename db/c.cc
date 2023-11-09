@@ -3960,12 +3960,20 @@ int rocksdb_options_get_wal_compression(rocksdb_options_t* opt) {
 
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(int64_t rate_bytes_per_sec,
                                                   int64_t refill_period_us,
-                                                  int32_t fairness,
-                                                  bool auto_tuned) {
+                                                  int32_t fairness) {
   rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
   rate_limiter->rep.reset(
-      NewGenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
-                            RateLimiter::Mode::kWritesOnly, auto_tuned));
+      NewGenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness));
+  return rate_limiter;
+}
+
+rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_auto_tuned(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep.reset(NewGenericRateLimiter(rate_bytes_per_sec,
+                                                refill_period_us, fairness,
+                                                RateLimiter::Mode::kWritesOnly,
+                                                true));  // auto_tuned
   return rate_limiter;
 }
 

@@ -1,1 +1,1 @@
-Updated rocksdb_ratelimiter_create API to expose the auto_tuned option.
+Added rocksdb_ratelimiter_create_auto_tuned API to create an auto-tuned GenericRateLimiter.
