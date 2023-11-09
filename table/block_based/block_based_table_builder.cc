@@ -1710,9 +1710,10 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     property_block_builder.AddTableProperty(rep_->props);
 
     // Add use collected properties
-    NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
-                                         rep_->ioptions.logger,
-                                         &property_block_builder);
+    NotifyCollectTableCollectorsOnFinish(
+        rep_->table_properties_collectors, rep_->ioptions.logger,
+        &property_block_builder, rep_->props.user_collected_properties,
+        rep_->props.readable_properties);
 
     Slice block_data = property_block_builder.Finish();
     TEST_SYNC_POINT_CALLBACK(
@@ -2061,14 +2062,7 @@ bool BlockBasedTableBuilder::NeedCompact() const {
 }
 
 TableProperties BlockBasedTableBuilder::GetTableProperties() const {
-  TableProperties ret = rep_->props;
-  for (const auto& collector : rep_->table_properties_collectors) {
-    for (const auto& prop : collector->GetReadableProperties()) {
-      ret.readable_properties.insert(prop);
-    }
-    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
-  }
-  return ret;
+  return rep_->props;
 }
 
 std::string BlockBasedTableBuilder::GetFileChecksum() const {

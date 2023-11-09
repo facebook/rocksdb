@@ -118,7 +118,16 @@ class WriteBatchWithIndex : public WriteBatchBase {
       return Status::InvalidArgument(
           "Cannot call this method without a column family handle");
     }
+    return Status::NotSupported(
+        "PutEntity not supported by WriteBatchWithIndex");
+  }
 
+  Status PutEntity(const Slice& /* key */,
+                   const AttributeGroups& attribute_groups) override {
+    if (attribute_groups.empty()) {
+      return Status::InvalidArgument(
+          "Cannot call this method without attribute groups");
+    }
     return Status::NotSupported(
         "PutEntity not supported by WriteBatchWithIndex");
   }
@@ -301,4 +310,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

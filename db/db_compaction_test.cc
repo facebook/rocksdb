@@ -19,7 +19,7 @@
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
-#include "rocksdb/utilities/convenience.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/concurrent_task_limiter_impl.h"
@@ -4794,9 +4794,9 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintOldestAncesterTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -4942,9 +4942,9 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
-              std::string* encoded_fieled = static_cast<std::string*>(arg);
-              *encoded_fieled = "";
-              PutVarint64(encoded_fieled, 0);
+              std::string* encoded_field = static_cast<std::string*>(arg);
+              *encoded_field = "";
+              PutVarint64(encoded_field, 0);
             }
           });
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -5017,6 +5017,106 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     }
+  }
+}
+
+TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
+  // This test simply checks if offpeak adjustment works in Leveled
+  // Compactions. For testing offpeak periodic compactions in various
+  // scenarios, please refer to
+  // DBTestUniversalCompaction2::PeriodicCompactionOffpeak
+  constexpr int kNumKeysPerFile = 32;
+  constexpr int kNumLevelFiles = 2;
+  constexpr int kValueSize = 100;
+  constexpr int kSecondsPerDay = 86400;
+  constexpr int kSecondsPerHour = 3600;
+  constexpr int kSecondsPerMinute = 60;
+
+  for (bool if_restart : {false, true}) {
+    SCOPED_TRACE("if_restart=" + std::to_string(if_restart));
+    Options options = CurrentOptions();
+    options.ttl = 0;
+    options.periodic_compaction_seconds = 5 * kSecondsPerDay;  // 5 days
+    // In the case where all files are opened and doing DB restart
+    // forcing the file creation time in manifest file to be 0 to
+    // simulate the case of reading from an old version.
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
+          if (if_restart) {
+            std::string* encoded_field = static_cast<std::string*>(arg);
+            *encoded_field = "";
+            PutVarint64(encoded_field, 0);
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    // Just to add some extra random days to current time
+    Random rnd(test::RandomSeed());
+    int days = rnd.Uniform(100);
+
+    int periodic_compactions = 0;
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+          Compaction* compaction = static_cast<Compaction*>(arg);
+          auto compaction_reason = compaction->compaction_reason();
+          if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+            periodic_compactions++;
+          }
+        });
+
+    // Starting at 12:15AM
+    int now_hour = 0;
+    int now_minute = 15;
+    auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+    options.env = mock_env.get();
+    mock_clock->SetCurrentTime(days * kSecondsPerDay +
+                               now_hour * kSecondsPerHour +
+                               now_minute * kSecondsPerMinute);
+    // Offpeak is set from 12:30AM to 4:30AM
+    options.daily_offpeak_time_utc = "00:30-04:30";
+    Reopen(options);
+
+    for (int i = 0; i < kNumLevelFiles; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(
+            Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
+      }
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("2", FilesPerLevel());
+    ASSERT_EQ(0, periodic_compactions);
+
+    // Move clock forward by 1 hour. Now at 1:15AM Day 0. No compaction.
+    mock_clock->MockSleepForSeconds(1 * kSecondsPerHour);
+    ASSERT_OK(Put("a", "1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Assert that the files stay in the same level
+    ASSERT_EQ("3", FilesPerLevel());
+    ASSERT_EQ(0, periodic_compactions);
+    MoveFilesToLevel(1);
+    ASSERT_EQ("0,3", FilesPerLevel());
+
+    // Move clock forward by 4 days and check if it triggers periodic
+    // comapaction at 1:15AM Day 4. Files created on Day 0 at 12:15AM is
+    // expected to expire before the offpeak starts next day at 12:30AM
+    mock_clock->MockSleepForSeconds(4 * kSecondsPerDay);
+    ASSERT_OK(Put("b", "2"));
+    if (if_restart) {
+      Reopen(options);
+    } else {
+      ASSERT_OK(Flush());
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ("1,3", FilesPerLevel());
+    // The two old files go through the periodic compaction process
+    ASSERT_EQ(2, periodic_compactions);
+
+    Destroy(options);
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
