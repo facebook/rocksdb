@@ -245,12 +245,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
 
     size_t ts_sz = ucmp_->timestamp_size();
-    const std::string kMaxTs(ts_sz, '\xff');
-
-    Slice ts = Slice(kMaxTs);
-    if (timestamp_ != nullptr && timestamp_->size() == ts_sz) {
-      ts = Slice(timestamp_->c_str(), ts_sz);
-    }
+    Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
 
     if (ts_sz > 0 && timestamp_ != nullptr) {
       if (!timestamp_->empty()) {
@@ -264,16 +259,15 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (ts_from_rangetombstone_) {
           assert(max_covering_tombstone_seq_);
           if (parsed_key.sequence > *max_covering_tombstone_seq_) {
-            ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
             ts_from_rangetombstone_ = false;
           }
         }
       }
       // TODO optimize for small size ts
+      const std::string kMaxTs(ts_sz, '\xff');
       if (timestamp_->empty() ||
           ucmp_->CompareTimestamp(*timestamp_, kMaxTs) == 0) {
-        ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
         timestamp_->assign(ts.data(), ts.size());
       }
     }
