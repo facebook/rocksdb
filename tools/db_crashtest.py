@@ -164,7 +164,7 @@ default_params = {
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
-    "use_write_buffer_manager": lambda: random.randint(1, 1),
+    "use_write_buffer_manager": lambda: random.randint(0, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
