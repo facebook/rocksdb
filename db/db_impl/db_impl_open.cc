@@ -1251,6 +1251,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
 
       SequenceNumber sequence = WriteBatchInternal::Sequence(batch_to_use);
+      if (sequence > kMaxSequenceNumber) {
+        reporter.Corruption(
+            record.size(),
+            Status::Corruption("sequence " + std::to_string(sequence) +
+                               " is too large"));
+        continue;
+      }
 
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
