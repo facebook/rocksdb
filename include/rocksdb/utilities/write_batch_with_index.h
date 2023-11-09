@@ -112,6 +112,14 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& ts, const Slice& value) override;
 
+  using WriteBatchBase::TimedPut;
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    return Status::NotSupported(
+        "TimedPut not supported by WriteBatchWithIndex");
+  }
+
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
                    const WideColumns& /* columns */) override {
     if (!column_family) {

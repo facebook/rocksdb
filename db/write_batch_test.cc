@@ -770,6 +770,9 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  // TODO(yuzhangyu): implement this.
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -797,6 +800,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   std::unique_ptr<WBWIIterator> iter;
 

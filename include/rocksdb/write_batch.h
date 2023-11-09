@@ -100,6 +100,17 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
+  using WriteBatchBase::TimedPut;
+  // DO NOT USE, UNDER CONSTRUCTION
+  // Stores the mapping "key->value" in the database with the specified write
+  // time in the column family.
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    // TODO(yuzhangyu): implement take in the write time.
+    return Status::NotSupported("TimedPut is under construction");
+  }
+
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
   // column family specified by "column_family".
   using WriteBatchBase::PutEntity;
