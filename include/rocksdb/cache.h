@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -375,7 +376,8 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // compatible with HyperClockCache.
 // * Requires an extra tuning parameter: see estimated_entry_charge below.
 // Similarly, substantially changing the capacity with SetCapacity could
-// harm efficiency.
+// harm efficiency. -> EXPERIMENTAL: the tuning parameter can be set to 0
+// to find the appropriate balance automatically.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
 // * Can be worse for small caches, because if almost all of a cache shard is
@@ -384,10 +386,16 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 //
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
-  // The estimated average `charge` associated with cache entries. This is a
-  // critical configuration parameter for good performance from the hyper
-  // cache, because having a table size that is fixed at creation time greatly
-  // reduces the required synchronization between threads.
+  // The estimated average `charge` associated with cache entries.
+  //
+  // EXPERIMENTAL: the field can be set to 0 to size the table dynamically
+  // and automatically. See also min_avg_entry_charge. This feature requires
+  // platform support for lazy anonymous memory mappings (incl Linux, Windows).
+  // Performance is very similar to choosing the best configuration parameter.
+  //
+  // PRODUCTION-TESTED: This is a critical configuration parameter for good
+  // performance, because having a table size that is fixed at creation time
+  // greatly reduces the required synchronization between threads.
   // * If the estimate is substantially too low (e.g. less than half the true
   // average) then metadata space overhead with be substantially higher (e.g.
   // 200 bytes per entry rather than 100). With kFullChargeCacheMetadata, this
@@ -416,7 +424,21 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // to estimate toward the lower side than the higher side.
   size_t estimated_entry_charge;
 
-  // FOR A FUTURE FEATURE (NOT YET USED)
+  // EXPERIMENTAL: When estimated_entry_charge == 0, this parameter establishes
+  // a promised lower bound on the average charge of all entries in the table,
+  // which is roughly the average uncompressed SST block size of block cache
+  // entries, typically > 4KB. The default should generally suffice with almost
+  // no cost. (This option is ignored for estimated_entry_charge > 0.)
+  //
+  // More detail: The table for indexing cache entries will grow automatically
+  // as needed, but a hard upper bound on that size is needed at creation time.
+  // The reason is that a contiguous memory mapping for the maximum size is
+  // created, but memory pages are only mapped to physical (RSS) memory as
+  // needed. If the average charge of all entries in the table falls below
+  // this value, the table will operate below its full logical capacity (total
+  // memory usage) because it has reached its physical capacity for efficiently
+  // indexing entries. The hash table is never allowed to exceed a certain safe
+  // load factor for efficient Lookup, Insert, etc.
   size_t min_avg_entry_charge = 450;
 
   HyperClockCacheOptions(
@@ -450,18 +472,63 @@ enum PrimaryCacheType {
   kCacheTypeMax,
 };
 
+enum TieredAdmissionPolicy {
+  // Automatically select the admission policy
+  kAdmPolicyAuto,
+  // During promotion/demotion, first time insert a placeholder entry, second
+  // time insert the full entry if the placeholder is found, i.e insert on
+  // second hit
+  kAdmPolicyPlaceholder,
+  // Same as kAdmPolicyPlaceholder, but also if an entry in the primary cache
+  // was a hit, then force insert it into the compressed secondary cache
+  kAdmPolicyAllowCacheHits,
+  // An admission policy for three cache tiers - primary uncompressed,
+  // compressed secondary, and a compressed local flash (non-volatile) cache.
+  // Each tier is managed as an independent queue.
+  kAdmPolicyThreeQueue,
+  kAdmPolicyMax,
+};
+
+// EXPERIMENTAL
+// The following feature is experimental, and the API is subject to change
+//
 // A 2-tier cache with a primary block cache, and a compressed secondary
 // cache. The returned cache instance will internally allocate a primary
 // uncompressed cache of the specified type, and a compressed secondary
 // cache. Any cache memory reservations, such as WriteBufferManager
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
-struct TieredVolatileCacheOptions {
-  ShardedCacheOptions* cache_opts;
-  PrimaryCacheType cache_type;
+struct TieredCacheOptions {
+  ShardedCacheOptions* cache_opts = nullptr;
+  PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
+  TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
   CompressedSecondaryCacheOptions comp_cache_opts;
+  // Any capacity specified in LRUCacheOptions, HyperClockCacheOptions and
+  // CompressedSecondaryCacheOptions is ignored
+  // The total_capacity specified here is taken as the memory budget and
+  // divided between the primary block cache and compressed secondary cache
+  size_t total_capacity = 0;
+  double compressed_secondary_ratio = 0.0;
+  // An optional secondary cache that will serve as the persistent cache
+  // tier. If present, compressed blocks will be written to this
+  // secondary cache.
+  std::shared_ptr<SecondaryCache> nvm_sec_cache;
 };
 
-extern std::shared_ptr<Cache> NewTieredVolatileCache(
-    TieredVolatileCacheOptions& cache_opts);
+extern std::shared_ptr<Cache> NewTieredCache(
+    const TieredCacheOptions& cache_opts);
+
+// EXPERIMENTAL
+// Dynamically update some of the parameters of a TieredCache. The input
+// cache shared_ptr should have been allocated using NewTieredVolatileCache.
+// At the moment, there are a couple of limitations -
+// 1. The total_capacity should be > the WriteBufferManager max size, if
+//    using the block cache charging feature
+// 2. Once the compressed secondary cache is disabled by setting the
+//    compressed_secondary_ratio to 0.0, it cannot be dynamically re-enabled
+//    again
+extern Status UpdateTieredCache(
+    const std::shared_ptr<Cache>& cache, int64_t total_capacity = -1,
+    double compressed_secondary_ratio = std::numeric_limits<double>::max(),
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyMax);
 }  // namespace ROCKSDB_NAMESPACE

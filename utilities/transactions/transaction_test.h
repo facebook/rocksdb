@@ -488,6 +488,12 @@ class TransactionTest
                             std::get<2>(GetParam()), std::get<3>(GetParam())){};
 };
 
+class TransactionDBTest : public TransactionTestBase {
+ public:
+  TransactionDBTest()
+      : TransactionTestBase(false, false, WRITE_COMMITTED, kOrderedWrite) {}
+};
+
 class TransactionStressTest : public TransactionTest {};
 
 class MySQLStyleTransactionTest

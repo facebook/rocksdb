@@ -14,6 +14,7 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/snapshot_checker.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -423,16 +424,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
     WideColumns sorted_columns;
-
     sorted_columns.reserve(new_columns.size());
+
     for (const auto& column : new_columns) {
       sorted_columns.emplace_back(column.first, column.second);
     }
 
-    std::sort(sorted_columns.begin(), sorted_columns.end(),
-              [](const WideColumn& lhs, const WideColumn& rhs) {
-                return lhs.name().compare(rhs.name()) < 0;
-              });
+    WideColumnsHelper::SortColumns(sorted_columns);
 
     {
       const Status s = WideColumnSerialization::Serialize(

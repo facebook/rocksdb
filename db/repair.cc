@@ -122,7 +122,7 @@ class Repairer {
         vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-              /*db_id=*/"", db_session_id_),
+              /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -471,7 +471,7 @@ class Repairer {
           0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
           0 /*target_file_size*/, meta.fd.GetNumber());
 
-      SeqnoToTimeMapping empty_seqno_time_mapping;
+      SeqnoToTimeMapping empty_seqno_to_time_mapping;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, read_options, table_cache_.get(), iter.get(),
@@ -479,8 +479,9 @@ class Repairer {
           {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
-          empty_seqno_time_mapping, nullptr /* event_logger */, 0 /* job_id */,
-          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
+          empty_seqno_to_time_mapping, nullptr /* event_logger */,
+          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
+          write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -692,7 +693,9 @@ class Repairer {
           &cfd->internal_comparator(), cfd->user_comparator(),
           cfd->NumberLevels(), cfd->ioptions()->compaction_style,
           nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
-          EpochNumberRequirement::kMightMissing);
+          EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
+          /*bottommost_file_compaction_delay=*/0,
+          cfd->current()->version_set()->offpeak_time_option());
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {

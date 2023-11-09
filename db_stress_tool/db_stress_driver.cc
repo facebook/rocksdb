@@ -27,34 +27,39 @@ void ThreadBody(void* v) {
     if (shared->AllInitialized()) {
       shared->GetCondVar()->SignalAll();
     }
-    while (!shared->Started()) {
-      shared->GetCondVar()->Wait();
-    }
   }
-  thread->shared->GetStressTest()->OperateDb(thread);
+  if (!FLAGS_verification_only) {
+    {
+      MutexLock l(shared->GetMutex());
+      while (!shared->Started()) {
+        shared->GetCondVar()->Wait();
+      }
+    }
+    thread->shared->GetStressTest()->OperateDb(thread);
+    {
+      MutexLock l(shared->GetMutex());
+      shared->IncOperated();
+      if (shared->AllOperated()) {
+        shared->GetCondVar()->SignalAll();
+      }
+      while (!shared->VerifyStarted()) {
+        shared->GetCondVar()->Wait();
+      }
+    }
 
-  {
-    MutexLock l(shared->GetMutex());
-    shared->IncOperated();
-    if (shared->AllOperated()) {
-      shared->GetCondVar()->SignalAll();
+    if (!FLAGS_skip_verifydb) {
+      thread->shared->GetStressTest()->VerifyDb(thread);
     }
-    while (!shared->VerifyStarted()) {
-      shared->GetCondVar()->Wait();
+
+    {
+      MutexLock l(shared->GetMutex());
+      shared->IncDone();
+      if (shared->AllDone()) {
+        shared->GetCondVar()->SignalAll();
+      }
     }
   }
 
-  if (!FLAGS_skip_verifydb) {
-    thread->shared->GetStressTest()->VerifyDb(thread);
-  }
-
-  {
-    MutexLock l(shared->GetMutex());
-    shared->IncDone();
-    if (shared->AllDone()) {
-      shared->GetCondVar()->SignalAll();
-    }
-  }
   ThreadStatusUtil::UnregisterThread();
 }
 bool RunStressTestImpl(SharedState* shared) {
@@ -76,11 +81,29 @@ bool RunStressTestImpl(SharedState* shared) {
   stress->InitDb(shared);
   stress->FinishInitDb(shared);
 
+  if (FLAGS_write_fault_one_in) {
+    if (!FLAGS_sync_fault_injection) {
+      // unsynced WAL loss is not supported without sync_fault_injection
+      fault_fs_guard->SetDirectWritableTypes({kWalFile});
+    }
+    IOStatus error_msg;
+    if (FLAGS_inject_error_severity <= 1 || FLAGS_inject_error_severity > 2) {
+      error_msg = IOStatus::IOError("Retryable injected write error");
+      error_msg.SetRetryable(true);
+    } else if (FLAGS_inject_error_severity == 2) {
+      error_msg = IOStatus::IOError("Fatal injected write error");
+      error_msg.SetDataLoss(true);
+    }
+    // TODO: inject write error for other file types including
+    //  MANIFEST, CURRENT, and WAL files.
+    fault_fs_guard->SetRandomWriteError(
+        shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
+        /*inject_for_all_file_types=*/false, {FileType::kTableFile});
+    fault_fs_guard->SetFilesystemDirectWritable(false);
+    fault_fs_guard->EnableWriteErrorInjection();
+  }
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
-  }
-  if (FLAGS_write_fault_one_in) {
-    fault_fs_guard->EnableWriteErrorInjection();
   }
 
   uint32_t n = FLAGS_threads;
@@ -95,6 +118,11 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (FLAGS_continuous_verification_interval > 0) {
+    shared->IncBgThreads();
+  }
+
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
     shared->IncBgThreads();
   }
 
@@ -113,6 +141,13 @@ bool RunStressTestImpl(SharedState* shared) {
   if (FLAGS_continuous_verification_interval > 0) {
     db_stress_env->StartThread(DbVerificationThread,
                                &continuous_verification_thread);
+  }
+
+  ThreadState compressed_cache_set_capacity_thread(0, shared);
+  if (FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
+    db_stress_env->StartThread(CompressedCacheSetCapacityThread,
+                               &compressed_cache_set_capacity_thread);
   }
 
   // Each thread goes through the following states:
@@ -141,45 +176,55 @@ bool RunStressTestImpl(SharedState* shared) {
       }
     }
 
-    // This is after the verification step to avoid making all those `Get()`s
-    // and `MultiGet()`s contend on the DB-wide trace mutex.
-    if (!FLAGS_expected_values_dir.empty()) {
-      stress->TrackExpectedState(shared);
-    }
+    if (!FLAGS_verification_only) {
+      // This is after the verification step to avoid making all those `Get()`s
+      // and `MultiGet()`s contend on the DB-wide trace mutex.
+      if (!FLAGS_expected_values_dir.empty()) {
+        stress->TrackExpectedState(shared);
+      }
+      now = clock->NowMicros();
+      fprintf(stdout, "%s Starting database operations\n",
+              clock->TimeToString(now / 1000000).c_str());
 
-    now = clock->NowMicros();
-    fprintf(stdout, "%s Starting database operations\n",
-            clock->TimeToString(now / 1000000).c_str());
+      shared->SetStart();
+      shared->GetCondVar()->SignalAll();
+      while (!shared->AllOperated()) {
+        shared->GetCondVar()->Wait();
+      }
 
-    shared->SetStart();
-    shared->GetCondVar()->SignalAll();
-    while (!shared->AllOperated()) {
-      shared->GetCondVar()->Wait();
-    }
+      now = clock->NowMicros();
+      if (FLAGS_test_batches_snapshots) {
+        fprintf(stdout, "%s Limited verification already done during gets\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      } else if (FLAGS_skip_verifydb) {
+        fprintf(stdout, "%s Verification skipped\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      } else {
+        fprintf(stdout, "%s Starting verification\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str());
+      }
 
-    now = clock->NowMicros();
-    if (FLAGS_test_batches_snapshots) {
-      fprintf(stdout, "%s Limited verification already done during gets\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    } else if (FLAGS_skip_verifydb) {
-      fprintf(stdout, "%s Verification skipped\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    } else {
-      fprintf(stdout, "%s Starting verification\n",
-              clock->TimeToString((uint64_t)now / 1000000).c_str());
-    }
-
-    shared->SetStartVerify();
-    shared->GetCondVar()->SignalAll();
-    while (!shared->AllDone()) {
-      shared->GetCondVar()->Wait();
+      shared->SetStartVerify();
+      shared->GetCondVar()->SignalAll();
+      while (!shared->AllDone()) {
+        shared->GetCondVar()->Wait();
+      }
     }
   }
 
-  for (unsigned int i = 1; i < n; i++) {
-    threads[0]->stats.Merge(threads[i]->stats);
+  // If we are running verification_only
+  // stats will be empty and trying to report them will
+  // emit no ops or writes error. To avoid this, merging and reporting stats
+  // are not executed when running with verification_only
+  // TODO: We need to create verification stats (e.g. how many keys
+  // are verified by which method) and report them here instead of operation
+  // stats.
+  if (!FLAGS_verification_only) {
+    for (unsigned int i = 1; i < n; i++) {
+      threads[0]->stats.Merge(threads[i]->stats);
+    }
+    threads[0]->stats.Report("Stress Test");
   }
-  threads[0]->stats.Report("Stress Test");
 
   for (unsigned int i = 0; i < n; i++) {
     delete threads[i];
@@ -191,10 +236,15 @@ bool RunStressTestImpl(SharedState* shared) {
     fprintf(stdout, "%s Verification successful\n",
             clock->TimeToString(now / 1000000).c_str());
   }
-  stress->PrintStatistics();
+
+  if (!FLAGS_verification_only) {
+    stress->PrintStatistics();
+  }
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
+      FLAGS_continuous_verification_interval > 0 ||
+      FLAGS_compressed_secondary_cache_size > 0 ||
+      FLAGS_compressed_secondary_cache_ratio > 0.0) {
     MutexLock l(shared->GetMutex());
     shared->SetShouldStopBgThread();
     while (!shared->BgThreadsFinished()) {

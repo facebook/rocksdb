@@ -139,6 +139,8 @@ typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
 typedef struct rocksdb_statistics_histogram_data_t
     rocksdb_statistics_histogram_data_t;
+typedef struct rocksdb_wait_for_compact_options_t
+    rocksdb_wait_for_compact_options_t;
 
 /* DB operations */
 
@@ -1255,6 +1257,10 @@ rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_periodic_compaction_seconds(
+    rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_periodic_compaction_seconds(rocksdb_options_t*);
 
 enum {
   rocksdb_statistics_level_disable_all = 0,
@@ -1945,6 +1951,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_timestamp(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iter_start_ts(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_auto_readahead_size(
+    rocksdb_readoptions_t*, unsigned char);
 
 /* Write options */
 
@@ -2946,6 +2954,44 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_statistics_histogram_data_get_sum(
     rocksdb_statistics_histogram_data_t* data);
 extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact(
+    rocksdb_t* db, rocksdb_wait_for_compact_options_t* options, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_wait_for_compact_options_t*
+rocksdb_wait_for_compact_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_destroy(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_wait_for_compact_options_set_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_flush(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_flush(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_close_db(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_wait_for_compact_options_get_close_db(
+    rocksdb_wait_for_compact_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_timeout(
+    rocksdb_wait_for_compact_options_t* opt, uint64_t microseconds);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_wait_for_compact_options_get_timeout(
+    rocksdb_wait_for_compact_options_t* opt);
 
 #ifdef __cplusplus
 } /* end extern "C" */

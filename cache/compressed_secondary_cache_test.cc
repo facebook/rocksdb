@@ -12,6 +12,7 @@
 
 #include "cache/secondary_cache_adapter.h"
 #include "memory/jemalloc_nodump_allocator.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
@@ -51,7 +52,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
     // A dummy handle is inserted if the item is inserted for the first time.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -62,7 +63,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the item k1 for the second time and advise erasing it.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
@@ -94,14 +95,14 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Insert and Lookup the item k2.
     std::string str2(rnd.RandomString(1000));
     TestItem item2(str2.data(), str2.length());
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 2);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
                           kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
@@ -183,15 +184,15 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
     // Insert a dummy handle.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     // Insert k1.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
     TestItem item2(str2.data(), str2.length());
     // Insert a dummy handle, k1 is not evicted.
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     bool kept_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
@@ -199,7 +200,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(handle1, nullptr);
 
     // Insert k2 and k1 is evicted.
-    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
                           kept_in_sec_cache);
@@ -210,7 +211,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
     // Insert k1 again and a dummy handle is inserted.
-    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper()));
+    ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
@@ -228,8 +229,8 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::string str3 = rnd.RandomString(10);
     TestItem item3(str3.data(), str3.length());
     // The Status is OK because a dummy handle is inserted.
-    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelperFail()));
-    ASSERT_NOK(sec_cache->Insert(key3, &item3, GetHelperFail()));
+    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
+    ASSERT_NOK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
 
     sec_cache.reset();
   }
@@ -904,10 +905,10 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
     Slice ith_key = Slice(junk.data(), 16);
 
     get_perf_context()->Reset();
-    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role)));
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1U);
 
-    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role)));
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, GetHelper(role), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1U);
 
     bool kept_in_sec_cache{true};
@@ -976,23 +977,55 @@ TEST_P(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
   SplictValueAndMergeChunksTest();
 }
 
-class CompressedSecCacheTestWithTiered : public ::testing::Test {
+using secondary_cache_test_util::WithCacheType;
+
+class CompressedSecCacheTestWithTiered
+    : public testing::Test,
+      public WithCacheType,
+      public testing::WithParamInterface<
+          std::tuple<PrimaryCacheType, TieredAdmissionPolicy>> {
  public:
+  using secondary_cache_test_util::WithCacheType::TestItem;
   CompressedSecCacheTestWithTiered() {
     LRUCacheOptions lru_opts;
-    TieredVolatileCacheOptions opts;
-    lru_opts.capacity = 70 << 20;
-    opts.cache_opts = &lru_opts;
-    opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
-    opts.comp_cache_opts.capacity = 30 << 20;
-    cache_ = NewTieredVolatileCache(opts);
+    HyperClockCacheOptions hcc_opts(
+        /*_capacity=*/0,
+        /*_estimated_entry_charge=*/256 << 10,
+        /*_num_shard_bits=*/0);
+    TieredCacheOptions opts;
+    lru_opts.capacity = 0;
+    lru_opts.num_shard_bits = 0;
+    lru_opts.high_pri_pool_ratio = 0;
+    opts.cache_type = std::get<0>(GetParam());
+    if (opts.cache_type == PrimaryCacheType::kCacheTypeLRU) {
+      opts.cache_opts = &lru_opts;
+    } else {
+      opts.cache_opts = &hcc_opts;
+    }
+    opts.adm_policy = std::get<1>(GetParam());
+    ;
+    opts.comp_cache_opts.capacity = 0;
+    opts.comp_cache_opts.num_shard_bits = 0;
+    opts.total_capacity = 100 << 20;
+    opts.compressed_secondary_ratio = 0.3;
+    cache_ = NewTieredCache(opts);
     cache_res_mgr_ =
         std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
             cache_);
   }
 
+  const std::string& Type() const override {
+    if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+      return lru_str;
+    } else {
+      return hcc_str;
+    }
+  }
+
  protected:
   CacheReservationManager* cache_res_mgr() { return cache_res_mgr_.get(); }
+
+  std::shared_ptr<Cache> GetTieredCache() { return cache_; }
 
   Cache* GetCache() {
     return static_cast_with_check<CacheWithSecondaryAdapter, Cache>(
@@ -1013,13 +1046,19 @@ class CompressedSecCacheTestWithTiered : public ::testing::Test {
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;
+  static std::string lru_str;
+  static std::string hcc_str;
 };
+
+std::string CompressedSecCacheTestWithTiered::lru_str(WithCacheType::kLRU);
+std::string CompressedSecCacheTestWithTiered::hcc_str(
+    WithCacheType::kFixedHyperClock);
 
 bool CacheUsageWithinBounds(size_t val1, size_t val2, size_t error) {
   return ((val1 < (val2 + error)) && (val1 > (val2 - error)));
 }
 
-TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
+TEST_P(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
 
@@ -1041,7 +1080,7 @@ TEST_F(CompressedSecCacheTestWithTiered, CacheReservationManager) {
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
 
-TEST_F(CompressedSecCacheTestWithTiered,
+TEST_P(CompressedSecCacheTestWithTiered,
        CacheReservationManagerMultipleUpdate) {
   CompressedSecondaryCache* sec_cache =
       reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
@@ -1066,6 +1105,248 @@ TEST_F(CompressedSecCacheTestWithTiered,
                GetPercent(30 << 20, 1));
   EXPECT_EQ(sec_cache->TEST_GetUsage(), 0);
 }
+
+TEST_P(CompressedSecCacheTestWithTiered, AdmissionPolicy) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_BYPASS("This test requires LZ4 support\n");
+    return;
+  }
+
+  Cache* tiered_cache = GetTieredCache().get();
+  Cache* cache = GetCache();
+  std::vector<CacheKey> keys;
+  std::vector<std::string> vals;
+  // Make the item size slightly less than 10MB to ensure we can fit the
+  // expected number of items in the cache
+  int item_size = (10 << 20) - (1 << 18);
+  int i;
+  Random rnd(301);
+  for (i = 0; i < 14; ++i) {
+    keys.emplace_back(CacheKey::CreateUniqueForCacheLifetime(cache));
+    vals.emplace_back(rnd.RandomString(item_size));
+  }
+
+  for (i = 0; i < 7; ++i) {
+    TestItem* item = new TestItem(vals[i].data(), vals[i].length());
+    ASSERT_OK(tiered_cache->Insert(keys[i].AsSlice(), item, GetHelper(),
+                                   vals[i].length()));
+  }
+
+  Cache::Handle* handle1;
+  handle1 = tiered_cache->Lookup(keys[0].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_NE(handle1, nullptr);
+  Cache::Handle* handle2;
+  handle2 = tiered_cache->Lookup(keys[1].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_NE(handle2, nullptr);
+  tiered_cache->Release(handle1);
+  tiered_cache->Release(handle2);
+
+  // Flush all previous entries out of the primary cache
+  for (i = 7; i < 14; ++i) {
+    TestItem* item = new TestItem(vals[i].data(), vals[i].length());
+    ASSERT_OK(tiered_cache->Insert(keys[i].AsSlice(), item, GetHelper(),
+                                   vals[i].length()));
+  }
+  // keys 0 and 1 should be found as they had the hit bit set
+  handle1 = tiered_cache->Lookup(keys[0].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_NE(handle1, nullptr);
+  handle2 = tiered_cache->Lookup(keys[1].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_NE(handle2, nullptr);
+  tiered_cache->Release(handle1);
+  tiered_cache->Release(handle2);
+
+  handle1 = tiered_cache->Lookup(keys[2].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_EQ(handle1, nullptr);
+  handle1 = tiered_cache->Lookup(keys[3].AsSlice(), GetHelper(),
+                                 /*context*/ this, Cache::Priority::LOW);
+  ASSERT_EQ(handle1, nullptr);
+}
+
+TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdate) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+
+  // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
+  // double explicit casts
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  size_t sec_capacity;
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 130 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (39 << 20),
+               GetPercent(39 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 70 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (21 << 20),
+               GetPercent(21 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (21 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (30 << 20),
+               GetPercent(30 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.4));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (40 << 20),
+               GetPercent(40 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (40 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.2));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (20 << 20),
+               GetPercent(20 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (20 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 1.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (100 << 20),
+               GetPercent(100 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 100 << 20);
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.0));
+  // Only check usage for LRU cache. HCC shows a 64KB usage for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    ASSERT_EQ(GetCache()->GetUsage(), 0);
+  }
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+
+  ASSERT_NOK(UpdateTieredCache(tiered_cache, -1, 0.3));
+  // Only check usage for LRU cache. HCC shows a 64KB usage for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    ASSERT_EQ(GetCache()->GetUsage(), 0);
+  }
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+}
+
+TEST_P(CompressedSecCacheTestWithTiered, DynamicUpdateWithReservation) {
+  CompressedSecondaryCache* sec_cache =
+      reinterpret_cast<CompressedSecondaryCache*>(GetSecondaryCache());
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(10 << 20));
+  // Use EXPECT_PRED3 instead of EXPECT_NEAR to void too many size_t to
+  // double explicit casts
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  size_t sec_capacity;
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 70 << 20));
+  // Only check usage for LRU cache. HCC is slightly off for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (28 << 20),
+                 GetPercent(28 << 20, 1));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (21 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 130 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (46 << 20),
+               GetPercent(46 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (37 << 20),
+               GetPercent(37 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (3 << 20),
+               GetPercent(3 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (30 << 20));
+
+  ASSERT_OK(tiered_cache->GetSecondaryCacheCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 30 << 20);
+  size_t sec_usage;
+  ASSERT_OK(tiered_cache->GetSecondaryCachePinnedUsage(sec_usage));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_usage, 3 << 20,
+               GetPercent(3 << 20, 1));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.39));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (45 << 20),
+               GetPercent(45 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (4 << 20),
+               GetPercent(4 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (39 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.2));
+  // Only check usage for LRU cache. HCC is slightly off for some reason
+  if (std::get<0>(GetParam()) == PrimaryCacheType::kCacheTypeLRU) {
+    EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (28 << 20),
+                 GetPercent(28 << 20, 1));
+  }
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (2 << 20),
+               GetPercent(2 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, (20 << 20));
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 1.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (100 << 20),
+               GetPercent(100 << 20, 1));
+  EXPECT_PRED3(CacheUsageWithinBounds, sec_cache->TEST_GetUsage(), (10 << 20),
+               GetPercent(10 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 100 << 20);
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, -1, 0.0));
+  EXPECT_PRED3(CacheUsageWithinBounds, GetCache()->GetUsage(), (10 << 20),
+               GetPercent(10 << 20, 1));
+  ASSERT_OK(sec_cache->GetCapacity(sec_capacity));
+  ASSERT_EQ(sec_capacity, 0);
+
+  ASSERT_OK(cache_res_mgr()->UpdateCacheReservation(0));
+}
+
+TEST_P(CompressedSecCacheTestWithTiered,
+       DynamicUpdateWithReservationUnderflow) {
+  std::shared_ptr<Cache> tiered_cache = GetTieredCache();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CacheWithSecondaryAdapter::Release:ChargeSecCache1",
+        "CacheWithSecondaryAdapter::UpdateCacheReservationRatio:Begin"},
+       {"CacheWithSecondaryAdapter::UpdateCacheReservationRatio:End",
+        "CacheWithSecondaryAdapter::Release:ChargeSecCache2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread reserve_release_thread([&]() {
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(50), Status::OK());
+    EXPECT_EQ(cache_res_mgr()->UpdateCacheReservation(0), Status::OK());
+  });
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.01));
+  reserve_release_thread.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_OK(UpdateTieredCache(tiered_cache, 100 << 20, 0.3));
+}
+
+INSTANTIATE_TEST_CASE_P(
+    CompressedSecCacheTests, CompressedSecCacheTestWithTiered,
+    ::testing::Values(
+        std::make_tuple(PrimaryCacheType::kCacheTypeLRU,
+                        TieredAdmissionPolicy::kAdmPolicyAllowCacheHits),
+        std::make_tuple(PrimaryCacheType::kCacheTypeHCC,
+                        TieredAdmissionPolicy::kAdmPolicyAllowCacheHits)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

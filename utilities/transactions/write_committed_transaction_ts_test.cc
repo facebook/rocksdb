@@ -98,6 +98,38 @@ TEST_P(WriteCommittedTxnWithTsTest, SanityChecks) {
   txn1.reset();
 }
 
+void CheckKeyValueTsWithIterator(
+    Iterator* iter,
+    std::vector<std::tuple<std::string, std::string, std::string>> entries) {
+  size_t num_entries = entries.size();
+  // test forward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[i];
+    if (i == 0) {
+      iter->Seek(key);
+    } else {
+      iter->Next();
+    }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
+  }
+  // test backward iteration
+  for (size_t i = 0; i < num_entries; i++) {
+    auto [key, value, timestamp] = entries[num_entries - 1 - i];
+    if (i == 0) {
+      iter->SeekForPrev(key);
+    } else {
+      iter->Prev();
+    }
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), value);
+    ASSERT_EQ(iter->timestamp(), timestamp);
+  }
+}
+
 TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   ASSERT_OK(ReOpenNoDelete());
@@ -128,17 +160,57 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   std::unique_ptr<Transaction> txn1(
       NewTxn(WriteOptions(), TransactionOptions()));
   assert(txn1);
+
+  std::string write_ts;
+  uint64_t write_ts_int = 23;
+  PutFixed64(&write_ts, write_ts_int);
+  ReadOptions read_opts;
+  std::string read_ts;
+  PutFixed64(&read_ts, write_ts_int + 1);
+  Slice read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
+
+  ASSERT_OK(txn1->Put(handles_[1], "bar", "value0"));
   ASSERT_OK(txn1->Put(handles_[1], "foo", "value1"));
+  // (key, value, ts) pairs to check.
+  std::vector<std::tuple<std::string, std::string, std::string>>
+      entries_to_check;
+  entries_to_check.emplace_back("bar", "value0", "");
+  entries_to_check.emplace_back("foo", "value1", "");
+
   {
     std::string buf;
     PutFixed64(&buf, 23);
     ASSERT_OK(txn1->Put("id", buf));
     ASSERT_OK(txn1->Merge("id", buf));
   }
+
+  // Check (key, value, ts) with overwrites in txn before `SetCommitTimestamp`.
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
+
   ASSERT_OK(txn1->SetName("txn1"));
   ASSERT_OK(txn1->Prepare());
-  ASSERT_OK(txn1->SetCommitTimestamp(/*ts=*/23));
+  ASSERT_OK(txn1->SetCommitTimestamp(write_ts_int));
+
+  // Check (key, value, ts) with overwrites in txn after `SetCommitTimestamp`.
+  if (std::get<2>(GetParam())) {  // enable_indexing = true
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
+
   ASSERT_OK(txn1->Commit());
+  entries_to_check.clear();
+  entries_to_check.emplace_back("bar", "value0", write_ts);
+  entries_to_check.emplace_back("foo", "value1", write_ts);
+
+  // Check (key, value, ts) pairs with overwrites in txn after `Commit`.
+  {
+    std::unique_ptr<Iterator> iter(txn1->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
+  }
   txn1.reset();
 
   {
@@ -158,6 +230,14 @@ TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
     bool result = GetFixed64(&value_slc, &ival);
     assert(result);
     ASSERT_EQ(46, ival);
+  }
+
+  // Check (key, value, ts) pairs without overwrites in txn.
+  {
+    std::unique_ptr<Transaction> txn2(
+        NewTxn(WriteOptions(), TransactionOptions()));
+    std::unique_ptr<Iterator> iter(txn2->GetIterator(read_opts, handles_[1]));
+    CheckKeyValueTsWithIterator(iter.get(), entries_to_check);
   }
 }
 

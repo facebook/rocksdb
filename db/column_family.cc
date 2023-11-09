@@ -476,6 +476,7 @@ void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
   mem = new_mem;
   imm = new_imm;
   current = new_current;
+  full_history_ts_low = cfd->GetFullHistoryTsLow();
   cfd->Ref();
   mem->Ref();
   imm->Ref();
@@ -1118,7 +1119,7 @@ Compaction* ColumnFamilyData::PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
       log_buffer);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   return result;
 }
@@ -1202,7 +1203,7 @@ Compaction* ColumnFamilyData::CompactRange(
       compact_range_options, begin, end, compaction_end, conflict,
       max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
-    result->SetInputVersion(current_);
+    result->FinalizeInputInfo(current_);
   }
   TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
@@ -1283,8 +1284,6 @@ void ColumnFamilyData::InstallSuperVersion(
   new_superversion->Init(this, mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
-  ++super_version_number_;
-  super_version_->version_number = super_version_number_;
   if (old_superversion == nullptr || old_superversion->current != current() ||
       old_superversion->mem != mem_ ||
       old_superversion->imm != imm_.current()) {
@@ -1319,6 +1318,8 @@ void ColumnFamilyData::InstallSuperVersion(
       sv_context->superversions_to_free.push_back(old_superversion);
     }
   }
+  ++super_version_number_;
+  super_version_->version_number = super_version_number_;
 }
 
 void ColumnFamilyData::ResetThreadLocalSuperVersions() {
@@ -1557,24 +1558,15 @@ bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
   if (full_history_ts_low.empty()) {
     return false;
   }
-#ifndef NDEBUG
-  Slice last_table_newest_udt;
-#endif /* !NDEBUG */
   for (const Slice& table_newest_udt :
        imm()->GetTablesNewestUDT(max_memtable_id)) {
     assert(table_newest_udt.size() == full_history_ts_low.size());
-    assert(last_table_newest_udt.empty() ||
-           ucmp->CompareTimestamp(table_newest_udt, last_table_newest_udt) >=
-               0);
     // Checking the newest UDT contained in MemTable with ascending ID up to
-    // `max_memtable_id`. MemTable with bigger ID will have newer UDT, return
-    // immediately on finding the first MemTable that needs postponing.
+    // `max_memtable_id`. Return immediately on finding the first MemTable that
+    // needs postponing.
     if (ucmp->CompareTimestamp(table_newest_udt, full_history_ts_low) >= 0) {
       return true;
     }
-#ifndef NDEBUG
-    last_table_newest_udt = table_newest_udt;
-#endif /* !NDEBUG */
   }
   return false;
 }
@@ -1754,6 +1746,22 @@ const Comparator* GetColumnFamilyUserComparator(
     return column_family->GetComparator();
   }
   return nullptr;
+}
+
+const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family) {
+  assert(column_family);
+
+  ColumnFamilyHandleImpl* const handle =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(handle);
+
+  const ColumnFamilyData* const cfd = handle->cfd();
+  assert(cfd);
+
+  const ImmutableOptions* ioptions = cfd->ioptions();
+  assert(ioptions);
+
+  return *ioptions;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

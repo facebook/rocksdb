@@ -77,7 +77,11 @@ class CompressedSecondaryCache : public SecondaryCache {
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
-                const Cache::CacheItemHelper* helper) override;
+                const Cache::CacheItemHelper* helper,
+                bool force_insert) override;
+
+  Status InsertSaved(const Slice& key, const Slice& saved, CompressionType type,
+                     CacheTier source) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
@@ -129,12 +133,19 @@ class CompressedSecondaryCache : public SecondaryCache {
   CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
                                           size_t& charge);
 
+  bool MaybeInsertDummy(const Slice& key);
+
+  Status InsertInternal(const Slice& key, Cache::ObjectPtr value,
+                        const Cache::CacheItemHelper* helper,
+                        CompressionType type, CacheTier source);
+
   // TODO: clean up to use cleaner interfaces in typed_cache.h
   const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
   mutable port::Mutex capacity_mutex_;
   std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
+  bool disable_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -8,6 +8,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/types.h"
+#include "util/coding.h"
 #include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -339,5 +340,46 @@ Status ValidateUserDefinedTimestampsOptions(
   }
   return Status::InvalidArgument(
       "Unsupported user defined timestamps settings change.");
+}
+
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low) {
+  uint64_t cutoff_udt_ts = 0;
+  [[maybe_unused]] bool format_res = GetFixed64(cutoff_ts, &cutoff_udt_ts);
+  assert(format_res);
+  PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
+}
+
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end) {
+  std::optional<Slice> ret_start, ret_end;
+  if (start) {
+    if (ts_sz == 0) {
+      ret_start = *start;
+    } else {
+      // Maximum timestamp means including all keys with any timestamp for start
+      AppendKeyWithMaxTimestamp(start_with_ts, *start, ts_sz);
+      ret_start = Slice(*start_with_ts);
+    }
+  }
+  if (end) {
+    if (ts_sz == 0) {
+      ret_end = *end;
+    } else {
+      if (exclusive_end) {
+        // Append a maximum timestamp as the range limit is exclusive:
+        // [start, end)
+        AppendKeyWithMaxTimestamp(end_with_ts, *end, ts_sz);
+      } else {
+        // Append a minimum timestamp to end so the range limit is inclusive:
+        // [start, end]
+        AppendKeyWithMinTimestamp(end_with_ts, *end, ts_sz);
+      }
+      ret_end = Slice(*end_with_ts);
+    }
+  }
+  return std::make_tuple(ret_start, ret_end);
 }
 }  // namespace ROCKSDB_NAMESPACE

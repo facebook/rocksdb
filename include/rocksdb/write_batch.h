@@ -106,6 +106,11 @@ class WriteBatch : public WriteBatchBase {
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
 
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  Status PutEntity(const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
+
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   // The following Delete(..., const Slice& key) can be used when user-defined
@@ -395,8 +400,6 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Experimental.
-  //
   // Update timestamps of existing entries in the write batch if
   // applicable. If a key is intended for a column family that disables
   // timestamp, then this API won't set the timestamp for this key.

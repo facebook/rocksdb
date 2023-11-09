@@ -127,11 +127,11 @@ class FlushJobTestBase : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id*/ "", /*db_session_id*/ "", /*daily_offpeak_time_utc*/ ""));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
@@ -457,7 +457,8 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     // Verify that imm is empty
     ASSERT_EQ(std::numeric_limits<uint64_t>::max(),
               all_cfds[k]->imm()->GetEarliestMemTableID());
-    ASSERT_EQ(0, all_cfds[k]->imm()->GetLatestMemTableID());
+    ASSERT_EQ(0, all_cfds[k]->imm()->GetLatestMemTableID(
+                     false /* for_atomic_flush */));
     ++k;
   }
 

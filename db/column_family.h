@@ -211,6 +211,12 @@ struct SuperVersion {
   // Version number of the current SuperVersion
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
+  // Each time `full_history_ts_low` collapses history, a new SuperVersion is
+  // installed. This field tracks the effective `full_history_ts_low` for that
+  // SuperVersion, to be used by read APIs for sanity checks. This field is
+  // immutable once SuperVersion is installed. For column family that doesn't
+  // enable UDT feature, this is an empty string.
+  std::string full_history_ts_low;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -869,6 +875,9 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
 extern const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family);
+
+extern const ImmutableOptions& GetImmutableOptions(
     ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

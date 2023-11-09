@@ -37,6 +37,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -107,11 +108,14 @@ DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
 DECLARE_int32(max_write_buffer_number_to_maintain);
 DECLARE_int64(max_write_buffer_size_to_maintain);
+DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
-DECLARE_int64(compressed_cache_size);
-DECLARE_int32(compressed_cache_numshardbits);
+DECLARE_uint64(compressed_secondary_cache_size);
+DECLARE_int32(compressed_secondary_cache_numshardbits);
+DECLARE_int32(secondary_cache_update_interval);
+DECLARE_double(compressed_secondary_cache_ratio);
 DECLARE_int32(compaction_style);
 DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
@@ -158,7 +162,7 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_int32(ribbon_starting_level);
+DECLARE_int32(bloom_before_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
@@ -229,6 +233,7 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_bool(compression_use_zstd_dict_trainer);
+DECLARE_bool(compression_checksum);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -253,6 +258,7 @@ DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
+DECLARE_bool(verification_only);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -330,6 +336,8 @@ DECLARE_bool(enable_thread_tracking);
 
 DECLARE_uint32(memtable_max_range_deletions);
 
+DECLARE_uint32(bottommost_file_compaction_delay);
+
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
@@ -343,6 +351,7 @@ DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
 DECLARE_bool(use_io_uring);
+DECLARE_bool(auto_readahead_size);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -352,6 +361,9 @@ constexpr int kValueMaxLen = 100;
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
+    compressed_secondary_cache;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -624,13 +636,7 @@ inline std::string WideColumnsToHex(const WideColumns& columns) {
 
   std::ostringstream oss;
 
-  oss << std::hex;
-
-  auto it = columns.begin();
-  oss << *it;
-  for (++it; it != columns.end(); ++it) {
-    oss << ' ' << *it;
-  }
+  WideColumnsHelper::DumpWideColumns(columns, oss, true);
 
   return oss.str();
 }
@@ -649,6 +655,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
+
+extern void CompressedCacheSetCapacityThread(void* v);
 
 extern void TimestampedSnapshotsThread(void* v);
 

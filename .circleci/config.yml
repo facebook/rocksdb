@@ -16,7 +16,8 @@ commands:
       - run:
           name: Install JDK 8 on macos
           command: |
-            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+            HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask liberica-jdk8
 
   increase-max-open-files-on-macos:
     steps:
@@ -68,7 +69,7 @@ commands:
           command: |
             mkdir build
             cd build
-            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
             cd ..
             echo "Building with VS version: $Env:CMAKE_GENERATOR"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
@@ -77,6 +78,11 @@ commands:
           shell: powershell.exe
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
+      - run:
+          name: "Test RocksJava"
+          command: |
+            cd build\java
+            & $Env:CTEST_BIN -C Debug -j 16
   pre-steps-macos:
       steps:
         - pre-steps
@@ -104,6 +110,15 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  post-pmd-steps:
+    steps:
+      - store_artifacts:
+          path: /home/circleci/project/java/target/pmd.xml
+          when: on_fail
+      - store_artifacts:
+          path: /home/circleci/project/java/target/site
+          when: on_fail
+
   upgrade-cmake:
     steps:
       - run:
@@ -125,6 +140,13 @@ commands:
           name: Install gflags on macos
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
+
+  install-maven:
+    steps:
+      - run:
+          name: Install maven
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y maven
 
   setup-folly:
     steps:
@@ -205,25 +227,28 @@ executors:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
       - image: zjay437/rocksdb:0.6
+  linux-java-docker:
+    docker:
+      - image: evolvedbinary/rocksjava:centos6_x64-be
 
 jobs:
   build-macos:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=32 -j32 all
+      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=16 -j16 all
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     parameters:
       run_even_tests:
         description: run even or odd tests, used to split tests to 2 groups
@@ -239,20 +264,20 @@ jobs:
           command: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
       - run:
           name: "Build tests"
-          command: cd build && make V=1 -j32
+          command: cd build && make V=1 -j16
       - when:
           condition: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run even tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 0,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 1,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
       - post-steps
 
   build-linux:
@@ -541,6 +566,23 @@ jobs:
           no_output_timeout: 100m
       - post-steps
 
+  build-windows-vs2022-avx2:
+    executor:
+      name: win/server-2022
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: AVX2
+    steps:
+      - windows-build-steps
+
   build-windows-vs2022:
     executor:
       name: win/server-2022
@@ -549,10 +591,12 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
@@ -564,10 +608,12 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
       CMAKE_GENERATOR: Visual Studio 16 2019
+      CMAKE_PORTABLE: 1
     steps:
       - windows-build-steps
 
@@ -588,8 +634,29 @@ jobs:
           command: make V=1 J=8 -j8 jtest
       - post-steps
 
+  build-linux-java-pmd:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
+    steps:
+      - install-maven
+      - pre-steps
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "PMD RocksDBJava"
+          command: make V=1 J=8 -j8 jpmd
+      - post-pmd-steps
+
   build-linux-java-static:
-    executor: linux-docker
+    executor: linux-java-docker
     resource_class: large
     steps:
       - pre-steps
@@ -602,15 +669,15 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic
+          command: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
       - post-steps
 
   build-macos-java:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
@@ -632,10 +699,10 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
@@ -657,10 +724,10 @@ jobs:
 
   build-macos-java-static-universal:
     macos:
-      xcode: 12.5.1
-    resource_class: large
+      xcode: 14.3.1
+    resource_class: macos.m1.medium.gen1
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
@@ -842,6 +909,7 @@ workflows:
       - build-linux-mini-crashtest
   jobs-windows:
     jobs:
+      - build-windows-vs2022-avx2
       - build-windows-vs2022
       - build-windows-vs2019
       - build-cmake-mingw
@@ -852,6 +920,7 @@ workflows:
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
+      - build-linux-java-pmd
   jobs-macos:
     jobs:
       - build-macos

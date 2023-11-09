@@ -164,12 +164,22 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Reopen(options);
   ASSERT_OK(Put("foo", "foo_value"));
   ASSERT_OK(Put("bar", "bar_value"));
+  WideColumns columns{{kDefaultWideColumnName, "attr_default_val"},
+                      {"attr_name1", "attr_value_1"},
+                      {"attr_name2", "attr_value_2"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "baz",
+                           columns));
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
   Close();
 
   ASSERT_OK(ReopenAsSecondary(options));
   ASSERT_EQ("foo_value", Get("foo"));
   ASSERT_EQ("bar_value", Get("bar"));
+  PinnableWideColumns result;
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "baz",
+                           &result));
+  ASSERT_EQ(result.columns(), columns);
+
   ReadOptions ropts;
   ropts.verify_checksums = true;
   auto db1 = static_cast<DBImplSecondary*>(db_);
@@ -182,13 +192,17 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
       ASSERT_EQ("bar", iter->key().ToString());
       ASSERT_EQ("bar_value", iter->value().ToString());
     } else if (1 == count) {
+      ASSERT_EQ("baz", iter->key().ToString());
+      ASSERT_EQ(columns, iter->columns());
+    } else if (2 == count) {
       ASSERT_EQ("foo", iter->key().ToString());
       ASSERT_EQ("foo_value", iter->value().ToString());
     }
     ++count;
   }
+  ASSERT_OK(iter->status());
   delete iter;
-  ASSERT_EQ(2, count);
+  ASSERT_EQ(3, count);
 }
 
 TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
@@ -521,6 +535,8 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
     }
     ASSERT_FALSE(iter1->Valid());
     ASSERT_FALSE(iter2->Valid());
+    ASSERT_OK(iter1->status());
+    ASSERT_OK(iter2->status());
   };
 
   ASSERT_OK(Put("a", "value"));
@@ -793,6 +809,7 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ++count;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(2, count);
   delete iter;
 }
@@ -850,6 +867,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ++count;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(2, count);
   delete iter;
 }
@@ -922,6 +940,7 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
       ASSERT_EQ("value_" + std::to_string(kNumFiles - 1),
                 iter->value().ToString());
     }
+    EXPECT_OK(iter->status());
   };
 
   range_scan_db();
@@ -1472,6 +1491,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey - start_keys[i] + 1;
     ASSERT_EQ(expected_count, count);
 
@@ -1484,6 +1504,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
 
     // SeekToFirst()/SeekToLast() with lower/upper bounds.
@@ -1505,6 +1526,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
 
       for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
@@ -1514,6 +1536,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -1558,6 +1581,55 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorsReadTimestampSizeMismatch) {
             .IsInvalidArgument());
   }
 
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  // Use UDT in memtable only feature for this test, so we can control that
+  // newly set `full_history_ts_low` collapse history when Flush happens.
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val1"));
+
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 3);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                          full_history_ts_low));
+  ASSERT_OK(Flush(0));
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  // Reading below full_history_ts_low fails a sanity check.
+  std::string read_ts;
+  PutFixed64(&read_ts, 2);
+  Slice read_ts_slice = read_ts;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+
+  // Get()
+  std::string value;
+  ASSERT_TRUE(db_->Get(read_opts, "foo", &value).IsInvalidArgument());
+
+  // NewIterator()
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_opts, db_->DefaultColumnFamily()));
+  ASSERT_TRUE(iter->status().IsInvalidArgument());
+
+  // NewIterators()
+  std::vector<ColumnFamilyHandle*> cfhs = {db_->DefaultColumnFamily()};
+  std::vector<Iterator*> iterators;
+  ASSERT_TRUE(
+      db_->NewIterators(read_opts, cfhs, &iterators).IsInvalidArgument());
   Close();
 }
 
@@ -1674,6 +1746,7 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
     CheckIterUserEntry(iters[0], Key1(key), kTypeValue,
                        "value" + std::to_string(key), write_timestamp);
   }
+  ASSERT_OK(iters[0]->status());
 
   size_t expected_count = kMaxKey - 0 + 1;
   ASSERT_EQ(expected_count, count);

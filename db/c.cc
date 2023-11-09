@@ -121,6 +121,7 @@ using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
 using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
+using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WritableFile;
@@ -279,6 +280,9 @@ struct rocksdb_optimistictransactiondb_t {
 };
 struct rocksdb_optimistictransaction_options_t {
   OptimisticTransactionOptions rep;
+};
+struct rocksdb_wait_for_compact_options_t {
+  WaitForCompactOptions rep;
 };
 
 struct rocksdb_compactionfiltercontext_t {
@@ -3030,6 +3034,16 @@ void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
   }
 }
 
+void rocksdb_options_set_periodic_compaction_seconds(rocksdb_options_t* opt,
+                                                     uint64_t seconds) {
+  opt->rep.periodic_compaction_seconds = seconds;
+}
+
+uint64_t rocksdb_options_get_periodic_compaction_seconds(
+    rocksdb_options_t* opt) {
+  return opt->rep.periodic_compaction_seconds;
+}
+
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
@@ -4588,6 +4602,11 @@ void rocksdb_readoptions_set_iter_start_ts(rocksdb_readoptions_t* opt,
     opt->iter_start_ts = Slice(ts, tslen);
     opt->rep.iter_start_ts = &opt->iter_start_ts;
   }
+}
+
+void rocksdb_readoptions_set_auto_readahead_size(rocksdb_readoptions_t* opt,
+                                                 unsigned char v) {
+  opt->rep.auto_readahead_size = v;
 }
 
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
@@ -6771,6 +6790,61 @@ uint64_t rocksdb_statistics_histogram_data_get_sum(
 double rocksdb_statistics_histogram_data_get_min(
     rocksdb_statistics_histogram_data_t* data) {
   return data->rep.min;
+}
+
+void rocksdb_wait_for_compact(rocksdb_t* db,
+                              rocksdb_wait_for_compact_options_t* options,
+                              char** errptr) {
+  SaveError(errptr, db->rep->WaitForCompact(options->rep));
+}
+
+rocksdb_wait_for_compact_options_t* rocksdb_wait_for_compact_options_create() {
+  return new rocksdb_wait_for_compact_options_t;
+}
+
+void rocksdb_wait_for_compact_options_destroy(
+    rocksdb_wait_for_compact_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_wait_for_compact_options_set_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v) {
+  opt->rep.abort_on_pause = v;
+}
+
+unsigned char rocksdb_wait_for_compact_options_get_abort_on_pause(
+    rocksdb_wait_for_compact_options_t* opt) {
+  return opt->rep.abort_on_pause;
+}
+
+void rocksdb_wait_for_compact_options_set_flush(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v) {
+  opt->rep.flush = v;
+}
+
+unsigned char rocksdb_wait_for_compact_options_get_flush(
+    rocksdb_wait_for_compact_options_t* opt) {
+  return opt->rep.flush;
+}
+
+void rocksdb_wait_for_compact_options_set_close_db(
+    rocksdb_wait_for_compact_options_t* opt, unsigned char v) {
+  opt->rep.close_db = v;
+}
+
+unsigned char rocksdb_wait_for_compact_options_get_close_db(
+    rocksdb_wait_for_compact_options_t* opt) {
+  return opt->rep.close_db;
+}
+
+void rocksdb_wait_for_compact_options_set_timeout(
+    rocksdb_wait_for_compact_options_t* opt, uint64_t microseconds) {
+  opt->rep.timeout = std::chrono::microseconds(microseconds);
+}
+
+uint64_t rocksdb_wait_for_compact_options_get_timeout(
+    rocksdb_wait_for_compact_options_t* opt) {
+  return opt->rep.timeout.count();
 }
 
 }  // end extern "C"

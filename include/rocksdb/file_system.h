@@ -120,6 +120,7 @@ struct IOOptions {
   // directories and list only files in GetChildren API.
   bool do_not_recurse;
 
+  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
   IOOptions() : IOOptions(false) {}
@@ -390,7 +391,7 @@ class FileSystem : public Customizable {
                                      IODebugContext* dbg);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.

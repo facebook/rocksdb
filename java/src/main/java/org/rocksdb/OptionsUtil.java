@@ -47,6 +47,7 @@ public class OptionsUtil {
       final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs)
       throws RocksDBException {
     loadLatestOptions(configOptions.nativeHandle_, dbPath, dbOptions.nativeHandle_, cfDescs);
+    loadTableFormatConfig(cfDescs);
   }
 
   /**
@@ -68,6 +69,7 @@ public class OptionsUtil {
       final List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
     loadOptionsFromFile(
         configOptions.nativeHandle_, optionsFileName, dbOptions.nativeHandle_, cfDescs);
+    loadTableFormatConfig(cfDescs);
   }
 
   /**
@@ -85,6 +87,15 @@ public class OptionsUtil {
     return getLatestOptionsFileName(dbPath, env.nativeHandle_);
   }
 
+  private static void loadTableFormatConfig(final List<ColumnFamilyDescriptor> cfDescs) {
+    for (final ColumnFamilyDescriptor columnFamilyDescriptor : cfDescs) {
+      @SuppressWarnings("PMD.CloseResource")
+      final ColumnFamilyOptions columnFamilyOptions = columnFamilyDescriptor.getOptions();
+      columnFamilyOptions.setFetchedTableFormatConfig(
+          readTableFormatConfig(columnFamilyOptions.nativeHandle_));
+    }
+  }
+
   /**
    * Private constructor.
    * This class has only static methods and shouldn't be instantiated.
@@ -98,4 +109,6 @@ public class OptionsUtil {
       long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
   private static native String getLatestOptionsFileName(String dbPath, long envHandle)
       throws RocksDBException;
+
+  private native static TableFormatConfig readTableFormatConfig(final long nativeHandle_);
 }

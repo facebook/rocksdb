@@ -44,9 +44,6 @@ class Slice;
 class WideColumnSerialization {
  public:
   static Status Serialize(const WideColumns& columns, std::string& output);
-  static Status Serialize(const Slice& value_of_default,
-                          const WideColumns& other_columns,
-                          std::string& output);
 
   static Status Deserialize(Slice& input, WideColumns& columns);
 
@@ -55,23 +52,6 @@ class WideColumnSerialization {
   static Status GetValueOfDefaultColumn(Slice& input, Slice& value);
 
   static constexpr uint32_t kCurrentVersion = 1;
-
- private:
-  static Status SerializeImpl(const Slice* value_of_default,
-                              const WideColumns& columns, std::string& output);
 };
-
-inline Status WideColumnSerialization::Serialize(const WideColumns& columns,
-                                                 std::string& output) {
-  constexpr Slice* value_of_default = nullptr;
-
-  return SerializeImpl(value_of_default, columns, output);
-}
-
-inline Status WideColumnSerialization::Serialize(
-    const Slice& value_of_default, const WideColumns& other_columns,
-    std::string& output) {
-  return SerializeImpl(&value_of_default, other_columns, output);
-}
 
 }  // namespace ROCKSDB_NAMESPACE

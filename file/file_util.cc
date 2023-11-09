@@ -13,6 +13,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -137,7 +138,7 @@ IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool /*allow_mmap_reads*/,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    const ReadOptions& read_options) {
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -186,8 +187,8 @@ IOStatus GenerateOneFileChecksum(
       return io_s;
     }
     reader.reset(new RandomAccessFileReader(
-        std::move(r_file), file_path, nullptr /*Env*/, io_tracer, nullptr,
-        Histograms::HISTOGRAM_ENUM_MAX, nullptr, rate_limiter));
+        std::move(r_file), file_path, clock, io_tracer, stats,
+        Histograms::SST_READ_MICROS, nullptr, rate_limiter));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on

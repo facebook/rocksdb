@@ -199,7 +199,7 @@ class FastLocalBloomImpl {
 
   static inline void AddHash(uint32_t h1, uint32_t h2, uint32_t len_bytes,
                              int num_probes, char *data) {
-    uint32_t bytes_to_cache_line = FastRange32(len_bytes >> 6, h1) << 6;
+    uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     AddHashPrepared(h2, num_probes, data + bytes_to_cache_line);
   }
 
@@ -216,7 +216,7 @@ class FastLocalBloomImpl {
   static inline void PrepareHash(uint32_t h1, uint32_t len_bytes,
                                  const char *data,
                                  uint32_t /*out*/ *byte_offset) {
-    uint32_t bytes_to_cache_line = FastRange32(len_bytes >> 6, h1) << 6;
+    uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     PREFETCH(data + bytes_to_cache_line, 0 /* rw */, 1 /* locality */);
     PREFETCH(data + bytes_to_cache_line + 63, 0 /* rw */, 1 /* locality */);
     *byte_offset = bytes_to_cache_line;
@@ -224,7 +224,7 @@ class FastLocalBloomImpl {
 
   static inline bool HashMayMatch(uint32_t h1, uint32_t h2, uint32_t len_bytes,
                                   int num_probes, const char *data) {
-    uint32_t bytes_to_cache_line = FastRange32(len_bytes >> 6, h1) << 6;
+    uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     return HashMayMatchPrepared(h2, num_probes, data + bytes_to_cache_line);
   }
 

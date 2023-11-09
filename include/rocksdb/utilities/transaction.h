@@ -527,6 +527,15 @@ class Transaction {
 
   virtual Status SingleDeleteUntracked(const Slice& key) = 0;
 
+  // Collpase the merge chain for the given key. This is can be used by the
+  // application to trigger an on-demand collpase to a key that has a long
+  // merge chain to reduce read amplification, without waiting for compaction
+  // to kick in.
+  virtual Status CollapseKey(const ReadOptions&, const Slice&,
+                             ColumnFamilyHandle* = nullptr) {
+    return Status::NotSupported("collpase not supported");
+  }
+
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
 

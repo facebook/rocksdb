@@ -46,7 +46,8 @@ class BlobContents {
 class BlobContentsCreator : public Cache::CreateContext {
  public:
   static void Create(std::unique_ptr<BlobContents>* out, size_t* out_charge,
-                     const Slice& contents, MemoryAllocator* alloc) {
+                     const Slice& contents, CompressionType /*type*/,
+                     MemoryAllocator* alloc) {
     auto raw = new BlobContents(AllocateAndCopyBlock(contents, alloc),
                                 contents.size());
     out->reset(raw);

@@ -280,7 +280,7 @@ class Env : public Customizable {
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
@@ -446,6 +446,8 @@ class Env : public Customizable {
     kDBIterator = 5,
     kVerifyDBChecksum = 6,
     kVerifyFileChecksums = 7,
+    kGetEntity = 8,
+    kMultiGetEntity = 9,
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 

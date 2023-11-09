@@ -57,10 +57,10 @@ static Env* GetTestEnv() {
   static std::shared_ptr<Env> env_guard;
   static Env* custom_env = nullptr;
   if (custom_env == nullptr) {
-    const char* uri = getenv("TEST_ENV_URI");
-    if (uri != nullptr) {
-      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), uri, "", &custom_env,
-                                   &env_guard));
+    const char* env_uri = getenv("TEST_ENV_URI");
+    if (env_uri != nullptr) {
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), env_uri, /*fs_uri=*/"",
+                                   &custom_env, &env_guard));
     }
   }
   EXPECT_NE(custom_env, nullptr);
@@ -71,10 +71,10 @@ static Env* GetTestFS() {
   static std::shared_ptr<Env> fs_env_guard;
   static Env* fs_env = nullptr;
   if (fs_env == nullptr) {
-    const char* uri = getenv("TEST_FS_URI");
-    if (uri != nullptr) {
-      EXPECT_OK(
-          Env::CreateFromUri(ConfigOptions(), uri, "", &fs_env, &fs_env_guard));
+    const char* fs_uri = getenv("TEST_FS_URI");
+    if (fs_uri != nullptr) {
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), /*env_uri=*/"", fs_uri,
+                                   &fs_env, &fs_env_guard));
     }
   }
   EXPECT_NE(fs_env, nullptr);

@@ -538,6 +538,23 @@ static void ManualFlushArguments(benchmark::internal::Benchmark* b) {
 
 BENCHMARK(ManualFlush)->Iterations(1)->Apply(ManualFlushArguments);
 
+// Copied from test_util.cc to not depend on rocksdb_test_lib
+// when building microbench binaries.
+static Slice CompressibleString(Random* rnd, double compressed_fraction,
+                                int len, std::string* dst) {
+  int raw = static_cast<int>(len * compressed_fraction);
+  if (raw < 1) raw = 1;
+  std::string raw_data = rnd->RandomBinaryString(raw);
+
+  // Duplicate the random data until we have filled "len" bytes
+  dst->clear();
+  while (dst->size() < (unsigned int)len) {
+    dst->append(raw_data);
+  }
+  dst->resize(len);
+  return Slice(*dst);
+}
+
 static void DBGet(benchmark::State& state) {
   auto compaction_style = static_cast<CompactionStyle>(state.range(0));
   uint64_t max_data = state.range(1);
@@ -546,6 +563,9 @@ static void DBGet(benchmark::State& state) {
   bool negative_query = state.range(4);
   bool enable_filter = state.range(5);
   bool mmap = state.range(6);
+  auto compression_type = static_cast<CompressionType>(state.range(7));
+  bool compression_checksum = static_cast<bool>(state.range(8));
+  bool no_blockcache = state.range(9);
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
@@ -568,6 +588,13 @@ static void DBGet(benchmark::State& state) {
     table_options.no_block_cache = true;
     table_options.block_restart_interval = 1;
   }
+  options.compression = compression_type;
+  options.compression_opts.checksum = compression_checksum;
+  if (no_blockcache) {
+    table_options.no_block_cache = true;
+  } else {
+    table_options.block_cache = NewLRUCache(100 << 20);
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   auto rnd = Random(301 + state.thread_index());
@@ -581,9 +608,10 @@ static void DBGet(benchmark::State& state) {
     // number.
     auto wo = WriteOptions();
     wo.disableWAL = true;
+    std::string val;
     for (uint64_t i = 0; i < key_num; i++) {
-      Status s = db->Put(wo, kg_seq.Next(),
-                         rnd.RandomString(static_cast<int>(per_key_size)));
+      CompressibleString(&rnd, 0.5, static_cast<int>(per_key_size), &val);
+      Status s = db->Put(wo, kg_seq.Next(), val);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
@@ -641,14 +669,23 @@ static void DBGet(benchmark::State& state) {
 static void DBGetArguments(benchmark::internal::Benchmark* b) {
   for (int comp_style : {kCompactionStyleLevel, kCompactionStyleUniversal,
                          kCompactionStyleFIFO}) {
-    for (int64_t max_data : {128l << 20, 512l << 20}) {
+    for (int64_t max_data : {1l << 20, 128l << 20, 512l << 20}) {
       for (int64_t per_key_size : {256, 1024}) {
         for (bool enable_statistics : {false, true}) {
           for (bool negative_query : {false, true}) {
             for (bool enable_filter : {false, true}) {
               for (bool mmap : {false, true}) {
-                b->Args({comp_style, max_data, per_key_size, enable_statistics,
-                         negative_query, enable_filter, mmap});
+                for (int compression_type :
+                     {kNoCompression /* 0x0 */, kZSTD /* 0x7 */}) {
+                  for (bool compression_checksum : {false, true}) {
+                    for (bool no_blockcache : {false, true}) {
+                      b->Args({comp_style, max_data, per_key_size,
+                               enable_statistics, negative_query, enable_filter,
+                               mmap, compression_type, compression_checksum,
+                               no_blockcache});
+                    }
+                  }
+                }
               }
             }
           }
@@ -657,11 +694,13 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
     }
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics",
-               "negative_query", "enable_filter", "mmap"});
+               "negative_query", "enable_filter", "mmap", "compression_type",
+               "compression_checksum", "no_blockcache"});
 }
 
-BENCHMARK(DBGet)->Threads(1)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->Apply(DBGetArguments);
+static const uint64_t DBGetNum = 10000l;
+BENCHMARK(DBGet)->Threads(1)->Iterations(DBGetNum)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->Iterations(DBGetNum / 8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB

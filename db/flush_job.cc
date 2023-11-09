@@ -79,6 +79,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "Error Recovery Retry Flush";
     case FlushReason::kWalFull:
       return "WAL Full";
+    case FlushReason::kCatchUpAfterErrorRecovery:
+      return "Catch Up After Error Recovery";
     default:
       return "Invalid";
   }
@@ -98,7 +100,7 @@ FlushJob::FlushJob(
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const SeqnoToTimeMapping& seqno_time_mapping, const std::string& db_id,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
@@ -134,7 +136,7 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
-      db_impl_seqno_time_mapping_(seqno_time_mapping) {
+      db_impl_seqno_to_time_mapping_(seqno_to_time_mapping) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -215,7 +217,8 @@ void FlushJob::PickMemTable() {
 }
 
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
-                     bool* switched_to_mempurge) {
+                     bool* switched_to_mempurge, bool* skipped_since_bg_error,
+                     ErrorHandler* error_handler) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
@@ -303,17 +306,32 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   }
 
   if (!s.ok()) {
-    cfd_->imm()->RollbackMemtableFlush(mems_, meta_.fd.GetNumber());
+    cfd_->imm()->RollbackMemtableFlush(
+        mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
   } else if (write_manifest_) {
-    TEST_SYNC_POINT("FlushJob::InstallResults");
-    // Replace immutable memtable with the generated Table
-    s = cfd_->imm()->TryInstallMemtableFlushResults(
-        cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
-        meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_,
-        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+    assert(!db_options_.atomic_flush);
+    if (!db_options_.atomic_flush &&
+        flush_reason_ != FlushReason::kErrorRecovery &&
+        flush_reason_ != FlushReason::kErrorRecoveryRetryFlush &&
+        error_handler && !error_handler->GetBGError().ok() &&
+        error_handler->IsBGWorkStopped()) {
+      cfd_->imm()->RollbackMemtableFlush(
+          mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
+      s = error_handler->GetBGError();
+      if (skipped_since_bg_error) {
+        *skipped_since_bg_error = true;
+      }
+    } else {
+      TEST_SYNC_POINT("FlushJob::InstallResults");
+      // Replace immutable memtable with the generated Table
+      s = cfd_->imm()->TryInstallMemtableFlushResults(
+              cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
+              meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
+              log_buffer_, &committed_flush_jobs_info_,
+              !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
+    }
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -833,10 +851,11 @@ Status FlushJob::WriteLevel0Table() {
   Status s;
 
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
-  if (!db_impl_seqno_time_mapping_.Empty()) {
-    // make a local copy, as the seqno_time_mapping from db_impl is not thread
-    // safe, which will be used while not holding the db_mutex.
-    seqno_to_time_mapping_ = db_impl_seqno_time_mapping_.Copy(smallest_seqno);
+  if (!db_impl_seqno_to_time_mapping_.Empty()) {
+    // make a local copy, as the seqno_to_time_mapping from db_impl is not
+    // thread safe, which will be used while not holding the db_mutex.
+    seqno_to_time_mapping_ =
+        db_impl_seqno_to_time_mapping_.Copy(smallest_seqno);
   }
 
   std::vector<BlobFileAddition> blob_file_additions;
@@ -965,6 +984,7 @@ Status FlushJob::WriteLevel0Table() {
                      &table_properties_, write_hint, full_history_ts_low,
                      blob_callback_, base_, &num_input_entries,
                      &memtable_payload_bytes, &memtable_garbage_bytes);
+      TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
@@ -1122,16 +1142,16 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
       cfd_->ioptions()->persist_user_defined_timestamps) {
     return;
   }
+  // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
-    // The picked Memtables should have ascending ID, and should have
-    // non-decreasing newest user-defined timestamps.
-    if (!cutoff_udt_.empty()) {
-      assert(table_newest_udt.size() == cutoff_udt_.size());
-      assert(ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) >= 0);
-      cutoff_udt_.clear();
+    if (cutoff_udt_.empty() ||
+        ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
+      if (!cutoff_udt_.empty()) {
+        assert(table_newest_udt.size() == cutoff_udt_.size());
+      }
+      cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
     }
-    cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
   }
 }
 
@@ -1147,16 +1167,13 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
        ucmp->CompareTimestamp(cutoff_udt_, full_history_ts_low) < 0)) {
     return Status::OK();
   }
-  Slice cutoff_udt_slice = cutoff_udt_;
-  uint64_t cutoff_udt_ts = 0;
-  bool format_res = GetFixed64(&cutoff_udt_slice, &cutoff_udt_ts);
-  assert(format_res);
-  (void)format_res;
   std::string new_full_history_ts_low;
+  Slice cutoff_udt_slice = cutoff_udt_;
   // TODO(yuzhangyu): Add a member to AdvancedColumnFamilyOptions for an
   //  operation to get the next immediately larger user-defined timestamp to
   //  expand this feature to other user-defined timestamp formats.
-  PutFixed64(&new_full_history_ts_low, cutoff_udt_ts + 1);
+  GetFullHistoryTsLowFromU64CutoffTs(&cutoff_udt_slice,
+                                     &new_full_history_ts_low);
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);

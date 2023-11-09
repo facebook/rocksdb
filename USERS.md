@@ -161,5 +161,9 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 ## Solana Labs
 [Solana](https://github.com/solana-labs/solana) is a fast, secure, scalable, and decentralized blockchain.  It uses RocksDB as the underlying storage for its ledger store.
 
+## Apache Kvrocks
+
+[Apache Kvrocks](https://github.com/apache/kvrocks) is an open-source distributed key-value NoSQL database built on top of RocksDB. It serves as a cost-saving and capacity-increasing alternative drop-in replacement for Redis.
+
 ## Others
 More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).

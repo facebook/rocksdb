@@ -374,7 +374,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             Slice blob_value(pin_val);
             state_ = kFound;
             if (do_merge_) {
-              Merge(&blob_value);
+              MergeWithPlainBaseValue(blob_value);
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -385,7 +385,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             state_ = kFound;
 
             if (do_merge_) {
-              MergeWithEntity(value);
+              MergeWithWideColumnBaseValue(value);
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -407,7 +407,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
             state_ = kFound;
             if (do_merge_) {
-              Merge(&value);
+              MergeWithPlainBaseValue(value);
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -430,7 +430,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (do_merge_) {
-            Merge(nullptr);
+            MergeWithNoBaseValue();
           }
           // If do_merge_ = false then the current value shouldn't be part of
           // merge_context_->operand_list
@@ -448,7 +448,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
-          Merge(nullptr);
+          MergeWithNoBaseValue();
           return false;
         }
         return true;
@@ -463,20 +463,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   return false;
 }
 
-void GetContext::Merge(const Slice* value) {
-  assert(do_merge_);
-  assert(!pinnable_val_ || !columns_);
-
-  std::string result;
-  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
-  // since a failure must be propagated regardless of its value.
-  const Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, user_key_, value, merge_context_->GetOperands(), &result,
-      logger_, statistics_, clock_, /* result_operand */ nullptr,
-      /* update_num_ops_stats */ true,
-      /* op_failure_scope */ nullptr);
-  if (!s.ok()) {
-    if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+void GetContext::PostprocessMerge(const Status& merge_status) {
+  if (!merge_status.ok()) {
+    if (merge_status.subcode() == Status::SubCode::kMergeOperatorFailed) {
       state_ = kMergeOperatorFailed;
     } else {
       state_ = kCorrupt;
@@ -485,81 +474,56 @@ void GetContext::Merge(const Slice* value) {
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
-    *(pinnable_val_->GetSelf()) = std::move(result);
     pinnable_val_->PinSelf();
-    return;
   }
-
-  assert(columns_);
-  columns_->SetPlainValue(std::move(result));
 }
 
-void GetContext::MergeWithEntity(Slice entity) {
+void GetContext::MergeWithNoBaseValue() {
   assert(do_merge_);
+  assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
 
-  if (LIKELY(pinnable_val_ != nullptr)) {
-    Slice value_of_default;
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, MergeHelper::kNoBaseValue,
+      merge_context_->GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
+      /* op_failure_scope */ nullptr);
+  PostprocessMerge(s);
+}
 
-    {
-      const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
-          entity, value_of_default);
-      if (!s.ok()) {
-        state_ = kCorrupt;
-        return;
-      }
-    }
+void GetContext::MergeWithPlainBaseValue(const Slice& value) {
+  assert(do_merge_);
+  assert(pinnable_val_ || columns_);
+  assert(!pinnable_val_ || !columns_);
 
-    {
-      // `op_failure_scope` (an output parameter) is not provided (set to
-      // nullptr) since a failure must be propagated regardless of its value.
-      const Status s = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key_, &value_of_default,
-          merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
-          statistics_, clock_, /* result_operand */ nullptr,
-          /* update_num_ops_stats */ true,
-          /* op_failure_scope */ nullptr);
-      if (!s.ok()) {
-        if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
-          state_ = kMergeOperatorFailed;
-        } else {
-          state_ = kCorrupt;
-        }
-        return;
-      }
-    }
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, MergeHelper::kPlainBaseValue, value,
+      merge_context_->GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
+      /* op_failure_scope */ nullptr);
+  PostprocessMerge(s);
+}
 
-    pinnable_val_->PinSelf();
-    return;
-  }
+void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
+  assert(do_merge_);
+  assert(pinnable_val_ || columns_);
+  assert(!pinnable_val_ || !columns_);
 
-  std::string result;
-
-  {
-    // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
-    // since a failure must be propagated regardless of its value.
-    const Status s = MergeHelper::TimedFullMergeWithEntity(
-        merge_operator_, user_key_, entity, merge_context_->GetOperands(),
-        &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true,
-        /* op_failure_scope */ nullptr);
-    if (!s.ok()) {
-      if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
-        state_ = kMergeOperatorFailed;
-      } else {
-        state_ = kCorrupt;
-      }
-      return;
-    }
-  }
-
-  {
-    assert(columns_);
-    const Status s = columns_->SetWideColumnValue(std::move(result));
-    if (!s.ok()) {
-      state_ = kCorrupt;
-      return;
-    }
-  }
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, MergeHelper::kWideBaseValue, entity,
+      merge_context_->GetOperands(), logger_, statistics_, clock_,
+      /* update_num_ops_stats */ true,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
+      /* op_failure_scope */ nullptr);
+  PostprocessMerge(s);
 }
 
 bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
@@ -594,7 +558,8 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
 }
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context, Cleanable* value_pinner) {
+                         GetContext* get_context, Cleanable* value_pinner,
+                         SequenceNumber seq_no) {
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -605,11 +570,9 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     (void)ret;
 
     bool dont_care __attribute__((__unused__));
-    // Since SequenceNumber is not stored and unknown, we will use
-    // kMaxSequenceNumber.
-    get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        &dont_care, value_pinner);
+
+    ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
+    get_context->SaveValue(ikey, value, &dont_care, value_pinner);
   }
 }
 

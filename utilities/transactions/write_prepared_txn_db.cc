@@ -413,9 +413,10 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& _read_options,
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-  auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, snapshot_seq,
-                                            &state->callback, expose_blob_index,
-                                            allow_refresh);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
+  auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, super_version,
+                                            snapshot_seq, &state->callback,
+                                            expose_blob_index, allow_refresh);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
@@ -461,8 +462,9 @@ Status WritePreparedTxnDB::NewIterators(
         static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, snapshot_seq,
-                                              &state->callback,
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
+    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfd, super_version,
+                                              snapshot_seq, &state->callback,
                                               expose_blob_index, allow_refresh);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);

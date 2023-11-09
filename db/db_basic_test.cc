@@ -138,6 +138,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
       ASSERT_OK(iter->status());
       ++count;
     }
+    ASSERT_OK(iter->status());
     // Always expect two keys: "foo" and "bar"
     ASSERT_EQ(count, 2);
   };
@@ -1427,10 +1428,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int retries = 0;
   bool last_try = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
-        last_try = true;
-        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-      });
+      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) { last_try = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
@@ -1447,7 +1445,27 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
           }
         }
       });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::MultiGet::AfterLastTryRefSV",
+       "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV"},
+      {"DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV",
+       "DBImpl::MultiGet::BeforeLastTryUnRefSV"},
+  });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread create_sv_thread([this]() {
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV");
+    // Create a new SuperVersion for each column family after last_try
+    // of MultiGet ref SuperVersion and before unref it.
+    for (int i = 0; i < 8; ++i) {
+      ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                    "cf" + std::to_string(i) + "_val_after_last_try"));
+      ASSERT_OK(Flush(i));
+    }
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV");
+  });
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1460,6 +1478,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
 
   values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
                     std::get<1>(GetParam()));
+  create_sv_thread.join();
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1473,6 +1492,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
             ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
@@ -3635,10 +3655,12 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     Status Insert(const Slice& key, Cache::ObjectPtr value,
                   const CacheItemHelper* helper, size_t charge,
-                  Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
+                  Handle** handle = nullptr, Priority priority = Priority::LOW,
+                  const Slice& compressed = Slice(),
+                  CompressionType type = kNoCompression) override {
       num_inserts_++;
-      return target_->Insert(key, value, helper, charge, handle, priority);
+      return target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
     }
 
     Handle* Lookup(const Slice& key, const CacheItemHelper* helper,

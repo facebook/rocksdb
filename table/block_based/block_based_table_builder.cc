@@ -138,8 +138,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -152,8 +152,8 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
     // Sampling with a slow but high-compression algorithm
     if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
-      CompressionContext context(c);
       CompressionOptions options;
+      CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
@@ -488,7 +488,7 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        create_context(&table_options, ioptions.stats,
+        create_context(&table_options, &ioptions, ioptions.stats,
                        compression_type == kZSTD ||
                            compression_type == kZSTDNotFinalCompression,
                        tbo.moptions.block_protection_bytes_per_key,
@@ -525,8 +525,10 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
+    assert(compression_ctxs.size() >= compression_opts.parallel_threads);
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
-      compression_ctxs[i].reset(new CompressionContext(compression_type));
+      compression_ctxs[i].reset(
+          new CompressionContext(compression_type, compression_opts));
     }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
@@ -1145,6 +1147,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
     return;
   }
 
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
+      &r->compressed_output);
   WriteMaybeCompressedBlock(block_contents, type, handle, block_type,
                             &uncompressed_block_data);
   r->compressed_output.clear();
@@ -1705,9 +1710,10 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     property_block_builder.AddTableProperty(rep_->props);
 
     // Add use collected properties
-    NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
-                                         rep_->ioptions.logger,
-                                         &property_block_builder);
+    NotifyCollectTableCollectorsOnFinish(
+        rep_->table_properties_collectors, rep_->ioptions.logger,
+        &property_block_builder, rep_->props.user_collected_properties,
+        rep_->props.readable_properties);
 
     Slice block_data = property_block_builder.Finish();
     TEST_SYNC_POINT_CALLBACK(
@@ -2056,14 +2062,7 @@ bool BlockBasedTableBuilder::NeedCompact() const {
 }
 
 TableProperties BlockBasedTableBuilder::GetTableProperties() const {
-  TableProperties ret = rep_->props;
-  for (const auto& collector : rep_->table_properties_collectors) {
-    for (const auto& prop : collector->GetReadableProperties()) {
-      ret.readable_properties.insert(prop);
-    }
-    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
-  }
-  return ret;
+  return rep_->props;
 }
 
 std::string BlockBasedTableBuilder::GetFileChecksum() const {

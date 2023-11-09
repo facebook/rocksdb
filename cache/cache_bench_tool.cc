@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -13,9 +12,12 @@
 #include <set>
 #include <sstream>
 
+#include "cache/cache_key.h"
+#include "cache/sharded_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -44,7 +46,8 @@ static constexpr uint64_t GiB = MiB << 10;
 DEFINE_uint32(threads, 16, "Number of concurrent threads to run.");
 DEFINE_uint64(cache_size, 1 * GiB,
               "Number of bytes to use as a cache of uncompressed data.");
-DEFINE_uint32(num_shard_bits, 6, "shard_bits.");
+DEFINE_int32(num_shard_bits, -1,
+             "ShardedCacheOptions::shard_bits. Default = auto");
 
 DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
@@ -54,14 +57,28 @@ DEFINE_uint32(value_bytes_estimate, 0,
               "If > 0, overrides estimated_entry_charge or "
               "min_avg_entry_charge depending on cache_type.");
 
+DEFINE_int32(
+    degenerate_hash_bits, 0,
+    "With HCC, fix this many hash bits to increase table hash collisions");
 DEFINE_uint32(skew, 5, "Degree of skew in key selection. 0 = no skew");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
 
-DEFINE_uint32(lookup_insert_percent, 87,
+DEFINE_double(pinned_ratio, 0.25,
+              "Keep roughly this portion of entries pinned in cache.");
+DEFINE_double(
+    vary_capacity_ratio, 0.0,
+    "If greater than 0.0, will periodically vary the capacity between this "
+    "ratio less than full size and full size. If vary_capacity_ratio + "
+    "pinned_ratio is close to or exceeds 1.0, the cache might thrash.");
+
+DEFINE_uint32(lookup_insert_percent, 82,
               "Ratio of lookup (+ insert on not found) to total workload "
               "(expressed as a percentage)");
 DEFINE_uint32(insert_percent, 2,
               "Ratio of insert to total workload (expressed as a percentage)");
+DEFINE_uint32(blind_insert_percent, 5,
+              "Ratio of insert without keeping handle to total workload "
+              "(expressed as a percentage)");
 DEFINE_uint32(lookup_percent, 10,
               "Ratio of lookup to total workload (expressed as a percentage)");
 DEFINE_uint32(erase_percent, 1,
@@ -75,6 +92,8 @@ DEFINE_uint32(
 
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
+
+DEFINE_uint32(usleep, 0, "Sleep up to this many microseconds after each op.");
 
 DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
@@ -93,9 +112,19 @@ DEFINE_uint32(seed, 0, "Hashing/random seed to use. 0 = choose at random");
 
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
-static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
+
+DEFINE_bool(use_jemalloc_no_dump_allocator, false,
+            "Whether to use JemallocNoDumpAllocator");
+
+DEFINE_uint32(jemalloc_no_dump_allocator_num_arenas,
+              ROCKSDB_NAMESPACE::JemallocAllocatorOptions().num_arenas,
+              "JemallocNodumpAllocator::num_arenas");
+
+DEFINE_bool(jemalloc_no_dump_allocator_limit_tcache_size,
+            ROCKSDB_NAMESPACE::JemallocAllocatorOptions().limit_tcache_size,
+            "JemallocNodumpAllocator::limit_tcache_size");
 
 // ## BEGIN stress_cache_key sub-tool options ##
 // See class StressCacheKey below.
@@ -181,15 +210,18 @@ class SharedState {
 
   bool Started() const { return start_; }
 
-  void AddLookupStats(uint64_t hits, uint64_t misses) {
+  void AddLookupStats(uint64_t hits, uint64_t misses, size_t pinned_count) {
     MutexLock l(&mu_);
     lookup_count_ += hits + misses;
     lookup_hits_ += hits;
+    pinned_count_ += pinned_count;
   }
 
   double GetLookupHitRatio() const {
     return 1.0 * lookup_hits_ / lookup_count_;
   }
+
+  size_t GetPinnedCount() const { return pinned_count_; }
 
  private:
   port::Mutex mu_;
@@ -202,6 +234,7 @@ class SharedState {
   uint64_t num_done_ = 0;
   uint64_t lookup_count_ = 0;
   uint64_t lookup_hits_ = 0;
+  size_t pinned_count_ = 0;
 };
 
 // Per-thread state for concurrent executions of the same benchmark.
@@ -226,6 +259,20 @@ struct KeyGen {
       raw = std::min(raw, rnd.Next());
     }
     uint64_t key = FastRange64(raw, max_key);
+    if (FLAGS_degenerate_hash_bits) {
+      uint64_t key_hash =
+          Hash64(reinterpret_cast<const char*>(&key), sizeof(key));
+      // HCC uses the high 64 bits and a lower bit mask for starting probe
+      // location, so we fix hash bits starting at the bottom of that word.
+      auto hi_hash = uint64_t{0x9e3779b97f4a7c13U} ^
+                     (key_hash << 1 << (FLAGS_degenerate_hash_bits - 1));
+      uint64_t un_hi, un_lo;
+      BijectiveUnhash2x64(hi_hash, key_hash, &un_hi, &un_lo);
+      un_lo ^= BitwiseAnd(FLAGS_seed, INT32_MAX);
+      EncodeFixed64(key_data, un_lo);
+      EncodeFixed64(key_data + 8, un_hi);
+      return Slice(key_data, kCacheKeySize);
+    }
     // Variable size and alignment
     size_t off = key % 8;
     key_data[0] = char{42};
@@ -239,8 +286,8 @@ struct KeyGen {
   }
 };
 
-Cache::ObjectPtr createValue(Random64& rnd) {
-  char* rv = new char[FLAGS_value_bytes];
+Cache::ObjectPtr createValue(Random64& rnd, MemoryAllocator* alloc) {
+  char* rv = AllocateBlock(FLAGS_value_bytes, alloc).release();
   // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
@@ -257,7 +304,8 @@ Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
   return Status::OK();
 }
 
-Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
+Status CreateFn(const Slice& data, CompressionType /*type*/,
+                CacheTier /*source*/, Cache::CreateContext* /*context*/,
                 MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                 size_t* out_charge) {
   *out_obj = new char[data.size()];
@@ -266,8 +314,8 @@ Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
   return Status::OK();
 };
 
-void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
-  delete[] static_cast<char*>(value);
+void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* alloc) {
+  CustomDeleter{alloc}(static_cast<char*>(value));
 }
 
 Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
@@ -279,6 +327,28 @@ Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
 Cache::CacheItemHelper helper3_wos(CacheEntryRole::kFilterBlock, DeleteFn);
 Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
                                SaveToFn, CreateFn, &helper3_wos);
+
+void ConfigureSecondaryCache(ShardedCacheOptions& opts) {
+  if (!FLAGS_secondary_cache_uri.empty()) {
+    std::shared_ptr<SecondaryCache> secondary_cache;
+    Status s = SecondaryCache::CreateFromString(
+        ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
+    if (secondary_cache == nullptr) {
+      fprintf(stderr,
+              "No secondary cache registered matching string: %s status=%s\n",
+              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    opts.secondary_cache = secondary_cache;
+  }
+}
+
+ShardedCacheBase* AsShardedCache(Cache* c) {
+  if (!FLAGS_secondary_cache_uri.empty()) {
+    c = static_cast_with_check<CacheWrapper>(c)->GetTarget().get();
+  }
+  return static_cast_with_check<ShardedCacheBase>(c);
+}
 }  // namespace
 
 class CacheBench {
@@ -293,7 +363,9 @@ class CacheBench {
                                  FLAGS_lookup_insert_percent),
         insert_threshold_(lookup_insert_threshold_ +
                           kHundredthUint64 * FLAGS_insert_percent),
-        lookup_threshold_(insert_threshold_ +
+        blind_insert_threshold_(insert_threshold_ +
+                                kHundredthUint64 * FLAGS_blind_insert_percent),
+        lookup_threshold_(blind_insert_threshold_ +
                           kHundredthUint64 * FLAGS_lookup_percent),
         erase_threshold_(lookup_threshold_ +
                          kHundredthUint64 * FLAGS_erase_percent) {
@@ -302,6 +374,15 @@ class CacheBench {
       exit(1);
     }
 
+    std::shared_ptr<MemoryAllocator> allocator;
+    if (FLAGS_use_jemalloc_no_dump_allocator) {
+      JemallocAllocatorOptions opts;
+      opts.num_arenas = FLAGS_jemalloc_no_dump_allocator_num_arenas;
+      opts.limit_tcache_size =
+          FLAGS_jemalloc_no_dump_allocator_limit_tcache_size;
+      Status s = NewJemallocNodumpAllocator(opts, &allocator);
+      assert(s.ok());
+    }
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
@@ -309,6 +390,7 @@ class CacheBench {
       HyperClockCacheOptions opts(
           FLAGS_cache_size, /*estimated_entry_charge=*/0, FLAGS_num_shard_bits);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
+      opts.memory_allocator = allocator;
       if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
           FLAGS_cache_type == "hyper_clock_cache") {
         opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0
@@ -319,31 +401,21 @@ class CacheBench {
           opts.min_avg_entry_charge = FLAGS_value_bytes_estimate;
         }
       } else {
-        fprintf(stderr, "Cache type not supported.");
+        fprintf(stderr, "Cache type not supported.\n");
         exit(1);
       }
+      ConfigureSecondaryCache(opts);
       cache_ = opts.MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
                            false /* strict_capacity_limit */,
                            0.5 /* high_pri_pool_ratio */);
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
-      if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s = SecondaryCache::CreateFromString(
-            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
-        if (secondary_cache == nullptr) {
-          fprintf(
-              stderr,
-              "No secondary cache registered matching string: %s status=%s\n",
-              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
-          exit(1);
-        }
-        opts.secondary_cache = secondary_cache;
-      }
-
+      opts.memory_allocator = allocator;
+      ConfigureSecondaryCache(opts);
       cache_ = NewLRUCache(opts);
     } else {
-      fprintf(stderr, "Cache type not supported.");
+      fprintf(stderr, "Cache type not supported.\n");
       exit(1);
     }
   }
@@ -373,7 +445,8 @@ class CacheBench {
       keys_since_last_not_found = 0;
 
       Status s =
-          cache_->Insert(key, createValue(rnd), &helper1, FLAGS_value_bytes);
+          cache_->Insert(key, createValue(rnd, cache_->memory_allocator()),
+                         &helper1, FLAGS_value_bytes);
       assert(s.ok());
 
       handle = cache_->Lookup(key);
@@ -459,6 +532,8 @@ class CacheBench {
     size_t slot = cache_->GetTableAddressCount();
     printf("Final load factor: %g (%zu / %zu)\n", 1.0 * occ / slot, occ, slot);
 
+    printf("Final pinned count: %zu\n", shared.GetPinnedCount());
+
     if (FLAGS_histograms) {
       printf("\nOperation latency (ns):\n");
       HistogramImpl combined;
@@ -490,6 +565,7 @@ class CacheBench {
   // Cumulative thresholds in the space of a random uint64_t
   const uint64_t lookup_insert_threshold_;
   const uint64_t insert_threshold_;
+  const uint64_t blind_insert_threshold_;
   const uint64_t lookup_threshold_;
   const uint64_t erase_threshold_;
 
@@ -605,28 +681,44 @@ class CacheBench {
     uint64_t lookup_misses = 0;
     uint64_t lookup_hits = 0;
     // To hold handles for a non-trivial amount of time
-    Cache::Handle* handle = nullptr;
+    std::deque<Cache::Handle*> pinned;
+    size_t total_pin_count = static_cast<size_t>(
+        (FLAGS_cache_size * FLAGS_pinned_ratio) / FLAGS_value_bytes + 0.999999);
+    // For this thread. Some round up, some round down, as appropriate
+    size_t pin_count = (total_pin_count + thread->tid) / FLAGS_threads;
+
     KeyGen gen;
     const auto clock = SystemClock::Default().get();
     uint64_t start_time = clock->NowMicros();
     StopWatchNano timer(clock);
+    auto system_clock = SystemClock::Default();
+    size_t steps_to_next_capacity_change = 0;
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       Slice key = gen.GetRand(thread->rnd, max_key_, FLAGS_skew);
       uint64_t random_op = thread->rnd.Next();
+
+      if (FLAGS_vary_capacity_ratio > 0.0 && thread->tid == 0) {
+        if (steps_to_next_capacity_change == 0) {
+          double cut_ratio = static_cast<double>(thread->rnd.Next()) /
+                             static_cast<double>(UINT64_MAX) *
+                             FLAGS_vary_capacity_ratio;
+          cache_->SetCapacity(FLAGS_cache_size * (1.0 - cut_ratio));
+          steps_to_next_capacity_change =
+              static_cast<size_t>(FLAGS_ops_per_thread / 100);
+        } else {
+          --steps_to_next_capacity_change;
+        }
+      }
 
       if (FLAGS_histograms) {
         timer.Start();
       }
 
       if (random_op < lookup_insert_threshold_) {
-        if (handle) {
-          cache_->Release(handle);
-          handle = nullptr;
-        }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW);
+        auto handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                     Cache::Priority::LOW);
         if (handle) {
           ++lookup_hits;
           if (!FLAGS_lean) {
@@ -634,30 +726,31 @@ class CacheBench {
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
+          pinned.push_back(handle);
         } else {
           ++lookup_misses;
           // do insert
-          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
-                                    FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(
+              key, createValue(thread->rnd, cache_->memory_allocator()),
+              &helper2, FLAGS_value_bytes, &pinned.emplace_back());
           assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
-        if (handle) {
-          cache_->Release(handle);
-          handle = nullptr;
-        }
         // do insert
-        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
-                                  FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(
+            key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
+            FLAGS_value_bytes, &pinned.emplace_back());
+        assert(s.ok());
+      } else if (random_op < blind_insert_threshold_) {
+        // insert without keeping a handle
+        Status s = cache_->Insert(
+            key, createValue(thread->rnd, cache_->memory_allocator()), &helper3,
+            FLAGS_value_bytes);
         assert(s.ok());
       } else if (random_op < lookup_threshold_) {
-        if (handle) {
-          cache_->Release(handle);
-          handle = nullptr;
-        }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW);
+        auto handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                     Cache::Priority::LOW);
         if (handle) {
           ++lookup_hits;
           if (!FLAGS_lean) {
@@ -665,6 +758,7 @@ class CacheBench {
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
+          pinned.push_back(handle);
         } else {
           ++lookup_misses;
         }
@@ -678,13 +772,24 @@ class CacheBench {
       if (FLAGS_histograms) {
         thread->latency_ns_hist.Add(timer.ElapsedNanos());
       }
-      thread->shared->AddLookupStats(lookup_hits, lookup_misses);
+      if (FLAGS_usleep > 0) {
+        unsigned us =
+            static_cast<unsigned>(thread->rnd.Uniform(FLAGS_usleep + 1));
+        if (us > 0) {
+          system_clock->SleepForMicroseconds(us);
+        }
+      }
+      while (pinned.size() > pin_count) {
+        cache_->Release(pinned.front());
+        pinned.pop_front();
+      }
     }
     if (FLAGS_early_exit) {
       MutexLock l(thread->shared->GetMutex());
       exit(0);
     }
-    if (handle) {
+    thread->shared->AddLookupStats(lookup_hits, lookup_misses, pinned.size());
+    for (auto handle : pinned) {
       cache_->Release(handle);
       handle = nullptr;
     }
@@ -712,7 +817,8 @@ class CacheBench {
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
     printf("Cache size          : %s\n",
            BytesToHumanString(FLAGS_cache_size).c_str());
-    printf("Num shard bits      : %u\n", FLAGS_num_shard_bits);
+    printf("Num shard bits      : %d\n",
+           AsShardedCache(cache_.get())->GetNumShardBits());
     printf("Max key             : %" PRIu64 "\n", max_key_);
     printf("Resident ratio      : %g\n", FLAGS_resident_ratio);
     printf("Skew degree         : %u\n", FLAGS_skew);
@@ -1032,6 +1138,7 @@ class StressCacheKey {
 };
 
 int cache_bench_tool(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ParseCommandLineFlags(&argc, &argv, true);
 
   if (FLAGS_stress_cache_key) {

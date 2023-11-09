@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+@SuppressWarnings("PMD.AvoidStringBufferField")
 public class OptionString {
   private static final char kvPairSeparator = ';';
   private static final char kvSeparator = '=';
@@ -39,6 +40,7 @@ public class OptionString {
       return new Value(null, complex);
     }
 
+    @Override
     public String toString() {
       final StringBuilder sb = new StringBuilder();
       if (isList()) {
@@ -68,6 +70,7 @@ public class OptionString {
       this.value = value;
     }
 
+    @Override
     public String toString() {
       return "" + key + "=" + value;
     }
@@ -75,6 +78,8 @@ public class OptionString {
 
   static class Parser {
     static class Exception extends RuntimeException {
+      private static final long serialVersionUID = 752283782841276408L;
+
       public Exception(final String s) {
         super(s);
       }
@@ -122,7 +127,7 @@ public class OptionString {
       return (sb.length() > 0);
     }
 
-    private boolean is(final char c) {
+    private boolean isChar(final char c) {
       return (sb.length() > 0 && sb.charAt(0) == c);
     }
 
@@ -151,10 +156,10 @@ public class OptionString {
     }
 
     private String parseSimpleValue() {
-      if (is(wrappedValueBegin)) {
+      if (isChar(wrappedValueBegin)) {
         next();
         final String result = parseSimpleValue();
-        if (!is(wrappedValueEnd)) {
+        if (!isChar(wrappedValueEnd)) {
           exception("Expected to end a wrapped value with " + wrappedValueEnd);
         }
         next();
@@ -172,7 +177,7 @@ public class OptionString {
       final List<String> list = new ArrayList<>(1);
       while (true) {
         list.add(parseSimpleValue());
-        if (!is(arrayValueSeparator))
+        if (!isChar(arrayValueSeparator))
           break;
 
         next();
@@ -188,7 +193,7 @@ public class OptionString {
       }
       final String key = parseKey();
       skipWhite();
-      if (is(kvSeparator)) {
+      if (isChar(kvSeparator)) {
         next();
       } else {
         exception("Expected = separating key and value");
@@ -200,12 +205,12 @@ public class OptionString {
 
     private Value parseValue() {
       skipWhite();
-      if (is(complexValueBegin)) {
+      if (isChar(complexValueBegin)) {
         next();
         skipWhite();
         final Value value = Value.fromComplex(parseComplex());
         skipWhite();
-        if (is(complexValueEnd)) {
+        if (isChar(complexValueEnd)) {
           next();
           skipWhite();
         } else {
@@ -214,7 +219,7 @@ public class OptionString {
         return value;
       } else if (isValueChar()) {
         return Value.fromList(parseList());
-      } else if (is(kvPairSeparator)) {
+      } else if (isChar(kvPairSeparator)) {
         // e.g. empty vector embedded in a struct option looks like
         // struct_opt = {vector_opt=;...}
         final List<String> entries = new ArrayList<>();
@@ -232,7 +237,7 @@ public class OptionString {
       if (hasNext()) {
         entries.add(parseOption());
         skipWhite();
-        while (is(kvPairSeparator)) {
+        while (isChar(kvPairSeparator)) {
           next();
           skipWhite();
           if (!isKeyChar()) {

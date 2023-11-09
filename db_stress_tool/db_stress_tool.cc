@@ -88,11 +88,11 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    if (FLAGS_write_fault_one_in) {
-      fault_fs_guard->SetFilesystemDirectWritable(false);
-    } else {
-      fault_fs_guard->SetFilesystemDirectWritable(true);
-    }
+    // Set it to direct writable here to not lose files created during DB open
+    // when no open fault injection is not enabled.
+    // This will be overwritten in StressTest::Open() for open fault injection
+    // and in RunStressTestImpl() for proper write fault injection setup.
+    fault_fs_guard->SetFilesystemDirectWritable(true);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
@@ -240,10 +240,10 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
-      !FLAGS_disable_wal) {
+  if (FLAGS_best_efforts_recovery &&
+      !(FLAGS_skip_verifydb && FLAGS_disable_wal)) {
     fprintf(stderr,
-            "With best-efforts recovery, either skip_verifydb or disable_wal "
+            "With best-efforts recovery, skip_verifydb and disable_wal "
             "should be set to true.\n");
     exit(1);
   }
@@ -308,11 +308,11 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   if (FLAGS_use_put_entity_one_in > 0 &&
-      (FLAGS_use_merge || FLAGS_use_full_merge_v1 || FLAGS_use_txn ||
-       FLAGS_test_multi_ops_txns || FLAGS_user_timestamp_size > 0)) {
+      (FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
+       FLAGS_user_timestamp_size > 0)) {
     fprintf(stderr,
-            "PutEntity is currently incompatible with Merge,"
-            " transactions, and user-defined timestamps\n");
+            "Wide columns are incompatible with V1 Merge, transactions, and "
+            "user-defined timestamps\n");
     exit(1);
   }
 

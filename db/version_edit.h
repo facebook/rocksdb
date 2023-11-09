@@ -219,10 +219,16 @@ struct FileMetaData {
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
 
-  // The file could be the compaction output from other SST files, which could
-  // in turn be outputs for compact older SST files. We track the memtable
-  // flush timestamp for the oldest SST file that eventually contribute data
-  // to this file. 0 means the information is not available.
+  // For flush output file, oldest ancestor time is the oldest key time in the
+  // file.  If the oldest key time is not available, flush time is used.
+  //
+  // For compaction output file, oldest ancestor time is the oldest
+  // among all the oldest key time of its input files, since the file could be
+  // the compaction output from other SST files, which could in turn be outputs
+  // for compact older SST files. If that's not available, creation time of this
+  // compaction output file is used.
+  //
+  // 0 means the information is not available.
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
 
   // Unix time when the SST file is created.
@@ -612,6 +618,8 @@ class VersionEdit {
   }
   uint32_t GetColumnFamily() const { return column_family_; }
 
+  const std::string& GetColumnFamilyName() const { return column_family_name_; }
+
   // set column family ID by calling SetColumnFamily()
   void AddColumnFamily(const std::string& name) {
     assert(!is_column_family_drop_);
@@ -642,6 +650,9 @@ class VersionEdit {
     remaining_entries_ = remaining_entries;
   }
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
+  void SetRemainingEntries(uint32_t remaining_entries) {
+    remaining_entries_ = remaining_entries;
+  }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
   bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
@@ -672,16 +683,6 @@ class VersionEdit {
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
-  friend class ReactiveVersionSet;
-  friend class VersionEditHandlerBase;
-  friend class ListColumnFamiliesHandler;
-  friend class VersionEditHandler;
-  friend class VersionEditHandlerPointInTime;
-  friend class DumpManifestHandler;
-  friend class VersionSet;
-  friend class Version;
-  friend class AtomicGroupReadBuffer;
-
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   const char* DecodeNewFile4From(Slice* input);

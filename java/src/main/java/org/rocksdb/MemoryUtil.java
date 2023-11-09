@@ -27,7 +27,9 @@ public class MemoryUtil {
    * @param caches Set of caches to collect memory usage for.
    * @return Map from {@link MemoryUsageType} to memory usage as a {@link Long}.
    */
-  public static Map<MemoryUsageType, Long> getApproximateMemoryUsageByType(final List<RocksDB> dbs, final Set<Cache> caches) {
+  @SuppressWarnings("PMD.CloseResource")
+  public static Map<MemoryUsageType, Long> getApproximateMemoryUsageByType(
+      final List<RocksDB> dbs, final Set<Cache> caches) {
     final int dbCount = (dbs == null) ? 0 : dbs.size();
     final int cacheCount = (caches == null) ? 0 : caches.size();
     final long[] dbHandles = new long[dbCount];

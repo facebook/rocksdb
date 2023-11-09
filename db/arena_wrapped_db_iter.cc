@@ -19,6 +19,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+inline static SequenceNumber GetSeqNum(const DBImpl* db, const Snapshot* s) {
+  if (s) {
+    return s->GetSequenceNumber();
+  } else {
+    return db->GetLatestSequenceNumber();
+  }
+}
+
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                        std::string* prop) {
   if (prop_name == "rocksdb.iterator.super-version-number") {
@@ -54,7 +62,9 @@ void ArenaWrappedDBIter::Init(
   }
 }
 
-Status ArenaWrappedDBIter::Refresh() {
+Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
+
+Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
   if (cfd_ == nullptr || db_impl_ == nullptr || !allow_refresh_) {
     return Status::NotSupported("Creating renew iterator is not allowed.");
   }
@@ -63,6 +73,10 @@ Status ArenaWrappedDBIter::Refresh() {
   // correct behavior. Will be corrected automatically when we take a snapshot
   // here for the case of WritePreparedTxnDB.
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
+  // If we recreate a new internal iterator below (NewInternalIterator()),
+  // we will pass in read_options_. We need to make sure it
+  // has the right snapshot.
+  read_options_.snapshot = snapshot;
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:1");
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:2");
   auto reinit_internal_iter = [&]() {
@@ -72,18 +86,19 @@ Status ArenaWrappedDBIter::Refresh() {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
-    SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+    assert(sv->version_number >= cur_sv_number);
+    SequenceNumber read_seq = GetSeqNum(db_impl_, snapshot);
     if (read_callback_) {
-      read_callback_->Refresh(latest_seq);
+      read_callback_->Refresh(read_seq);
     }
     Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
-         sv->current, latest_seq,
+         sv->current, read_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
+         sv->version_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
          allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-        read_options_, cfd_, sv, &arena_, latest_seq,
+        read_options_, cfd_, sv, &arena_, read_seq,
         /* allow_unprepared_value */ true, /* db_iter */ this);
     SetIterUnderDBIter(internal_iter);
   };
@@ -92,13 +107,13 @@ Status ArenaWrappedDBIter::Refresh() {
       reinit_internal_iter();
       break;
     } else {
-      SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+      SequenceNumber read_seq = GetSeqNum(db_impl_, snapshot);
       // Refresh range-tombstones in MemTable
       if (!read_options_.ignore_range_deletions) {
         SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
         TEST_SYNC_POINT_CALLBACK("ArenaWrappedDBIter::Refresh:SV", nullptr);
         auto t = sv->mem->NewRangeTombstoneIterator(
-            read_options_, latest_seq, false /* immutable_memtable */);
+            read_options_, read_seq, false /* immutable_memtable */);
         if (!t || t->empty()) {
           // If memtable_range_tombstone_iter_ points to a non-empty tombstone
           // iterator, then it means sv->mem is not the memtable that
@@ -128,9 +143,6 @@ Status ArenaWrappedDBIter::Refresh() {
         }
         db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
       }
-      // Refresh latest sequence number
-      db_iter_->set_sequence(latest_seq);
-      db_iter_->set_valid(false);
       // Check again if the latest super version number is changed
       uint64_t latest_sv_number = cfd_->GetSuperVersionNumber();
       if (latest_sv_number != cur_sv_number) {
@@ -139,6 +151,8 @@ Status ArenaWrappedDBIter::Refresh() {
         cur_sv_number = latest_sv_number;
         continue;
       }
+      db_iter_->set_sequence(read_seq);
+      db_iter_->set_valid(false);
       break;
     }
   }

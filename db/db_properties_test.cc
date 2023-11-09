@@ -1084,12 +1084,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   const char* Name() const override { return "CountingUserTblPropCollector"; }
 
   Status Finish(UserCollectedProperties* properties) override {
+    assert(!finish_called_);
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
         {"CountingUserTblPropCollector", message_},
         {"Count", encoded},
     };
+    finish_called_ = true;
     return Status::OK();
   }
 
@@ -1101,12 +1103,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
+    assert(finish_called_);
     return UserCollectedProperties{};
   }
 
  private:
   std::string message_ = "Rocksdb";
   uint32_t count_ = 0;
+  bool finish_called_ = false;
 };
 
 class CountingUserTblPropCollectorFactory

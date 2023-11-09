@@ -63,7 +63,7 @@ bool JemallocNodumpAllocator::IsSupported(std::string* why) {
 }
 
 JemallocNodumpAllocator::JemallocNodumpAllocator(
-    JemallocAllocatorOptions& options)
+    const JemallocAllocatorOptions& options)
     : options_(options)
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
       ,
@@ -124,7 +124,8 @@ uint32_t JemallocNodumpAllocator::GetArenaIndex() const {
   // to make Random thread-safe and prevent cacheline bouncing. Whether this is
   // worthwhile is still an open question.
   thread_local Random tl_random(next_seed.fetch_add(1));
-  return arena_indexes_[FastRange32(tl_random.Next(), arena_indexes_.size())];
+  return arena_indexes_[FastRange32(
+      tl_random.Next(), static_cast<uint32_t>(arena_indexes_.size()))];
 }
 
 Status JemallocNodumpAllocator::InitializeArenas() {
@@ -282,7 +283,7 @@ void JemallocNodumpAllocator::DestroyThreadSpecificCache(void* ptr) {
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
 Status NewJemallocNodumpAllocator(
-    JemallocAllocatorOptions& options,
+    const JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
   if (memory_allocator == nullptr) {
     return Status::InvalidArgument("memory_allocator must be non-null.");

@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
@@ -178,6 +179,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
+  options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   return options;
 }
 
@@ -210,6 +212,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_protection_bytes_per_key;
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
+  cf_opts->bottommost_file_compaction_delay =
+      moptions.bottommost_file_compaction_delay;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
@@ -315,6 +319,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
       ioptions.preserve_internal_time_seconds;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
+  cf_opts->default_temperature = ioptions.default_temperature;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -429,6 +434,10 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
     case OptionType::kSizeT:
       PutUnaligned(static_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
+    case OptionType::kAtomicInt:
+      static_cast<std::atomic<int>*>(opt_address)
+          ->store(ParseInt(value), std::memory_order_release);
+      break;
     case OptionType::kString:
       *static_cast<std::string*>(opt_address) = value;
       break;
@@ -517,6 +526,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
+      break;
+    case OptionType::kAtomicInt:
+      *value = std::to_string(static_cast<const std::atomic<int>*>(opt_address)
+                                  ->load(std::memory_order_acquire));
       break;
     case OptionType::kString:
       *value =
@@ -1166,6 +1179,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
       return (v1 == v2);
     }
+    case OptionType::kAtomicInt:
+      return IsOptionEqual<std::atomic<int>>(this_offset, that_offset);
     case OptionType::kString:
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kDouble:

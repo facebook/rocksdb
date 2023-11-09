@@ -1148,7 +1148,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
   CompressionType type = bdb_options_.compression;
   CompressionOptions opts;
-  CompressionContext context(type);
+  CompressionContext context(type, opts);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type,
                        0 /* sample_for_compression */);
   CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
@@ -2101,8 +2101,9 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
     own_snapshot = new ManagedSnapshot(db_);
     snapshot = own_snapshot->snapshot();
   }
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(db_impl_);
   auto* iter = db_impl_->NewIteratorImpl(
-      read_options, cfd, snapshot->GetSequenceNumber(),
+      read_options, cfd, sv, snapshot->GetSequenceNumber(),
       nullptr /*read_callback*/, true /*expose_blob_index*/);
   return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
 }

@@ -78,6 +78,112 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
+TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
+  // Reproduction from the original bug report, 11606
+  // This test does writes without snapshot validation, and then tries to create
+  // iterator later, which is unsupported in write unprepared.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
+  WriteOptions write_options;
+  ReadOptions read_options;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  // Write some keys in a txn
+  s = txn->Put("2", "2");
+  ASSERT_OK(s);
+
+  s = txn->Put("1", "1");
+  ASSERT_OK(s);
+
+  s = txn->Delete("2");
+  ASSERT_OK(s);
+
+  read_options.iterate_upper_bound = new Slice("2", 1);
+  Iterator* iter = txn->GetIterator(read_options);
+  ASSERT_OK(iter->status());
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    ASSERT_EQ("1", iter->key().ToString());
+    iter->Next();
+  }
+  delete iter;
+  delete txn;
+  delete read_options.iterate_upper_bound;
+}
+
+TEST_P(TransactionTest, TestTxnRespectBoundsInReadOption) {
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
+  WriteOptions write_options;
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
+    // writes that should be observed by base_iterator_ in BaseDeltaIterator
+    ASSERT_OK(txn->Put("a", "aa"));
+    ASSERT_OK(txn->Put("c", "cc"));
+    ASSERT_OK(txn->Put("e", "ee"));
+    ASSERT_OK(txn->Put("f", "ff"));
+    ASSERT_TRUE(txn->Commit().ok());
+  }
+
+  std::unique_ptr<Transaction> txn2(db->BeginTransaction(write_options));
+  // writes that should be observed by delta_iterator_ in BaseDeltaIterator
+  ASSERT_OK(txn2->Put("b", "bb"));
+  ASSERT_OK(txn2->Put("c", "cc"));
+  ASSERT_OK(txn2->Put("f", "ff"));
+
+  // delta_iterator_:   b c   f
+  //  base_iterator_: a   c e f
+  //
+  // given range [c, f)
+  // assert only {c, e} can be seen
+
+  ReadOptions ro;
+  ro.iterate_lower_bound = new Slice("c");
+  ro.iterate_upper_bound = new Slice("f");
+  std::unique_ptr<Iterator> iter(txn2->GetIterator(ro));
+
+  iter->Seek(Slice("b"));
+  ASSERT_EQ("c", iter->key());  // lower bound capping
+  iter->Seek(Slice("f"));
+  ASSERT_FALSE(iter->Valid());  // out of bound
+
+  iter->SeekForPrev(Slice("f"));
+  ASSERT_EQ("e", iter->key());  // upper bound capping
+  iter->SeekForPrev(Slice("b"));
+  ASSERT_FALSE(iter->Valid());  // out of bound
+
+  // move to the lower bound
+  iter->SeekToFirst();
+  ASSERT_EQ("c", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+
+  // move to the upper bound
+  iter->SeekToLast();
+  ASSERT_EQ("e", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  // reversely walk to the beginning
+  iter->SeekToLast();
+  ASSERT_EQ("e", iter->key());
+  iter->Prev();
+  ASSERT_EQ("c", iter->key());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+
+  delete ro.iterate_lower_bound;
+  delete ro.iterate_upper_bound;
+}
+
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
   write_options.sync = true;
@@ -6756,6 +6862,55 @@ TEST_P(TransactionTest, UnlockWALStallCleared) {
 
     t1.join();
     t2.join();
+  }
+}
+
+TEST_F(TransactionDBTest, CollapseKey) {
+  ASSERT_OK(ReOpen());
+  ASSERT_OK(db->Put({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+  ASSERT_OK(db->Merge({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+  ASSERT_OK(db->Merge({}, "hello", "world"));
+  ASSERT_OK(db->Flush({}));
+
+  std::string value;
+  ASSERT_OK(db->Get({}, "hello", &value));
+  ASSERT_EQ("world,world,world", value);
+
+  // get merge op info
+  std::vector<PinnableSlice> operands(3);
+  GetMergeOperandsOptions mergeOperandOptions;
+  mergeOperandOptions.expected_max_number_of_operands = 3;
+  int numOperands;
+  ASSERT_OK(db->GetMergeOperands({}, db->DefaultColumnFamily(), "hello",
+                                 operands.data(), &mergeOperandOptions,
+                                 &numOperands));
+  ASSERT_EQ(3, numOperands);
+
+  // collapse key
+  {
+    std::unique_ptr<Transaction> txn0{
+        db->BeginTransaction(WriteOptions{}, TransactionOptions{})};
+    ASSERT_OK(txn0->CollapseKey(ReadOptions{}, "hello"));
+    ASSERT_OK(txn0->Commit());
+  }
+
+  // merge operands should be 1
+  ASSERT_OK(db->GetMergeOperands({}, db->DefaultColumnFamily(), "hello",
+                                 operands.data(), &mergeOperandOptions,
+                                 &numOperands));
+  ASSERT_EQ(1, numOperands);
+
+  // get again after collapse
+  ASSERT_OK(db->Get({}, "hello", &value));
+  ASSERT_EQ("world,world,world", value);
+
+  // collapse of non-existent key
+  {
+    std::unique_ptr<Transaction> txn1{
+        db->BeginTransaction(WriteOptions{}, TransactionOptions{})};
+    ASSERT_TRUE(txn1->CollapseKey(ReadOptions{}, "dummy").IsNotFound());
   }
 }
 

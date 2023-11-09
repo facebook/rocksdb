@@ -31,8 +31,9 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
    *
    * @return native handle of the CompactionFilter
    */
-  private long createCompactionFilter(final boolean fullCompaction,
-      final boolean manualCompaction) {
+  @SuppressWarnings({"PMD.UnusedPrivateMethod", "PMD.CloseResource"})
+  private long createCompactionFilter(
+      final boolean fullCompaction, final boolean manualCompaction) {
     final T filter = createCompactionFilter(
         new AbstractCompactionFilter.Context(fullCompaction, manualCompaction));
 
