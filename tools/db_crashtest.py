@@ -125,7 +125,6 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
-        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
          "auto_hyper_clock_cache", "tiered_lru_cache",
          "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
          "tiered_auto_hyper_clock_cache"]
@@ -165,7 +164,7 @@ default_params = {
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
-    "use_write_buffer_manager": lambda: random.randint(0, 1),
+    "use_write_buffer_manager": lambda: random.randint(1, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(

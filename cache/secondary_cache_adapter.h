@@ -60,6 +60,8 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   SecondaryCache* TEST_GetSecondaryCache() { return secondary_cache_.get(); }
 
  private:
+  static constexpr size_t kReservationChunkSize = 1 << 20;
+
   bool EvictionHandler(const Slice& key, Handle* handle, bool was_hit);
 
   void StartAsyncLookupOnMySecondary(AsyncLookupHandle& async_handle);
@@ -84,11 +86,16 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   std::shared_ptr<ConcurrentCacheReservationManager> pri_cache_res_;
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
-  std::atomic<double> sec_cache_res_ratio_;
+  double sec_cache_res_ratio_;
   mutable port::Mutex mutex_;
-#ifndef NDEBUG
-  bool ratio_changed_ = false;
-#endif
+  // Total memory reserved by placeholder entriesin the cache
+  size_t placeholder_usage_;
+  // Total placeholoder memory charged to both the primary and secondary
+  // caches. Will be <= placeholder_usage_.
+  size_t reserved_usage_;
+  // Amount of memory reserved in the secondary cache. This should be
+  // reserved_usage_ * sec_cache_res_ratio_ in steady state.
+  size_t sec_reserved_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
