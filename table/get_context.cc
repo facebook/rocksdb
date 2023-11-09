@@ -73,7 +73,7 @@ GetContext::GetContext(const Comparator* ucmp,
                  tracing_get_id, blob_fetcher) {}
 
 void GetContext::appendToReplayLog(std::string* replay_log, ValueType type,
-                                   Slice value) {
+                                   Slice value, Slice ts) {
   if (replay_log) {
     if (replay_log->empty()) {
       // Optimization: in the common case of only one operation in the
@@ -82,6 +82,12 @@ void GetContext::appendToReplayLog(std::string* replay_log, ValueType type,
     }
     replay_log->push_back(type);
     PutLengthPrefixedSlice(replay_log, value);
+
+    // If cf enables ts, there should always be a ts following each value
+    if (ucmp_->timestamp_size() > 0) {
+      assert(ts.size() == ucmp_->timestamp_size());
+      PutLengthPrefixedSlice(replay_log, ts);
+    }
   }
 }
 
@@ -99,7 +105,9 @@ void GetContext::MarkKeyMayExist() {
 
 void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   assert(state_ == kNotFound);
-  appendToReplayLog(replay_log_, kTypeValue, value);
+  const std::string kMaxTs(TimestampSize(), '\xff');
+
+  appendToReplayLog(replay_log_, kTypeValue, value, Slice(kMaxTs));
 
   state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
@@ -225,7 +233,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       return true;  // to continue to the next seq
     }
 
-    appendToReplayLog(replay_log_, parsed_key.type, value);
 
     if (seq_ != nullptr) {
       // Set the sequence number if it is uninitialized
@@ -238,6 +245,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
 
     size_t ts_sz = ucmp_->timestamp_size();
+    const std::string kMaxTs(ts_sz, '\xff');
+
+    Slice ts = Slice(kMaxTs);
+    if (timestamp_ != nullptr && timestamp_->size() == ts_sz) {
+      ts = Slice(timestamp_->c_str(), ts_sz);
+    }
+
     if (ts_sz > 0 && timestamp_ != nullptr) {
       if (!timestamp_->empty()) {
         assert(ts_sz == timestamp_->size());
@@ -250,20 +264,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (ts_from_rangetombstone_) {
           assert(max_covering_tombstone_seq_);
           if (parsed_key.sequence > *max_covering_tombstone_seq_) {
-            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
             ts_from_rangetombstone_ = false;
           }
         }
       }
       // TODO optimize for small size ts
-      const std::string kMaxTs(ts_sz, '\xff');
       if (timestamp_->empty() ||
           ucmp_->CompareTimestamp(*timestamp_, kMaxTs) == 0) {
-        Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+        ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
         timestamp_->assign(ts.data(), ts.size());
       }
     }
+    appendToReplayLog(replay_log_, parsed_key.type, value, ts);
 
     auto type = parsed_key.type;
     // Key matches. Process it
@@ -559,21 +573,8 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          SequenceNumber seq_no) {
   Slice s = replay_log;
   Slice ts = Slice();
+  size_t ts_sz = get_context->TimestampSize();
   bool ret;
-
-  // If cf enables ts, only Put() and Get() with ts can be called and all cached
-  // entries will contain ts at the end of value. Should manually extract the ts
-  // and return it to user.
-  if (get_context->NeedTimestamp()) {
-    size_t ts_sz = get_context->TimestampSize();
-    size_t prefix_ts_slice_len = VarintLength(ts_sz) + ts_sz;
-    Slice ts_slice =
-        Slice(s.data() + s.size() - prefix_ts_slice_len, prefix_ts_slice_len);
-    ret = GetLengthPrefixedSlice(&ts_slice, &ts);
-    assert(ret);
-
-    s.remove_suffix(1 + prefix_ts_slice_len);
-  }
 
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -587,9 +588,12 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
 
-    // Ensures ikey always uses the ts associated with cached object not the ts
-    // associated with user's query.
-    if (ts.size() > 0) {
+    // If ts enabled for current cf, there will always be ts appended after each
+    // piece of value.
+    if (ts_sz > 0) {
+      ret = GetLengthPrefixedSlice(&s, &ts);
+      assert(ret);
+      (void)ret;
       ikey.SetTimestamp(ts);
     }
 
