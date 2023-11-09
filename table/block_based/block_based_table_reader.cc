@@ -1895,7 +1895,8 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
       rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
       rep->index_has_first_key, rep->index_key_includes_seq,
-      rep->index_value_is_full);
+      rep->index_value_is_full, /*block_contents_pinned=*/false,
+      rep->user_defined_timestamps_persisted);
 }
 
 // This will be broken if the user specifies an unusual implementation
