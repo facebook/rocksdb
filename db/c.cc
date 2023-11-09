@@ -123,10 +123,10 @@ using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
-using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
+using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WriteOptions;
 
 using std::unordered_set;
@@ -4903,22 +4903,27 @@ bool rocksdb_write_buffer_manager_enabled(rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->enabled();
 }
 
-bool rocksdb_write_buffer_manager_cost_to_cache(rocksdb_write_buffer_manager_t* wbm) {
+bool rocksdb_write_buffer_manager_cost_to_cache(
+    rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->cost_to_cache();
 }
 
-size_t rocksdb_write_buffer_manager_memory_usage(rocksdb_write_buffer_manager_t* wbm) {
+size_t rocksdb_write_buffer_manager_memory_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->memory_usage();
 }
 
-size_t rocksdb_write_buffer_manager_mutable_memtable_memory_usage(rocksdb_write_buffer_manager_t* wbm) {
+size_t rocksdb_write_buffer_manager_mutable_memtable_memory_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->mutable_memtable_memory_usage();
 }
 
-size_t rocksdb_write_buffer_manager_dummy_entries_in_cache_usage(rocksdb_write_buffer_manager_t* wbm) {
+size_t rocksdb_write_buffer_manager_dummy_entries_in_cache_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->dummy_entries_in_cache_usage();
 }
-size_t rocksdb_write_buffer_manager_buffer_size(rocksdb_write_buffer_manager_t* wbm) {
+size_t rocksdb_write_buffer_manager_buffer_size(
+    rocksdb_write_buffer_manager_t* wbm) {
   return wbm->rep->buffer_size();
 }
 void rocksdb_write_buffer_manager_set_buffer_size(
