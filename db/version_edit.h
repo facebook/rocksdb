@@ -689,7 +689,7 @@ class VersionEdit {
                 std::optional<size_t> ts_sz = std::nullopt) const;
   Status DecodeFrom(const Slice& src);
 
-  const std::vector<uint64_t>* GetFilesToQuarantineIfCommitFail() const {
+  const autovector<uint64_t>* GetFilesToQuarantineIfCommitFail() const {
     return &files_to_quarantine_;
   }
 
@@ -763,7 +763,7 @@ class VersionEdit {
   // in Manifest as live files.
   // Since table files and blob files share the same file number space, we just
   // record the file number here.
-  std::vector<uint64_t> files_to_quarantine_;
+  autovector<uint64_t> files_to_quarantine_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

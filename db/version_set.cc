@@ -5188,8 +5188,8 @@ Status VersionSet::ProcessManifestWrites(
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
-  std::vector<const std::vector<uint64_t>*> files_to_quarantine_if_commit_fail;
-  std::vector<uint64_t> limbo_descriptor_log_file_number;
+  autovector<const autovector<uint64_t>*> files_to_quarantine_if_commit_fail;
+  autovector<uint64_t> limbo_descriptor_log_file_number;
 
   // Tracking `max_last_sequence` is needed to ensure we write
   // `VersionEdit::last_sequence_`s in non-decreasing order according to the
@@ -5524,9 +5524,6 @@ Status VersionSet::ProcessManifestWrites(
                             dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
-        // TODO: when CURRENT file rename fails, should the in memory state
-        // continue to be updated to use the new descriptor, should we do:
-        // manifest_io_status = io_s;
         // Quarantine old manifest file in case new manifest file's CURRENT file
         // wasn't created successfully and the old manifest is needed.
         limbo_descriptor_log_file_number.push_back(manifest_file_number_);

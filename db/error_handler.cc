@@ -497,7 +497,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
 }
 
 void ErrorHandler::AddFilesToQuarantine(
-    std::vector<const std::vector<uint64_t>*> files_to_quarantine) {
+    autovector<const autovector<uint64_t>*> files_to_quarantine) {
   db_mutex_->AssertHeld();
   std::ostringstream quarantine_files_oss;
   bool is_first_one = true;
@@ -512,6 +512,13 @@ void ErrorHandler::AddFilesToQuarantine(
   ROCKS_LOG_INFO(db_options_.info_log,
                  "ErrorHandler: added file numbers %s to quarantine.\n",
                  quarantine_files_oss.str().c_str());
+}
+
+void ErrorHandler::ClearFilesToQuarantine() {
+  db_mutex_->AssertHeld();
+  files_to_quarantine_.clear();
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "ErrorHandler: cleared files in quarantine.\n");
 }
 
 Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,

@@ -11,6 +11,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/status.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -83,17 +84,14 @@ class ErrorHandler {
   void EndAutoRecovery();
 
   void AddFilesToQuarantine(
-      std::vector<const std::vector<uint64_t>*> files_to_quarantine);
+      autovector<const autovector<uint64_t>*> files_to_quarantine);
 
-  const std::vector<uint64_t>& GetFilesToQuarantine() const {
+  const autovector<uint64_t>& GetFilesToQuarantine() const {
     db_mutex_->AssertHeld();
     return files_to_quarantine_;
   }
 
-  void ClearFilesToQuarantine() {
-    db_mutex_->AssertHeld();
-    files_to_quarantine_.clear();
-  }
+  void ClearFilesToQuarantine();
 
  private:
   DBImpl* db_;
@@ -128,7 +126,7 @@ class ErrorHandler {
   // from deleting them. Successful recovery will clear this vector. Files are
   // added to this vector while DB mutex was locked, this data structure is
   // unsorted.
-  std::vector<uint64_t> files_to_quarantine_;
+  autovector<uint64_t> files_to_quarantine_;
 
   const Status& HandleKnownErrors(const Status& bg_err,
                                   BackgroundErrorReason reason);

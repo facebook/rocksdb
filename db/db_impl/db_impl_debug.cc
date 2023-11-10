@@ -309,7 +309,7 @@ SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   return seqno_to_time_mapping_;
 }
 
-const std::vector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
+const autovector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
   InstrumentedMutexLock l(&mutex_);
   return error_handler_.GetFilesToQuarantine();
 }

@@ -15,6 +15,7 @@
 #include "db/column_family.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -178,7 +179,7 @@ struct JobContext {
   // WAL logs don't have this premature deletion risk since
   // min_log_number_to_keep is only updated after successful manifest commits.
   // So this data structure doesn't track log files.
-  std::vector<uint64_t> files_to_quarantine;
+  autovector<uint64_t> files_to_quarantine;
 
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;
