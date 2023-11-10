@@ -149,6 +149,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
+    ASSERT_OK(iter->status());
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
       std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
@@ -262,7 +263,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -1092,6 +1093,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
 
     // Backward iteration
@@ -1104,6 +1106,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
   };
 
@@ -1111,7 +1114,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 
   // Verify counters when reading from table files
-  db->Flush(FlushOptions());
+  ASSERT_OK(db->Flush(FlushOptions()));
 
   verify();
 }

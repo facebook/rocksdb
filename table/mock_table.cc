@@ -230,7 +230,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
 
 std::shared_ptr<const TableProperties> MockTableReader::GetTableProperties()
     const {
-  return std::shared_ptr<const TableProperties>(new TableProperties());
+  TableProperties* tp = new TableProperties();
+  tp->num_entries = table_.size();
+  tp->num_range_deletions = 0;
+  tp->raw_key_size = 1;
+  tp->raw_value_size = 1;
+
+  return std::shared_ptr<const TableProperties>(tp);
 }
 
 MockTableFactory::MockTableFactory()
@@ -299,8 +305,7 @@ Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
                                        uint32_t* id) const {
   char buf[4];
   Slice result;
-  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr,
-                        Env::IO_TOTAL /* rate_limiter_priority */);
+  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
   assert(result.size() == 4);
   *id = DecodeFixed32(buf);
   return s;

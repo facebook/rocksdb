@@ -27,7 +27,7 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
   struct IteratorState;
 
   using WritePreparedTxnDB::NewIterator;
-  Iterator* NewIterator(const ReadOptions& options,
+  Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family,
                         WriteUnpreparedTxn* txn);
 

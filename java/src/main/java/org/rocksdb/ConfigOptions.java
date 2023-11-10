@@ -7,15 +7,11 @@
 package org.rocksdb;
 
 public class ConfigOptions extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   /**
    * Construct with default Options
    */
   public ConfigOptions() {
-    super(newConfigOptions());
+    super(newConfigOptionsInstance());
   }
 
   public ConfigOptions setDelimiter(final String delimiter) {
@@ -44,6 +40,10 @@ public class ConfigOptions extends RocksObject {
 
   @Override protected final native void disposeInternal(final long handle);
 
+  private static long newConfigOptionsInstance() {
+    RocksDB.loadLibrary();
+    return newConfigOptions();
+  }
   private static native long newConfigOptions();
   private static native void setEnv(final long handle, final long envHandle);
   private static native void setDelimiter(final long handle, final String delimiter);

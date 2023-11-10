@@ -117,7 +117,7 @@ class Mutex {
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld() {
+  void AssertHeld() const {
 #ifndef NDEBUG
     assert(locked_);
 #endif
@@ -159,7 +159,7 @@ class RWMutex {
   void WriteUnlock() { ReleaseSRWLockExclusive(&srwLock_); }
 
   // Empty as in POSIX
-  void AssertHeld() {}
+  void AssertHeld() const {}
 
  private:
   SRWLOCK srwLock_;
@@ -170,6 +170,9 @@ class CondVar {
   explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
+
+  Mutex* GetMutex() const { return mu_; }
+
   void Wait();
   bool TimedWait(uint64_t expiration_time);
   void Signal();

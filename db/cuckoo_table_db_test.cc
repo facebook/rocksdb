@@ -39,6 +39,7 @@ class CuckooTableDBTest : public testing::Test {
 
   Options CurrentOptions() {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.table_factory.reset(NewCuckooTableFactory());
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;

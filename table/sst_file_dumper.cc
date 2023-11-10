@@ -16,6 +16,8 @@
 
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
+#include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
 #include "port/port.h"
@@ -36,6 +38,7 @@
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -109,8 +112,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size),
-                                 Env::IO_TOTAL /* rate_limiter_priority */);
+                                 static_cast<size_t>(prefetch_size));
 
     s = ReadFooterFromFile(opts, file_.get(), *fs, &prefetch_buffer, file_size,
                            &footer);
@@ -165,10 +167,19 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
+  // TODO(yuzhangyu): full support in sst_dump for SST files generated when
+  // `user_defined_timestamps_persisted` is false.
   auto t_opt = TableReaderOptions(
       ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
       0 /* block_protection_bytes_per_key */, false /* skip_filters */,
-      false /* immortal */, true /* force_direct_prefetch */);
+      false /* immortal */, true /* force_direct_prefetch */, -1 /* level */,
+      nullptr /* block_cache_tracer */, 0 /* max_file_size_for_l0_meta_pin */,
+      "" /* cur_db_session_id */, 0 /* cur_file_num */, {} /* unique_id */,
+      0 /* largest_seqno */, 0 /* tail_size */,
+      table_properties_ == nullptr
+          ? true
+          : static_cast<bool>(
+                table_properties_->user_defined_timestamps_persisted));
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 
@@ -187,6 +198,7 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
+  assert(read_options_.verify_checksums);
   // We could pass specific readahead setting into read options if needed.
   return table_reader_->VerifyChecksum(read_options_,
                                        TableReaderCaller::kSSTDumpTool);
@@ -447,10 +459,20 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
       read_options_, moptions_.prefix_extractor.get(),
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
+
+  const Comparator* ucmp = internal_comparator_.user_comparator();
+  size_t ts_sz = ucmp->timestamp_size();
+
+  Slice from_slice = from_key;
+  Slice to_slice = to_key;
+  std::string from_key_buf, to_key_buf;
+  auto [from, to] = MaybeAddTimestampsToRange(
+      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
+      &from_key_buf, &to_key_buf);
   uint64_t i = 0;
-  if (has_from) {
+  if (from.has_value()) {
     InternalKey ikey;
-    ikey.SetMinPossibleForUserKey(from_key);
+    ikey.SetMinPossibleForUserKey(from.value());
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -474,15 +496,29 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // If end marker was specified, we stop before it
-    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
+    if (to.has_value() && ucmp->Compare(ikey.user_key, to.value()) >= 0) {
       break;
     }
 
     if (print_kv) {
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n",
-                ikey.DebugString(true, output_hex_).c_str(),
-                value.ToString(output_hex_).c_str());
+        if (ikey.type == kTypeWideColumnEntity) {
+          std::ostringstream oss;
+          const Status s = WideColumnsHelper::DumpSliceAsWideColumns(
+              iter->value(), oss, output_hex_);
+          if (!s.ok()) {
+            fprintf(stderr, "%s => error deserializing wide columns\n",
+                    ikey.DebugString(true, output_hex_).c_str());
+            continue;
+          }
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  oss.str().c_str());
+        } else {
+          fprintf(stdout, "%s => %s\n",
+                  ikey.DebugString(true, output_hex_).c_str(),
+                  value.ToString(output_hex_).c_str());
+        }
       } else {
         BlobIndex blob_index;
 

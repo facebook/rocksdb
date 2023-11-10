@@ -31,11 +31,15 @@ awk '/#define ROCKSDB_MAJOR/ { major = $3 }
      /#define ROCKSDB_MINOR/ { minor = $3 }
      /#define ROCKSDB_PATCH/ { patch = $3 }
      END { printf "## " major "." minor "." patch }' < include/rocksdb/version.h >> HISTORY.new
-echo " (`date +%x`)" >> HISTORY.new
+echo " (`git log -n1 --date=format:"%m/%d/%Y" --format="%ad"`)" >> HISTORY.new
 
 function process_file () {
-  # use awk to correct extra or missing newlines, missing '* ' on first line
-  awk '/./ { if (notfirstline || $1 == "*") print;
+  # use awk to correct
+  # * extra or missing newlines
+  # * leading or trailing whitespace
+  # * missing '* ' on first line
+  awk '/./ { gsub(/^[ \t]+/, ""); gsub(/[ \t]+$/, "");
+             if (notfirstline || $1 == "*") print;
              else print "* " $0;
              notfirstline=1; }' < $1 >> HISTORY.new
   echo git rm $1

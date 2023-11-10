@@ -2906,6 +2906,13 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
 
   std::string base_opts =
       std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
+  // Rewrite the default FileSystem URI if the "TEST_FS_URI" environment
+  // variable is set. This is useful to test customer encryption plugins.
+  const char* uri = getenv("TEST_FS_URI");
+  if (uri != nullptr) {
+    base_opts = uri;
+  }
+
   // The EncryptedFileSystem requires a "provider" option.
   ASSERT_NOK(FileSystem::CreateFromString(
       config_options_, EncryptedFileSystem::kClassName(), &fs));
@@ -3054,7 +3061,7 @@ TEST_F(EnvTest, PortGenerateRfcUuid) {
   VerifyRfcUuids(t.ids);
 }
 
-// Test the atomic, linear generation of GenerateRawUuid
+// Test the atomic, linear generation of GenerateRawUniqueId
 TEST_F(EnvTest, GenerateRawUniqueId) {
   struct MyStressTest
       : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
@@ -3146,6 +3153,90 @@ TEST_F(EnvTest, SemiStructuredUniqueIdGenTestSmaller) {
   for (int i = 0; i < 256; ++i) {
     ASSERT_TRUE(hit[i]);
   }
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest1) {
+  // Must be thread safe and usable as a static.
+  static UnpredictableUniqueIdGen gen;
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest2) {
+  // Even if we completely strip the seeding and entropy of the structure
+  // down to a bare minimum, we still get quality pseudorandom results.
+  static UnpredictableUniqueIdGen gen{
+      UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      // No extra entropy is required to get quality pseudorandom results
+      gen.GenerateNextWithEntropy(&p.first, &p.second, /*no extra entropy*/ 0);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest3) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      thread_local UnpredictableUniqueIdGen gen{
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      // Even without the counter (reset it to thread id), we get quality
+      // single-threaded results (because part of each result is fed back
+      // into pool).
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+  t.Run();
+}
+
+TEST_F(EnvTest, UnpredictableUniqueIdGenTest4) {
+  struct MyStressTest
+      : public NoDuplicateMiniStressTest<uint64_pair_t, HashUint64Pair> {
+    uint64_pair_t Generate() override {
+      uint64_pair_t p;
+      // Even if we reset the state to thread ID each time, RDTSC instruction
+      // suffices for quality single-threaded results.
+      UnpredictableUniqueIdGen gen{
+          UnpredictableUniqueIdGen::TEST_ZeroInitialized{}};
+      gen.TEST_counter().store(Env::Default()->GetThreadID());
+      gen.GenerateNext(&p.first, &p.second);
+      return p;
+    }
+  };
+
+  MyStressTest t;
+#ifdef __SSE4_2__  // Our rough check for RDTSC
+  t.Run();
+#else
+  ROCKSDB_GTEST_BYPASS("Requires IA32 with RDTSC");
+  // because nanosecond time might not be high enough fidelity to have
+  // incremented after a few hundred instructions, especially in cases where
+  // we really only have microsecond fidelity. Also, wall clock might not be
+  // monotonic.
+#endif
 }
 
 TEST_F(EnvTest, FailureToCreateLockFile) {
@@ -3454,7 +3545,7 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
         }
       };
 
-  fs_.workers.emplace_back(submit_request, req);
+  fs_.workers.emplace_back(submit_request, std::move(req));
   return IOStatus::OK();
 }
 

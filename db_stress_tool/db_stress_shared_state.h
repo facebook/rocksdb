@@ -35,7 +35,7 @@ DECLARE_int32(open_metadata_write_fault_one_in);
 DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
-DECLARE_int32(injest_error_severity);
+DECLARE_int32(inject_error_severity);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -341,6 +341,13 @@ class SharedState {
   }
 
   uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
+  void SafeTerminate() {
+    // Grab mutex so that we don't call terminate while another thread is
+    // attempting to print a stack trace due to the first one
+    MutexLock l(&mu_);
+    std::terminate();
+  }
 
  private:
   static void IgnoreReadErrorCallback(void*) { ignore_read_error = true; }

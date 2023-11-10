@@ -1,1 +1,0 @@
-*Fix a use-after-move bug in block.cc.

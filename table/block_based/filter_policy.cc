@@ -10,6 +10,7 @@
 #include "rocksdb/filter_policy.h"
 
 #include <array>
+#include <atomic>
 #include <climits>
 #include <cstring>
 #include <deque>
@@ -24,6 +25,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -1730,7 +1732,15 @@ const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
 RibbonFilterPolicy::RibbonFilterPolicy(double bloom_equivalent_bits_per_key,
                                        int bloom_before_level)
     : BloomLikeFilterPolicy(bloom_equivalent_bits_per_key),
-      bloom_before_level_(bloom_before_level) {}
+      bloom_before_level_(bloom_before_level) {
+  static const std::unordered_map<std::string, OptionTypeInfo> type_info = {
+      {"bloom_before_level",
+       {offsetof(class RibbonFilterPolicy, bloom_before_level_),
+        OptionType::kAtomicInt, OptionVerificationType::kNormal,
+        OptionTypeFlags::kMutable}},
+  };
+  RegisterOptions(this, &type_info);
+}
 
 FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
@@ -1738,31 +1748,38 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     // "No filter" special case
     return nullptr;
   }
-  // Treat unknown same as bottommost
-  int levelish = INT_MAX;
+  // Treat unknown same as bottommost, INT_MAX - 1.
+  // INT_MAX is reserved for "always use Bloom".
+  int levelish = INT_MAX - 1;
 
-  switch (context.compaction_style) {
-    case kCompactionStyleLevel:
-    case kCompactionStyleUniversal: {
-      if (context.reason == TableFileCreationReason::kFlush) {
-        // Treat flush as level -1
-        assert(context.level_at_creation == 0);
-        levelish = -1;
-      } else if (context.level_at_creation == -1) {
-        // Unknown level
-        assert(levelish == INT_MAX);
-      } else {
-        levelish = context.level_at_creation;
+  int bloom_before_level = bloom_before_level_.load(std::memory_order_relaxed);
+  if (bloom_before_level < INT_MAX) {
+    switch (context.compaction_style) {
+      case kCompactionStyleLevel:
+      case kCompactionStyleUniversal: {
+        if (context.reason == TableFileCreationReason::kFlush) {
+          // Treat flush as level -1
+          assert(context.level_at_creation == 0);
+          levelish = -1;
+        } else if (context.level_at_creation == -1) {
+          // Unknown level
+          assert(levelish == INT_MAX - 1);
+        } else {
+          levelish = context.level_at_creation;
+        }
+        break;
       }
-      break;
+      case kCompactionStyleFIFO:
+      case kCompactionStyleNone:
+        // Treat as bottommost
+        assert(levelish == INT_MAX - 1);
+        break;
     }
-    case kCompactionStyleFIFO:
-    case kCompactionStyleNone:
-      // Treat as bottommost
-      assert(levelish == INT_MAX);
-      break;
+  } else {
+    // INT_MAX == always Bloom
+    assert(levelish < bloom_before_level);
   }
-  if (levelish < bloom_before_level_) {
+  if (levelish < bloom_before_level) {
     return GetFastLocalBloomBuilderWithContext(context);
   } else {
     return GetStandard128RibbonBuilderWithContext(context);
@@ -1771,14 +1788,15 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
 
 const char* RibbonFilterPolicy::kClassName() { return "ribbonfilter"; }
 const char* RibbonFilterPolicy::kNickName() { return "rocksdb.RibbonFilter"; }
+const char* RibbonFilterPolicy::kName() { return "RibbonFilterPolicy"; }
 
 std::string RibbonFilterPolicy::GetId() const {
   return BloomLikeFilterPolicy::GetId() + ":" +
-         std::to_string(bloom_before_level_);
+         std::to_string(bloom_before_level_.load(std::memory_order_acquire));
 }
 
-const FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
-                                          int bloom_before_level) {
+FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
+                                    int bloom_before_level) {
   return new RibbonFilterPolicy(bloom_equivalent_bits_per_key,
                                 bloom_before_level);
 }

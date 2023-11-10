@@ -699,6 +699,7 @@ public class OptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void accessHintOnCompactionStart() {
     try (final Options opt = new Options()) {
@@ -1449,6 +1450,16 @@ public class OptionsTest {
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
       assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void memtableMaxRangeDeletions() {
+    try (final Options options = new Options()) {
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
+      final int val = 32;
+      assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
     }
   }
 

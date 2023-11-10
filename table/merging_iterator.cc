@@ -135,6 +135,18 @@ class MergingIterator : public InternalIterator {
     status_.PermitUncheckedError();
   }
 
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    for (auto& child : children_) {
+      // This should only be needed for LevelIterator (iterators from L1+).
+      child.iter.SetRangeDelReadSeqno(read_seqno);
+    }
+    for (auto& child : range_tombstone_iters_) {
+      if (child) {
+        child->SetRangeDelReadSeqno(read_seqno);
+      }
+    }
+  }
+
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
 
   Status status() const override { return status_; }
@@ -308,6 +320,7 @@ class MergingIterator : public InternalIterator {
     // holds after this call, and minHeap_.top().iter points to the
     // first key >= target among children_ that is not covered by any range
     // tombstone.
+    status_ = Status::OK();
     SeekImpl(target);
     FindNextVisibleKey();
 
@@ -321,6 +334,7 @@ class MergingIterator : public InternalIterator {
   void SeekForPrev(const Slice& target) override {
     assert(range_tombstone_iters_.empty() ||
            range_tombstone_iters_.size() == children_.size());
+    status_ = Status::OK();
     SeekForPrevImpl(target);
     FindPrevVisibleKey();
 
@@ -798,7 +812,6 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
     active_.erase(active_.lower_bound(starting_level), active_.end());
   }
 
-  status_ = Status::OK();
   IterKey current_search_key;
   current_search_key.SetInternalKey(target, false /* copy */);
   // Seek target might change to some range tombstone end key, so
@@ -931,6 +944,7 @@ bool MergingIterator::SkipNextDeleted() {
       InsertRangeTombstoneToMinHeap(current->level, true /* start_key */,
                                     true /* replace_top */);
     } else {
+      // TruncatedRangeDelIterator does not have status
       minHeap_.pop();
     }
     return true /* current key deleted */;
@@ -988,6 +1002,9 @@ bool MergingIterator::SkipNextDeleted() {
     if (current->iter.Valid()) {
       assert(current->iter.status().ok());
       minHeap_.push(current);
+    } else {
+      // TODO(cbi): check status and early return if non-ok.
+      considerStatus(current->iter.status());
     }
     // Invariants (rti) and (phi)
     if (range_tombstone_iters_[current->level] &&
@@ -1027,6 +1044,7 @@ bool MergingIterator::SkipNextDeleted() {
         if (current->iter.Valid()) {
           minHeap_.replace_top(current);
         } else {
+          considerStatus(current->iter.status());
           minHeap_.pop();
         }
         return true /* current key deleted */;
@@ -1078,7 +1096,6 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
     active_.erase(active_.lower_bound(starting_level), active_.end());
   }
 
-  status_ = Status::OK();
   IterKey current_search_key;
   current_search_key.SetInternalKey(target, false /* copy */);
   // Seek target might change to some range tombstone end key, so
@@ -1199,6 +1216,8 @@ bool MergingIterator::SkipPrevDeleted() {
     if (current->iter.Valid()) {
       assert(current->iter.status().ok());
       maxHeap_->push(current);
+    } else {
+      considerStatus(current->iter.status());
     }
 
     if (range_tombstone_iters_[current->level] &&
@@ -1241,6 +1260,7 @@ bool MergingIterator::SkipPrevDeleted() {
         if (current->iter.Valid()) {
           maxHeap_->replace_top(current);
         } else {
+          considerStatus(current->iter.status());
           maxHeap_->pop();
         }
         return true /* current key deleted */;

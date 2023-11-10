@@ -1084,12 +1084,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   const char* Name() const override { return "CountingUserTblPropCollector"; }
 
   Status Finish(UserCollectedProperties* properties) override {
+    assert(!finish_called_);
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
         {"CountingUserTblPropCollector", message_},
         {"Count", encoded},
     };
+    finish_called_ = true;
     return Status::OK();
   }
 
@@ -1101,12 +1103,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
+    assert(finish_called_);
     return UserCollectedProperties{};
   }
 
  private:
   std::string message_ = "Rocksdb";
   uint32_t count_ = 0;
+  bool finish_called_ = false;
 };
 
 class CountingUserTblPropCollectorFactory
@@ -2347,6 +2351,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
                   PopMetaIndexKey(meta_iter.get()));
         EXPECT_EQ("rocksdb.hashindex.prefixes",
                   PopMetaIndexKey(meta_iter.get()));
+      }
+      if (bbto->format_version >= 6) {
+        EXPECT_EQ("rocksdb.index", PopMetaIndexKey(meta_iter.get()));
       }
     }
     EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));

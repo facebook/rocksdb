@@ -215,4 +215,54 @@ Status HandleWriteBatchTimestampSizeDifference(
     const UnorderedMap<uint32_t, size_t>& record_ts_sz,
     TimestampSizeConsistencyMode check_mode,
     std::unique_ptr<WriteBatch>* new_batch = nullptr);
+
+// This util function is used when opening an existing column family and
+// processing its VersionEdit. It does a sanity check for the column family's
+// old user comparator and the persist_user_defined_timestamps flag as recorded
+// in the VersionEdit, against its new settings from the column family's
+// ImmutableCFOptions.
+//
+// Valid settings change include:
+// 1) no user comparator change and no effective persist_user_defined_timestamp
+// flag change.
+// 2) switch user comparator to enable user-defined timestamps feature provided
+// the immediately effective persist_user_defined_timestamps flag is false.
+// 3) switch user comparator to disable user-defined timestamps feature provided
+// that the before-change persist_user_defined_timestamps is already false.
+//
+// Switch user comparator to disable/enable UDT is only sanity checked by a user
+// comparator name comparison. The full check includes enforcing the new user
+// comparator ranks user keys exactly the same as the old user comparator and
+// only add / remove the user-defined timestamp comparison. We don't have ways
+// to strictly enforce this so currently only the RocksDB builtin comparator
+// wrapper `ComparatorWithU64TsImpl` is  supported to enable / disable
+// user-defined timestamps. It formats user-defined timestamps as uint64_t.
+//
+// When the settings indicate a legit change to enable user-defined timestamps
+// feature on a column family, `mark_sst_files_has_no_udt` will be set to true
+// to indicate marking all existing SST files has no user-defined timestamps
+// when re-writing the manifest.
+Status ValidateUserDefinedTimestampsOptions(
+    const Comparator* new_comparator, const std::string& old_comparator_name,
+    bool new_persist_udt, bool old_persist_udt,
+    bool* mark_sst_files_has_no_udt);
+
+// Given a cutoff user-defined timestamp formatted as uint64_t, get the
+// effective `full_history_ts_low` timestamp, which is the next immediately
+// bigger timestamp. Used by the UDT in memtable only feature when flushing
+// memtables and remove timestamps. This process collapses history and increase
+// the effective `full_history_ts_low`.
+void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
+                                        std::string* full_history_ts_low);
+
+// `start` is the inclusive lower user key bound without user-defined timestamp.
+// `end` is the upper user key bound without user-defined timestamp.
+// By default, `end` is treated as being exclusive. If `exclusive_end` is set to
+// false, it's treated as an inclusive upper bound.
+// If any of these two bounds is nullptr, an empty std::optional<Slice> is
+// returned for that bound.
+std::tuple<std::optional<Slice>, std::optional<Slice>>
+MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
+                          std::string* start_with_ts, std::string* end_with_ts,
+                          bool exclusive_end = true);
 }  // namespace ROCKSDB_NAMESPACE

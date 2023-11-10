@@ -83,7 +83,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //
   // and we use every of the value as a candidate, and estimate how much we
   // wasted, compared to read. For example, when we use the 3rd record
-  // as candiate. This area is what we read:
+  // as candidate. This area is what we read:
   //                                     +---+
   //                             +---+   |   |
   //                             |   |   |   |
@@ -123,7 +123,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  +---+    +---+    +---+    +---+   +---+
   //
   // Which can be calculated iteratively.
-  // The difference between wasted using 4st and 3rd record, will
+  // The difference between wasted using 4th and 3rd record, will
   // be following area:
   //                                     +---+
   //  +--+  +-+   ++  +-+  +-+   +---+   |   |
@@ -143,8 +143,8 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   //  |   |    |   |    |   |    |   |   |   |
   //  +---+    +---+    +---+    +---+   +---+
   //
-  // which will be the size difference between 4st and 3rd record,
-  // times 3, which is number of records before the 4st.
+  // which will be the size difference between 4th and 3rd record,
+  // times 3, which is number of records before the 4th.
   // Here we assume that all data within the prefetch range will be useful. In
   // reality, it may not be the case when a partial block is inside the range,
   // or there are data in the middle that is not read. We ignore those cases
@@ -224,7 +224,6 @@ static std::unordered_map<std::string,
         {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
         {"kFlushOnly",
          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
-
 
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
@@ -310,6 +309,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // TODO "use_delta_encoding" has not been persisted -
+        // this may have been an omission, but changing this now might be a
+        // breaker
         {"filter_policy",
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),

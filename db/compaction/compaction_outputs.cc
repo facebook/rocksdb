@@ -18,16 +18,18 @@ void CompactionOutputs::NewBuilder(const TableBuilderOptions& tboptions) {
   builder_.reset(NewTableBuilder(tboptions, file_writer_.get()));
 }
 
-Status CompactionOutputs::Finish(const Status& intput_status,
-                                 const SeqnoToTimeMapping& seqno_time_mapping) {
+Status CompactionOutputs::Finish(
+    const Status& intput_status,
+    const SeqnoToTimeMapping& seqno_to_time_mapping) {
   FileMetaData* meta = GetMetaData();
   assert(meta != nullptr);
   Status s = intput_status;
   if (s.ok()) {
-    std::string seqno_time_mapping_str;
-    seqno_time_mapping.Encode(seqno_time_mapping_str, meta->fd.smallest_seqno,
-                              meta->fd.largest_seqno, meta->file_creation_time);
-    builder_->SetSeqnoTimeTableProperties(seqno_time_mapping_str,
+    std::string seqno_to_time_mapping_str;
+    seqno_to_time_mapping.Encode(
+        seqno_to_time_mapping_str, meta->fd.smallest_seqno,
+        meta->fd.largest_seqno, meta->file_creation_time);
+    builder_->SetSeqnoTimeTableProperties(seqno_to_time_mapping_str,
                                           meta->oldest_ancester_time);
     s = builder_->Finish();
 
@@ -45,6 +47,8 @@ Status CompactionOutputs::Finish(const Status& intput_status,
     meta->fd.file_size = current_bytes;
     meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
+    meta->user_defined_timestamps_persisted = static_cast<bool>(
+        builder_->GetTableProperties().user_defined_timestamps_persisted);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
@@ -125,11 +129,6 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
-  assert(!internal_key.empty());
-  InternalKey ikey;
-  ikey.DecodeFrom(internal_key);
-  assert(ikey.Valid());
-
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
   // Move the grandparent_index_ to the file containing the current user_key.
@@ -137,7 +136,7 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   // index points to the last file containing the key.
   while (grandparent_index_ < grandparents.size()) {
     if (being_grandparent_gap_) {
-      if (sstableKeyCompare(ucmp, ikey,
+      if (sstableKeyCompare(ucmp, internal_key,
                             grandparents[grandparent_index_]->smallest) < 0) {
         break;
       }
@@ -150,13 +149,13 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
       being_grandparent_gap_ = false;
     } else {
       int cmp_result = sstableKeyCompare(
-          ucmp, ikey, grandparents[grandparent_index_]->largest);
+          ucmp, internal_key, grandparents[grandparent_index_]->largest);
       // If it's same key, make sure grandparent_index_ is pointing to the last
       // one.
       if (cmp_result < 0 ||
           (cmp_result == 0 &&
            (grandparent_index_ == grandparents.size() - 1 ||
-            sstableKeyCompare(ucmp, ikey,
+            sstableKeyCompare(ucmp, internal_key,
                               grandparents[grandparent_index_ + 1]->smallest) <
                 0))) {
         break;

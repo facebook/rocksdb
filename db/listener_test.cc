@@ -551,6 +551,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(
@@ -581,7 +582,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   for (int k = 1; k <= 30; k++) {
     ASSERT_OK(Put(Key(k), Key(k)));
     if (k % 10 == 0) {
-      Flush();
+      ASSERT_OK(Flush());
     }
   }
 

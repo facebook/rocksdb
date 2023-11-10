@@ -718,7 +718,9 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+DEFINE_uint64(compaction_readahead_size,
+              ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
+              "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
@@ -1242,6 +1244,10 @@ DEFINE_uint64(
     "Rocksdb implicit readahead is enabled if reads are sequential and "
     "num_file_reads_for_auto_readahead indicates after how many sequential "
     "reads into that file internal auto prefetching should be start.");
+
+DEFINE_bool(
+    auto_readahead_size, false,
+    "When set true, RocksDB does auto tuning of readahead size during Scans");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -2834,7 +2840,7 @@ class Benchmark {
       std::string input_str(len, 'y');
       std::string compressed;
       CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e);
+      CompressionContext context(FLAGS_compression_type_e, opts);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                            FLAGS_compression_type_e,
                            FLAGS_sample_for_compression);
@@ -3039,21 +3045,29 @@ class Benchmark {
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache") {
-      HyperClockCacheOptions hcco{
-          static_cast<size_t>(capacity),
-          static_cast<size_t>(FLAGS_block_size) /*estimated_entry_charge*/,
-          FLAGS_cache_numshardbits};
-      hcco.hash_seed = GetCacheHashSeed();
-      if (use_tiered_cache) {
-        TieredVolatileCacheOptions opts;
-        hcco.capacity += secondary_cache_opts.capacity;
-        opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
-        opts.cache_opts = &hcco;
-        opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(opts);
+    } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+      size_t estimated_entry_charge;
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
+          FLAGS_cache_type == "hyper_clock_cache") {
+        estimated_entry_charge = FLAGS_block_size;
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+        estimated_entry_charge = 0;
       } else {
-        return hcco.MakeSharedCache();
+        fprintf(stderr, "Cache type not supported.");
+        exit(1);
+      }
+      HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
+                                  FLAGS_cache_numshardbits);
+      opts.hash_seed = GetCacheHashSeed();
+      if (use_tiered_cache) {
+        TieredCacheOptions tiered_opts;
+        opts.capacity += secondary_cache_opts.capacity;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        return NewTieredCache(tiered_opts);
+      } else {
+        return opts.MakeSharedCache();
       }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
@@ -3079,12 +3093,12 @@ class Benchmark {
       }
 
       if (use_tiered_cache) {
-        TieredVolatileCacheOptions tiered_opts;
+        TieredCacheOptions tiered_opts;
         opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
         tiered_opts.cache_opts = &opts;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredVolatileCache(tiered_opts);
+        return NewTieredCache(tiered_opts);
       } else {
         return opts.MakeSharedCache();
       }
@@ -3360,6 +3374,7 @@ class Benchmark {
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
       read_options_.async_io = FLAGS_async_io;
       read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
+      read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -3593,6 +3608,8 @@ class Benchmark {
       } else if (name == "block_cache_entry_stats") {
         // DB::Properties::kBlockCacheEntryStats
         PrintStats("rocksdb.block-cache-entry-stats");
+      } else if (name == "cache_report_problems") {
+        CacheReportProblems();
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "resetstats") {
@@ -3994,7 +4011,8 @@ class Benchmark {
     bool ok = true;
     std::string compressed;
     CompressionOptions opts;
-    CompressionContext context(FLAGS_compression_type_e);
+    opts.level = FLAGS_compression_level;
+    CompressionContext context(FLAGS_compression_type_e, opts);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          FLAGS_compression_type_e,
                          FLAGS_sample_for_compression);
@@ -4023,8 +4041,10 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
-    CompressionContext compression_ctx(FLAGS_compression_type_e);
     CompressionOptions compression_opts;
+    compression_opts.level = FLAGS_compression_level;
+    CompressionContext compression_ctx(FLAGS_compression_type_e,
+                                       compression_opts);
     CompressionInfo compression_info(
         compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
         FLAGS_compression_type_e, FLAGS_sample_for_compression);
@@ -4152,7 +4172,7 @@ class Benchmark {
       }
     }
     if (FLAGS_use_stderr_info_logger) {
-      options.info_log.reset(new StderrLogger());
+      options.info_log = std::make_shared<StderrLogger>();
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
@@ -5743,6 +5763,7 @@ class Benchmark {
 
     options.adaptive_readahead = FLAGS_adaptive_readahead;
     options.async_io = FLAGS_async_io;
+    options.auto_readahead_size = FLAGS_auto_readahead_size;
 
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
@@ -7738,6 +7759,7 @@ class Benchmark {
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
+    ro.auto_readahead_size = FLAGS_auto_readahead_size;
     Status s = db->VerifyChecksum(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
@@ -7753,6 +7775,7 @@ class Benchmark {
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
+    ro.auto_readahead_size = FLAGS_auto_readahead_size;
     Status s = db->VerifyFileChecksums(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
@@ -8103,57 +8126,23 @@ class Benchmark {
   }
 
   void WaitForCompactionHelper(DBWithColumnFamilies& db) {
-    // This is an imperfect way of waiting for compaction. The loop and sleep
-    // is done because a thread that finishes a compaction job should get a
-    // chance to pickup a new compaction job.
-
-    std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
-                                     DB::Properties::kNumRunningFlushes,
-                                     DB::Properties::kCompactionPending,
-                                     DB::Properties::kNumRunningCompactions};
-
     fprintf(stdout, "waitforcompaction(%s): started\n",
             db.db->GetName().c_str());
 
-    while (true) {
-      bool retry = false;
+    Status s = db.db->WaitForCompact(WaitForCompactOptions());
 
-      for (const auto& k : keys) {
-        uint64_t v;
-        if (!db.db->GetIntProperty(k, &v)) {
-          fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
-                  db.db->GetName().c_str(), k.c_str());
-          exit(1);
-        } else if (v > 0) {
-          fprintf(stdout,
-                  "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
-                  db.db->GetName().c_str(), k.c_str());
-          FLAGS_env->SleepForMicroseconds(10 * 1000000);
-          retry = true;
-          break;
-        }
-      }
-
-      if (!retry) {
-        fprintf(stdout, "waitforcompaction(%s): finished\n",
-                db.db->GetName().c_str());
-        return;
-      }
-    }
+    fprintf(stdout, "waitforcompaction(%s): finished with status (%s)\n",
+            db.db->GetName().c_str(), s.ToString().c_str());
   }
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
     FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
-    // I am skeptical that this check race free. I hope that checking twice
-    // reduces the chance.
     if (db_.db != nullptr) {
-      WaitForCompactionHelper(db_);
       WaitForCompactionHelper(db_);
     } else {
       for (auto& db_with_cfh : multi_dbs_) {
-        WaitForCompactionHelper(db_with_cfh);
         WaitForCompactionHelper(db_with_cfh);
       }
     }
@@ -8315,6 +8304,11 @@ class Benchmark {
       }
       shi->Next();
     }
+  }
+
+  void CacheReportProblems() {
+    auto debug_logger = std::make_shared<StderrLogger>(DEBUG_LEVEL);
+    cache_->ReportProblems(debug_logger);
   }
 
   void PrintStats(const char* key) {

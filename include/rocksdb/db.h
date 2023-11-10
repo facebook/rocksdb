@@ -100,6 +100,8 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 // A range of keys
 struct Range {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   Slice start;
   Slice limit;
 
@@ -108,6 +110,8 @@ struct Range {
 };
 
 struct RangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
   const Slice* start;
   const Slice* limit;
 
@@ -131,6 +135,11 @@ struct IngestExternalFileArg {
 };
 
 struct GetMergeOperandsOptions {
+  // A limit on the number of merge operands returned by the GetMergeOperands()
+  // API. In contrast with ReadOptions::merge_operator_max_count, this is a hard
+  // limit: when it is exceeded, no merge operands will be returned and the
+  // query will fail with an Incomplete status. See also the
+  // DB::GetMergeOperands() API below.
   int expected_max_number_of_operands = 0;
 };
 
@@ -322,12 +331,17 @@ class DB {
   // If syncing is required, the caller must first call SyncWAL(), or Write()
   // using an empty write batch with WriteOptions.sync=true.
   // Regardless of the return status, the DB must be freed.
+  //
   // If the return status is Aborted(), closing fails because there is
   // unreleased snapshot in the system. In this case, users can release
   // the unreleased snapshots and try again and expect it to succeed. For
   // other status, re-calling Close() will be no-op and return the original
   // close status. If the return status is NotSupported(), then the DB
   // implementation does cleanup in the destructor
+  //
+  // WaitForCompact() with WaitForCompactOptions.close_db=true will be a good
+  // choice for users who want to wait for background work before closing
+  // (rather than aborting and potentially redoing some work on re-open)
   virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
@@ -348,6 +362,10 @@ class DB {
 
   // Create a column_family and return the handle of column family
   // through the argument handle.
+  // NOTE: creating many column families one-by-one is not recommended because
+  // of quadratic overheads, such as writing a full OPTIONS file for all CFs
+  // after each new CF creation. Use CreateColumnFamilies(), or DB::Open() with
+  // create_missing_column_families=true.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
@@ -417,6 +435,10 @@ class DB {
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns);
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const WriteOptions& options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
@@ -581,6 +603,16 @@ class DB {
                            ColumnFamilyHandle* /* column_family */,
                            const Slice& /* key */,
                            PinnableWideColumns* /* columns */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
+  // Returns logically grouped wide-column entities per column family (a.k.a.
+  // attribute groups) for a single key. PinnableAttributeGroups is a vector of
+  // PinnableAttributeGroup. Each PinnableAttributeGroup will have
+  // ColumnFamilyHandle* as input, and Status and PinnableWideColumns as output.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           const Slice& /* key */,
+                           PinnableAttributeGroups* /* result */) {
     return Status::NotSupported("GetEntity not supported");
   }
 
@@ -841,6 +873,34 @@ class DB {
                               bool /* sorted_input */ = false) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // Batched MultiGet-like API that returns attribute groups.
+  // An "attribute group" refers to a logical grouping of wide-column entities
+  // within RocksDB. These attribute groups are implemented using column
+  // families. Attribute group allows users to group wide-columns based on
+  // various criteria, such as similar access patterns or data types
+  //
+  // The input is a list of keys and PinnableAttributeGroups. For any given
+  // keys[i] (where 0 <= i < num_keys), results[i] will contain result for the
+  // ith key. Each result will be returned as PinnableAttributeGroups.
+  // PinnableAttributeGroups is a vector of PinnableAttributeGroup. Each
+  // PinnableAttributeGroup will contain a ColumnFamilyHandle pointer, Status
+  // and PinnableWideColumns.
+  //
+  // Note that it is the caller's responsibility to ensure that
+  // "keys" and "results" have the same "num_keys" number of objects. Also
+  // PinnableAttributeGroup needs to have ColumnFamilyHandle pointer set
+  // properly to get the corresponding wide columns from the column family.
+  virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
+                              const Slice* /* keys */,
+                              PinnableAttributeGroups* results) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      for (size_t j = 0; j < results[i].size(); ++j) {
+        results[i][j].SetStatus(
+            Status::NotSupported("MultiGetEntity not supported"));
+      }
     }
   }
 
@@ -1352,6 +1412,9 @@ class DB {
   // the files. In this case, client could set options.change_level to true, to
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
+  //
+  // In case of user-defined timestamp, if enabled, `begin` and `end` should
+  // not contain timestamp.
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end) = 0;
@@ -1465,7 +1528,8 @@ class DB {
   // NOTE: This may also never return if there's sufficient ongoing writes that
   // keeps flush and compaction going without stopping. The user would have to
   // cease all the writes to DB to make this eventually return in a stable
-  // state.
+  // state. The user may also use timeout option in WaitForCompactOptions to
+  // make this stop waiting and return when timeout expires.
   virtual Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) = 0;
 
@@ -1828,7 +1892,6 @@ class DB {
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
-
   // Returns the unique ID which is read from IDENTITY file during the opening
   // of database by setting in the identity variable
   // Returns Status::OK if identity could be set properly
@@ -1843,7 +1906,6 @@ class DB {
 
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
-
 
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
@@ -1909,7 +1971,6 @@ class DB {
       std::unique_ptr<Replayer>* /*replayer*/) {
     return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
-
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
@@ -2009,6 +2070,5 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 // @param options These options will be used for the database and for ALL column
 //                families encountered during the repair
 Status RepairDB(const std::string& dbname, const Options& options);
-
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -123,6 +123,7 @@ class PlainTableDBTest : public testing::Test,
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
 
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 0;
@@ -896,6 +897,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }
@@ -944,6 +946,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }

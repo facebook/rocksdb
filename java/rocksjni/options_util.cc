@@ -137,3 +137,51 @@ jstring Java_org_rocksdb_OptionsUtil_getLatestOptionsFileName(
     return env->NewStringUTF(options_file_name.c_str());
   }
 }
+
+/*
+ * Class:     org_rocksdb_OptionsUtil
+ * Method:    readTableFormatConfig
+ * Signature: (J)Lorg/rocksdb/TableFormatConfig;
+ */
+jobject Java_org_rocksdb_OptionsUtil_readTableFormatConfig(JNIEnv* env, jclass,
+                                                           jlong jcf_options) {
+  if (jcf_options == 0) {
+    env->ThrowNew(
+        ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::getJClass(env),
+        "Null column family options handle supplied to "
+        "readNewTableFormatConfig");
+    return nullptr;
+  }
+
+  auto* cf_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jcf_options);
+  auto* table_factory = cf_options->table_factory.get();
+  if (table_factory == nullptr) {
+    env->ThrowNew(
+        ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::getJClass(env),
+        "Column family options supplied to readNewTableFormatConfig has no "
+        "table options");
+    return nullptr;
+  }
+
+  if (strcmp(ROCKSDB_NAMESPACE::TableFactory::kBlockBasedTableName(),
+             table_factory->Name()) == 0) {
+    auto* table_factory_options =
+        table_factory->GetOptions<ROCKSDB_NAMESPACE::BlockBasedTableOptions>();
+    if (table_factory_options == nullptr) {
+      ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(
+          env, std::string("Null table format options supplied to "
+                           "readNewTableFormatConfig() ") +
+                   table_factory->Name());
+      return nullptr;
+    }
+    return ROCKSDB_NAMESPACE::BlockBasedTableOptionsJni::construct(
+        env, table_factory_options);
+  } else {
+    ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(
+        env, std::string("readNewTableFormatConfig() is not implemented for "
+                         "this table format: ") +
+                 table_factory->Name());
+    return nullptr;
+  }
+}

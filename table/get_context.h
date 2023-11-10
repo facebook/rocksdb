@@ -191,8 +191,16 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
-  void Merge(const Slice* value);
-  void MergeWithEntity(Slice entity);
+  // Helper method that postprocesses the results of merge operations, e.g. it
+  // sets the state correctly upon merge errors.
+  void PostprocessMerge(const Status& merge_status);
+
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
+  void MergeWithNoBaseValue();
+  void MergeWithPlainBaseValue(const Slice& value);
+  void MergeWithWideColumnBaseValue(const Slice& entity);
+
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
                     PinnableSlice* blob_value);
 
@@ -240,6 +248,7 @@ class GetContext {
 // must have been set by calling GetContext::SetReplayLog().
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
-                         Cleanable* value_pinner = nullptr);
+                         Cleanable* value_pinner = nullptr,
+                         SequenceNumber seq_no = kMaxSequenceNumber);
 
 }  // namespace ROCKSDB_NAMESPACE

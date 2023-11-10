@@ -42,10 +42,31 @@ class WriteBatchBase {
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
 
+  // Store the mapping "key->value" in the database with the specified write
+  // time in the column family. Using some write time that is in the past to
+  // fast track data to their correct placement and preservation is the intended
+  // usage of this API. The DB makes a reasonable best effort to treat the data
+  // as having the given write time for this purpose but doesn't currently make
+  // any guarantees.
+  //
+  // When a regular Put("foo", "v1") is followed by a
+  // TimedPut("foo", "v2", some_time_before_first_put), the behavior of read
+  // queries are undefined and can change over time, for example due to
+  // compactions.
+  // Note: this feature is currently not compatible with user-defined timestamps
+  // and wide columns.
+  virtual Status TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
+                          const Slice& value, uint64_t write_unix_time) = 0;
+
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
   // column family specified by "column_family".
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;
+
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  virtual Status PutEntity(const Slice& key,
+                           const AttributeGroups& attribute_groups) = 0;
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"

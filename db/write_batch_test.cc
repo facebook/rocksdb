@@ -12,7 +12,9 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
+#include "dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -273,6 +275,21 @@ struct TestHandler : public WriteBatch::Handler {
     } else {
       seen += "PutCF(" + std::to_string(column_family_id) + ", " +
               key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& entity) override {
+    std::ostringstream oss;
+    Status s = WideColumnsHelper::DumpSliceAsWideColumns(entity, oss, false);
+    if (!s.ok()) {
+      return s;
+    }
+    if (column_family_id == 0) {
+      seen += "PutEntity(" + key.ToString() + ", " + oss.str() + ")";
+    } else {
+      seen += "PutEntityCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + oss.str() + ")";
     }
     return Status::OK();
   }
@@ -665,6 +682,82 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
 };
 }  // anonymous namespace
 
+TEST_F(WriteBatchTest, AttributeGroupTest) {
+  WriteBatch batch;
+  ColumnFamilyHandleImplDummy zero(0), two(2);
+  AttributeGroups foo_ags;
+  WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
+  WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
+  WideColumns zero_col_1_col_2{zero_col_1, zero_col_2};
+
+  WideColumn two_col_1{"2_c_1_n", "2_c_1_v"};
+  WideColumn two_col_2{"2_c_2_n", "2_c_2_v"};
+  WideColumns two_col_1_col_2{two_col_1, two_col_2};
+
+  foo_ags.emplace_back(&zero, zero_col_1_col_2);
+  foo_ags.emplace_back(&two, two_col_1_col_2);
+
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
+
+  TestHandler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v "
+      "0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v "
+      "2_c_2_n:2_c_2_v)",
+      handler.seen);
+}
+
+TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
+  WriteBatch batch;
+  batch.SetSavePoint();
+
+  ColumnFamilyHandleImplDummy zero(0), two(2), three(3);
+  AttributeGroups foo_ags;
+  WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
+  WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
+  WideColumns zero_col_1_col_2{zero_col_1, zero_col_2};
+
+  WideColumn two_col_1{"2_c_1_n", "2_c_1_v"};
+  WideColumn two_col_2{"2_c_2_n", "2_c_2_v"};
+  WideColumns two_col_1_col_2{two_col_1, two_col_2};
+
+  foo_ags.emplace_back(&zero, zero_col_1_col_2);
+  foo_ags.emplace_back(&two, two_col_1_col_2);
+
+  AttributeGroups bar_ags;
+  WideColumn three_col_1{"3_c_1_n", "3_c_1_v"};
+  WideColumn three_col_2{"3_c_2_n", "3_c_2_v"};
+  WideColumns three_col_1_col_2{three_col_1, three_col_2};
+
+  bar_ags.emplace_back(&zero, zero_col_1_col_2);
+  bar_ags.emplace_back(&three, three_col_1_col_2);
+
+  ASSERT_OK(batch.PutEntity("foo", foo_ags));
+  batch.SetSavePoint();
+
+  ASSERT_OK(batch.PutEntity("bar", bar_ags));
+
+  TestHandler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)"
+      "PutEntity(bar, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(3, bar, 3_c_1_n:3_c_1_v 3_c_2_n:3_c_2_v)",
+      handler.seen);
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+
+  handler.seen.clear();
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(
+      "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
+      "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)",
+      handler.seen);
+}
+
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
@@ -677,6 +770,9 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  // TODO(yuzhangyu): implement this.
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   TestHandler handler;
   ASSERT_OK(batch.Iterate(&handler));
@@ -704,6 +800,8 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   ASSERT_OK(batch.Merge(&three, Slice("threethree"), Slice("3three")));
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Merge(Slice("omom"), Slice("nom")));
+  ASSERT_TRUE(
+      batch.TimedPut(&zero, Slice("foo"), Slice("bar"), 0u).IsNotSupported());
 
   std::unique_ptr<WBWIIterator> iter;
 

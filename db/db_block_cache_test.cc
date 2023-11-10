@@ -294,7 +294,9 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const CacheItemHelper* /*helper*/, size_t /*charge*/,
-                Handle** /*handle*/, Priority /*priority*/) override {
+                Handle** /*handle*/, Priority /*priority*/,
+                const Slice& /*compressed*/,
+                CompressionType /*type*/) override {
     return Status::NotSupported();
   }
 };
@@ -387,6 +389,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   while (iter->Valid()) {
     iter->Next();
   }
+  ASSERT_OK(iter->status());
   delete iter;
   iter = nullptr;
 }
@@ -628,13 +631,15 @@ class MockCache : public LRUCache {
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                Handle** handle, Priority priority) override {
+                Handle** handle, Priority priority, const Slice& compressed,
+                CompressionType type) override {
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, helper, charge, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority,
+                            compressed, type);
   }
 };
 
@@ -741,10 +746,15 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
+        // FixedHyperClockCache
         HyperClockCacheOptions(
             capacity,
             BlockBasedTableOptions().block_size /*estimated_value_size*/,
             num_shard_bits)
+            .MakeSharedCache(),
+        // AutoHyperClockCache
+        HyperClockCacheOptions(capacity, 0 /*estimated_value_size*/,
+                               num_shard_bits)
             .MakeSharedCache()}) {
     if (!base_cache) {
       // Skip clock cache when not supported

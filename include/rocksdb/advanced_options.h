@@ -76,9 +76,16 @@ struct CompressionOptions {
   // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
   int window_bits = -14;
 
-  // Compression "level" applicable to zstd, zlib, LZ4. Except for
+  // Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
   // kDefaultCompressionLevel (see above), the meaning of each value depends
-  // on the compression algorithm.
+  // on the compression algorithm. Decreasing across non-
+  // `kDefaultCompressionLevel` values will either favor speed over
+  // compression ratio or have no effect.
+  //
+  // In LZ4 specifically, the absolute value of a negative `level` internally
+  // configures the `acceleration` parameter. For example, set `level=-10` for
+  // `acceleration=10`. This negation is necessary to ensure decreasing `level`
+  // values favor speed over compression ratio.
   int level = kDefaultCompressionLevel;
 
   // zlib only: strategy parameter. See https://www.zlib.net/manual.html
@@ -181,6 +188,14 @@ struct CompressionOptions {
   // compressed by less than 12.5% (minimum ratio of 1.143:1).
   int max_compressed_bytes_per_kb = 1024 * 7 / 8;
 
+  // ZSTD only.
+  // Enable compression algorithm's checksum feature.
+  // (https://github.com/facebook/zstd/blob/d857369028d997c92ff1f1861a4d7f679a125464/lib/zstd.h#L428)
+  // Each compressed frame will have a 32-bit checksum attached. The checksum
+  // computed from the uncompressed data and can be verified during
+  // decompression.
+  bool checksum = false;
+
   // A convenience function for setting max_compressed_bytes_per_kb based on a
   // minimum acceptable compression ratio (uncompressed size over compressed
   // size).
@@ -260,7 +275,8 @@ struct CompactionOptionsFIFO {
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
-  kNonVolatileBlockTier = 0x01,
+  kVolatileCompressedTier = 0x01,
+  kNonVolatileBlockTier = 0x02,
 };
 
 enum UpdateStatus {     // Return status For inplace update callback
@@ -600,11 +616,11 @@ struct AdvancedColumnFamilyOptions {
   // 1. target size is in the range of
   //   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
   //    max_bytes_for_level_base]
-  // 2. target size of the last level (level num_levels-1) equals to extra size
-  //    of the level.
-  // At the same time max_bytes_for_level_multiplier and
-  // max_bytes_for_level_multiplier_additional are still satisfied.
-  // (When L0 is too large, we make some adjustment. See below.)
+  // 2. target size of the last level (level num_levels-1) equals to the max
+  //    size of a level in the LSM (typically the last level).
+  // At the same time max_bytes_for_level_multiplier is still satisfied.
+  // Note that max_bytes_for_level_multiplier_additional is ignored with this
+  // flag on.
   //
   // With this option on, from an empty DB, we make last level the base level,
   // which means merging L0 data into the last level, until it exceeds
@@ -642,60 +658,37 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
-  //
-  //
-  // If the compaction from L0 is lagged behind, a special mode will be turned
-  // on to prioritize write amplification against max_bytes_for_level_multiplier
-  // or max_bytes_for_level_base. The L0 compaction is lagged behind by looking
-  // at number of L0 files and total L0 size. If number of L0 files is at least
-  // the double of level0_file_num_compaction_trigger, or the total size is
-  // at least max_bytes_for_level_base, this mode is on. The target of L1 grows
-  // to the actual data size in L0, and then determine the target for each level
-  // so that each level will have the same level multiplier.
-  //
-  // For example, when L0 size is 100MB, the size of last level is 1600MB,
-  // max_bytes_for_level_base = 80MB, and max_bytes_for_level_multiplier = 10.
-  // Since L0 size is larger than max_bytes_for_level_base, this is a L0
-  // compaction backlogged mode. So that the L1 size is determined to be 100MB.
-  // Based on max_bytes_for_level_multiplier = 10, at least 3 non-0 levels will
-  // be needed. The level multiplier will be calculated to be 4 and the three
-  // levels' target to be [100MB, 400MB, 1600MB].
-  //
-  // In this mode, The number of levels will be no more than the normal mode,
-  // and the level multiplier will be lower. The write amplification will
-  // likely to be reduced.
-  //
-  //
-  // max_bytes_for_level_multiplier_additional is ignored with this flag on.
-  //
-  // To make the migration easier, when turning this feature on, files in the
-  // LSM will be trivially moved down to fill the LSM starting from the
-  // bottommost level during DB open. For example, if the LSM looks like:
-  // L0: f0, f1
-  // L1: f2, f3
-  // L2: f4
-  // L3:
-  // L4: f5
-  // and the DB is opened with num_levels = 7 with this feature turned on,
-  // new LSM after DB open looks like the following:
-  // L0: f0, f1, (and possibly data flushed from WAL)
-  // L4: f2, f3
-  // L5: f4
-  // L6: f5
-  //
   // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
   // then the last level is reserved, and we will start filling LSM from the
-  // second last level (L5 in the above example).
+  // second last level.
   //
+  // With this option on, compaction is more adaptive to write traffic:
+  // Compaction priority will take into account estimated bytes to be compacted
+  // down to a level and favors compacting lower levels when there is a write
+  // traffic spike (and hence more compaction debt). Refer to
+  // https://github.com/facebook/rocksdb/wiki/Leveled-Compactio#option-level_compaction_dynamic_level_bytes-and-levels-target-size
+  // for more detailed description. See more implementation detail in:
+  // VersionStorageInfo::ComputeCompactionScore().
+  //
+  // With this option on, unneeded levels will be drained automatically:
   // Note that there may be excessive levels (where target level size is 0 when
-  // computed based on this feature) in the LSM after a user migrates to turn
-  // this feature on. This is especially likely when a user migrates from
-  // leveled compaction with a smaller multiplier or from universal compaction.
-  // RocksDB will gradually drain these unnecessary levels by compacting files
-  // down the LSM.
+  // computed based on this feature) in the LSM. This can happen after a user
+  // migrates to turn this feature on or deletes a lot of data. This is
+  // especially likely when a user migrates from leveled compaction with a
+  // smaller multiplier or from universal compaction. RocksDB will gradually
+  // drain these unnecessary levels by compacting files down the LSM. Smaller
+  // number of levels should help to reduce read amplification.
   //
-  // Default: false
-  bool level_compaction_dynamic_level_bytes = false;
+  // Migration to turn on this option:
+  // - Before RocksDB v8.2, users are expected to do a full manual compaction
+  //   and then restart DB to turn on this option.
+  // - Since RocksDB v8.2, users can just restart DB with this option on, as
+  //   long as num_levels is no smaller than number of non-empty levels in the
+  //   LSM. Migration will be done automatically by RocksDB. See more in
+  //   https://github.com/facebook/rocksdb/wiki/Leveled-Compaction#migrating-from-level_compaction_dynamic_level_bytesfalse-to-level_compaction_dynamic_level_bytestrue
+  //
+  // Default: true
+  bool level_compaction_dynamic_level_bytes = true;
 
   // Allows RocksDB to generate files that are not exactly the target_file_size
   // only for the non-bottommost files. Which can reduce the write-amplification
@@ -714,6 +707,8 @@ struct AdvancedColumnFamilyOptions {
   // Different max-size multipliers for different levels.
   // These are multiplied by max_bytes_for_level_multiplier to arrive
   // at the max-size of each level.
+  // This option only applies to leveled compaction with
+  // `level_compaction_dynamic_level_bytes = false`.
   //
   // Default: 1
   //
@@ -879,30 +874,60 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Files containing updates older than TTL will go through the compaction
-  // process. This usually happens in a cascading way so that those entries
-  // will be compacted to bottommost level/file.
-  // The feature is used to remove stale entries that have been deleted or
-  // updated from the file system.
-  // Pre-req: This needs max_open_files to be set to -1.
-  // In Level: Non-bottom-level files older than TTL will go through the
-  //           compaction process.
-  // In FIFO: Files older than TTL will be deleted.
+  // This option has different meanings for different compaction styles:
+  //
+  // Leveled: Non-bottom-level files with all keys older than TTL will go
+  //    through the compaction process. This usually happens in a cascading
+  //    way so that those entries will be compacted to bottommost level/file.
+  //    The feature is used to remove stale entries that have been deleted or
+  //    updated from the file system.
+  //
+  // FIFO: Files with all keys older than TTL will be deleted. TTL is only
+  //    supported if option max_open_files is set to -1.
+  //
+  // Universal: users should only set the option `periodic_compaction_seconds`
+  //    below instead. For backward compatibility, this option has the same
+  //    meaning as `periodic_compaction_seconds`. See more in comments for
+  //    `periodic_compaction_seconds` on the interaction between these two
+  //    options.
+  //
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
-  // In FIFO, this option will have the same meaning as
-  // periodic_compaction_seconds. Whichever stricter will be used.
   // 0 means disabling.
   // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
   // pick default.
   //
-  // Default: 30 days for leveled compaction + block based table. disable
-  //          otherwise.
+  // Default: 30 days if using block based table. 0 (disable) otherwise.
   //
   // Dynamically changeable through SetOptions() API
+  // Note that dynamically changing this option only works for leveled and FIFO
+  // compaction. For universal compaction, dynamically changing this option has
+  // no effect, users should dynamically change `periodic_compaction_seconds`
+  // instead.
   uint64_t ttl = 0xfffffffffffffffe;
 
-  // Files older than this value will be picked up for compaction, and
-  // re-written to the same level as they were before.
+  // This option has different meanings for different compaction styles:
+  //
+  // Leveled: files older than `periodic_compaction_seconds` will be picked up
+  //    for compaction and will be re-written to the same level as they were
+  //    before.
+  //
+  // FIFO: not supported. Setting this option has no effect for FIFO compaction.
+  //
+  // Universal: when there are files older than `periodic_compaction_seconds`,
+  //    rocksdb will try to do as large a compaction as possible including the
+  //    last level. Such compaction is only skipped if only last level is to
+  //    be compacted and no file in last level is older than
+  //    `periodic_compaction_seconds`. See more in
+  //    UniversalCompactionBuilder::PickPeriodicCompaction().
+  //    For backward compatibility, the effective value of this option takes
+  //    into account the value of option `ttl`. The logic is as follows:
+  //    - both options are set to 30 days if they have the default value.
+  //    - if both options are zero, zero is picked. Otherwise, we take the min
+  //    value among non-zero options values (i.e. takes the stricter limit).
+  //
   // One main use of the feature is to make sure a file goes through compaction
   // filters periodically. Users can also use the feature to clear up SST
   // files using old format.
@@ -912,25 +937,19 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Supported in all compaction styles.
-  // In Universal compaction, rocksdb will try to do a full compaction when
-  // possible, see more in UniversalCompactionBuilder::PickPeriodicCompaction().
-  // In FIFO compaction, this option has the same meaning as TTL and whichever
-  // stricter will be used.
-  // Pre-req: max_open_file == -1.
+  // This option only supports block based table format for any compaction
+  // style.
+  //
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   //
   // Values:
   // 0: Turn off Periodic compactions.
-  // UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
-  //     as needed. For now, RocksDB will change this value to 30 days
-  //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
-  //     process at least once every 30 days if not compacted sooner.
-  //     In FIFO compaction, since the option has the same meaning as ttl,
-  //     when this value is left default, and ttl is left to 0, 30 days will be
-  //     used. Otherwise, min(ttl, periodic_compaction_seconds) will be used.
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
+  // pick default.
   //
-  // Default: UINT64_MAX - 1 (allow RocksDB to auto-tune)
+  // Default: 30 days if using block based table format + compaction filter +
+  //  leveled compaction or block based table format + universal compaction.
+  //  0 (disabled) otherwise.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
@@ -956,6 +975,14 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
   Temperature last_level_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
+  // When this field is set, all SST files without an explicitly set temperature
+  // will be treated as if they have this temperature for file reading
+  // accounting purpose, such as io statistics, io perf context.
+  //
+  // Not dynamically changeable, change it requires db restart.
+  Temperature default_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
@@ -1133,6 +1160,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_protection_bytes_per_key = 0;
 
   // UNDER CONSTRUCTION -- DO NOT USE
@@ -1141,11 +1169,42 @@ struct AdvancedColumnFamilyOptions {
   //
   // When it's false, the user-defined timestamps will be removed from the user
   // keys when data is flushed from memtables to SST files. Other places that
-  // user keys can be persisted like WAL and blob files go through a similar
-  // process. Users should call `DB::IncreaseFullHistoryTsLow` to set a cutoff
-  // timestamp. RocksDB refrains from flushing a memtable with data still above
-  // the cutoff timestamp with best effort. When users try to read below the
-  // cutoff timestamp, an error will be returned.
+  // user keys can be persisted like file boundaries in file metadata and blob
+  // files go through a similar process. There are two major motivations
+  // for this flag:
+  // 1) backward compatibility: if the user later decides to
+  // disable the user-defined timestamp feature for the column family, these SST
+  // files can be handled by a user comparator that is not aware of user-defined
+  // timestamps.
+  // 2) enable user-defined timestamp feature for an existing column family
+  // while set this flag to be `false`: user keys in the newly generated SST
+  // files are of the same format as the existing SST files.
+  //
+  // Currently only user comparator that formats user-defined timesamps as
+  // uint64_t via using one of the RocksDB provided comparator
+  // `ComparatorWithU64TsImpl` are supported.
+  //
+  // When setting this flag to `false`, users should also call
+  // `DB::IncreaseFullHistoryTsLow` to set a cutoff timestamp for flush. RocksDB
+  // refrains from flushing a memtable with data still above
+  // the cutoff timestamp with best effort. If this cutoff timestamp is not set,
+  // flushing continues normally.
+  //
+  // Users can do user-defined
+  // multi-versioned read above the cutoff timestamp. When users try to read
+  // below the cutoff timestamp, an error will be returned.
+  //
+  // Note that if WAL is enabled, unlike SST files, user-defined timestamps are
+  // persisted to WAL even if this flag is set to `false`. The benefit of this
+  // is that user-defined timestamps can be recovered with the caveat that users
+  // should flush all memtables so there is no active WAL files before doing a
+  // downgrade. In order to use WAL to recover user-defined timestamps, users of
+  // this feature would want to set both `avoid_flush_during_shutdown` and
+  // `avoid_flush_during_recovery` to be true.
+  //
+  // Note that setting this flag to false is not supported in combination with
+  // atomic flush, or concurrent memtable write enabled by
+  // `allow_concurrent_memtable_write`.
   //
   // Default: true (user-defined timestamps are persisted)
   // Not dynamically changeable, change it requires db restart and
@@ -1164,7 +1223,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
+  // Dynamically changeable through the SetOptions() API.
   uint8_t block_protection_bytes_per_key = 0;
+
+  // For leveled compaction, RocksDB may compact a file at the bottommost level
+  // if it can compact away data that were protected by some snapshot.
+  // The compaction reason in LOG for this kind of compactions is
+  // "BottommostFiles". Usually such compaction can happen as soon as a
+  // relevant snapshot is released. This option allows user to delay
+  // such compactions. A file is qualified for "BottommostFiles" compaction
+  // if it is at least "bottommost_file_compaction_delay" seconds old.
+  //
+  // Default: 0 (no delay)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t bottommost_file_compaction_delay = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

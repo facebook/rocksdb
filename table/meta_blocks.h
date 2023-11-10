@@ -32,6 +32,7 @@ struct TableProperties;
 
 // Meta block names for metaindex
 extern const std::string kPropertiesBlockName;
+extern const std::string kIndexBlockName;
 extern const std::string kPropertiesBlockOldName;
 extern const std::string kCompressionDictBlockName;
 extern const std::string kRangeDelBlockName;
@@ -97,9 +98,13 @@ void NotifyCollectTableCollectorsOnBlockAdd(
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
+// It will also populate `user_collected_properties` and `readable_properties`
+// with the collected properties.
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    Logger* info_log, PropertyBlockBuilder* builder);
+    Logger* info_log, PropertyBlockBuilder* builder,
+    UserCollectedProperties& user_collected_properties,
+    UserCollectedProperties& readable_properties);
 
 // Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,

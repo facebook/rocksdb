@@ -38,7 +38,7 @@ uint32_t DetermineSeed(int32_t hash_seed_option) {
       return GetSliceHash(hostname) & kSeedMask;
     } else {
       // Fall back on something stable within the process.
-      return static_cast<uint32_t>(gen.GetBaseUpper()) & kSeedMask;
+      return BitwiseAnd(gen.GetBaseUpper(), kSeedMask);
     }
   } else {
     // for kQuasiRandomHashSeed and fallback
@@ -81,6 +81,16 @@ uint64_t ShardedCacheBase::NewId() {
 size_t ShardedCacheBase::GetCapacity() const {
   MutexLock l(&config_mutex_);
   return capacity_;
+}
+
+Status ShardedCacheBase::GetSecondaryCacheCapacity(size_t& size) const {
+  size = 0;
+  return Status::OK();
+}
+
+Status ShardedCacheBase::GetSecondaryCachePinnedUsage(size_t& size) const {
+  size = 0;
+  return Status::OK();
 }
 
 bool ShardedCacheBase::HasStrictCapacityLimit() const {

@@ -9,6 +9,7 @@
 
 #include "db_stress_tool/expected_state.h"
 #ifdef GFLAGS
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/fault_injection_fs.h"
@@ -165,9 +166,8 @@ class NonBatchedOpsStressTest : public StressTest {
           if (s.ok()) {
             const WideColumns& columns = result.columns();
 
-            if (!columns.empty() &&
-                columns.front().name() == kDefaultWideColumnName) {
-              from_db = columns.front().value().ToString();
+            if (WideColumnsHelper::HasDefaultColumn(columns)) {
+              from_db = WideColumnsHelper::GetDefaultColumn(columns).ToString();
             }
 
             if (!VerifyWideColumns(columns)) {
@@ -251,9 +251,9 @@ class NonBatchedOpsStressTest : public StressTest {
             if (statuses[j].ok()) {
               const WideColumns& columns = results[j].columns();
 
-              if (!columns.empty() &&
-                  columns.front().name() == kDefaultWideColumnName) {
-                from_db = columns.front().value().ToString();
+              if (WideColumnsHelper::HasDefaultColumn(columns)) {
+                from_db =
+                    WideColumnsHelper::GetDefaultColumn(columns).ToString();
               }
 
               if (!VerifyWideColumns(columns)) {
@@ -442,7 +442,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "dropping column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                     &column_families_[cf]);
@@ -451,7 +451,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           fprintf(stderr, "creating column family error: %s\n",
                   s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
         thread->shared->UnlockColumnFamily(cf);
       }
@@ -585,6 +585,7 @@ class NonBatchedOpsStressTest : public StressTest {
     bool do_consistency_check = thread->rand.OneIn(4);
 
     ReadOptions readoptionscopy = read_opts;
+
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
@@ -603,7 +604,7 @@ class NonBatchedOpsStressTest : public StressTest {
     // Create a transaction in order to write some data. The purpose is to
     // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
     // will be rolled back once MultiGet returns.
-    Transaction* txn = nullptr;
+    std::unique_ptr<Transaction> txn;
     if (use_txn) {
       WriteOptions wo;
       if (FLAGS_rate_limit_auto_wal_flush) {
@@ -611,8 +612,8 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
-        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
-        std::terminate();
+        fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
       }
     }
     for (size_t i = 0; i < num_keys; ++i) {
@@ -661,8 +662,9 @@ class NonBatchedOpsStressTest : public StressTest {
               assert(false);
           }
           if (!s.ok()) {
-            fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
-            std::terminate();
+            fprintf(stderr, "Transaction put error: %s\n",
+                    s.ToString().c_str());
+            thread->shared->SafeTerminate();
           }
         } else {
           ryw_expected_values.push_back(std::nullopt);
@@ -778,9 +780,17 @@ class NonBatchedOpsStressTest : public StressTest {
 
         if (use_txn) {
           assert(txn);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           tmp_s = txn->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         } else {
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_MULTIGET);
         }
         if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
@@ -866,7 +876,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
     if (use_txn) {
-      RollbackTxn(txn);
+      txn->Rollback().PermitUncheckedError();
     }
     return statuses;
   }
@@ -1058,7 +1068,8 @@ class NonBatchedOpsStressTest : public StressTest {
         is_consistent = false;
       } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
         PinnableWideColumns cmp_result;
-
+        ThreadStatusUtil::SetThreadOperation(
+            ThreadStatus::OperationType::OP_GETENTITY);
         const Status cmp_s =
             db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
 
@@ -1267,10 +1278,13 @@ class NonBatchedOpsStressTest : public StressTest {
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
-
     Status s;
 
-    if (FLAGS_use_merge) {
+    if (FLAGS_use_put_entity_one_in > 0 &&
+        (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
+    } else if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
           s = db_->Merge(write_opts, cfh, k, v);
@@ -1278,19 +1292,10 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Merge(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Merge(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Merge(cfh, k, v);
+        });
       }
-    } else if (FLAGS_use_put_entity_one_in > 0 &&
-               (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      s = db_->PutEntity(write_opts, cfh, k,
-                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
@@ -1299,34 +1304,27 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Put(cfh, k, v);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Put(cfh, k, v);
+        });
       }
     }
 
-    pending_expected_value.Commit();
-
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
-
+    pending_expected_value.Commit();
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);
@@ -1364,33 +1362,28 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Delete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->Delete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.Delete(cfh, key);
+        });
       }
-      pending_expected_value.Commit();
 
-      thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddDeletes(1);
     } else {
       PendingExpectedValue pending_expected_value =
           shared->PrepareSingleDelete(rand_column_family, rand_key);
@@ -1401,32 +1394,28 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->SingleDelete(write_opts, cfh, key, write_ts);
         }
       } else {
-        Transaction* txn;
-        s = NewTxn(write_opts, &txn);
-        if (s.ok()) {
-          s = txn->SingleDelete(cfh, key);
-          if (s.ok()) {
-            s = CommitTxn(txn, thread);
-          }
-        }
+        s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
+          return txn.SingleDelete(cfh, key);
+        });
       }
-      pending_expected_value.Commit();
-      thread->stats.AddSingleDeletes(1);
+
       if (!s.ok()) {
-        if (FLAGS_injest_error_severity >= 2) {
+        if (FLAGS_inject_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
           } else if (!is_db_stopped_ ||
                      s.severity() < Status::Severity::kFatalError) {
             fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+            thread->shared->SafeTerminate();
           }
         } else {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       }
+      pending_expected_value.Commit();
+      thread->stats.AddSingleDeletes(1);
     }
     return s;
   }
@@ -1475,17 +1464,17 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->DeleteRange(write_opts, cfh, key, end_key);
     }
     if (!s.ok()) {
-      if (FLAGS_injest_error_severity >= 2) {
+      if (FLAGS_inject_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
                    s.severity() < Status::Severity::kFatalError) {
           fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-          std::terminate();
+          thread->shared->SafeTerminate();
         }
       } else {
         fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-        std::terminate();
+        thread->shared->SafeTerminate();
       }
     }
     for (PendingExpectedValue& pending_expected_value :
@@ -1549,9 +1538,18 @@ class NonBatchedOpsStressTest : public StressTest {
       pending_expected_values.push_back(pending_expected_value);
 
       char value[100];
-      size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
-      s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+      const size_t value_len = GenerateValue(value_base, value, sizeof(value));
+      const Slice k(key_str);
+      const Slice v(value, value_len);
+
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        WideColumns columns = GenerateWideColumns(value_base, v);
+        s = sst_file_writer.PutEntity(k, columns);
+      } else {
+        s = sst_file_writer.Put(k, v);
+      }
     }
 
     if (s.ok() && keys.empty()) {
@@ -1566,12 +1564,16 @@ class NonBatchedOpsStressTest : public StressTest {
                                   {sst_filename}, IngestExternalFileOptions());
     }
     if (!s.ok()) {
-      fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
-      std::terminate();
-    }
-
-    for (size_t i = 0; i < pending_expected_values.size(); ++i) {
-      pending_expected_values[i].Commit();
+      if (!s.IsIOError() || !std::strstr(s.getState(), "injected")) {
+        fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      } else {
+        fprintf(stdout, "file ingestion error: %s\n", s.ToString().c_str());
+      }
+    } else {
+      for (size_t i = 0; i < pending_expected_values.size(); ++i) {
+        pending_expected_values[i].Commit();
+      }
     }
   }
 
@@ -1600,8 +1602,6 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const int64_t ub = lb + num_iter;
 
-    // Lock the whole range over which we might iterate to ensure it doesn't
-    // change under us.
     const int rand_column_family = rand_column_families[0];
 
     // Testing parallel read and write to the same key with user timestamp
@@ -1612,7 +1612,9 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     ReadOptions ro(read_opts);
-    ro.total_order_seek = true;
+    if (FLAGS_prefix_size > 0) {
+      ro.total_order_seek = true;
+    }
 
     std::string read_ts_str;
     Slice read_ts;
@@ -1680,6 +1682,7 @@ class NonBatchedOpsStressTest : public StressTest {
     };
 
     auto check_no_key_in_range = [&](int64_t start, int64_t end) {
+      assert(start <= end);
       for (auto j = std::max(start, lb); j < std::min(end, ub); ++j) {
         std::size_t index = static_cast<std::size_t>(j - lb);
         assert(index < pre_read_expected_values.size() &&
@@ -1694,11 +1697,14 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SetVerificationFailure();
           if (iter->Valid()) {
             fprintf(stderr,
-                    "Expected state has key %s, iterator is at key %s\n",
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is at key %s\n",
                     Slice(Key(j)).ToString(true).c_str(),
                     iter->key().ToString(true).c_str());
           } else {
-            fprintf(stderr, "Expected state has key %s, iterator is invalid\n",
+            fprintf(stderr,
+                    "Verification failed. Expected state has key %s, iterator "
+                    "is invalid\n",
                     Slice(Key(j)).ToString(true).c_str());
           }
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
@@ -1722,6 +1728,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     uint64_t curr = 0;
     while (true) {
+      assert(last_key < ub);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           thread->shared->SetVerificationFailure();
@@ -1744,6 +1751,19 @@ class NonBatchedOpsStressTest : public StressTest {
 
       // iter is valid, the range (last_key, current key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
+      if (static_cast<int64_t>(curr) <= last_key) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "TestIterateAgainstExpected failed: found unexpectedly small "
+                "key\n");
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+        fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                Slice(Key(curr)).ToString(true).c_str(),
+                Slice(Key(last_key + 1)).ToString(true).c_str());
+        thread->stats.AddErrors(1);
+        return Status::OK();
+      }
       if (!check_no_key_in_range(last_key + 1, static_cast<int64_t>(curr))) {
         return Status::OK();
       }
@@ -1766,6 +1786,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     last_key = ub;
     while (true) {
+      assert(lb < last_key);
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           thread->shared->SetVerificationFailure();
@@ -1788,6 +1809,19 @@ class NonBatchedOpsStressTest : public StressTest {
 
       // the range (current key, last key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
+      if (last_key <= static_cast<int64_t>(curr)) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "TestIterateAgainstExpected failed: found unexpectedly large "
+                "key\n");
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+        fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                Slice(Key(curr)).ToString(true).c_str(),
+                Slice(Key(last_key - 1)).ToString(true).c_str());
+        thread->stats.AddErrors(1);
+        return Status::OK();
+      }
       if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
         return Status::OK();
       }
@@ -1802,7 +1836,9 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
-    if (thread->rand.OneIn(2)) {
+    // Write-prepared and Write-unprepared do not support Refresh() yet.
+    if (!(FLAGS_use_txn && FLAGS_txn_write_policy != 0) &&
+        thread->rand.OneIn(2)) {
       pre_read_expected_values.clear();
       post_read_expected_values.clear();
       // Refresh after forward/backward scan to allow higher chance of SV
@@ -1811,7 +1847,9 @@ class NonBatchedOpsStressTest : public StressTest {
         pre_read_expected_values.push_back(
             shared->Get(rand_column_family, i + lb));
       }
-      iter->Refresh();
+      Status rs = iter->Refresh();
+      assert(rs.ok());
+      op_logs += "Refresh ";
       for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
         post_read_expected_values.push_back(
             shared->Get(rand_column_family, i + lb));
@@ -1836,6 +1874,21 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!check_no_key_in_range(mid, ub)) {
           return Status::OK();
         }
+      } else if (iter->Valid()) {
+        GetIntVal(iter->key().ToString(), &curr);
+        if (static_cast<int64_t>(curr) < mid) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "TestIterateAgainstExpected failed: found unexpectedly small "
+                  "key\n");
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                  Slice(Key(curr)).ToString(true).c_str(),
+                  Slice(Key(mid)).ToString(true).c_str());
+          thread->stats.AddErrors(1);
+          return Status::OK();
+        }
       }
     } else {
       iter->SeekForPrev(key);
@@ -1843,6 +1896,21 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!iter->Valid() && iter->status().ok()) {
         // iterator says nothing <= mid
         if (!check_no_key_in_range(lb, mid + 1)) {
+          return Status::OK();
+        }
+      } else if (iter->Valid()) {
+        GetIntVal(iter->key().ToString(), &curr);
+        if (mid < static_cast<int64_t>(curr)) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "TestIterateAgainstExpected failed: found unexpectedly large "
+                  "key\n");
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                  Slice(Key(curr)).ToString(true).c_str(),
+                  Slice(Key(mid)).ToString(true).c_str());
+          thread->stats.AddErrors(1);
           return Status::OK();
         }
       }
@@ -1876,7 +1944,9 @@ class NonBatchedOpsStressTest : public StressTest {
                 post_read_expected_value)) {
           // Fail fast to preserve the DB state.
           thread->shared->SetVerificationFailure();
-          fprintf(stderr, "Iterator has key %s, but expected state does not.\n",
+          fprintf(stderr,
+                  "Verification failed: iterator has key %s, but expected "
+                  "state does not.\n",
                   iter->key().ToString(true).c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
@@ -1892,6 +1962,19 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           uint64_t next = 0;
           GetIntVal(iter->key().ToString(), &next);
+          if (next <= curr) {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "small key\n");
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            fprintf(stderr, "Last op found key: %s, expected at least: %s\n",
+                    Slice(Key(next)).ToString(true).c_str(),
+                    Slice(Key(curr + 1)).ToString(true).c_str());
+            thread->stats.AddErrors(1);
+            return Status::OK();
+          }
           if (!check_no_key_in_range(static_cast<int64_t>(curr + 1),
                                      static_cast<int64_t>(next))) {
             return Status::OK();
@@ -1904,6 +1987,19 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           uint64_t prev = 0;
           GetIntVal(iter->key().ToString(), &prev);
+          if (curr <= prev) {
+            thread->shared->SetVerificationFailure();
+            fprintf(stderr,
+                    "TestIterateAgainstExpected failed: found unexpectedly "
+                    "large key\n");
+            fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                    cfh->GetName().c_str(), op_logs.c_str());
+            fprintf(stderr, "Last op found key: %s, expected at most: %s\n",
+                    Slice(Key(prev)).ToString(true).c_str(),
+                    Slice(Key(curr - 1)).ToString(true).c_str());
+            thread->stats.AddErrors(1);
+            return Status::OK();
+          }
           if (!check_no_key_in_range(static_cast<int64_t>(prev + 1),
                                      static_cast<int64_t>(curr))) {
             return Status::OK();
@@ -1953,9 +2049,7 @@ class NonBatchedOpsStressTest : public StressTest {
       const Slice slice(value_from_db);
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
-                                                  expected_value) ||
-          !ExpectedValueHelper::InExpectedValueBaseRange(
-              value_base_from_db, expected_value, expected_value)) {
+                                                  expected_value)) {
         VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
                           key, value_from_db, "");
         return false;
@@ -1964,6 +2058,14 @@ class NonBatchedOpsStressTest : public StressTest {
       size_t expected_value_data_size =
           GenerateValue(expected_value.GetValueBase(), expected_value_data,
                         sizeof(expected_value_data));
+      if (!ExpectedValueHelper::InExpectedValueBaseRange(
+              value_base_from_db, expected_value, expected_value)) {
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db,
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+      // TODO: are the length/memcmp() checks repetitive?
       if (value_from_db.length() != expected_value_data_size) {
         VerificationAbort(shared,
                           msg_prefix + ": Length of value read is not equal",

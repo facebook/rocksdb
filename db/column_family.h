@@ -211,6 +211,12 @@ struct SuperVersion {
   // Version number of the current SuperVersion
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
+  // Each time `full_history_ts_low` collapses history, a new SuperVersion is
+  // installed. This field tracks the effective `full_history_ts_low` for that
+  // SuperVersion, to be used by read APIs for sanity checks. This field is
+  // immutable once SuperVersion is installed. For column family that doesn't
+  // enable UDT feature, this is an empty string.
+  std::string full_history_ts_low;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -506,14 +512,18 @@ class ColumnFamilyData {
     return full_history_ts_low_;
   }
 
+  // REQUIRES: DB mutex held.
+  // Return true if flushing up to MemTables with ID `max_memtable_id`
+  // should be postponed to retain user-defined timestamps according to the
+  // user's setting. Called by background flush job.
+  bool ShouldPostponeFlushToRetainUDT(uint64_t max_memtable_id);
+
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
   std::shared_ptr<CacheReservationManager>
   GetFileMetadataCacheReservationManager() {
     return file_metadata_cache_res_mgr_;
   }
-
-  SequenceNumber GetFirstMemtableSequenceNumber() const;
 
   static const uint32_t kDummyColumnFamilyDataId;
 
@@ -865,6 +875,9 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
 extern const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family);
+
+extern const ImmutableOptions& GetImmutableOptions(
     ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

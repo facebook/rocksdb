@@ -100,6 +100,14 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
+int DBImpl::EnableFileDeletionsWithLock() {
+  mutex_.AssertHeld();
+  // In case others have called EnableFileDeletions(true /* force */) in between
+  disable_delete_obsolete_files_ =
+      std::max(0, disable_delete_obsolete_files_ - 1);
+  return disable_delete_obsolete_files_;
+}
+
 bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }
@@ -457,12 +465,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   std::sort(candidate_files.begin(), candidate_files.end(),
             [](const JobContext::CandidateFileInfo& lhs,
                const JobContext::CandidateFileInfo& rhs) {
-              if (lhs.file_name > rhs.file_name) {
+              if (lhs.file_name < rhs.file_name) {
                 return true;
-              } else if (lhs.file_name < rhs.file_name) {
+              } else if (lhs.file_name > rhs.file_name) {
                 return false;
               } else {
-                return (lhs.file_path > rhs.file_path);
+                return (lhs.file_path < rhs.file_path);
               }
             });
   candidate_files.erase(
@@ -995,7 +1003,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       if (type == kTableFile && number >= next_file_number &&
           recovery_ctx->files_to_delete_.find(normalized_fpath) ==
               recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.emplace(normalized_fpath);
+        recovery_ctx->files_to_delete_.emplace(normalized_fpath, path);
       }
     }
   }

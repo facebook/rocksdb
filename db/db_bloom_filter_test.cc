@@ -654,7 +654,7 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
     for (i = 0; i < maxKey; i++) {
       ASSERT_OK(Put(Key(i), Key(i)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   };
   auto GetFn = [&]() {
     int i;
@@ -792,7 +792,7 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
     }
     // Add a large key to make the file contain wide range
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-    Flush(1);
+    ASSERT_OK(Flush(1));
 
     // Check if they can be found
     for (int i = 0; i < maxKey; i++) {
@@ -1696,7 +1696,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    TryReopen(options);
+    ASSERT_OK(TryReopen(options));
     CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
 
     const int maxKey = 10000;
@@ -1705,7 +1705,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     }
     // Add a large key to make the file contain wide range
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-    Flush(1);
+    ASSERT_OK(Flush(1));
     EXPECT_EQ(policy->DumpTestReport(),
               fifo ? "cf=abe,s=kCompactionStyleFIFO,n=7,l=0,b=0,r=kFlush\n"
                    : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
@@ -1713,7 +1713,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     for (int i = maxKey / 2; i < maxKey; i++) {
       ASSERT_OK(Put(1, Key(i), Key(i)));
     }
-    Flush(1);
+    ASSERT_OK(Flush(1));
     EXPECT_EQ(policy->DumpTestReport(),
               fifo ? "cf=abe,s=kCompactionStyleFIFO,n=7,l=0,b=0,r=kFlush\n"
                    : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
@@ -1772,6 +1772,64 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
     ASSERT_OK(dbfull()->DestroyColumnFamilyHandle(handles_[1]));
     handles_[1] = nullptr;
+  }
+}
+
+TEST_F(DBBloomFilterTest, MutatingRibbonFilterPolicy) {
+  // Test that RibbonFilterPolicy has a mutable bloom_before_level fields that
+  // can be updated through SetOptions
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  auto& stats = *options.statistics;
+  BlockBasedTableOptions table_options;
+  // First config forces Bloom filter, to establish a baseline before
+  // SetOptions().
+  table_options.filter_policy.reset(NewRibbonFilterPolicy(10, INT_MAX));
+  double expected_bpk = 10.0;
+  // Other configs to try, with approx expected bits per key
+  std::vector<std::pair<std::string, double>> configs = {{"-1", 7.0},
+                                                         {"0", 10.0}};
+
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  ASSERT_OK(TryReopen(options));
+
+  char v[] = "a";
+
+  for (;; ++(v[0])) {
+    const int maxKey = 8000;
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), v));
+    }
+    ASSERT_OK(Flush());
+
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Get(Key(i)), v);
+    }
+
+    uint64_t filter_bytes =
+        stats.getAndResetTickerCount(BLOCK_CACHE_FILTER_BYTES_INSERT);
+
+    EXPECT_NEAR(filter_bytes * 8.0 / maxKey, expected_bpk, 0.3);
+
+    if (configs.empty()) {
+      break;
+    }
+
+    ASSERT_OK(
+        db_->SetOptions({{"table_factory.filter_policy.bloom_before_level",
+                          configs.back().first}}));
+
+    // Ensure original object is mutated
+    std::string val;
+    ASSERT_OK(
+        table_options.filter_policy->GetOption({}, "bloom_before_level", &val));
+    ASSERT_EQ(configs.back().first, val);
+
+    expected_bpk = configs.back().second;
+    configs.pop_back();
   }
 }
 
@@ -1847,6 +1905,7 @@ TEST_F(DBBloomFilterTest, PrefixExtractorWithFilter2) {
   for (iter->Seek("zzzzz_AAAA"); iter->Valid(); iter->Next()) {
     iter_res.emplace_back(iter->value().ToString());
   }
+  ASSERT_OK(iter->status());
 
   std::vector<std::string> expected_res = {"val1", "val2", "val3", "val4"};
   ASSERT_EQ(iter_res, expected_res);
@@ -2261,7 +2320,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
   ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
   ASSERT_EQ(0, get_perf_context()->bloom_sst_miss_count);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // sanity checks
   ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
@@ -2311,7 +2370,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
   ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   iter.reset(dbfull()->NewIterator(ReadOptions()));
 
@@ -2379,7 +2438,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     snprintf(buf, sizeof(buf), "%02d______:end", i + 1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->Flush();
+    ASSERT_OK(dbtest->Flush());
   }
 
   // GROUP 2
@@ -2390,7 +2449,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     snprintf(buf, sizeof(buf), "%02d______:end", small_range_sstfiles + i + 1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->Flush();
+    ASSERT_OK(dbtest->Flush());
   }
 }
 }  // anonymous namespace
@@ -2853,7 +2912,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("foq1", "bar1"));
     ASSERT_OK(Put("fpa", "0"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     std::unique_ptr<Iterator> iter_old(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
     EXPECT_EQ(PopTicker(options, NON_LAST_LEVEL_SEEK_FILTERED), 0);
@@ -2981,7 +3040,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     ASSERT_OK(Put(2, "foo5", "bar5"));
     ASSERT_OK(Put(2, "foq6", "bar6"));
     ASSERT_OK(Put(2, "fpq7", "bar7"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(read_options, handles_[2]));
@@ -3031,17 +3090,17 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_OK(Put("foo1", "bar1"));
     ASSERT_OK(Put("fpa", "0"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     ASSERT_OK(Put("foo3", "bar3"));
     ASSERT_OK(Put("foo4", "bar4"));
     ASSERT_OK(Put("foo5", "bar5"));
     ASSERT_OK(Put("fpb", "1"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
     ASSERT_OK(Put("foo6", "bar6"));
     ASSERT_OK(Put("foo7", "bar7"));
     ASSERT_OK(Put("foo8", "bar8"));
     ASSERT_OK(Put("fpc", "2"));
-    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
     ReadOptions read_options;
     read_options.prefix_same_as_start = true;
