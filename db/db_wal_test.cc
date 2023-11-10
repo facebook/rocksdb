@@ -1195,7 +1195,7 @@ TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
     ROCKSDB_NAMESPACE::port::Thread thread([&]() {
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PreFullPurge");
-      ASSERT_OK(db_->EnableFileDeletions(true));
+      ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PostFullPurge");
     });

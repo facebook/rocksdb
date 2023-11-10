@@ -4199,7 +4199,7 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Allow compactions to delete obsolete files.
+   * <p>Enable deleting obsolete files.
    * If force == true, the call to EnableFileDeletions()
    * will guarantee that file deletions are enabled after
    * the call, even if DisableFileDeletions() was called
