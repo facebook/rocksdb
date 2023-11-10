@@ -2645,6 +2645,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
       options, /*need_upper_bound_check=*/false, /*input_iter=*/nullptr,
       /*get_context=*/nullptr, /*lookup_context=*/nullptr));
   iiter->Seek(key);
+  assert(iiter->status().ok());
   assert(iiter->Valid());
 
   return TEST_BlockInCache(iiter->value().handle);

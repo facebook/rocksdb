@@ -35,7 +35,7 @@ class IndexBuilder {
  public:
   static IndexBuilder* CreateIndexBuilder(
       BlockBasedTableOptions::IndexType index_type,
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
+      const InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
       size_t ts_sz, bool persist_user_defined_timestamps);
@@ -432,9 +432,9 @@ class HashIndexBuilder : public IndexBuilder {
 class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
-      const ROCKSDB_NAMESPACE::InternalKeyComparator* comparator,
-      bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
-      size_t ts_sz, bool persist_user_defined_timestamps);
+      const InternalKeyComparator* comparator, bool use_value_delta_encoding,
+      const BlockBasedTableOptions& table_opt, size_t ts_sz,
+      bool persist_user_defined_timestamps);
 
   PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                           const BlockBasedTableOptions& table_opt,
