@@ -279,7 +279,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
       write_buffer_manager_, &write_controller_, &block_cache_tracer_,
-      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc));
+      io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc,
+      &error_handler_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -359,10 +360,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     if (io_s.IsIOError()) {
       // If resuming from IOError resulted from MANIFEST write, then assert
       // that we must have already set the MANIFEST writer to nullptr during
-      // clean-up phase MANIFEST writing. We must have also disabled file
-      // deletions.
+      // clean-up phase MANIFEST writing.
       assert(!versions_->descriptor_log_);
-      assert(!IsFileDeletionsEnabled());
       // Since we are trying to recover from MANIFEST write error, we need to
       // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
       // Therefore, force writing a dummy version edit because we do not know

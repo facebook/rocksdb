@@ -131,7 +131,8 @@ class FlushJobTestBase : public testing::Test {
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-        /*db_id*/ "", /*db_session_id*/ "", /*daily_offpeak_time_utc*/ ""));
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 

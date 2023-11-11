@@ -100,14 +100,6 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
-int DBImpl::EnableFileDeletionsWithLock() {
-  mutex_.AssertHeld();
-  // In case others have called EnableFileDeletions(true /* force */) in between
-  disable_delete_obsolete_files_ =
-      std::max(0, disable_delete_obsolete_files_ - 1);
-  return disable_delete_obsolete_files_;
-}
-
 bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }
@@ -154,6 +146,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
   // here but later find newer generated unfinalized files while scanning.
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
+  job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
@@ -427,6 +420,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                              state.blob_live.end());
   std::unordered_set<uint64_t> log_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
+  std::unordered_set<uint64_t> quarantine_files_set(
+      state.files_to_quarantine.begin(), state.files_to_quarantine.end());
 
   auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(
@@ -527,6 +522,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     FileType type;
     // Ignore file if we cannot recognize it.
     if (!ParseFileName(to_delete, &number, info_log_prefix.prefix, &type)) {
+      continue;
+    }
+
+    if (quarantine_files_set.find(number) != quarantine_files_set.end()) {
       continue;
     }
 

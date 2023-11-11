@@ -38,6 +38,7 @@
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
+#include "db/error_handler.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
 #include "db/range_del_aggregator.h"
@@ -1152,7 +1153,8 @@ class VersionSet {
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_id, const std::string& db_session_id,
-             const std::string& daily_offpeak_time_utc);
+             const std::string& daily_offpeak_time_utc,
+             ErrorHandler* const error_handler);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1667,6 +1669,9 @@ class VersionSet {
 
   // Off-peak time option used for compaction scoring
   OffpeakTimeOption offpeak_time_option_;
+
+  // Pointer to the DB's ErrorHandler.
+  ErrorHandler* const error_handler_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
