@@ -119,7 +119,8 @@ class CompactionIterator {
     virtual bool SupportsPerKeyPlacement() const = 0;
 
     // `key` includes timestamp if user-defined timestamp is enabled.
-    virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
+    virtual bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey&) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -186,8 +187,9 @@ class CompactionIterator {
     // Check if key is within penultimate level output range, to see if it's
     // safe to output to the penultimate level for per_key_placement feature.
     // `key` includes timestamp if user-defined timestamp is enabled.
-    bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
-      return compaction_->WithinPenultimateLevelOutputRange(key);
+    bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey& ikey) const override {
+      return compaction_->WithinPenultimateLevelOutputRange(ikey);
     }
 
    private:

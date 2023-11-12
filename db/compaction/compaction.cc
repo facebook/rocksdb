@@ -115,6 +115,42 @@ void Compaction::GetBoundaryKeys(
   }
 }
 
+void Compaction::GetBoundaryInternalKeys(
+    VersionStorageInfo* vstorage,
+    const std::vector<CompactionInputFiles>& inputs, InternalKey* smallest_key,
+    InternalKey* largest_key, int exclude_level) {
+  bool initialized = false;
+  const InternalKeyComparator* icmp = vstorage->InternalComparator();
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    if (inputs[i].files.empty() || inputs[i].level == exclude_level) {
+      continue;
+    }
+    if (inputs[i].level == 0) {
+      // we need to consider all files on level 0
+      for (const auto* f : inputs[i].files) {
+        if (!initialized || icmp->Compare(f->smallest, *smallest_key) < 0) {
+          *smallest_key = f->smallest;
+        }
+        if (!initialized || icmp->Compare(f->largest, *largest_key) > 0) {
+          *largest_key = f->largest;
+        }
+        initialized = true;
+      }
+    } else {
+      // we only need to consider the first and last file
+      if (!initialized ||
+          icmp->Compare(inputs[i].files[0]->smallest, *smallest_key) < 0) {
+        *smallest_key = inputs[i].files[0]->smallest;
+      }
+      if (!initialized ||
+          icmp->Compare(inputs[i].files.back()->largest, *largest_key) > 0) {
+        *largest_key = inputs[i].files.back()->largest;
+      }
+      initialized = true;
+    }
+  }
+}
+
 std::vector<CompactionInputFiles> Compaction::PopulateWithAtomicBoundaries(
     VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs) {
   const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
@@ -399,9 +435,10 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
     }
   }
 
-  GetBoundaryKeys(input_vstorage_, inputs_,
-                  &penultimate_level_smallest_user_key_,
-                  &penultimate_level_largest_user_key_, exclude_level);
+  // TODO: penultimate_output_range_type_ is not used.
+  GetBoundaryInternalKeys(input_vstorage_, inputs_,
+                          &penultimate_level_smallest_,
+                          &penultimate_level_largest_, exclude_level);
 }
 
 Compaction::~Compaction() {
@@ -426,33 +463,37 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
   if (!SupportsPerKeyPlacement()) {
     return false;
   }
+
+  if (penultimate_level_smallest_.size() == 0 ||
+      penultimate_level_largest_.size() == 0) {
+    return false;
+  }
+
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
   return ucmp->CompareWithoutTimestamp(
-             smallest_key, penultimate_level_largest_user_key_) <= 0 &&
+             smallest_key, penultimate_level_smallest_.user_key()) <= 0 &&
          ucmp->CompareWithoutTimestamp(
-             largest_key, penultimate_level_smallest_user_key_) >= 0;
+             largest_key, penultimate_level_largest_.user_key()) >= 0;
 }
 
 // key includes timestamp if user-defined timestamp is enabled.
-bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
+bool Compaction::WithinPenultimateLevelOutputRange(
+    const ParsedInternalKey& ikey) const {
   if (!SupportsPerKeyPlacement()) {
     return false;
   }
 
-  if (penultimate_level_smallest_user_key_.empty() ||
-      penultimate_level_largest_user_key_.empty()) {
+  if (penultimate_level_smallest_.size() == 0 ||
+      penultimate_level_largest_.size() == 0) {
     return false;
   }
 
-  const Comparator* ucmp =
-      input_vstorage_->InternalComparator()->user_comparator();
+  const InternalKeyComparator* icmp = input_vstorage_->InternalComparator();
 
-  return ucmp->CompareWithoutTimestamp(
-             key, penultimate_level_smallest_user_key_) >= 0 &&
-         ucmp->CompareWithoutTimestamp(
-             key, penultimate_level_largest_user_key_) <= 0;
+  return icmp->Compare(ikey, penultimate_level_smallest_.Encode()) >= 0 &&
+         icmp->Compare(ikey, penultimate_level_largest_.Encode()) <= 0;
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
