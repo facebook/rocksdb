@@ -1036,8 +1036,13 @@ bool rocksdb_delete_range_helper(
   ROCKSDB_NAMESPACE::Slice end_key_slice(reinterpret_cast<char*>(end_key),
                                          jend_key_len);
 
-  ROCKSDB_NAMESPACE::Status s =
-      db->DeleteRange(write_options, cf_handle, begin_key_slice, end_key_slice);
+  ROCKSDB_NAMESPACE::Status s;
+  if (cf_handle != nullptr) {
+    s = db->DeleteRange(write_options, cf_handle, begin_key_slice,
+                        end_key_slice);
+  } else {
+    s = db->DeleteRange(write_options, begin_key_slice, end_key_slice);
+  }
 
   // cleanup
   delete[] begin_key;

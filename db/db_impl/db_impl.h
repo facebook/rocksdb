@@ -2870,7 +2870,9 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
 
 inline Status DBImpl::FailIfCfHasTs(
     const ColumnFamilyHandle* column_family) const {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
