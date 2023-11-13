@@ -1825,11 +1825,9 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
                           const WriteOptions& write_options) {
   mutex_.AssertHeld();
-  uint64_t time_delayed = 0;
+  uint64_t start_time = 0;
   bool delayed = false;
   {
-    StopWatch sw(immutable_db_options_.clock, stats_, WRITE_STALL,
-                 Histograms::HISTOGRAM_ENUM_MAX, &time_delayed);
     // To avoid parallel timed delays (bad throttling), only support them
     // on the primary write queue.
     uint64_t delay;
@@ -1845,6 +1843,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
       }
+      start_time = immutable_db_options_.clock->NowMicros();
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
 
       // Notify write_thread about the stall so it can setup a barrier and
@@ -1857,7 +1856,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
       // (slightly longer because WriteController minimum delay is 1ms, in
       // case of sleep imprecision, rounding, etc.)
       const uint64_t kDelayInterval = 1001;
-      uint64_t stall_end = sw.start_time() + delay;
+      uint64_t stall_end = start_time + delay;
       while (write_controller_.NeedsDelay()) {
         if (immutable_db_options_.clock->NowMicros() >= stall_end) {
           // We already delayed this write `delay` microseconds
@@ -1898,9 +1897,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
   }
   assert(!delayed || !write_options.no_slowdown);
   if (delayed) {
+    auto time_delayed = immutable_db_options_.clock->NowMicros() - start_time;
     default_cf_internal_stats_->AddDBStats(
         InternalStats::kIntStatsWriteStallMicros, time_delayed);
     RecordTick(stats_, STALL_MICROS, time_delayed);
+    RecordInHistogram(stats_, WRITE_STALL, time_delayed);
   }
 
   // If DB is not in read-only mode and write_controller is not stopping
