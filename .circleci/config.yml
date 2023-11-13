@@ -68,7 +68,7 @@ commands:
       - run:
           name: "Build RocksDB"
           command: |
-            set PATH=%JAVA_HOME%;%PATH%
+            $env:Path = $env:JAVA_HOME + ";" + $env:Path
             mkdir build
             cd build
             & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DJNI=1 ..
