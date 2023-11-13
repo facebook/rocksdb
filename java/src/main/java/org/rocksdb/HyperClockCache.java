@@ -13,7 +13,7 @@ package org.rocksdb;
  * <li>
  * Requires an extra tuning parameter: see estimated_entry_charge below.
  * Similarly, substantially changing the capacity with SetCapacity could
- * harm efficiency. -> EXPERIMENTAL: the tuning parameter can be set to 0
+ * harm efficiency. -&gt; EXPERIMENTAL: the tuning parameter can be set to 0
  * to find the appropriate balance automatically.
  * </li>
  * <li>
