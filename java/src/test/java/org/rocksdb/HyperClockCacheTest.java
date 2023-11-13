@@ -1,5 +1,7 @@
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -18,6 +20,9 @@ public class HyperClockCacheTest {
         options.setCreateIfMissing(true);
         try (RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
           db.put("testKey".getBytes(), "testData".getBytes());
+          // no op
+          assertThat(cache.getUsage()).isGreaterThanOrEqualTo(0);
+          assertThat(cache.getPinnedUsage()).isGreaterThanOrEqualTo(0);
         }
       }
     }
