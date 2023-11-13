@@ -435,7 +435,11 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
     }
   }
 
-  // TODO: penultimate_output_range_type_ is not used.
+  // FIXME: should make use of `penultimate_output_range_type_`.
+  // FIXME: when last level's input range does not overlap with
+  //  penultimate level, and penultimate level input is empty,
+  //  this call will not set penultimate_level_smallest_ or
+  //  penultimate_level_largest_. No keys will be compacted up.
   GetBoundaryInternalKeys(input_vstorage_, inputs_,
                           &penultimate_level_smallest_,
                           &penultimate_level_largest_, exclude_level);
@@ -464,6 +468,8 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
     return false;
   }
 
+  // See FIXME in Compaction::PopulatePenultimateLevelOutputRange().
+  // We do not compact any key up in this case.
   if (penultimate_level_smallest_.size() == 0 ||
       penultimate_level_largest_.size() == 0) {
     return false;
@@ -473,9 +479,9 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
       input_vstorage_->InternalComparator()->user_comparator();
 
   return ucmp->CompareWithoutTimestamp(
-             smallest_key, penultimate_level_smallest_.user_key()) <= 0 &&
+             smallest_key, penultimate_level_largest_.user_key()) <= 0 &&
          ucmp->CompareWithoutTimestamp(
-             largest_key, penultimate_level_largest_.user_key()) >= 0;
+             largest_key, penultimate_level_smallest_.user_key()) >= 0;
 }
 
 // key includes timestamp if user-defined timestamp is enabled.
