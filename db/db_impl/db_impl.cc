@@ -2062,7 +2062,7 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
     return Status::InvalidArgument(
         "Cannot call GetEntity without PinnableAttributeGroups object");
   }
-  Status s = Status::OK();
+  Status s;
   const size_t num_column_families = result->size();
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGetEntity) {
@@ -2093,17 +2093,20 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
       }
       (*result)[i].SetStatus(
           Status::InvalidArgument("Column family handle cannot be null"));
-    } else if (!s.ok()) {
-      (*result)[i].SetStatus(
-          Status::Incomplete("DB not queried due to invalid argument(s) in "
-                             "another attribute group"));
-    } else {
+    } else if (s.ok()) {
       // Adding the same key slice for different CFs
       keys.emplace_back(key);
       column_families.emplace_back((*result)[i].column_family());
     }
   }
   if (!s.ok()) {
+    for (size_t i = 0; i < num_column_families; ++i) {
+      if ((*result)[i].status().ok()) {
+        (*result)[i].SetStatus(
+            Status::Incomplete("DB not queried due to invalid argument(s) in "
+                               "another attribute group"));
+      }
+    }
     return s;
   }
   std::vector<PinnableWideColumns> columns(num_column_families);
