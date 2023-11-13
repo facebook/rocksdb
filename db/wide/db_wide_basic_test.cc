@@ -278,7 +278,8 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
   std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
       {handles_[kHotCfHandleIndex], handles_[kColdCfHandleIndex]}};
   std::vector<ColumnFamilyHandle*> default_null_and_hot_cfs{
-      handles_[kDefaultCfHandleIndex], nullptr, handles_[kHotCfHandleIndex]};
+      handles_[kDefaultCfHandleIndex], nullptr, handles_[kHotCfHandleIndex],
+      nullptr};
   auto create_result =
       [](const std::vector<ColumnFamilyHandle*>& column_families)
       -> PinnableAttributeGroups {
@@ -305,6 +306,9 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     ASSERT_TRUE(result[1].status().IsInvalidArgument());
     // Valid CF, but failed with Incomplete status due to other attribute groups
     ASSERT_TRUE(result[2].status().IsIncomplete());
+    // Null CF, but failed with Incomplete status because the nullcheck break
+    // out early in the loop
+    ASSERT_TRUE(result[3].status().IsIncomplete());
   }
   {
     // Case 2. Get first key from default cf and hot_cf and second key from

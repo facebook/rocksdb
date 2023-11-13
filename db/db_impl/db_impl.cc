@@ -2085,26 +2085,25 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
   std::vector<Slice> keys;
   std::vector<ColumnFamilyHandle*> column_families;
   for (size_t i = 0; i < num_column_families; ++i) {
+    // If any of the CFH is null, break early since the entire query will fail
     if (!(*result)[i].column_family()) {
-      if (s.ok()) {
-        s = Status::InvalidArgument(
-            "DB failed to query because one or more group(s) have null column "
-            "family handle");
-      }
+      s = Status::InvalidArgument(
+          "DB failed to query because one or more group(s) have null column "
+          "family handle");
       (*result)[i].SetStatus(
           Status::InvalidArgument("Column family handle cannot be null"));
-    } else if (s.ok()) {
-      // Adding the same key slice for different CFs
-      keys.emplace_back(key);
-      column_families.emplace_back((*result)[i].column_family());
+      break;
     }
+    // Adding the same key slice for different CFs
+    keys.emplace_back(key);
+    column_families.emplace_back((*result)[i].column_family());
   }
   if (!s.ok()) {
     for (size_t i = 0; i < num_column_families; ++i) {
       if ((*result)[i].status().ok()) {
         (*result)[i].SetStatus(
             Status::Incomplete("DB not queried due to invalid argument(s) in "
-                               "another attribute group"));
+                               "one or more of the attribute groups"));
       }
     }
     return s;
