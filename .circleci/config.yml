@@ -54,6 +54,7 @@ commands:
           command: |
             echo "Installing CMake..."
             choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+            powershell.exe -Command "Remove-Item -Path HKLM:\Software\JavaSoft -Recurse"
             choco install liberica8jdk -y
             mkdir $Env:THIRDPARTY_HOME
             cd $Env:THIRDPARTY_HOME
