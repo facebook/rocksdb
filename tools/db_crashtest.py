@@ -125,6 +125,7 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
+        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
          "auto_hyper_clock_cache", "tiered_lru_cache",
          "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
          "tiered_auto_hyper_clock_cache"]
