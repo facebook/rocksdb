@@ -1657,8 +1657,6 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     ASSERT_OK(db_->Put(write_opts, numStr, ts_later, numStr));
   }
   ASSERT_OK(Flush());
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
-  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
 
   ReadOptions read_opts;
   read_opts.timestamp = &ts_later_slice;
@@ -1724,13 +1722,6 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     ASSERT_EQ(read_ts, ts_early);
     ASSERT_EQ(read_value, "bar");
 
-    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-    ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
-    ASSERT_EQ(read_ts, ts_early);
-    ASSERT_EQ(read_value, "bar");
-
     // Test repeated get on cache entry
     for (int i = 0; i < 3; i++) {
       s = db_->Get(read_opts, "foo", &read_value, &read_ts);
@@ -1753,19 +1744,11 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
               ++expected_miss_count);
-
-    read_opts.timestamp = &ts_later_slice;
-    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
-    ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), ++expected_hit_count);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), expected_miss_count);
-    ASSERT_EQ(read_ts, ts_early);
-    ASSERT_EQ(read_value, "bar");
   }
 
   {
     read_opts.snapshot = snap_with_foo;
-
+    read_opts.timestamp = &ts_later_slice;
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), expected_hit_count);

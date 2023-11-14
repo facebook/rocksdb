@@ -72,21 +72,20 @@ GetContext::GetContext(const Comparator* ucmp,
                  seq, _pinned_iters_mgr, callback, is_blob_index,
                  tracing_get_id, blob_fetcher) {}
 
-void GetContext::appendToReplayLog(std::string* replay_log, ValueType type,
-                                   Slice value, Slice ts) {
-  if (replay_log) {
-    if (replay_log->empty()) {
+void GetContext::appendToReplayLog(ValueType type, Slice value, Slice ts) {
+  if (replay_log_) {
+    if (replay_log_->empty()) {
       // Optimization: in the common case of only one operation in the
       // log, we allocate the exact amount of space needed.
-      replay_log->reserve(1 + VarintLength(value.size()) + value.size());
+      replay_log_->reserve(1 + VarintLength(value.size()) + value.size());
     }
-    replay_log->push_back(type);
-    PutLengthPrefixedSlice(replay_log, value);
+    replay_log_->push_back(type);
+    PutLengthPrefixedSlice(replay_log_, value);
 
     // If cf enables ts, there should always be a ts following each value
     if (ucmp_->timestamp_size() > 0) {
       assert(ts.size() == ucmp_->timestamp_size());
-      PutLengthPrefixedSlice(replay_log, ts);
+      PutLengthPrefixedSlice(replay_log_, ts);
     }
   }
 }
@@ -105,9 +104,9 @@ void GetContext::MarkKeyMayExist() {
 
 void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   assert(state_ == kNotFound);
-  const std::string kMaxTs(TimestampSize(), '\xff');
+  assert(ucmp_->timestamp_size() == 0);
 
-  appendToReplayLog(replay_log_, kTypeValue, value, Slice(kMaxTs));
+  appendToReplayLog(kTypeValue, value, Slice());
 
   state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
@@ -245,33 +244,37 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
 
     size_t ts_sz = ucmp_->timestamp_size();
-    Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+    Slice ts;
 
-    if (ts_sz > 0 && timestamp_ != nullptr) {
-      if (!timestamp_->empty()) {
-        assert(ts_sz == timestamp_->size());
-        // `timestamp` can be set before `SaveValue` is ever called
-        // when max_covering_tombstone_seq_ was set.
-        // If this key has a higher sequence number than range tombstone,
-        // then timestamp should be updated. `ts_from_rangetombstone_` is
-        // set to false afterwards so that only the key with highest seqno
-        // updates the timestamp.
-        if (ts_from_rangetombstone_) {
-          assert(max_covering_tombstone_seq_);
-          if (parsed_key.sequence > *max_covering_tombstone_seq_) {
-            timestamp_->assign(ts.data(), ts.size());
-            ts_from_rangetombstone_ = false;
+    if (ts_sz > 0) {
+      // ensure always have ts if cf enables ts.
+      ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+      if (timestamp_ != nullptr) {
+        if (!timestamp_->empty()) {
+          assert(ts_sz == timestamp_->size());
+          // `timestamp` can be set before `SaveValue` is ever called
+          // when max_covering_tombstone_seq_ was set.
+          // If this key has a higher sequence number than range tombstone,
+          // then timestamp should be updated. `ts_from_rangetombstone_` is
+          // set to false afterwards so that only the key with highest seqno
+          // updates the timestamp.
+          if (ts_from_rangetombstone_) {
+            assert(max_covering_tombstone_seq_);
+            if (parsed_key.sequence > *max_covering_tombstone_seq_) {
+              timestamp_->assign(ts.data(), ts.size());
+              ts_from_rangetombstone_ = false;
+            }
           }
         }
-      }
-      // TODO optimize for small size ts
-      const std::string kMaxTs(ts_sz, '\xff');
-      if (timestamp_->empty() ||
-          ucmp_->CompareTimestamp(*timestamp_, kMaxTs) == 0) {
-        timestamp_->assign(ts.data(), ts.size());
+        // TODO optimize for small size ts
+        const std::string kMaxTs(ts_sz, '\xff');
+        if (timestamp_->empty() ||
+            ucmp_->CompareTimestamp(*timestamp_, kMaxTs) == 0) {
+          timestamp_->assign(ts.data(), ts.size());
+        }
       }
     }
-    appendToReplayLog(replay_log_, parsed_key.type, value, ts);
+    appendToReplayLog(parsed_key.type, value, ts);
 
     auto type = parsed_key.type;
     // Key matches. Process it
@@ -566,9 +569,9 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context, Cleanable* value_pinner,
                          SequenceNumber seq_no) {
   Slice s = replay_log;
-  Slice ts = Slice();
+  Slice ts;
   size_t ts_sz = get_context->TimestampSize();
-  bool ret;
+  bool ret = false;
 
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -586,6 +589,7 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // piece of value.
     if (ts_sz > 0) {
       ret = GetLengthPrefixedSlice(&s, &ts);
+      assert(ts_sz == ts.size());
       assert(ret);
       (void)ret;
       ikey.SetTimestamp(ts);

@@ -149,7 +149,7 @@ class GetContext {
 
   bool NeedTimestamp() { return timestamp_ != nullptr; }
 
-  size_t TimestampSize() { return ucmp_->timestamp_size(); }
+  inline size_t TimestampSize() { return ucmp_->timestamp_size(); }
 
   void SetTimestampFromRangeTombstone(const Slice& timestamp) {
     assert(timestamp_);
@@ -164,8 +164,7 @@ class GetContext {
   // another GetContext with replayGetContextLog.
   void SetReplayLog(std::string* replay_log) { replay_log_ = replay_log; }
 
-  void appendToReplayLog(std::string* replay_log, ValueType type, Slice value,
-                         Slice ts);
+  void appendToReplayLog(ValueType type, Slice value, Slice ts);
 
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
