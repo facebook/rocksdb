@@ -241,7 +241,7 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
   if (s.ok() && value == nullptr && distribute_cache_res_ && handle) {
     charge = target_->GetCharge(*handle);
 
-    MutexLock l(&mutex_);
+    MutexLock l(&cache_res_mutex_);
     placeholder_usage_ += charge;
     // Check if total placeholder reservation is more than the overall
     // cache capacity. If it is, then we don't try to charge the
@@ -308,7 +308,7 @@ bool CacheWithSecondaryAdapter::Release(Handle* handle,
     if (v == nullptr && distribute_cache_res_) {
       size_t charge = target_->GetCharge(handle);
 
-      MutexLock l(&mutex_);
+      MutexLock l(&cache_res_mutex_);
       placeholder_usage_ -= charge;
       // Check if total placeholder reservation is more than the overall
       // cache capacity. If it is, then we do nothing as reserved_usage_ must
@@ -478,7 +478,7 @@ void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
   size_t old_sec_capacity = 0;
 
   if (distribute_cache_res_) {
-    MutexLock m(&mutex_);
+    MutexLock m(&cache_res_mutex_);
 
     Status s = secondary_cache_->GetCapacity(old_sec_capacity);
     if (!s.ok()) {
@@ -537,7 +537,7 @@ Status CacheWithSecondaryAdapter::GetSecondaryCachePinnedUsage(
     size_t& size) const {
   Status s;
   if (distribute_cache_res_) {
-    MutexLock m(&mutex_);
+    MutexLock m(&cache_res_mutex_);
     size_t capacity = 0;
     s = secondary_cache_->GetCapacity(capacity);
     if (s.ok()) {
@@ -569,7 +569,7 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     return Status::NotSupported();
   }
 
-  MutexLock m(&mutex_);
+  MutexLock m(&cache_res_mutex_);
   size_t pri_capacity = target_->GetCapacity();
   size_t sec_capacity =
       static_cast<size_t>(pri_capacity * compressed_secondary_ratio);

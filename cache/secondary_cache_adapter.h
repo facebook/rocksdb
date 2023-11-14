@@ -87,7 +87,9 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
   double sec_cache_res_ratio_;
-  mutable port::Mutex mutex_;
+  // Mutex for use when managing cache memory reservations. Should not be used
+  // for other purposes, as it may risk causing deadlocks.
+  mutable port::Mutex cache_res_mutex_;
   // Total memory reserved by placeholder entriesin the cache
   size_t placeholder_usage_;
   // Total placeholoder memory charged to both the primary and secondary
