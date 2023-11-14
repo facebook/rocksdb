@@ -714,7 +714,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   std::vector<int> max_bytes_for_level_multiplier_additional =
-      std::vector<int>(num_levels, 1);
+      std::vector<int>(static_cast<size_t>(num_levels), 1);
 
   // We try to limit number of bytes in one compaction to be lower than this
   // threshold. But it's not guaranteed.
