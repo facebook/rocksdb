@@ -1531,8 +1531,7 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
             ParsedInternalKey pik("a", 0U, kTypeValue);
             ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(pik));
           } else {
-            std::string c_str;
-            c_str = c;
+            std::string c_str{c};
             // WithinPenultimateLevelOutputRange checks internal key range.
             // 'z' is the last key, so set seqno properly.
             ParsedInternalKey pik(c_str, c == 'z' ? 12U : 0U, kTypeValue);
