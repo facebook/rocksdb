@@ -53,7 +53,7 @@ commands:
           name: "Install thirdparty dependencies"
           command: |
             echo "Installing CMake..."
-            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y            
+            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
             choco install liberica8jdk -y
             mkdir $Env:THIRDPARTY_HOME
             cd $Env:THIRDPARTY_HOME
