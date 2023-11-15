@@ -114,6 +114,9 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
   } else if (prop_name == "rocksdb.iterator.internal-key") {
     *prop = saved_key_.GetUserKey().ToString();
     return Status::OK();
+  } else if (prop_name == "rocksdb.iterator.write-time") {
+    // TODO(yuzhangyu): implement return the actual write time.
+    return Status::NotSupported("write time property is under construction");
   }
   return Status::InvalidArgument("Unidentified property.");
 }

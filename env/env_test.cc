@@ -2906,6 +2906,13 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
 
   std::string base_opts =
       std::string("provider=1://test; id=") + EncryptedFileSystem::kClassName();
+  // Rewrite the default FileSystem URI if the "TEST_FS_URI" environment
+  // variable is set. This is useful to test customer encryption plugins.
+  const char* uri = getenv("TEST_FS_URI");
+  if (uri != nullptr) {
+    base_opts = uri;
+  }
+
   // The EncryptedFileSystem requires a "provider" option.
   ASSERT_NOK(FileSystem::CreateFromString(
       config_options_, EncryptedFileSystem::kClassName(), &fs));

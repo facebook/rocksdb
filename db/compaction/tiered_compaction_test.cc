@@ -1971,13 +1971,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   Close();
 }
 
-// FIXME broken test:
-// dbfull()->TEST_WaitForCompact()
-// Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
-// overlapping ranges:
-// file #14 largest key: '6B6579303030303134' seq:32, type:1 vs.
-// file #19 smallest key: '6B6579303030303130' seq:10, type:1
-TEST_F(PrecludeLastLevelTest, DISABLED_RangeDelsCauseFileEndpointsToOverlap) {
+TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   const int kNumLevels = 7;
   const int kSecondsPerKey = 10;
   const int kNumFiles = 3;

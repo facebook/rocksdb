@@ -277,6 +277,9 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
       {handles_[kDefaultCfHandleIndex], handles_[kHotCfHandleIndex]}};
   std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
       {handles_[kHotCfHandleIndex], handles_[kColdCfHandleIndex]}};
+  std::vector<ColumnFamilyHandle*> default_null_and_hot_cfs{
+      handles_[kDefaultCfHandleIndex], nullptr, handles_[kHotCfHandleIndex],
+      nullptr};
   auto create_result =
       [](const std::vector<ColumnFamilyHandle*>& column_families)
       -> PinnableAttributeGroups {
@@ -286,9 +289,29 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     }
     return result;
   };
-
   {
-    // Case 1. Get first key from default cf and hot_cf and second key from
+    // Case 1. Invalid Argument (passing in null CF)
+    AttributeGroups ag{
+        AttributeGroup(nullptr, first_default_columns),
+        AttributeGroup(handles_[kHotCfHandleIndex], first_hot_columns)};
+    ASSERT_NOK(db_->PutEntity(WriteOptions(), first_key, ag));
+
+    PinnableAttributeGroups result = create_result(default_null_and_hot_cfs);
+    Status s = db_->GetEntity(ReadOptions(), first_key, &result);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.IsInvalidArgument());
+    // Valid CF, but failed with Incomplete status due to other attribute groups
+    ASSERT_TRUE(result[0].status().IsIncomplete());
+    // Null CF
+    ASSERT_TRUE(result[1].status().IsInvalidArgument());
+    // Valid CF, but failed with Incomplete status due to other attribute groups
+    ASSERT_TRUE(result[2].status().IsIncomplete());
+    // Null CF, but failed with Incomplete status because the nullcheck break
+    // out early in the loop
+    ASSERT_TRUE(result[3].status().IsIncomplete());
+  }
+  {
+    // Case 2. Get first key from default cf and hot_cf and second key from
     // hot_cf and cold_cf
     constexpr size_t num_column_families = 2;
     PinnableAttributeGroups first_key_result =
@@ -318,7 +341,7 @@ TEST_F(DBWideBasicTest, GetEntityAsPinnableAttributeGroups) {
     ASSERT_EQ(second_cold_columns, second_key_result[1].columns());
   }
   {
-    // Case 2. Get first key and second key from all cfs. For the second key, we
+    // Case 3. Get first key and second key from all cfs. For the second key, we
     // don't expect to get columns from default cf.
     constexpr size_t num_column_families = 3;
     PinnableAttributeGroups first_key_result = create_result(all_cfs);
@@ -428,6 +451,8 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
       {handles_[kDefaultCfHandleIndex], handles_[kHotCfHandleIndex]}};
   std::vector<ColumnFamilyHandle*> hot_and_cold_cfs{
       {handles_[kHotCfHandleIndex], handles_[kColdCfHandleIndex]}};
+  std::vector<ColumnFamilyHandle*> null_and_hot_cfs{
+      nullptr, handles_[kHotCfHandleIndex], nullptr};
   auto create_result =
       [](const std::vector<ColumnFamilyHandle*>& column_families)
       -> PinnableAttributeGroups {
@@ -438,7 +463,7 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
     return result;
   };
   {
-    // Check for invalid argument
+    // Check for invalid read option argument
     ReadOptions read_options;
     read_options.io_activity = Env::IOActivity::kGetEntity;
     std::vector<PinnableAttributeGroups> results;
@@ -452,6 +477,31 @@ TEST_F(DBWideBasicTest, MultiCFMultiGetEntityAsPinnableAttributeGroups) {
         ASSERT_TRUE(results[i][j].status().IsInvalidArgument());
       }
     }
+    // Check for invalid column family in Attribute Group result
+    results.clear();
+    results.emplace_back(create_result(null_and_hot_cfs));
+    results.emplace_back(create_result(all_cfs));
+    db_->MultiGetEntity(ReadOptions(), num_keys, keys.data(), results.data());
+
+    // First one failed due to null CFs in the AttributeGroup
+    // Null CF
+    ASSERT_NOK(results[0][0].status());
+    ASSERT_TRUE(results[0][0].status().IsInvalidArgument());
+    // Valid CF, but failed with incomplete status because of other attribute
+    // groups
+    ASSERT_NOK(results[0][1].status());
+    ASSERT_TRUE(results[0][1].status().IsIncomplete());
+    // Null CF
+    ASSERT_NOK(results[0][2].status());
+    ASSERT_TRUE(results[0][2].status().IsInvalidArgument());
+
+    // Second one failed with Incomplete because first one failed
+    ASSERT_NOK(results[1][0].status());
+    ASSERT_TRUE(results[1][0].status().IsIncomplete());
+    ASSERT_NOK(results[1][1].status());
+    ASSERT_TRUE(results[1][1].status().IsIncomplete());
+    ASSERT_NOK(results[1][2].status());
+    ASSERT_TRUE(results[1][2].status().IsIncomplete());
   }
   {
     // Case 1. Get first key from default cf and hot_cf and second key from

@@ -1143,6 +1143,8 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_paranoid_checks(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_db_paths(
     rocksdb_options_t*, const rocksdb_dbpath_t** path_values, size_t num_paths);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_cf_paths(
+    rocksdb_options_t*, const rocksdb_dbpath_t** path_values, size_t num_paths);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_env(rocksdb_options_t*,
                                                         rocksdb_env_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_info_log(rocksdb_options_t*,
@@ -1672,6 +1674,10 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_wal_compression(
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
+extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t*
+rocksdb_ratelimiter_create_auto_tuned(int64_t rate_bytes_per_sec,
+                                      int64_t refill_period_us,
+                                      int32_t fairness);
 extern ROCKSDB_LIBRARY_API void rocksdb_ratelimiter_destroy(
     rocksdb_ratelimiter_t*);
 
@@ -2429,6 +2435,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sst_file_metadata_destroy(
 
 extern ROCKSDB_LIBRARY_API char*
 rocksdb_sst_file_metadata_get_relative_filename(
+    rocksdb_sst_file_metadata_t* file_meta);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_sst_file_metadata_get_directory(
     rocksdb_sst_file_metadata_t* file_meta);
 
 extern ROCKSDB_LIBRARY_API uint64_t

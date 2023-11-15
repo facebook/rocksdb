@@ -2904,6 +2904,16 @@ void rocksdb_options_set_db_paths(rocksdb_options_t* opt,
   opt->rep.db_paths = db_paths;
 }
 
+void rocksdb_options_set_cf_paths(rocksdb_options_t* opt,
+                                  const rocksdb_dbpath_t** dbpath_values,
+                                  size_t num_paths) {
+  std::vector<DbPath> cf_paths(num_paths);
+  for (size_t i = 0; i < num_paths; ++i) {
+    cf_paths[i] = dbpath_values[i]->rep;
+  }
+  opt->rep.cf_paths = cf_paths;
+}
+
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
   opt->rep.env = (env ? env->rep : nullptr);
 }
@@ -3964,6 +3974,16 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(int64_t rate_bytes_per_sec,
   rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
   rate_limiter->rep.reset(
       NewGenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness));
+  return rate_limiter;
+}
+
+rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_auto_tuned(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep.reset(NewGenericRateLimiter(rate_bytes_per_sec,
+                                                refill_period_us, fairness,
+                                                RateLimiter::Mode::kWritesOnly,
+                                                true));  // auto_tuned
   return rate_limiter;
 }
 
@@ -5472,6 +5492,11 @@ void rocksdb_sst_file_metadata_destroy(rocksdb_sst_file_metadata_t* file_meta) {
 char* rocksdb_sst_file_metadata_get_relative_filename(
     rocksdb_sst_file_metadata_t* file_meta) {
   return strdup(file_meta->rep->relative_filename.c_str());
+}
+
+char* rocksdb_sst_file_metadata_get_directory(
+    rocksdb_sst_file_metadata_t* file_meta) {
+  return strdup(file_meta->rep->directory.c_str());
 }
 
 uint64_t rocksdb_sst_file_metadata_get_size(
