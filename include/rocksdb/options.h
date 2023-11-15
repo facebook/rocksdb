@@ -814,18 +814,23 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // The following two fields affect how archived logs will be deleted.
-  // 1. If both set to 0, logs will be deleted asap and will not get into
-  //    the archive.
-  // 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
-  //    WAL files will be checked every 10 min and if total size is greater
-  //    then WAL_size_limit_MB, they will be deleted starting with the
-  //    earliest until size_limit is met. All empty files will be deleted.
-  // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-  //    WAL files will be checked every WAL_ttl_seconds / 2 and those that
-  //    are older than WAL_ttl_seconds will be deleted.
-  // 4. If both are not 0, WAL files will be checked every 10 min and both
-  //    checks will be performed with ttl being first.
+  // The following two fields affect when WALs will be archived and deleted.
+  //
+  // When both are zero, obsolete WALs will not be archived and will be deleted
+  // immediately. Otherwise, obsolete WALs will be archived prior to deletion.
+  //
+  // When `WAL_size_limit_MB` is nonzero, archived WALs starting with the
+  // earliest will be deleted until the total size of the archive falls below
+  // this limit. All empty WALs will be deleted.
+  //
+  // When `WAL_ttl_seconds` is nonzero, archived WALs older than
+  // `WAL_ttl_seconds` will be deleted.
+  //
+  // When only `WAL_ttl_seconds` is nonzero, the frequency at which archived
+  // WALs are deleted is every `WAL_ttl_seconds / 2` seconds. When only
+  // `WAL_size_limit_MB` is nonzero, the deletion frequency is every ten
+  // minutes. When both are nonzero, the deletion frequency is the minimum of
+  // those two values.
   uint64_t WAL_ttl_seconds = 0;
   uint64_t WAL_size_limit_MB = 0;
 
