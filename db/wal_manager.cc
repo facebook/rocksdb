@@ -155,7 +155,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
   uint64_t const time_to_check =
       ttl_enabled ? std::min(kDefaultIntervalToDeleteObsoleteWAL,
-                             std::max(static_cast<uint64_t>(1),
+                             std::max(uint64_t{1},
                                       db_options_.WAL_ttl_seconds / 2))
                   : kDefaultIntervalToDeleteObsoleteWAL;
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
