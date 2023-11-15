@@ -189,7 +189,7 @@ void CompressedCacheSetCapacityThread(void* v) {
                 s.ToString().c_str());
       }
     } else if (FLAGS_compressed_secondary_cache_ratio > 0.0) {
-      if (thread->rand.OneIn(2)) {
+      if (thread->rand.OneIn(2)) {  // if (thread->rand.OneIn(2)) {
         size_t capacity = block_cache->GetCapacity();
         size_t adjustment;
         if (FLAGS_use_write_buffer_manager && FLAGS_db_write_buffer_size > 0) {

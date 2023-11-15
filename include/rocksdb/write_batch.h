@@ -43,13 +43,13 @@ struct SavePoints;
 struct SliceParts;
 
 struct SavePoint {
-  size_t size;  // size of rep_
-  int count;    // count of elements in rep_
+  size_t size;     // size of rep_
+  uint32_t count;  // count of elements in rep_
   uint32_t content_flags;
 
   SavePoint() : size(0), count(0), content_flags(0) {}
 
-  SavePoint(size_t _size, int _count, uint32_t _flags)
+  SavePoint(size_t _size, uint32_t _count, uint32_t _flags)
       : size(_size), count(_count), content_flags(_flags) {}
 
   void clear() {

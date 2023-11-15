@@ -597,6 +597,8 @@ class StackableDB : public DB {
     return db_->TryCatchUpWithPrimary();
   }
 
+  virtual Status Resume() override { return db_->Resume(); }
+
  protected:
   DB* db_;
   std::shared_ptr<DB> shared_db_ptr_;

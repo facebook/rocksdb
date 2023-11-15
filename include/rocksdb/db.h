@@ -509,6 +509,15 @@ class DB {
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key,
                              const Slice& ts);
+  virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key) {
+    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key);
+  }
+  virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key,
+                             const Slice& ts) {
+    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key, ts);
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
