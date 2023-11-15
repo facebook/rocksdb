@@ -1650,12 +1650,6 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   ASSERT_OK(db_->Put(write_opts, "foo3", ts_early, "bar3"));
 
   const Snapshot* snap_with_foo = db_->GetSnapshot();
-
-  // Ensure file has sequence number greater than snapshot_with_foo
-  for (int i = 0; i < 10; i++) {
-    std::string numStr = std::to_string(i);
-    ASSERT_OK(db_->Put(write_opts, numStr, ts_later, numStr));
-  }
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
@@ -1783,6 +1777,67 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCache) {
   db_->ReleaseSnapshot(snap_with_nothing);
   db_->ReleaseSnapshot(snap_with_foo);
   Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetWithRowCacheMultiSST) {
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 8192;
+  options.row_cache = cache_options.MakeSharedRowCache();
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+
+  std::string ts_early = Timestamp(1, 0);
+  std::string ts_later = Timestamp(10, 0);
+  Slice ts_later_slice = ts_later;
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", ts_early, "v1"));
+  ASSERT_OK(Flush());
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(2, 0), "v2"));
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(3, 0), "v3"));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts_later_slice;
+
+  std::string read_value;
+  std::string read_ts;
+  Status s;
+
+  {
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
+              2);  // Due to 2 SST files
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+
+    s = db_->Get(read_opts, "foo", &read_value, &read_ts);
+    ASSERT_OK(s);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+    // After first GetFromRowCache, get_context will have status kMerge will do
+    // another lookup.
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
+    ASSERT_EQ(read_ts, Timestamp(3, 0));
+    ASSERT_EQ(read_value, "v1,v2,v3");
+  }
 }
 
 TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
