@@ -77,6 +77,30 @@ enum ValueType : unsigned char {
 extern const ValueType kValueTypeForSeek;
 extern const ValueType kValueTypeForSeekForPrev;
 
+// A range of user keys used internally by RocksDB. Also see `Range` used by
+// public APIs.
+struct UserKeyRange {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // include user_defined timestamps.
+  Slice start;
+  Slice limit;
+
+  UserKeyRange() {}
+  UserKeyRange(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A range of user keys used internally by RocksDB. Also see `RangePtr` used by
+// public APIs.
+struct UserKeyRangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key with timestamp part.
+  const Slice* start;
+  const Slice* limit;
+
+  UserKeyRangePtr() : start(nullptr), limit(nullptr) {}
+  UserKeyRangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
+};
+
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {

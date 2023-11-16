@@ -4370,7 +4370,25 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
 
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
-  auto s = version->GetPropertiesOfTablesInRange(read_options, range, n, props);
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
+  autovector<UserKeyRange> ukey_ranges;
+  std::vector<std::string> keys;
+  ukey_ranges.reserve(n);
+  keys.reserve(2 * n);
+  // Add timestamp if needed
+  for (size_t i = 0; i < n; i++) {
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        &range[i].start, &range[i].limit, ts_sz, &keys.emplace_back(),
+        &keys.emplace_back(), /*exclusive_end=*/false);
+    assert(start.has_value());
+    assert(limit.has_value());
+    ukey_ranges.emplace_back(start.value(), limit.value());
+  }
+  auto s =
+      version->GetPropertiesOfTablesInRange(read_options, ukey_ranges, props);
 
   // Decrement the ref count
   mutex_.Lock();
@@ -4887,6 +4905,26 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
   Status status = Status::OK();
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
+  const Comparator* ucmp = cfd->user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  autovector<UserKeyRangePtr> ukey_ranges;
+  std::vector<std::string> keys;
+  std::vector<Slice> key_slices;
+  ukey_ranges.reserve(n);
+  keys.reserve(2 * n);
+  key_slices.reserve(2 * n);
+  for (size_t i = 0; i < n; i++) {
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        ranges[i].start, ranges[i].limit, ts_sz, &keys.emplace_back(),
+        &keys.emplace_back(), !include_end);
+    assert(ranges[i].start == nullptr || start.has_value());
+    assert(ranges[i].limit == nullptr || limit.has_value());
+    ukey_ranges.emplace_back(
+        start.has_value() ? &key_slices.emplace_back(start.value()) : nullptr,
+        limit.has_value() ? &key_slices.emplace_back(limit.value()) : nullptr);
+  }
+
   VersionEdit edit;
   std::set<FileMetaData*> deleted_files;
   JobContext job_context(next_job_id_.fetch_add(1), true);
@@ -4895,8 +4933,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     Version* input_version = cfd->current();
 
     auto* vstorage = input_version->storage_info();
-    for (size_t r = 0; r < n; r++) {
-      auto begin = ranges[r].start, end = ranges[r].limit;
+    for (const auto& range : ukey_ranges) {
+      auto begin = range.start, end = range.limit;
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
             !vstorage->OverlapInLevel(i, begin, end)) {
@@ -4930,8 +4968,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
             continue;
           }
           if (!include_end && end != nullptr &&
-              cfd->user_comparator()->Compare(level_file->largest.user_key(),
-                                              *end) == 0) {
+              (ucmp->CompareWithoutTimestamp(level_file->largest.user_key(),
+                                             *end) == 0)) {
             continue;
           }
           edit.SetColumnFamily(cfd->GetID());

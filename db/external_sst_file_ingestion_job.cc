@@ -327,31 +327,22 @@ Status ExternalSstFileIngestionJob::Prepare(
 
 Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
-  autovector<Range> ranges;
-  autovector<std::string> keys;
+  size_t n = files_to_ingest_.size();
+  autovector<UserKeyRange> ranges;
+  std::vector<std::string> keys;
+  ranges.reserve(n);
+  keys.reserve(2 * n);
   size_t ts_sz = cfd_->user_comparator()->timestamp_size();
-  if (ts_sz) {
-    // Check all ranges [begin, end] inclusively. Add maximum
-    // timestamp to include all `begin` keys, and add minimal timestamp to
-    // include all `end` keys.
-    for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-      std::string begin_str;
-      std::string end_str;
-      AppendUserKeyWithMaxTimestamp(
-          &begin_str, file_to_ingest.smallest_internal_key.user_key(), ts_sz);
-      AppendUserKeyWithMinTimestamp(
-          &end_str, file_to_ingest.largest_internal_key.user_key(), ts_sz);
-      keys.emplace_back(std::move(begin_str));
-      keys.emplace_back(std::move(end_str));
-    }
-    for (size_t i = 0; i < files_to_ingest_.size(); ++i) {
-      ranges.emplace_back(keys[2 * i], keys[2 * i + 1]);
-    }
-  } else {
-    for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-      ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
-                          file_to_ingest.largest_internal_key.user_key());
-    }
+  // Check all ranges [begin, end] inclusively.
+  for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
+    Slice start_ukey = file_to_ingest.smallest_internal_key.user_key();
+    Slice end_ukey = file_to_ingest.largest_internal_key.user_key();
+    auto [start, end] = MaybeAddTimestampsToRange(
+        &start_ukey, &end_ukey, ts_sz, &keys.emplace_back(),
+        &keys.emplace_back(), /*exclusive_end=*/false);
+    assert(start.has_value());
+    assert(end.has_value());
+    ranges.emplace_back(start.value(), end.value());
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);

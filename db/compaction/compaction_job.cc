@@ -450,14 +450,6 @@ void CompactionJob::ReleaseSubcompactionResources() {
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 
-struct RangeWithSize {
-  Range range;
-  uint64_t size;
-
-  RangeWithSize(const Slice& a, const Slice& b, uint64_t s = 0)
-      : range(a, b), size(s) {}
-};
-
 void CompactionJob::GenSubcompactionBoundaries() {
   // The goal is to find some boundary keys so that we can evenly partition
   // the compaction input data into max_subcompactions ranges.

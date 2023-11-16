@@ -1717,13 +1717,13 @@ Status Version::GetPropertiesOfAllTables(const ReadOptions& read_options,
 }
 
 Status Version::GetPropertiesOfTablesInRange(
-    const ReadOptions& read_options, const Range* range, std::size_t n,
+    const ReadOptions& read_options, const autovector<UserKeyRange>& ranges,
     TablePropertiesCollection* props) const {
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
-    for (decltype(n) i = 0; i < n; i++) {
+    for (const auto& range : ranges) {
       // Convert user_key into a corresponding internal key.
-      InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-      InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
       std::vector<FileMetaData*> files;
       storage_info_.GetOverlappingInputs(level, &k1, &k2, &files, -1, nullptr,
                                          false);
