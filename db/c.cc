@@ -45,6 +45,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "utilities/merge_operators.h"
 
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -125,6 +126,7 @@ using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
+using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WriteOptions;
 
 using std::unordered_set;
@@ -218,6 +220,9 @@ struct rocksdb_memory_allocator_t {
 };
 struct rocksdb_cache_t {
   std::shared_ptr<Cache> rep;
+};
+struct rocksdb_write_buffer_manager_t {
+  std::shared_ptr<WriteBufferManager> rep;
 };
 struct rocksdb_livefiles_t {
   std::vector<LiveFileMetaData> rep;
@@ -4894,6 +4899,60 @@ size_t rocksdb_cache_get_table_address_count(const rocksdb_cache_t* cache) {
 
 size_t rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache) {
   return cache->rep->GetOccupancyCount();
+}
+
+rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(
+    size_t buffer_size, bool allow_stall) {
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep.reset(new WriteBufferManager(buffer_size, {}, allow_stall));
+  return wbm;
+}
+
+rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create_with_cache(
+    size_t buffer_size, const rocksdb_cache_t* cache, bool allow_stall) {
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep.reset(new WriteBufferManager(buffer_size, cache->rep, allow_stall));
+  return wbm;
+}
+
+void rocksdb_write_buffer_manager_destroy(rocksdb_write_buffer_manager_t* wbm) {
+  delete wbm;
+}
+
+bool rocksdb_write_buffer_manager_enabled(rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->enabled();
+}
+
+bool rocksdb_write_buffer_manager_cost_to_cache(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->cost_to_cache();
+}
+
+size_t rocksdb_write_buffer_manager_memory_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->memory_usage();
+}
+
+size_t rocksdb_write_buffer_manager_mutable_memtable_memory_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->mutable_memtable_memory_usage();
+}
+
+size_t rocksdb_write_buffer_manager_dummy_entries_in_cache_usage(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->dummy_entries_in_cache_usage();
+}
+size_t rocksdb_write_buffer_manager_buffer_size(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return wbm->rep->buffer_size();
+}
+void rocksdb_write_buffer_manager_set_buffer_size(
+    rocksdb_write_buffer_manager_t* wbm, size_t new_size) {
+  wbm->rep->SetBufferSize(new_size);
+}
+ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_allow_stall(
+    rocksdb_write_buffer_manager_t* wbm, bool new_allow_stall) {
+  wbm->rep->SetAllowStall(new_allow_stall);
 }
 
 rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path,
