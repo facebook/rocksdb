@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.8.1 (11/17/2023)
+### Bug fixes
+* Make the cache memory reservation accounting in Tiered cache (primary and compressed secondary cache) more accurate to avoid over/under charging the secondary cache.
+* Allow increasing the compressed_secondary_ratio in the Tiered cache after setting it to 0 to disable.
+
 ## 8.8.0 (10/23/2023)
 ### New Features
 * Introduce AttributeGroup by adding the first AttributeGroup support API, MultiGetEntity(). Through the use of Column Families, AttributeGroup enables users to logically group wide-column entities. More APIs to support AttributeGroup will come soon, including GetEntity, PutEntity, and others.
