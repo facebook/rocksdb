@@ -1,2 +1,0 @@
-Make the `EnableFileDeletion` API not default to force enabling. For users that rely on this default behavior and still
-want to continue to use force enabling, they need to explicitly pass a `true` to `EnableFileDeletion`.
