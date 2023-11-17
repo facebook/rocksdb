@@ -1538,6 +1538,11 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSize) {
+  // FIXME: L0 file and L1+ file also differ in size of `oldest_key_time`.
+  //  L0 file has non-zero `oldest_key_time` while L1+ files have 0.
+  //  The test passes since L1+ file uses current time instead of 0
+  //  as oldest_ancestor_time.
+  //
   // We don't propagate oldest-key-time table property on compaction and
   // just write 0 as default value. This affect the exact table size, since
   // we encode table properties as varint64. Force time to be 0 to work around
