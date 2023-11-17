@@ -1061,6 +1061,8 @@ rocksdb_block_based_options_set_pin_top_level_index_and_filter(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t* opt, rocksdb_block_based_table_options_t* table_options);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_manager(
+    rocksdb_options_t* opt, rocksdb_write_buffer_manager_t* wbm);
 
 /* Cuckoo table options */
 
