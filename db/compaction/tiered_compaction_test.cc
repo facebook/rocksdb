@@ -1207,7 +1207,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
       1);
 
   // Tests that we only compact keys up to penultimate level
-  // that are within penultimate level internal key range.
+  // that are within penultimate level input's internal key range.
   {
     MutexLock l(&mutex);
     hot_start = Key(0);
@@ -1242,6 +1242,79 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
 
 INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
                         testing::Bool());
+
+TEST_P(TieredCompactionTest, CheckInternalKeyRange) {
+  // When compacting keys from the last level to penultimate level,
+  // output to penultimate level should be within internal key range
+  // of input files from penultimate level.
+  // Set up:
+  // L5:
+  //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
+  // L6:
+  // File 3: [2@1, 3@2], File 4: [50@3]
+  //
+  // When File 1 and File 3 are being compacted,
+  // Key(3) cannot be compacted up, otherwise it causes
+  // inconsistency where File 3's Key(3) has a lower sequence number
+  // than File 2's Key(3).
+  const int kNumLevels = 7;
+  auto options = CurrentOptions();
+  SetColdTemperature(options);
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
+  options.statistics = CreateDBStatistics();
+  options.max_subcompactions = 10;
+  options.preclude_last_level_data_seconds = 10000;
+  DestroyAndReopen(options);
+  auto cmp = options.comparator;
+
+  std::string hot_start = Key(0);
+  std::string hot_end = Key(0);
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            cmp->Compare(context->key, hot_start) >= 0 &&
+            cmp->Compare(context->key, hot_end) < 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // File 1
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // File 2
+  ASSERT_OK(Put(Key(50), "val50"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  hot_end = Key(100);
+  std::string start = Key(1);
+  std::string end = Key(3);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // File 3
+  ASSERT_OK(Put(Key(3), "vall"));
+  ASSERT_OK(Put(Key(100), "val100"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // Try to compact keys up
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  start = Key(1);
+  end = Key(2);
+  Slice begin_slice(start);
+  Slice end_slice(end);
+  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
+  // Without internal key range checking, we get the following error:
+  // Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
+  // overlapping ranges: file #18 largest key: '6B6579303030303033' seq:102,
+  // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
+  db_->ReleaseSnapshot(snapshot);
+}
 
 class PrecludeLastLevelTest : public DBTestBase {
  public:
