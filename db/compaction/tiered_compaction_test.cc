@@ -1202,10 +1202,42 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
   ASSERT_EQ(
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       1);
+
+  // Tests that we only compact keys up to penultimate level
+  // that are within penultimate level internal key range.
+  {
+    MutexLock l(&mutex);
+    hot_start = Key(0);
+    hot_end = Key(100);
+  }
+  const Snapshot* temp_snap = db_->GetSnapshot();
+  // Key(0) and Key(1) here are inserted with higher sequence number
+  // than Key(0) and Key(1) inserted above.
+  // Only Key(0) in last level will be compacted up, not Key(1).
+  ASSERT_OK(Put(Key(0), "value" + std::to_string(0)));
+  ASSERT_OK(Put(Key(1), "value" + std::to_string(100)));
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  {
+    std::vector<LiveFileMetaData> metas;
+    db_->GetLiveFilesMetaData(&metas);
+    for (const auto& f : metas) {
+      if (f.temperature == Temperature::kUnknown) {
+        // Expect Key(0), Key(0), Key(1)
+        ASSERT_EQ(f.num_entries, 3);
+        ASSERT_EQ(f.smallestkey, Key(0));
+        ASSERT_EQ(f.largestkey, Key(1));
+      } else {
+        ASSERT_EQ(f.temperature, Temperature::kCold);
+        // Key(2)-Key(49) and Key(100).
+        ASSERT_EQ(f.num_entries, 50);
+      }
+    }
+  }
+  db_->ReleaseSnapshot(temp_snap);
 }
 
 INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
