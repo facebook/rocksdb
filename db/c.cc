@@ -2950,6 +2950,11 @@ void rocksdb_options_set_write_buffer_size(rocksdb_options_t* opt, size_t s) {
   opt->rep.write_buffer_size = s;
 }
 
+void rocksdb_options_set_write_buffer_manager(
+    rocksdb_options_t* opt, rocksdb_write_buffer_manager_t* wbm) {
+  opt->rep.write_buffer_manager = wbm->rep;
+}
+
 size_t rocksdb_options_get_write_buffer_size(rocksdb_options_t* opt) {
   return opt->rep.write_buffer_size;
 }
