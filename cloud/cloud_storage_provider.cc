@@ -288,7 +288,8 @@ Status CloudStorageProviderImpl::PrepareOptions(const ConfigOptions& options) {
   return st;
 }
 
-CloudStorageProviderImpl::CloudStorageProviderImpl() : rng_(make_unique<Random64>(time(nullptr))) {}
+CloudStorageProviderImpl::CloudStorageProviderImpl()
+  : rng_(std::make_unique<Random64>(time(nullptr))) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
 

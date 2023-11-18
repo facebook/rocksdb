@@ -136,7 +136,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
-  unique_ptr<Random64> rng_;
+  std::unique_ptr<Random64> rng_;
   virtual IOStatus DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
       const std::string& content_hash, const FileOptions& options,
