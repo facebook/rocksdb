@@ -6,7 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <vector>
-#include "rocksdb/status.h"
+#include "rocksdb/io_status.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CloudScheduler;
