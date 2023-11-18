@@ -1,6 +1,6 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 
-#include "cloud/cloud_file_deletion_scheduler.h"
+#include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
 
 #include "cloud/cloud_scheduler.h"
 #include "test_util/sync_point.h"

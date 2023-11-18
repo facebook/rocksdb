@@ -7,15 +7,13 @@
 #include <thread>
 #include <set>
 
-#include "cloud/cloud_manifest.h"
-#include "port/port_posix.h"
 #include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
-#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+class CloudManifest;
 class CloudScheduler;
 class CloudStorageReadableFile;
 class ObjectLibrary;

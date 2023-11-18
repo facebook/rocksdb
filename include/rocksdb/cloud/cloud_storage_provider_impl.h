@@ -4,7 +4,6 @@
 
 #ifndef ROCKSDB_LITE
 #include "rocksdb/cloud/cloud_storage_provider.h"
-#include "util/random.h"
 #include <optional>
 
 namespace ROCKSDB_NAMESPACE {
@@ -115,6 +114,7 @@ class CloudStorageWritableFileImpl : public CloudStorageWritableFile {
 // All writes to this DB can be configured to be persisted
 // in cloud storage.
 //
+class Random64;
 class CloudStorageProviderImpl : public CloudStorageProvider {
  public:
   static Status CreateS3Provider(std::unique_ptr<CloudStorageProvider>* result);
@@ -136,7 +136,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
-  Random64 rng_;
+  std::unique_ptr<Random64> rng_;
   virtual IOStatus DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
       const std::string& content_hash, const FileOptions& options,

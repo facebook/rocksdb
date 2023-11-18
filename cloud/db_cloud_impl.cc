@@ -5,7 +5,8 @@
 
 #include <cinttypes>
 
-#include "cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "cloud/cloud_manifest.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "env/composite_env_wrapper.h"

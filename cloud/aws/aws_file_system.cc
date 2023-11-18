@@ -12,7 +12,7 @@
 
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/cloud_scheduler.h"
-#include "cloud/cloud_storage_provider_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
 #include "port/port.h"
 #include "rocksdb/cloud/cloud_log_controller.h"

@@ -7,8 +7,8 @@
 #include <mutex>
 #include <set>
 
-#include "cloud/cloud_file_system_impl.h"
-#include "cloud/cloud_storage_provider_impl.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
 #include "file/filename.h"
 #include "rocksdb/cloud/cloud_file_system.h"
@@ -18,6 +18,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
+#include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -287,7 +288,8 @@ Status CloudStorageProviderImpl::PrepareOptions(const ConfigOptions& options) {
   return st;
 }
 
-CloudStorageProviderImpl::CloudStorageProviderImpl() : rng_(time(nullptr)) {}
+CloudStorageProviderImpl::CloudStorageProviderImpl()
+  : rng_(std::make_unique<Random64>(time(nullptr))) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
 
@@ -310,7 +312,7 @@ IOStatus CloudStorageProviderImpl::GetCloudObject(
     const std::string& local_destination) {
   const auto& local_fs = cfs_->GetBaseFileSystem();
   std::string tmp_destination =
-      local_destination + ".tmp-" + std::to_string(rng_.Next());
+      local_destination + ".tmp-" + std::to_string(rng_->Next());
 
   uint64_t remote_size;
   auto s = DoGetCloudObject(bucket_name, object_path, tmp_destination,

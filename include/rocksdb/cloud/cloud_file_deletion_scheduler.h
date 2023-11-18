@@ -2,7 +2,11 @@
 
 #pragma once
 #include <chrono>
-#include "util/mutexlock.h"
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <vector>
+#include "rocksdb/io_status.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CloudScheduler;
