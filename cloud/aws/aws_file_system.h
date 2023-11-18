@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <iostream>
 
-#include "cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
 
 #ifdef USE_AWS
 

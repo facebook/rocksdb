@@ -19,7 +19,7 @@
 #include "util/stderr_logger.h"
 #ifdef USE_AWS
 #include <aws/core/Aws.h>
-#include "cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #endif
 #include "rocksdb/unique_id.h"

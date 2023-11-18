@@ -3,7 +3,7 @@
 #include "rocksdb/cloud/cloud_file_system.h"
 
 #include "cloud/cloud_log_controller_impl.h"
-#include "cloud/cloud_storage_provider_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/convenience.h"

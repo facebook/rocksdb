@@ -43,7 +43,7 @@
 
 #include "cloud/aws/aws_file.h"
 #include "cloud/aws/aws_file_system.h"
-#include "cloud/cloud_storage_provider_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
