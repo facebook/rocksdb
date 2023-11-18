@@ -122,7 +122,8 @@ class Repairer {
         vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-              /*db_id=*/"", db_session_id_),
+              /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc,
+              /*error_handler=*/nullptr),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
@@ -694,7 +695,8 @@ class Repairer {
           cfd->NumberLevels(), cfd->ioptions()->compaction_style,
           nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
           EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
-          /*bottommost_file_compaction_delay=*/0);
+          /*bottommost_file_compaction_delay=*/0,
+          cfd->current()->version_set()->offpeak_time_option());
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {

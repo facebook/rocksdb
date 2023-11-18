@@ -92,6 +92,10 @@ class StackableDB : public DB {
                    const WideColumns& columns) override {
     return db_->PutEntity(options, column_family, key, columns);
   }
+  Status PutEntity(const WriteOptions& options, const Slice& key,
+                   const AttributeGroups& attribute_groups) override {
+    return db_->PutEntity(options, key, attribute_groups);
+  }
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -592,6 +596,8 @@ class StackableDB : public DB {
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
   }
+
+  virtual Status Resume() override { return db_->Resume(); }
 
  protected:
   DB* db_;

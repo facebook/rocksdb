@@ -200,6 +200,7 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
     }
     ++count;
   }
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(3, count);
 }
@@ -534,6 +535,8 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
     }
     ASSERT_FALSE(iter1->Valid());
     ASSERT_FALSE(iter2->Valid());
+    ASSERT_OK(iter1->status());
+    ASSERT_OK(iter2->status());
   };
 
   ASSERT_OK(Put("a", "value"));
@@ -806,6 +809,7 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ++count;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(2, count);
   delete iter;
 }
@@ -863,6 +867,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ++count;
   }
+  ASSERT_OK(iter->status());
   ASSERT_EQ(2, count);
   delete iter;
 }
@@ -935,6 +940,7 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
       ASSERT_EQ("value_" + std::to_string(kNumFiles - 1),
                 iter->value().ToString());
     }
+    EXPECT_OK(iter->status());
   };
 
   range_scan_db();
@@ -1485,6 +1491,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     size_t expected_count = kMaxKey - start_keys[i] + 1;
     ASSERT_EQ(expected_count, count);
 
@@ -1497,6 +1504,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
       get_value_and_check(db_, read_opts, it->key(), it->value(),
                           write_timestamps[i]);
     }
+    ASSERT_OK(it->status());
     ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
 
     // SeekToFirst()/SeekToLast() with lower/upper bounds.
@@ -1518,6 +1526,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
 
       for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
@@ -1527,6 +1536,7 @@ TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
         get_value_and_check(db_, read_opts, it->key(), it->value(),
                             write_timestamps[i]);
       }
+      ASSERT_OK(it->status());
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -1736,6 +1746,7 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
     CheckIterUserEntry(iters[0], Key1(key), kTypeValue,
                        "value" + std::to_string(key), write_timestamp);
   }
+  ASSERT_OK(iters[0]->status());
 
   size_t expected_count = kMaxKey - 0 + 1;
   ASSERT_EQ(expected_count, count);

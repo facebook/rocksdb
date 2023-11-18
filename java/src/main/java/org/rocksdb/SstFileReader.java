@@ -6,10 +6,6 @@
 package org.rocksdb;
 
 public class SstFileReader extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
-
   public SstFileReader(final Options options) {
     super(newSstFileReader(options.nativeHandle_));
   }

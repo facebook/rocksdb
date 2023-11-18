@@ -877,4 +877,7 @@ extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 extern const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
+extern const ImmutableOptions& GetImmutableOptions(
+    ColumnFamilyHandle* column_family);
+
 }  // namespace ROCKSDB_NAMESPACE

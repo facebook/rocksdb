@@ -299,6 +299,20 @@ Status MergeHelper::TimedFullMerge(
 }
 
 Status MergeHelper::TimedFullMerge(
+    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
+    const WideColumns& columns, const std::vector<Slice>& operands,
+    Logger* logger, Statistics* statistics, SystemClock* clock,
+    bool update_num_ops_stats, std::string* result, Slice* result_operand,
+    ValueType* result_type, MergeOperator::OpFailureScope* op_failure_scope) {
+  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(columns);
+
+  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
+                            operands, logger, statistics, clock,
+                            update_num_ops_stats, result, result_operand,
+                            result_type, op_failure_scope);
+}
+
+Status MergeHelper::TimedFullMerge(
     const MergeOperator* merge_operator, const Slice& key, NoBaseValueTag,
     const std::vector<Slice>& operands, Logger* logger, Statistics* statistics,
     SystemClock* clock, bool update_num_ops_stats, std::string* result_value,
@@ -344,6 +358,21 @@ Status MergeHelper::TimedFullMerge(
   }
 
   existing_value = std::move(existing_columns);
+
+  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
+                            operands, logger, statistics, clock,
+                            update_num_ops_stats, result_value, result_entity,
+                            op_failure_scope);
+}
+
+Status MergeHelper::TimedFullMerge(
+    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
+    const WideColumns& columns, const std::vector<Slice>& operands,
+    Logger* logger, Statistics* statistics, SystemClock* clock,
+    bool update_num_ops_stats, std::string* result_value,
+    PinnableWideColumns* result_entity,
+    MergeOperator::OpFailureScope* op_failure_scope) {
+  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(columns);
 
   return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
                             operands, logger, statistics, clock,

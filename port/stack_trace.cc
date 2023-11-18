@@ -191,6 +191,11 @@ void PrintStack(int first_frames_to_skip) {
   char* debug_env = getenv("ROCKSDB_DEBUG");
   bool debug = debug_env != nullptr && strlen(debug_env) > 0;
 
+  if (!debug && getenv("ROCKSDB_NO_STACK") != nullptr) {
+    // Skip stack trace
+    return;
+  }
+
   if (lldb_stack_trace || gdb_stack_trace || debug) {
     // Allow ouside debugger to attach, even with Yama security restrictions
 #ifdef PR_SET_PTRACER_ANY

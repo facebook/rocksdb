@@ -25,7 +25,9 @@ class OfflineManifestWriter {
                         options.table_cache_numshardbits)),
         versions_(db_path, &immutable_db_options_, sopt_, tc_.get(), &wb_, &wc_,
                   /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                  /*db_id*/ "", /*db_session_id*/ "") {}
+                  /*db_id=*/"", /*db_session_id=*/"",
+                  options.daily_offpeak_time_utc,
+                  /*error_handler=*/nullptr) {}
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families) {
     return versions_.Recover(column_families, /*read_only*/ false,

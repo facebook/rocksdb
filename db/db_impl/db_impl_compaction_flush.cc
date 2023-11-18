@@ -113,7 +113,8 @@ bool DBImpl::ShouldRescheduleFlushRequestToRetainUDT(
 }
 
 IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
-                                VersionEdit* synced_wals) {
+                                VersionEdit* synced_wals,
+                                bool error_recovery_in_prog) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   InstrumentedMutexLock l(&log_write_mutex_);
   autovector<log::Writer*, 1> logs_to_sync;
@@ -139,7 +140,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
-      if (error_handler_.IsRecoveryInProgress()) {
+      if (error_recovery_in_prog) {
         log->file()->reset_seen_error();
       }
       io_s = log->file()->Sync(immutable_db_options_.use_fsync);
@@ -148,7 +149,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
-        if (error_handler_.IsRecoveryInProgress()) {
+        if (error_recovery_in_prog) {
           log->file()->reset_seen_error();
         }
         io_s = log->Close();
@@ -222,9 +223,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   // `snapshot_seqs` has already been computed before this function starts.
   // Recording the max memtable ID ensures that the flush job does not flush
   // a memtable without knowing such snapshot(s).
-  uint64_t max_memtable_id = needs_to_sync_closed_wals
-                                 ? cfd->imm()->GetLatestMemTableID()
-                                 : std::numeric_limits<uint64_t>::max();
+  uint64_t max_memtable_id =
+      needs_to_sync_closed_wals
+          ? cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */)
+          : std::numeric_limits<uint64_t>::max();
 
   // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
   // existing memtables of the column family when PickMemTable() is called
@@ -233,7 +235,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // releases and re-acquires the db mutex. In the meantime, the application
   // can still insert into the memtables and increase the db's sequence number.
   // The application can take a snapshot, hoping that the latest visible state
-  // to this snapshto is preserved. This is hard to guarantee since db mutex
+  // to this snapshot is preserved. This is hard to guarantee since db mutex
   // not held. This newly-created snapshot is not included in `snapshot_seqs`
   // and the flush job is unaware of its presence. Consequently, the flush job
   // may drop certain keys when generating the L0, causing incorrect data to be
@@ -261,8 +263,10 @@ Status DBImpl::FlushMemTableToOutputFile(
     // SyncClosedLogs() may unlock and re-lock the log_write_mutex multiple
     // times.
     VersionEdit synced_wals;
+    bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s =
+        SyncClosedLogs(job_context, &synced_wals, error_recovery_in_prog);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       const ReadOptions read_options(Env::IOActivity::kFlush);
@@ -546,8 +550,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     VersionEdit synced_wals;
+    bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
     mutex_.Unlock();
-    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    log_io_s =
+        SyncClosedLogs(job_context, &synced_wals, error_recovery_in_prog);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       const ReadOptions read_options(Env::IOActivity::kFlush);
@@ -2230,7 +2236,8 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
       // cfd may be null, see DBImpl::ScheduleFlushes
       continue;
     }
-    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
+    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID(
+        immutable_db_options_.atomic_flush /* for_atomic_flush */);
     req->cfd_to_max_mem_id_to_persist.emplace(cfd, max_memtable_id);
   }
 }
@@ -2274,19 +2281,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
-        flush_reason != FlushReason::kCatchUpAfterErrorRecovery &&
-        (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())) {
-      // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
-      // auto retry resume, we want to avoid creating new small memtables.
-      // If flush reason is kCatchUpAfterErrorRecovery, we try to flush any new
-      // memtable that filled up during recovery, and we also want to avoid
-      // switching memtable to create small memtables.
-      // Therefore, SwitchMemtable will not be called. Also, since ResumeImpl
-      // will iterate through all the CFs and call FlushMemtable during auto
-      // retry resume, it is possible that in some CFs,
-      // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
-      // be created and scheduled, status::OK() will be returned.
+    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
@@ -2295,10 +2290,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           !cached_recoverable_state_empty_.load()) {
         FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
-        memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
+        memtable_ids_to_wait.emplace_back(
+            cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
       }
-      if (immutable_db_options_.persist_stats_to_disk &&
-          flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
+      if (immutable_db_options_.persist_stats_to_disk) {
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
@@ -2324,7 +2319,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             FlushRequest req{flush_reason, {{cfd_stats, flush_memtable_id}}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
-                cfd_stats->imm()->GetLatestMemTableID());
+                cfd_stats->imm()->GetLatestMemTableID(
+                    false /* for_atomic_flush */));
           }
         }
       }
@@ -2375,8 +2371,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
-        (flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2471,9 +2466,7 @@ Status DBImpl::AtomicFlushMemTables(
     }
 
     for (auto cfd : cfds) {
-      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
-          flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
-          flush_reason == FlushReason::kCatchUpAfterErrorRecovery) {
+      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
         continue;
       }
       cfd->Ref();
@@ -2518,12 +2511,73 @@ Status DBImpl::AtomicFlushMemTables(
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
-        (flush_reason == FlushReason::kErrorRecovery ||
-         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
     }
+  }
+  return s;
+}
+
+Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
+                                            bool wait) {
+  mutex_.AssertHeld();
+  assert(flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
+         flush_reason == FlushReason::kCatchUpAfterErrorRecovery);
+
+  // Collect referenced CFDs.
+  autovector<ColumnFamilyData*> cfds;
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped() && cfd->initialized() &&
+        cfd->imm()->NumNotFlushed() != 0) {
+      cfd->Ref();
+      cfd->imm()->FlushRequested();
+      cfds.push_back(cfd);
+    }
+  }
+
+  // Submit flush requests for all immutable memtables needing flush.
+  // `flush_memtable_ids` will be populated such that all immutable
+  // memtables eligible for flush are waited on before this function
+  // returns.
+  autovector<uint64_t> flush_memtable_ids;
+  if (immutable_db_options_.atomic_flush) {
+    FlushRequest flush_req;
+    GenerateFlushRequest(cfds, flush_reason, &flush_req);
+    SchedulePendingFlush(flush_req);
+    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
+      flush_memtable_ids.push_back(iter.second);
+    }
+  } else {
+    for (auto cfd : cfds) {
+      flush_memtable_ids.push_back(
+          cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
+      // Impose no bound on the highest memtable ID flushed. There is no
+      // reason to do so outside of atomic flush.
+      FlushRequest flush_req{
+          flush_reason,
+          {{cfd,
+            std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
+      SchedulePendingFlush(flush_req);
+    }
+  }
+  MaybeScheduleFlushOrCompaction();
+
+  Status s;
+  if (wait) {
+    mutex_.Unlock();
+    autovector<const uint64_t*> flush_memtable_id_ptrs;
+    for (auto& flush_memtable_id : flush_memtable_ids) {
+      flush_memtable_id_ptrs.push_back(&flush_memtable_id);
+    }
+    s = WaitForFlushMemTables(cfds, flush_memtable_id_ptrs,
+                              true /* resuming_from_bg_err */);
+    mutex_.Lock();
+  }
+
+  for (auto* cfd : cfds) {
+    cfd->UnrefAndTryDelete();
   }
   return s;
 }
@@ -2729,6 +2783,7 @@ void DBImpl::EnableManualCompaction() {
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
+  TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Start");
   if (!opened_successfully_) {
     // Compaction may introduce data race to DB open
     return;
@@ -3650,6 +3705,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
+    if (status.ok() && io_s.ok()) {
+      UpdateDeletionCompactionStats(c);
+    }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
@@ -4026,6 +4084,27 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
     return false;
   }
   return false;
+}
+
+void DBImpl::UpdateDeletionCompactionStats(
+    const std::unique_ptr<Compaction>& c) {
+  if (c == nullptr) {
+    return;
+  }
+
+  CompactionReason reason = c->compaction_reason();
+
+  switch (reason) {
+    case CompactionReason::kFIFOMaxSize:
+      RecordTick(stats_, FIFO_MAX_SIZE_COMPACTIONS);
+      break;
+    case CompactionReason::kFIFOTtl:
+      RecordTick(stats_, FIFO_TTL_COMPACTIONS);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 void DBImpl::BuildCompactionJobInfo(

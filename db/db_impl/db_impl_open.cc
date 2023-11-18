@@ -299,6 +299,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
       return Status::InvalidArgument(
           "daily_offpeak_time_utc should be set in the format HH:mm-HH:mm "
           "(e.g. 04:30-07:30)");
+    } else if (start_time == end_time) {
+      return Status::InvalidArgument(
+          "start_time and end_time cannot be the same");
     }
   }
   return Status::OK();
@@ -415,7 +418,8 @@ Status DBImpl::Recover(
     uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
 
-  bool is_new_db = false;
+  bool tmp_is_new_db = false;
+  bool& is_new_db = recovery_ctx ? recovery_ctx->is_new_db_ : tmp_is_new_db;
   assert(db_lock_ == nullptr);
   std::vector<std::string> files_in_dbname;
   if (!read_only) {
@@ -868,7 +872,8 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
       if (s.ok()) {
         ColumnFamilyOptions cfo;
         OptimizeForPersistentStats(&cfo);
-        s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+        s = CreateColumnFamilyImpl(cfo, kPersistentStatsColumnFamilyName,
+                                   &handle);
       }
       if (s.ok()) {
         persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
@@ -921,7 +926,7 @@ Status DBImpl::InitPersistStatsColumnFamily() {
     ColumnFamilyHandle* handle = nullptr;
     ColumnFamilyOptions cfo;
     OptimizeForPersistentStats(&cfo);
-    s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+    s = CreateColumnFamilyImpl(cfo, kPersistentStatsColumnFamilyName, &handle);
     persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
     mutex_.Lock();
   }
@@ -937,8 +942,11 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
       recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
   if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
-    for (const auto& fname : recovery_ctx.files_to_delete_) {
-      s = env_->DeleteFile(fname);
+    for (const auto& stale_sst_file : recovery_ctx.files_to_delete_) {
+      s = DeleteDBFile(&immutable_db_options_, stale_sst_file.first,
+                       stale_sst_file.second,
+                       /*force_bg=*/false,
+                       /*force_fg=*/false);
       if (!s.ok()) {
         break;
       }
@@ -1243,6 +1251,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
 
       SequenceNumber sequence = WriteBatchInternal::Sequence(batch_to_use);
+      if (sequence > kMaxSequenceNumber) {
+        reporter.Corruption(
+            record.size(),
+            Status::Corruption("sequence " + std::to_string(sequence) +
+                               " is too large"));
+        continue;
+      }
 
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
@@ -1985,6 +2000,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
   RecoveryContext recovery_ctx;
+  impl->options_mutex_.Lock();
   impl->mutex_.Lock();
 
   // Handles create_if_missing, error_if_exists
@@ -2066,7 +2082,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           // missing column family, create it
           ColumnFamilyHandle* handle = nullptr;
           impl->mutex_.Unlock();
-          s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
+          // NOTE: the work normally done in WrapUpCreateColumnFamilies will
+          // be done separately below.
+          s = impl->CreateColumnFamilyImpl(cf.options, cf.name, &handle);
           impl->mutex_.Lock();
           if (s.ok()) {
             handles->push_back(handle);
@@ -2117,9 +2135,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
-    persist_options_status = impl->WriteOptionsFile(
-        false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
-
+    persist_options_status =
+        impl->WriteOptionsFile(true /*db_mutex_already_held*/);
     *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->DeleteObsoleteFiles();
@@ -2240,10 +2257,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     s = impl->StartPeriodicTaskScheduler();
   }
-
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker();
+    s = impl->RegisterRecordSeqnoTimeWorker(recovery_ctx.is_new_db_);
   }
+  impl->options_mutex_.Unlock();
   if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;

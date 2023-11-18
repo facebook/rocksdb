@@ -485,7 +485,8 @@ struct DBOptions {
   // Default: false
   bool create_if_missing = false;
 
-  // If true, missing column families will be automatically created.
+  // If true, missing column families will be automatically created on
+  // DB::Open().
   // Default: false
   bool create_missing_column_families = false;
 
@@ -813,18 +814,23 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // The following two fields affect how archived logs will be deleted.
-  // 1. If both set to 0, logs will be deleted asap and will not get into
-  //    the archive.
-  // 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
-  //    WAL files will be checked every 10 min and if total size is greater
-  //    then WAL_size_limit_MB, they will be deleted starting with the
-  //    earliest until size_limit is met. All empty files will be deleted.
-  // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-  //    WAL files will be checked every WAL_ttl_seconds / 2 and those that
-  //    are older than WAL_ttl_seconds will be deleted.
-  // 4. If both are not 0, WAL files will be checked every 10 min and both
-  //    checks will be performed with ttl being first.
+  // The following two fields affect when WALs will be archived and deleted.
+  //
+  // When both are zero, obsolete WALs will not be archived and will be deleted
+  // immediately. Otherwise, obsolete WALs will be archived prior to deletion.
+  //
+  // When `WAL_size_limit_MB` is nonzero, archived WALs starting with the
+  // earliest will be deleted until the total size of the archive falls below
+  // this limit. All empty WALs will be deleted.
+  //
+  // When `WAL_ttl_seconds` is nonzero, archived WALs older than
+  // `WAL_ttl_seconds` will be deleted.
+  //
+  // When only `WAL_ttl_seconds` is nonzero, the frequency at which archived
+  // WALs are deleted is every `WAL_ttl_seconds / 2` seconds. When only
+  // `WAL_size_limit_MB` is nonzero, the deletion frequency is every ten
+  // minutes. When both are nonzero, the deletion frequency is the minimum of
+  // those two values.
   uint64_t WAL_ttl_seconds = 0;
   uint64_t WAL_size_limit_MB = 0;
 
@@ -1429,22 +1435,21 @@ struct DBOptions {
   bool enforce_single_del_contracts = true;
 
   // EXPERIMENTAL
-  // Implementing offpeak duration awareness in RocksDB. In this context, "peak
-  // time" signifies periods characterized by significantly elevated read and
-  // write activity compared to other times. By leveraging this knowledge, we
-  // can prevent low-priority tasks, such as TTL-based compactions, from
+  // Implementing off-peak duration awareness in RocksDB. In this context,
+  // "off-peak time" signifies periods characterized by significantly less read
+  // and write activity compared to other times. By leveraging this knowledge,
+  // we can prevent low-priority tasks, such as TTL-based compactions, from
   // competing with read and write operations during peak hours. Essentially, we
   // preprocess these tasks during the preceding off-peak period, just before
   // the next peak cycle begins. For example, if the TTL is configured for 25
   // days, we may compact the files during the off-peak hours of the 24th day.
   //
-  // Time of the day in UTC. Format - HH:mm-HH:mm (00:00-23:59)
+  // Time of the day in UTC, start_time-end_time inclusive.
+  // Format - HH:mm-HH:mm (00:00-23:59)
   // If the start time > end time, it will be considered that the time period
-  // spans to the next day (e.g., 23:30-04:00)
-  // If the start time == end time, entire 24 hours will be considered offpeak
-  // (e.g. 00:00-00:00). Note that 00:00-23:59 will have one minute gap from
-  // 11:59:00PM to midnight.
-  // Default: Empty String (No notion of peak/offpeak)
+  // spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
+  // use "0:00-23:59". To make an entire day have no offpeak period, leave
+  // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 };
 
@@ -1738,15 +1743,26 @@ struct ReadOptions {
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
   //
-  // NOTE: Not supported with Prev operation and it will be return NotSupported
-  // error. Enable it for forward scans only.
+  // NOTE: - Recommended for forward Scans only.
+  //       - In case of backward scans like Prev or SeekForPrev, the
+  //          cost of these backward operations might increase and affect the
+  //          performace. So this option should not be enabled if workload
+  //          contains backward scans.
+  //       - If there is a backward scans, this option will be
+  //          disabled internally and won't be reset if forward scan is done
+  //          again.
+  //
   // Default: false
   bool auto_readahead_size = false;
 
   // *** END options only relevant to iterators or scans ***
 
-  // ** For RocksDB internal use only **
+  // *** BEGIN options for RocksDB internal use only ***
+
+  // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);

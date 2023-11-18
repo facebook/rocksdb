@@ -215,7 +215,9 @@ class CompactionJobTestBase : public testing::Test {
             dbname_, &db_options_, env_options_, table_cache_.get(),
             &write_buffer_manager_, &write_controller_,
             /*block_cache_tracer=*/nullptr,
-            /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ "")),
+            /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
+            /*daily_offpeak_time_utc=*/"",
+            /*error_handler=*/nullptr)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
@@ -540,11 +542,12 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     db_options_.info_log = info_log;
 
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_id*/ "", /*db_session_id*/ ""));
+    versions_.reset(new VersionSet(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
+        /*error_handler=*/nullptr));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 
@@ -1524,13 +1527,15 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       {files0, files1, files2, files3}, input_levels,
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
-          std::string c_str;
-          c_str = c;
-          const Slice key(c_str);
           if (c == 'a') {
-            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(key));
+            ParsedInternalKey pik("a", 0U, kTypeValue);
+            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(pik));
           } else {
-            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(key));
+            std::string c_str{c};
+            // WithinPenultimateLevelOutputRange checks internal key range.
+            // 'z' is the last key, so set seqno properly.
+            ParsedInternalKey pik(c_str, c == 'z' ? 12U : 0U, kTypeValue);
+            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(pik));
           }
         }
       });

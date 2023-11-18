@@ -194,6 +194,8 @@ class StressTest {
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys);
 
+  virtual Status PrepareOptionsForRestoredDB(Options* options);
+
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
@@ -224,7 +226,9 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
+  void ProcessStatus(SharedState* shared, std::string msg, Status s) const;
+
+  void VerificationAbort(SharedState* shared, std::string msg) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;

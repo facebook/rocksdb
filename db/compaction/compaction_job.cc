@@ -1900,6 +1900,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
           sub_compact->start.has_value() ? &tmp_start : nullptr,
           sub_compact->end.has_value() ? &tmp_end : nullptr);
   if (oldest_ancester_time == std::numeric_limits<uint64_t>::max()) {
+    // TODO: fix DBSSTTest.GetTotalSstFilesSize and use
+    //  kUnknownOldestAncesterTime
     oldest_ancester_time = current_time;
   }
 
@@ -1944,6 +1946,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
+  // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),

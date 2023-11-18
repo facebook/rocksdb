@@ -46,7 +46,7 @@ struct ExternalSstFileInfo {
                       const std::string& _smallest_key,
                       const std::string& _largest_key,
                       SequenceNumber _sequence_number, uint64_t _file_size,
-                      int32_t _num_entries, int32_t _version)
+                      uint64_t _num_entries, int32_t _version)
       : file_path(_file_path),
         smallest_key(_smallest_key),
         largest_key(_largest_key),

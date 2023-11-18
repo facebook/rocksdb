@@ -1066,30 +1066,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                    daily_offpeak_time_utc.c_str());
 }
 
-bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
-  if (daily_offpeak_time_utc.empty()) {
-    return false;
-  }
-  int64_t now;
-  if (clock->GetCurrentTime(&now).ok()) {
-    constexpr int kSecondsPerDay = 86400;
-    int since_midnight_seconds = static_cast<int>(now % kSecondsPerDay);
-    int start_time = 0, end_time = 0;
-    assert(
-        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time));
-
-    // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
-    if (start_time > end_time) {
-      return start_time <= since_midnight_seconds ||
-             since_midnight_seconds <= end_time;
-    } else {
-      return start_time <= since_midnight_seconds &&
-             since_midnight_seconds <= end_time;
-    }
-  }
-  return false;
-}
-
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,

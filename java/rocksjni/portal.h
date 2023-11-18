@@ -27,6 +27,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -206,6 +207,18 @@ class IllegalArgumentExceptionJni
     }
 
     return JavaException::ThrowNew(env, s.ToString());
+  }
+
+  /**
+   * Create and throw a Java IllegalArgumentException with the provided message
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg) {
+    return JavaException::ThrowNew(env, msg);
   }
 };
 
@@ -3561,13 +3574,20 @@ class IteratorJni
   }
 };
 
-// The portal class for org.rocksdb.Filter
-class FilterJni
+// The portal class for org.rocksdb.FilterPolicy
+
+enum FilterPolicyTypeJni {
+  kUnknownFilterPolicy = 0x00,
+  kBloomFilterPolicy = 0x01,
+  kRibbonFilterPolicy = 0x02,
+};
+class FilterPolicyJni
     : public RocksDBNativeClass<
-          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterJni> {
+          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {
+ private:
  public:
   /**
-   * Get the Java Class org.rocksdb.Filter
+   * Get the Java Class org.rocksdb.FilterPolicy
    *
    * @param env A pointer to the Java environment
    *
@@ -3576,7 +3596,19 @@ class FilterJni
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Filter");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FilterPolicy");
+  }
+
+  static jbyte toJavaIndexType(const FilterPolicyTypeJni& filter_policy_type) {
+    return static_cast<jbyte>(filter_policy_type);
+  }
+
+  static FilterPolicyTypeJni getFilterPolicyType(
+      const std::string& policy_class_name) {
+    if (policy_class_name == "rocksdb.BuiltinBloomFilter") {
+      return kBloomFilterPolicy;
+    }
+    return kUnknownFilterPolicy;
   }
 };
 
@@ -5133,6 +5165,16 @@ class TickerTypeJni {
         return -0x3C;
       case ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED:
         return -0x3D;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS:
+        return -0x3E;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS:
+        return -0x3F;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES:
+        return -0x40;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL:
+        return -0x41;
+      case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
+        return -0x42;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5496,6 +5538,18 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::TABLE_OPEN_PREFETCH_TAIL_HIT;
       case -0x3C:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_MISMATCH_COUNT;
+      case -0x3D:
+        return ROCKSDB_NAMESPACE::Tickers::READAHEAD_TRIMMED;
+      case -0x3E:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_MAX_SIZE_COMPACTIONS;
+      case -0x3F:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_TTL_COMPACTIONS;
+      case -0x40:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES;
+      case -0x41:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
+      case -0x42:
+        return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5907,6 +5961,52 @@ class MemoryUsageTypeJni {
       default:
         // undefined/default: use kNumUsageTypes
         return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kNumUsageTypes;
+    }
+  }
+};
+
+class PerfLevelTypeJni {
+ public:
+  static jbyte toJavaPerfLevelType(const ROCKSDB_NAMESPACE::PerfLevel level) {
+    switch (level) {
+      case ROCKSDB_NAMESPACE::PerfLevel::kUninitialized:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::PerfLevel::kDisable:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableCount:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+        return 0x4;
+      case ROCKSDB_NAMESPACE::PerfLevel::kEnableTime:
+        return 0x5;
+      case ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds:
+        return 0x6;
+      default:
+        return 0x6;
+    }
+  }
+
+  static ROCKSDB_NAMESPACE::PerfLevel toCppPerfLevelType(const jbyte level) {
+    switch (level) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::PerfLevel::kUninitialized;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::PerfLevel::kDisable;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableCount;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTimeExceptForMutex;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::PerfLevel::
+            kEnableTimeAndCPUTimeExceptForMutex;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::PerfLevel::kEnableTime;
+      case 0x6:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
+      default:
+        return ROCKSDB_NAMESPACE::PerfLevel::kOutOfBounds;
     }
   }
 };
@@ -6673,7 +6773,7 @@ class ChecksumTypeJni {
         return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
       default:
         // undefined/default
-        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+        return ROCKSDB_NAMESPACE::ChecksumType::kXXH3;
     }
   }
 };
@@ -8747,6 +8847,102 @@ class CompactRangeOptionsTimestampJni : public JavaClass {
 
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
     return env->GetMethodID(clazz, "<init>", "(JJ)V");
+  }
+};
+
+// The portal class for org.rocksdb.BlockBasedTableOptions
+class BlockBasedTableOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BlockBasedTableOptions*,
+                                BlockBasedTableOptions> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.BlockBasedTableConfig
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/BlockBasedTableConfig");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.BlockBasedTableConfig object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const BlockBasedTableOptions* table_factory_options) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID method_id_init =
+        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBBJD)V");
+    if (method_id_init == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    FilterPolicyTypeJni filter_policy_type =
+        FilterPolicyTypeJni::kUnknownFilterPolicy;
+    jlong filter_policy_handle = 0L;
+    jdouble filter_policy_config_value = 0.0;
+    if (table_factory_options->filter_policy) {
+      auto filter_policy = table_factory_options->filter_policy.get();
+      filter_policy_type = FilterPolicyJni::getFilterPolicyType(
+          filter_policy->CompatibilityName());
+      if (FilterPolicyTypeJni::kUnknownFilterPolicy != filter_policy_type) {
+        filter_policy_handle = GET_CPLUSPLUS_POINTER(filter_policy);
+      }
+    }
+
+    jobject jcfd = env->NewObject(
+        jclazz, method_id_init,
+        table_factory_options->cache_index_and_filter_blocks,
+        table_factory_options->cache_index_and_filter_blocks_with_high_priority,
+        table_factory_options->pin_l0_filter_and_index_blocks_in_cache,
+        table_factory_options->pin_top_level_index_and_filter,
+        IndexTypeJni::toJavaIndexType(table_factory_options->index_type),
+        DataBlockIndexTypeJni::toJavaDataBlockIndexType(
+            table_factory_options->data_block_index_type),
+        table_factory_options->data_block_hash_table_util_ratio,
+        ChecksumTypeJni::toJavaChecksumType(table_factory_options->checksum),
+        table_factory_options->no_block_cache,
+        static_cast<jlong>(table_factory_options->block_size),
+        table_factory_options->block_size_deviation,
+        table_factory_options->block_restart_interval,
+        table_factory_options->index_block_restart_interval,
+        static_cast<jlong>(table_factory_options->metadata_block_size),
+        table_factory_options->partition_filters,
+        table_factory_options->optimize_filters_for_memory,
+        table_factory_options->use_delta_encoding,
+        table_factory_options->whole_key_filtering,
+        table_factory_options->verify_compression,
+        table_factory_options->read_amp_bytes_per_bit,
+        table_factory_options->format_version,
+        table_factory_options->enable_index_compression,
+        table_factory_options->block_align,
+        IndexShorteningModeJni::toJavaIndexShorteningMode(
+            table_factory_options->index_shortening),
+        FilterPolicyJni::toJavaIndexType(filter_policy_type),
+        filter_policy_handle, filter_policy_config_value);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
   }
 };
 

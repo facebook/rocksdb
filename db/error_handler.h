@@ -4,11 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <sstream>
+
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/status.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,7 +49,6 @@ class ErrorHandler {
     // Clear the checked flag for uninitialized errors
     bg_error_.PermitUncheckedError();
     recovery_error_.PermitUncheckedError();
-    recovery_io_error_.PermitUncheckedError();
   }
 
   void EnableAutoRecovery() { auto_recovery_ = true; }
@@ -81,16 +83,23 @@ class ErrorHandler {
 
   void EndAutoRecovery();
 
+  void AddFilesToQuarantine(
+      autovector<const autovector<uint64_t>*> files_to_quarantine);
+
+  const autovector<uint64_t>& GetFilesToQuarantine() const {
+    db_mutex_->AssertHeld();
+    return files_to_quarantine_;
+  }
+
+  void ClearFilesToQuarantine();
+
  private:
   DBImpl* db_;
   const ImmutableDBOptions& db_options_;
   Status bg_error_;
   // A separate Status variable used to record any errors during the
   // recovery process from hard errors
-  Status recovery_error_;
-  // A separate IO Status variable used to record any IO errors during
-  // the recovery process. At the same time, recovery_error_ is also set.
-  IOStatus recovery_io_error_;
+  IOStatus recovery_error_;
   // The condition variable used with db_mutex during auto resume for time
   // wait.
   InstrumentedCondVar cv_;
@@ -111,6 +120,13 @@ class ErrorHandler {
 
   // The pointer of DB statistics.
   std::shared_ptr<Statistics> bg_error_stats_;
+
+  // During recovery from manifest IO errors, files whose VersionEdits entries
+  // could be in an ambiguous state are quarantined and file deletion refrain
+  // from deleting them. Successful recovery will clear this vector. Files are
+  // added to this vector while DB mutex was locked, this data structure is
+  // unsorted.
+  autovector<uint64_t> files_to_quarantine_;
 
   const Status& HandleKnownErrors(const Status& bg_err,
                                   BackgroundErrorReason reason);

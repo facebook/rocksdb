@@ -61,6 +61,7 @@ public class StatisticsCollector {
     _executorService.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
   }
 
+  @SuppressWarnings("PMD.CloseResource")
   private Runnable collectStatistics() {
     return () -> {
       while (_isRunning) {

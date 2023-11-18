@@ -107,12 +107,12 @@ TEST_F(DBPropertiesTest, Empty) {
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions(false));
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("1", num);
@@ -1084,12 +1084,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   const char* Name() const override { return "CountingUserTblPropCollector"; }
 
   Status Finish(UserCollectedProperties* properties) override {
+    assert(!finish_called_);
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
         {"CountingUserTblPropCollector", message_},
         {"Count", encoded},
     };
+    finish_called_ = true;
     return Status::OK();
   }
 
@@ -1101,12 +1103,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
+    assert(finish_called_);
     return UserCollectedProperties{};
   }
 
  private:
   std::string message_ = "Rocksdb";
   uint32_t count_ = 0;
+  bool finish_called_ = false;
 };
 
 class CountingUserTblPropCollectorFactory
@@ -1740,7 +1744,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   ASSERT_EQ(obsolete_sst_size, sst_size);
 
   // Let the obsolete files be deleted.
-  ASSERT_OK(db_->EnableFileDeletions());
+  ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
                                   &obsolete_sst_size));
   ASSERT_EQ(obsolete_sst_size, 0);

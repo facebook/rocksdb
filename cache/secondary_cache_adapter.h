@@ -47,6 +47,10 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 
   void SetCapacity(size_t capacity) override;
 
+  Status GetSecondaryCacheCapacity(size_t& size) const override;
+
+  Status GetSecondaryCachePinnedUsage(size_t& size) const override;
+
   Status UpdateCacheReservationRatio(double ratio);
 
   Status UpdateAdmissionPolicy(TieredAdmissionPolicy adm_policy);
@@ -56,6 +60,8 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   SecondaryCache* TEST_GetSecondaryCache() { return secondary_cache_.get(); }
 
  private:
+  static constexpr size_t kReservationChunkSize = 1 << 20;
+
   bool EvictionHandler(const Slice& key, Handle* handle, bool was_hit);
 
   void StartAsyncLookupOnMySecondary(AsyncLookupHandle& async_handle);
@@ -81,10 +87,17 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
   // Fraction of a cache memory reservation to be assigned to the secondary
   // cache
   double sec_cache_res_ratio_;
-  port::Mutex mutex_;
-#ifndef NDEBUG
-  bool ratio_changed_ = false;
-#endif
+  // Mutex for use when managing cache memory reservations. Should not be used
+  // for other purposes, as it may risk causing deadlocks.
+  mutable port::Mutex cache_res_mutex_;
+  // Total memory reserved by placeholder entriesin the cache
+  size_t placeholder_usage_;
+  // Total placeholoder memory charged to both the primary and secondary
+  // caches. Will be <= placeholder_usage_.
+  size_t reserved_usage_;
+  // Amount of memory reserved in the secondary cache. This should be
+  // reserved_usage_ * sec_cache_res_ratio_ in steady state.
+  size_t sec_reserved_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

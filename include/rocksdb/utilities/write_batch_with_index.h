@@ -112,13 +112,30 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& ts, const Slice& value) override;
 
+  using WriteBatchBase::TimedPut;
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    return Status::NotSupported(
+        "TimedPut not supported by WriteBatchWithIndex");
+  }
+
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
                    const WideColumns& /* columns */) override {
     if (!column_family) {
       return Status::InvalidArgument(
           "Cannot call this method without a column family handle");
     }
+    return Status::NotSupported(
+        "PutEntity not supported by WriteBatchWithIndex");
+  }
 
+  Status PutEntity(const Slice& /* key */,
+                   const AttributeGroups& attribute_groups) override {
+    if (attribute_groups.empty()) {
+      return Status::InvalidArgument(
+          "Cannot call this method without attribute groups");
+    }
     return Status::NotSupported(
         "PutEntity not supported by WriteBatchWithIndex");
   }
@@ -301,4 +318,3 @@ class WriteBatchWithIndex : public WriteBatchBase {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
