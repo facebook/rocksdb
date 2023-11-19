@@ -43,13 +43,13 @@ struct SavePoints;
 struct SliceParts;
 
 struct SavePoint {
-  size_t size;  // size of rep_
-  int count;    // count of elements in rep_
+  size_t size;     // size of rep_
+  uint32_t count;  // count of elements in rep_
   uint32_t content_flags;
 
   SavePoint() : size(0), count(0), content_flags(0) {}
 
-  SavePoint(size_t _size, int _count, uint32_t _flags)
+  SavePoint(size_t _size, uint32_t _count, uint32_t _flags)
       : size(_size), count(_count), content_flags(_flags) {}
 
   void clear() {
@@ -98,6 +98,17 @@ class WriteBatch : public WriteBatchBase {
              const SliceParts& value) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
     return Put(nullptr, key, value);
+  }
+
+  using WriteBatchBase::TimedPut;
+  // DO NOT USE, UNDER CONSTRUCTION
+  // Stores the mapping "key->value" in the database with the specified write
+  // time in the column family.
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    // TODO(yuzhangyu): implement take in the write time.
+    return Status::NotSupported("TimedPut is under construction");
   }
 
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the

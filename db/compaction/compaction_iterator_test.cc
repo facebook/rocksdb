@@ -184,8 +184,9 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
     return supports_per_key_placement;
   }
 
-  bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
-    return (!key.starts_with("unsafe_pb"));
+  bool WithinPenultimateLevelOutputRange(
+      const ParsedInternalKey& key) const override {
+    return (!key.user_key.starts_with("unsafe_pb"));
   }
 
   bool key_not_exists_beyond_output_level = false;

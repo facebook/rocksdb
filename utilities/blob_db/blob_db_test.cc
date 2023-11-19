@@ -2037,7 +2037,7 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
       ASSERT_EQ(1, blob_db_impl()->TEST_GetObsoleteFiles().size());
       VerifyDB(data);
       // Call EnableFileDeletions a second time.
-      ASSERT_OK(blob_db_->EnableFileDeletions(false));
+      ASSERT_OK(blob_db_->EnableFileDeletions(/*force=*/false));
       blob_db_impl()->TEST_DeleteObsoleteFiles();
     }
     // Regardless of value of `force`, file should be deleted by now.

@@ -661,6 +661,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
@@ -669,6 +670,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -704,6 +706,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
@@ -712,6 +715,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -749,6 +753,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteFileScopeError) {
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -758,6 +763,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteFileScopeError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -795,6 +801,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
@@ -803,6 +810,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -836,11 +844,13 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
 
   // This Resume() will attempt to create a new manifest file and fail again
   s = dbfull()->Resume();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -851,6 +861,7 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -917,6 +928,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   fault_fs_->SetFilesystemActive(true);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   TEST_SYNC_POINT("CompactionManifestWriteError:1");
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   TEST_SYNC_POINT("CompactionManifestWriteError:2");
 
   s = dbfull()->TEST_WaitForCompact();
@@ -925,6 +937,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
   ASSERT_EQ("val", Get(Key(1)));
@@ -983,6 +996,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   ASSERT_OK(s);
 
   TEST_SYNC_POINT("CompactionManifestWriteError:0");
+  ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   TEST_SYNC_POINT("CompactionManifestWriteError:1");
 
   s = dbfull()->TEST_WaitForCompact();
@@ -996,6 +1010,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));

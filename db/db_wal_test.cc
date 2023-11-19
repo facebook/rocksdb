@@ -1195,7 +1195,7 @@ TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
     ROCKSDB_NAMESPACE::port::Thread thread([&]() {
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PreFullPurge");
-      ASSERT_OK(db_->EnableFileDeletions(true));
+      ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
       TEST_SYNC_POINT(
           "DBWALTest::FullPurgePreservesLogPendingReuse:PostFullPurge");
     });
@@ -1541,8 +1541,9 @@ class RecoveryTestHelper {
         test->dbname_, &db_options, file_options, table_cache.get(),
         &write_buffer_manager, &write_controller,
         /*block_cache_tracer=*/nullptr,
-        /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ "",
-        options.daily_offpeak_time_utc));
+        /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
+        options.daily_offpeak_time_utc,
+        /*error_handler=*/nullptr));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));

@@ -353,14 +353,6 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
-  Slice GetPenultimateLevelSmallestUserKey() const {
-    return penultimate_level_smallest_user_key_;
-  }
-
-  Slice GetPenultimateLevelLargestUserKey() const {
-    return penultimate_level_largest_user_key_;
-  }
-
   PenultimateOutputRangeType GetPenultimateOutputRangeType() const {
     return penultimate_output_range_type_;
   }
@@ -383,10 +375,8 @@ class Compaction {
   // per_key_placement feature, which is safe to place the key to the
   // penultimate level. different compaction strategy has different rules.
   // If per_key_placement is not supported, always return false.
-  // TODO: currently it doesn't support moving data from the last level to the
-  //  penultimate level
   //  key includes timestamp if user-defined timestamp is enabled.
-  bool WithinPenultimateLevelOutputRange(const Slice& key) const;
+  bool WithinPenultimateLevelOutputRange(const ParsedInternalKey& ikey) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
 
@@ -455,6 +445,13 @@ class Compaction {
                               const std::vector<CompactionInputFiles>& inputs,
                               Slice* smallest_key, Slice* largest_key,
                               int exclude_level = -1);
+
+  // get the smallest and largest internal key present in files to be compacted
+  static void GetBoundaryInternalKeys(
+      VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs,
+      InternalKey* smallest_key, InternalKey* largest_key,
+      int exclude_level = -1);
 
   // populate penultimate level output range, which will be used to determine if
   // a key is safe to output to the penultimate level (details see
@@ -568,8 +565,8 @@ class Compaction {
   // Key range for penultimate level output
   // includes timestamp if user-defined timestamp is enabled.
   // penultimate_output_range_type_ shows the range type
-  Slice penultimate_level_smallest_user_key_;
-  Slice penultimate_level_largest_user_key_;
+  InternalKey penultimate_level_smallest_;
+  InternalKey penultimate_level_largest_;
   PenultimateOutputRangeType penultimate_output_range_type_ =
       PenultimateOutputRangeType::kNotSupported;
 };
