@@ -8,11 +8,17 @@ package org.rocksdb;
 /**
  * Similar to {@link LRUCache}, but based on the CLOCK algorithm with
  * better concurrent performance in some cases
+ *
+ * @deprecated The old Clock Cache implementation had an unresolved bug and
+ * has been removed. The new HyperClockCache requires an additional
+ * configuration parameter that is not provided by this API. This function
+ * simply returns a new LRUCache for functional compatibility.
  */
 public class ClockCache extends Cache {
-
   /**
    * Create a new cache with a fixed size capacity.
+   *
+   * @deprecated The old Clock Cache implementation had an unresolved bug and has been removed.
    *
    * @param capacity The fixed size capacity of the cache
    */
@@ -26,6 +32,8 @@ public class ClockCache extends Cache {
    * is divided and evenly assigned to each shard.
    * numShardBits = -1 means it is automatically determined: every shard
    * will be at least 512KB and number of shard bits will not exceed 6.
+   *
+   * @deprecated The old Clock Cache implementation had an unresolved bug and has been removed.
    *
    * @param capacity The fixed size capacity of the cache
    * @param numShardBits The cache is sharded to 2^numShardBits shards,
@@ -42,6 +50,8 @@ public class ClockCache extends Cache {
    * is set, insert to the cache will fail when cache is full.
    * numShardBits = -1 means it is automatically determined: every shard
    * will be at least 512KB and number of shard bits will not exceed 6.
+   *
+   * @deprecated The old Clock Cache implementation had an unresolved bug and has been removed.
    *
    * @param capacity The fixed size capacity of the cache
    * @param numShardBits The cache is sharded to 2^numShardBits shards,

@@ -1900,6 +1900,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
           sub_compact->start.has_value() ? &tmp_start : nullptr,
           sub_compact->end.has_value() ? &tmp_end : nullptr);
   if (oldest_ancester_time == std::numeric_limits<uint64_t>::max()) {
+    // TODO: fix DBSSTTest.GetTotalSstFilesSize and use
+    //  kUnknownOldestAncesterTime
     oldest_ancester_time = current_time;
   }
 
