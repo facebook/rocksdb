@@ -1821,11 +1821,11 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCacheMultiSST) {
   Status s;
 
   {
+    // Since there are two SST files, will trigger the table lookup twice.
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
     ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS),
-              2);  // Due to 2 SST files
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
     ASSERT_EQ(read_ts, Timestamp(3, 0));
     ASSERT_EQ(read_value, "v1,v2,v3");
 
