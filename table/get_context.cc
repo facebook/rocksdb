@@ -579,11 +579,11 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     Slice value;
     ret = GetLengthPrefixedSlice(&s, &value);
     assert(ret);
-    (void)ret;
 
     bool dont_care __attribute__((__unused__));
 
-    ParsedInternalKey ikey = ParsedInternalKey(user_key, seq_no, type);
+    std::string user_key_str = user_key.ToString();
+    ParsedInternalKey ikey = ParsedInternalKey(user_key_str, seq_no, type);
 
     // If ts enabled for current cf, there will always be ts appended after each
     // piece of value.
@@ -591,9 +591,10 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
       ret = GetLengthPrefixedSlice(&s, &ts);
       assert(ts_sz == ts.size());
       assert(ret);
-      (void)ret;
       ikey.SetTimestamp(ts);
     }
+
+    (void)ret;
 
     get_context->SaveValue(ikey, value, &dont_care, value_pinner);
   }

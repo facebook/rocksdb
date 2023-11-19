@@ -1831,10 +1831,8 @@ TEST_F(DBBasicTestWithTimestamp, GetWithRowCacheMultiSST) {
 
     s = db_->Get(read_opts, "foo", &read_value, &read_ts);
     ASSERT_OK(s);
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
-    // After first GetFromRowCache, get_context will have status kMerge will do
-    // another lookup.
-    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 3);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+    ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
     ASSERT_EQ(read_ts, Timestamp(3, 0));
     ASSERT_EQ(read_value, "v1,v2,v3");
   }
