@@ -887,7 +887,7 @@ Status BlockBasedTable::PrefetchTail(
       0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
       true /* track_min_offset */, false /* implicit_auto_readahead */,
       0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
-      0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
+      nullptr /* fs */, nullptr /* clock */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
