@@ -1,0 +1,9 @@
+name: install-jdk8-on-macos
+runs:
+  using: composite
+  steps:
+  - name: Install JDK 8 on macos
+    run: |-
+      HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
+      HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask liberica-jdk8
+    shell: bash

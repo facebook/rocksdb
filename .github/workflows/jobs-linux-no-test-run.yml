@@ -1,0 +1,117 @@
+name: facebook/rocksdb/jobs-linux-no-test-run
+on:
+  push:
+    branches:
+    - main
+jobs:
+  build-linux-release:
+    runs-on:
+      group: 2xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - run: make V=1 -j32 LIB_MODE=shared release
+    - run: ls librocksdb.so
+    - run: "./db_stress --version"
+    - run: make clean
+    - run: make V=1 -j32 release
+    - run: ls librocksdb.a
+    - run: "./db_stress --version"
+    - run: make clean
+    - run: apt-get remove -y libgflags-dev
+    - run: make V=1 -j32 LIB_MODE=shared release
+    - run: ls librocksdb.so
+    - run: if ./db_stress --version; then false; else true; fi
+    - run: make clean
+    - run: make V=1 -j32 release
+    - run: ls librocksdb.a
+    - run: if ./db_stress --version; then false; else true; fi
+    - uses: "./.github/actions/post-steps"
+  build-linux-release-rtti:
+    runs-on:
+      group: xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
+    - run: "./db_stress --version"
+    - run: make clean
+    - run: apt-get remove -y libgflags-dev
+    - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
+    - run: if ./db_stress --version; then false; else true; fi
+  build-examples:
+    runs-on:
+      group: large
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - name: Build examples
+      run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
+    - uses: "./.github/actions/post-steps"
+  build-fuzzers:
+    runs-on:
+      group: large
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - name: Build rocksdb lib
+      run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+    - name: Build fuzzers
+      run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
+    - uses: "./.github/actions/post-steps"
+  build-linux-clang-no_test_run:
+    runs-on:
+      group: xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
+    - uses: "./.github/actions/post-steps"
+  build-linux-clang-13-no_test_run:
+    runs-on:
+      group: 2xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-8-no_test_run:
+    runs-on:
+      group: 2xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-10-cxx20-no_test_run:
+    runs-on:
+      group: 2xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-11-no_test_run:
+    runs-on:
+      group: 2xlarge
+    container:
+      image: zjay437/rocksdb:0.6
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+    - uses: "./.github/actions/post-steps"
+  
