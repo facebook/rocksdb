@@ -144,6 +144,8 @@ int main() {
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = ROCKSDB_NAMESPACE::kCompactionStyleNone;
+  // Small write buffer size for generating more sst files in level 0.
+  options.write_buffer_size = 4 << 20;
   // Small slowdown and stop trigger for experimental purpose.
   options.level0_slowdown_writes_trigger = 3;
   options.level0_stop_writes_trigger = 5;
