@@ -498,8 +498,9 @@ bool Compaction::WithinPenultimateLevelOutputRange(
 
   const InternalKeyComparator* icmp = input_vstorage_->InternalComparator();
 
-  return icmp->Compare(ikey, penultimate_level_smallest_.Encode()) >= 0 &&
-         icmp->Compare(ikey, penultimate_level_largest_.Encode()) <= 0;
+  // op_type of a key can change during compaction, e.g. Merge -> Put.
+  return icmp->CompareKeySeq(ikey, penultimate_level_smallest_.Encode()) >= 0 &&
+         icmp->CompareKeySeq(ikey, penultimate_level_largest_.Encode()) <= 0;
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
