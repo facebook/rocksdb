@@ -582,6 +582,8 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     bool dont_care __attribute__((__unused__));
 
+    // Use a copy to prevent modifying user_key. Modification of user_key
+    // could result to potential cache miss.
     std::string user_key_str = user_key.ToString();
     ParsedInternalKey ikey = ParsedInternalKey(user_key_str, seq_no, type);
 

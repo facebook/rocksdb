@@ -164,8 +164,6 @@ class GetContext {
   // another GetContext with replayGetContextLog.
   void SetReplayLog(std::string* replay_log) { replay_log_ = replay_log; }
 
-  void appendToReplayLog(ValueType type, Slice value, Slice ts);
-
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
 
@@ -207,6 +205,8 @@ class GetContext {
 
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
                     PinnableSlice* blob_value);
+
+  void appendToReplayLog(ValueType type, Slice value, Slice ts);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
