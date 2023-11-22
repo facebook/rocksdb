@@ -48,6 +48,8 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #endif  // GLIBC version
 #endif  // OS_LINUX
 
+#include <atomic>
+
 #include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -311,10 +313,22 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   return callstack;
 }
 
+static std::atomic<bool> g_handling_stack_trace{false};
+static std::atomic<bool> g_at_exit_called{false};
+
 static void StackTraceHandler(int sig) {
-  // reset to default handler
-  signal(sig, SIG_DFL);
   fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
+  // Crude mutex with no signal-unsafe system calls, to avoid re-entrance from
+  // multiple threads or core dumping while trying to print the stack trace.
+  // (Does not protect against re-entrance from the same thread.)
+  while (g_handling_stack_trace.exchange(true, std::memory_order_acq_rel)) {
+    usleep(1000);
+  }
+
+  if (g_at_exit_called.load(std::memory_order_acquire)) {
+    fprintf(stderr, "In a race with process already exiting...\n");
+  }
+
   // skip the top three signal handler related frames
   PrintStack(3);
 
@@ -331,8 +345,21 @@ static void StackTraceHandler(int sig) {
           "==> by TSAN output.)\n");
 #endif
 
+  // reset to default handler
+  signal(sig, SIG_DFL);
   // re-signal to default handler (so we still get core dump if needed...)
   raise(sig);
+
+  // release the mutex, in case this is somehow recoverable
+  g_handling_stack_trace.store(false, std::memory_order_release);
+}
+
+static void AtExit() {
+  // wait for stack trace handler to finish, if needed
+  while (g_handling_stack_trace.load(std::memory_order_acquire)) {
+    usleep(1000);
+  }
+  g_at_exit_called.store(true, std::memory_order_release);
 }
 
 void InstallStackTraceHandler() {
@@ -342,6 +369,7 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+  atexit(AtExit);
   // Allow ouside debugger to attach, even with Yama security restrictions.
   // This is needed even outside of PrintStack() so that external mechanisms
   // can dump stacks if they suspect that a test has hung.
