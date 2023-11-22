@@ -3307,8 +3307,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     if (!flush_rescheduled_to_retain_udt) {
       // If flush failed, we want to delete all temporary files that we might
       // have created. Thus, we force full scan in FindObsoleteFiles()
-      FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
-                                          !s.IsColumnFamilyDropped());
+      FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
       // delete unnecessary files if any, this is done outside the mutex
       if (job_context.HaveSomethingToClean() ||
           job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
@@ -3404,7 +3403,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // case of a failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
                                         !s.IsManualCompactionPaused() &&
-                                        !s.IsColumnFamilyDropped() &&
                                         !s.IsBusy());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
