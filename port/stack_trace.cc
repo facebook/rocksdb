@@ -328,7 +328,6 @@ static void StackTraceHandler(int sig) {
     uint64_t expected = 0;
     if (g_thread_handling_stack_trace.compare_exchange_strong(expected, me)) {
       // Acquired mutex
-    abort();
       g_recursion_count = 0;
       break;
     }
