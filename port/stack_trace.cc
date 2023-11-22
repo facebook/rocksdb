@@ -25,6 +25,7 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #include <cxxabi.h>
 #include <execinfo.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -313,37 +314,59 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   return callstack;
 }
 
-static std::atomic<bool> g_handling_stack_trace{false};
+static std::atomic<uint64_t> g_thread_handling_stack_trace{0};
+static int g_recursion_count = 0;
 static std::atomic<bool> g_at_exit_called{false};
 
 static void StackTraceHandler(int sig) {
   fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
-  // Crude mutex with no signal-unsafe system calls, to avoid re-entrance from
-  // multiple threads or core dumping while trying to print the stack trace.
-  // (Does not protect against re-entrance from the same thread.)
-  while (g_handling_stack_trace.exchange(true, std::memory_order_acq_rel)) {
+  // Crude recursive mutex with no signal-unsafe system calls, to avoid
+  // re-entrance from multiple threads and avoid core dumping while trying
+  // to print the stack trace.
+  uint64_t me = static_cast<uint64_t>(pthread_self()) + 1;
+  for (;;) {
+    uint64_t expected = 0;
+    if (g_thread_handling_stack_trace.compare_exchange_strong(expected, me)) {
+      // Acquired mutex
+    abort();
+      g_recursion_count = 0;
+      break;
+    }
+    if (expected == me) {
+      ++g_recursion_count;
+      fprintf(stderr, "Recursive call to stack trace handler (%d)\n",
+              g_recursion_count);
+      break;
+    }
+    // Sleep before trying again
     usleep(1000);
   }
 
-  if (g_at_exit_called.load(std::memory_order_acquire)) {
-    fprintf(stderr, "In a race with process already exiting...\n");
-  }
+  if (g_recursion_count > 2) {
+    // Give up after too many recursions
+    fprintf(stderr, "Too many recursive calls to stack trace handler (%d)\n",
+            g_recursion_count);
+  } else {
+    if (g_at_exit_called.load(std::memory_order_acquire)) {
+      fprintf(stderr, "In a race with process already exiting...\n");
+    }
 
-  // skip the top three signal handler related frames
-  PrintStack(3);
+    // skip the top three signal handler related frames
+    PrintStack(3);
 
-  // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
-  // a signal" have failed, so just warn the user about them.
+    // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
+    // a signal" have failed, so just warn the user about them.
 #ifdef __SANITIZE_THREAD__
-  fprintf(stderr,
-          "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
-          "==> ignorable, as they are expected when generating a stack\n"
-          "==> trace because of a signal under TSAN. Consider why the\n"
-          "==> signal was generated to begin with, and the stack trace\n"
-          "==> in the TSAN warning can be useful for that. (The stack\n"
-          "==> trace printed by the signal handler is likely obscured\n"
-          "==> by TSAN output.)\n");
+    fprintf(stderr,
+            "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
+            "==> ignorable, as they are expected when generating a stack\n"
+            "==> trace because of a signal under TSAN. Consider why the\n"
+            "==> signal was generated to begin with, and the stack trace\n"
+            "==> in the TSAN warning can be useful for that. (The stack\n"
+            "==> trace printed by the signal handler is likely obscured\n"
+            "==> by TSAN output.)\n");
 #endif
+  }
 
   // reset to default handler
   signal(sig, SIG_DFL);
@@ -351,12 +374,16 @@ static void StackTraceHandler(int sig) {
   raise(sig);
 
   // release the mutex, in case this is somehow recoverable
-  g_handling_stack_trace.store(false, std::memory_order_release);
+  if (g_recursion_count > 0) {
+    --g_recursion_count;
+  } else {
+    g_thread_handling_stack_trace.store(0, std::memory_order_release);
+  }
 }
 
 static void AtExit() {
   // wait for stack trace handler to finish, if needed
-  while (g_handling_stack_trace.load(std::memory_order_acquire)) {
+  while (g_thread_handling_stack_trace.load(std::memory_order_acquire)) {
     usleep(1000);
   }
   g_at_exit_called.store(true, std::memory_order_release);
