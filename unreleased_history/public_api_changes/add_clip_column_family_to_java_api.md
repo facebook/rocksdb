@@ -1,1 +1,0 @@
-Added clipColumnFamily() to the Java API to clip the entries in the CF according to the range [begin_key, end_key).
