@@ -49,6 +49,7 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #endif  // GLIBC version
 #endif  // OS_LINUX
 
+#include <algorithm>
 #include <atomic>
 
 #include "port/lang.h"
@@ -323,15 +324,22 @@ static void StackTraceHandler(int sig) {
   // Crude recursive mutex with no signal-unsafe system calls, to avoid
   // re-entrance from multiple threads and avoid core dumping while trying
   // to print the stack trace.
-  uint64_t me = static_cast<uint64_t>(pthread_self()) + 1;
+  uint64_t tid = 0;
+  {
+    const auto ptid = pthread_self();
+    // pthread_t is an opaque type
+    memcpy(&tid, &ptid, std::min(sizeof(tid), sizeof(ptid)));
+    // Essentially ensure non-zero
+    ++tid;
+  }
   for (;;) {
     uint64_t expected = 0;
-    if (g_thread_handling_stack_trace.compare_exchange_strong(expected, me)) {
+    if (g_thread_handling_stack_trace.compare_exchange_strong(expected, tid)) {
       // Acquired mutex
       g_recursion_count = 0;
       break;
     }
-    if (expected == me) {
+    if (expected == tid) {
       ++g_recursion_count;
       fprintf(stderr, "Recursive call to stack trace handler (%d)\n",
               g_recursion_count);
