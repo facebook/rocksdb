@@ -1,1 +1,0 @@
-Fixed some bugs in the index builder/reader path for user-defined timestamps in Memtable only feature.

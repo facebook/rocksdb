@@ -22,6 +22,7 @@ want to continue to use force enabling, they need to explicitly pass a `true` to
 ### Bug Fixes
 * Fixed a crash or assertion failure bug in experimental new HyperClockCache variant, especially when running with a SecondaryCache.
 * Fix a race between flush error recovery and db destruction that can lead to db crashing.
+* Fixed some bugs in the index builder/reader path for user-defined timestamps in Memtable only feature.
 
 ## 8.8.0 (10/23/2023)
 ### New Features
