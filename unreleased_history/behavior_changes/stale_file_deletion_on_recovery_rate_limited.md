@@ -1,1 +1,0 @@
-Deleting stale files upon recovery are delegated to SstFileManger if available so they can be rate limited.
