@@ -1138,11 +1138,7 @@ class BlockBasedTableTest
     : public BlockBasedTableTestBase,
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
-  BlockBasedTableTest() : format_(GetParam()) {
-    std::unique_ptr<Env> env(
-        new CompositeEnvWrapper(Env::Default(), FileSystem::Default()));
-    env_ = env.get();
-  }
+  BlockBasedTableTest() : format_(GetParam()) { env_ = Env::Default(); }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
     BlockBasedTableOptions options;

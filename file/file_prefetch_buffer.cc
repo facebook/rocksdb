@@ -358,8 +358,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   uint64_t initial_end_offset = updated_end_offset;
 
   // Callback to tune the start and end offsets.
-  if (readaheadsize_cb_ != nullptr && readahead_size > 0 &&
-      !explicit_prefetch_submitted_) {
+  if (readaheadsize_cb_ != nullptr && readahead_size > 0) {
     readaheadsize_cb_(read_curr_block, updated_start_offset,
                       updated_end_offset);
   }
@@ -372,8 +371,11 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   assert(updated_start_offset < updated_end_offset);
 
   if (!read_curr_block) {
+    // Handle the case when callback added block handles which are already
+    // prefetched and nothing new needs to be prefetched. In that case end
+    // offset updated by callback will be less than prev_buf_end_offset which
+    // means data has been already prefetched.
     if (updated_end_offset <= prev_buf_end_offset) {
-      // It can be when this callback only added previous block handles.
       start_offset = end_offset = prev_buf_end_offset;
       return;
     }
