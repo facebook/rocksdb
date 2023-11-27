@@ -3534,7 +3534,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       {
         // 1st Buffer Verification.
         // curr buffer - 1.
-        prefetch_buffer->TEST_GetBufferOffsetandSize(1, buffer_offset,
+        prefetch_buffer->TEST_GetBufferOffsetandSize(0, buffer_offset,
                                                      buffer_len);
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
@@ -3542,7 +3542,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
         ASSERT_EQ(buffer_len, 8192);
 
         // 2nd Buffer Verification.
-        prefetch_buffer->TEST_GetBufferOffsetandSize(0, buffer_offset,
+        prefetch_buffer->TEST_GetBufferOffsetandSize(1, buffer_offset,
                                                      buffer_len);
         InternalKey ikey_tmp("00000585", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
@@ -3606,7 +3606,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       {
         // 1st Buffer Verification.
         // curr_ - 1.
-        prefetch_buffer->TEST_GetBufferOffsetandSize(1, buffer_offset,
+        prefetch_buffer->TEST_GetBufferOffsetandSize(0, buffer_offset,
                                                      buffer_len);
         ASSERT_EQ(buffer_len, 4096);
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
@@ -3614,7 +3614,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
         ASSERT_EQ(buffer_offset, block_handle.offset());
 
         // 2nd Buffer Verification.
-        prefetch_buffer->TEST_GetBufferOffsetandSize(0, buffer_offset,
+        prefetch_buffer->TEST_GetBufferOffsetandSize(1, buffer_offset,
                                                      buffer_len);
         InternalKey ikey_tmp("00000630", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
@@ -5889,8 +5889,8 @@ TEST_F(BBTTailPrefetchTest, TestTailPrefetchStats) {
 
 TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   TailPrefetchStats tpstats;
-  FilePrefetchBuffer buffer(0 /* readahead_size */, 0 /* max_readahead_size */,
-                            false /* enable */, true /* track_min_offset */);
+  FilePrefetchBuffer buffer(ReadaheadParams(), false /* enable */,
+                            true /* track_min_offset */);
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
