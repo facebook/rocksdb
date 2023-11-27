@@ -835,6 +835,11 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
             PROPERTIES
             OUTPUT_NAME rocksdbjni-osx-${CMAKE_SYSTEM_PROCESSOR}
     )
+    set_target_properties(
+            ${ROCKSDBJNI_STATIC_LIB}
+            PROPERTIES
+            SUFFIX ".jnilib"
+    )
     set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-osx.jar)
 else()
     set(ROCKSDB_JAR rocksdb-${CMAKE_PROJECT_VERSION}.jar)
