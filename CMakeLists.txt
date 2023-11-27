@@ -950,7 +950,7 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
   utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
-  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt_subst.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
 
 message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")

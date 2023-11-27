@@ -344,7 +344,7 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc       \
   utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc             \
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc          \
-  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc                 \
+  utilities/transactions/lock/range/range_tree/lib/util/dbt_subst.cc           \
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc            \
   utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc      \
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
