@@ -952,3 +952,15 @@ void Java_org_rocksdb_WBWIRocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
       ROCKSDB_NAMESPACE::Status::NotSupported("Refresh() is not supported");
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    refresh1
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_refresh1(JNIEnv* env, jobject /*jobj*/,
+    jlong /*handle*/, jlong /*snapshot_handle*/) {
+  ROCKSDB_NAMESPACE::Status s =
+      ROCKSDB_NAMESPACE::Status::NotSupported("Refresh(Snapshot*) is not supported");
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}
