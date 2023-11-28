@@ -3045,7 +3045,7 @@ class Benchmark {
 
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
     CompressedSecondaryCacheOptions secondary_cache_opts;
-    TieredAdmissionPolicy adm_policy;
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;;
     bool use_tiered_cache = false;
     if (capacity <= 0) {
       return nullptr;
