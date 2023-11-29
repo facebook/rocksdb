@@ -12,8 +12,9 @@
 #define XXH_NAMESPACE ROCKSDB_
 #endif  // !defined(XXH_NAMESPACE)
 
-#if ( defined(XXH_INLINE_ALL) || defined(XXH_PRIVATE_API) \
-   || defined(XXH_IMPLEMENTATION) ) && !defined(XXH_IMPLEM_13a8737387)
+#if (defined(XXH_INLINE_ALL) || defined(XXH_PRIVATE_API) || \
+     defined(XXH_IMPLEMENTATION)) &&                        \
+    !defined(XXH_IMPLEM_13a8737387)
 #if defined(__cplusplus) && (__cplusplus > 202002L)
 /* C++23 and future versions have std::unreachable() */
 #  include <utility> /* std::unreachable() */
