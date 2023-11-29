@@ -1,8 +1,5 @@
 name: facebook/rocksdb/jobs-windows
-on:
-  push:
-    branches:
-    - main
+on: [push, pull_request]
 env:
   THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
   CMAKE_HOME: C:/Program Files/CMake

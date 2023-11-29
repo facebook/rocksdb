@@ -1,8 +1,5 @@
 name: facebook/rocksdb/jobs-linux-no-test-run
-on:
-  push:
-    branches:
-    - main
+on: [push, pull_request]
 jobs:
   build-linux-release:
     runs-on:
