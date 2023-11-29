@@ -23,6 +23,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
+#include "util/aligned_storage.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -134,8 +135,8 @@ class WriteThread {
     Status status;
     Status callback_status;  // status returned by callback->Callback()
 
-    std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
-    std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
+    aligned_storage<std::mutex>::type state_mutex_bytes;
+    aligned_storage<std::condition_variable>::type state_cv_bytes;
     Writer* link_older;  // read/write only before linking, or as leader
     Writer* link_newer;  // lazy, read/write only before linking, or as leader
 
