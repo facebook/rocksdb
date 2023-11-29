@@ -10,10 +10,9 @@
 
 #include <cstddef>
 
-
 namespace ROCKSDB_NAMESPACE {
 
-template<typename T, std::size_t Align = alignof(T)>
+template <typename T, std::size_t Align = alignof(T)>
 struct aligned_storage {
   struct type {
     alignas(Align) unsigned char data[sizeof(T)];

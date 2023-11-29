@@ -17,7 +17,7 @@
     !defined(XXH_IMPLEM_13a8737387)
 #if defined(__cplusplus) && (__cplusplus > 202002L)
 /* C++23 and future versions have std::unreachable() */
-#  include <utility> /* std::unreachable() */
+#include <utility> /* std::unreachable() */
 #endif
 #endif
 /* END RocksDB customizations */
