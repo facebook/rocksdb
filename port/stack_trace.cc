@@ -256,9 +256,9 @@ void PrintStack(int first_frames_to_skip) {
         if (lldb_stack_trace) {
           fprintf(stderr, "Invoking LLDB for stack trace...\n");
 
-          // Skip top ~8 frames here in PrintStack
+          // Skip top ~4 frames here in PrintStack
           auto bt_in_lldb =
-              "script -l python -- for f in lldb.thread.frames[8:]: print(f)";
+              "script -l python -- for f in lldb.thread.frames[4:]: print(f)";
           execlp(/*cmd in PATH*/ "lldb", /*arg0*/ "lldb", "-p", attach_pid_str,
                  "-b", "-Q", "-o", GetLldbScriptSelectThread(attach_tid), "-o",
                  bt_in_lldb, (char*)nullptr);
