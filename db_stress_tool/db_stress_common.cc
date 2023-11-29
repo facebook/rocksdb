@@ -210,9 +210,6 @@ void CompressedCacheSetCapacityThread(void* v) {
             (double)thread->rand.Uniform(
                 FLAGS_compressed_secondary_cache_ratio * 100) /
             100;
-        if (new_comp_cache_ratio == 0.0) {
-          new_comp_cache_ratio = 0.05;
-        }
         fprintf(stderr, "New comp cache ratio = %f\n", new_comp_cache_ratio);
 
         s = UpdateTieredCache(block_cache, /*capacity*/ -1,

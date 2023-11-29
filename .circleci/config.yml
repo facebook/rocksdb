@@ -914,8 +914,6 @@ workflows:
       - build-linux-mini-crashtest
   jobs-windows:
     jobs:
-      - build-windows-vs2022-avx2
-      - build-windows-vs2022
       - build-windows-vs2019
       - build-cmake-mingw
   jobs-java:
@@ -964,3 +962,5 @@ workflows:
       - build-linux-non-shm
       - build-linux-clang-13-asan-ubsan-with-folly
       - build-linux-valgrind
+      - build-windows-vs2022-avx2
+      - build-windows-vs2022

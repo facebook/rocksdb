@@ -602,11 +602,16 @@ DEFINE_uint32(
     "compress_format_version == 2 -- decompressed size is included"
     " in the block header in varint32 format.");
 
-DEFINE_bool(use_tiered_volatile_cache, false,
+DEFINE_bool(use_tiered_cache, false,
             "If use_compressed_secondary_cache is true and "
             "use_tiered_volatile_cache is true, then allocate a tiered cache "
             "that distributes cache reservations proportionally over both "
             "the caches.");
+
+DEFINE_string(
+    tiered_adm_policy, "auto",
+    "Admission policy to use for the secondary cache(s) in the tiered cache. "
+    "Allowed values are auto, placeholder, allow_cache_hits, and three_queue.");
 
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
@@ -1271,6 +1276,24 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kZSTD;
   else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    exit(1);
+  }
+}
+
+static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
+    const char* policy) {
+  assert(policy);
+
+  if (!strcasecmp(policy, "auto"))
+    return ROCKSDB_NAMESPACE::kAdmPolicyAuto;
+  else if (!strcasecmp(policy, "placeholder"))
+    return ROCKSDB_NAMESPACE::kAdmPolicyPlaceholder;
+  else if (!strcasecmp(policy, "allow_cache_hits"))
+    return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
+  else if (!strcasecmp(policy, "three_queue"))
+    return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
+  else {
+    fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);
   }
 }
@@ -3022,6 +3045,7 @@ class Benchmark {
 
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
     CompressedSecondaryCacheOptions secondary_cache_opts;
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
     bool use_tiered_cache = false;
     if (capacity <= 0) {
       return nullptr;
@@ -3038,10 +3062,30 @@ class Benchmark {
           FLAGS_compressed_secondary_cache_compression_type_e;
       secondary_cache_opts.compress_format_version =
           FLAGS_compressed_secondary_cache_compress_format_version;
-      if (FLAGS_use_tiered_volatile_cache) {
+      if (FLAGS_use_tiered_cache) {
         use_tiered_cache = true;
+        adm_policy = StringToAdmissionPolicy(FLAGS_tiered_adm_policy.c_str());
       }
     }
+    if (!FLAGS_secondary_cache_uri.empty()) {
+      if (!use_tiered_cache && FLAGS_use_compressed_secondary_cache) {
+        fprintf(
+            stderr,
+            "Cannot specify both --secondary_cache_uri and "
+            "--use_compressed_secondary_cache when using a non-tiered cache\n");
+        exit(1);
+      }
+      Status s = SecondaryCache::CreateFromString(
+          ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
+      if (secondary_cache == nullptr) {
+        fprintf(stderr,
+                "No secondary cache registered matching string: %s status=%s\n",
+                FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+    }
+
+    std::shared_ptr<Cache> block_cache;
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
@@ -3061,13 +3105,24 @@ class Benchmark {
       opts.hash_seed = GetCacheHashSeed();
       if (use_tiered_cache) {
         TieredCacheOptions tiered_opts;
-        opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
         tiered_opts.cache_opts = &opts;
+        tiered_opts.total_capacity =
+            opts.capacity + secondary_cache_opts.capacity;
+        tiered_opts.compressed_secondary_ratio =
+            secondary_cache_opts.capacity * 1.0 / tiered_opts.total_capacity;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredCache(tiered_opts);
+        tiered_opts.nvm_sec_cache = secondary_cache;
+        tiered_opts.adm_policy = adm_policy;
+        block_cache = NewTieredCache(tiered_opts);
       } else {
-        return opts.MakeSharedCache();
+        if (!FLAGS_secondary_cache_uri.empty()) {
+          opts.secondary_cache = secondary_cache;
+        } else if (FLAGS_use_compressed_secondary_cache) {
+          opts.secondary_cache =
+              NewCompressedSecondaryCache(secondary_cache_opts);
+        }
+        block_cache = opts.MakeSharedCache();
       }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
@@ -3076,36 +3131,37 @@ class Benchmark {
           GetCacheAllocator(), kDefaultToAdaptiveMutex,
           kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
       opts.hash_seed = GetCacheHashSeed();
-      if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s = SecondaryCache::CreateFromString(
-            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
-        if (secondary_cache == nullptr) {
-          fprintf(
-              stderr,
-              "No secondary cache registered matching string: %s status=%s\n",
-              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
-          exit(1);
-        }
-        opts.secondary_cache = secondary_cache;
-      } else if (FLAGS_use_compressed_secondary_cache && !use_tiered_cache) {
-        opts.secondary_cache =
-            NewCompressedSecondaryCache(secondary_cache_opts);
-      }
-
       if (use_tiered_cache) {
         TieredCacheOptions tiered_opts;
-        opts.capacity += secondary_cache_opts.capacity;
         tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
         tiered_opts.cache_opts = &opts;
+        tiered_opts.total_capacity =
+            opts.capacity + secondary_cache_opts.capacity;
+        tiered_opts.compressed_secondary_ratio =
+            secondary_cache_opts.capacity * 1.0 / tiered_opts.total_capacity;
         tiered_opts.comp_cache_opts = secondary_cache_opts;
-        return NewTieredCache(tiered_opts);
+        tiered_opts.nvm_sec_cache = secondary_cache;
+        tiered_opts.adm_policy = adm_policy;
+        block_cache = NewTieredCache(tiered_opts);
       } else {
-        return opts.MakeSharedCache();
+        if (!FLAGS_secondary_cache_uri.empty()) {
+          opts.secondary_cache = secondary_cache;
+        } else if (FLAGS_use_compressed_secondary_cache) {
+          opts.secondary_cache =
+              NewCompressedSecondaryCache(secondary_cache_opts);
+        }
+        block_cache = opts.MakeSharedCache();
       }
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);
     }
+
+    if (!block_cache) {
+      fprintf(stderr, "Unable to allocate block cache\n");
+      exit(1);
+    }
+    return block_cache;
   }
 
  public:

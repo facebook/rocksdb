@@ -119,6 +119,8 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     size_t sec_capacity = 0;
     Status s = secondary_cache_->GetCapacity(sec_capacity);
     assert(s.ok());
+    assert(placeholder_usage_ == 0);
+    assert(reserved_usage_ == 0);
     assert(pri_cache_res_->GetTotalMemoryUsed() == sec_capacity);
   }
 #endif  // NDEBUG

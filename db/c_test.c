@@ -3781,6 +3781,30 @@ int main(int argc, char** argv) {
     rocksdb_wait_for_compact_options_destroy(wco);
   }
 
+  StartPhase("write_buffer_manager");
+  {
+    rocksdb_cache_t* lru;
+    lru = rocksdb_cache_create_lru(100);
+
+    rocksdb_write_buffer_manager_t* write_buffer_manager;
+    write_buffer_manager =
+        rocksdb_write_buffer_manager_create_with_cache(200, lru, false);
+
+    CheckCondition(true ==
+                   rocksdb_write_buffer_manager_enabled(write_buffer_manager));
+    CheckCondition(true == rocksdb_write_buffer_manager_cost_to_cache(
+                               write_buffer_manager));
+    CheckCondition(
+        200 == rocksdb_write_buffer_manager_buffer_size(write_buffer_manager));
+
+    rocksdb_write_buffer_manager_set_buffer_size(write_buffer_manager, 300);
+    CheckCondition(
+        300 == rocksdb_write_buffer_manager_buffer_size(write_buffer_manager));
+
+    rocksdb_write_buffer_manager_destroy(write_buffer_manager);
+    rocksdb_cache_destroy(lru);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 
