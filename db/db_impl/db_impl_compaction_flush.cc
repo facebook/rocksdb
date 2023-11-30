@@ -3301,7 +3301,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
     TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FlushFinish:0");
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
-    // There is no need to do these clean up if the flush job is rescheduled
+    // There is no need to find obsolete files if the flush job is rescheduled
     // to retain user-defined timestamps because the job doesn't get to the
     // stage of actually flushing the MemTables.
     if (!flush_rescheduled_to_retain_udt) {
@@ -3309,25 +3309,25 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       // have created. Thus, we force full scan in FindObsoleteFiles()
       FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
                                           !s.IsColumnFamilyDropped());
-      // delete unnecessary files if any, this is done outside the mutex
-      if (job_context.HaveSomethingToClean() ||
-          job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
-        mutex_.Unlock();
-        TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FilesFound");
-        // Have to flush the info logs before bg_flush_scheduled_--
-        // because if bg_flush_scheduled_ becomes 0 and the lock is
-        // released, the deconstructor of DB can kick in and destroy all the
-        // states of DB so info_log might not be available after that point.
-        // It also applies to access other states that DB owns.
-        log_buffer.FlushBufferToLog();
-        if (job_context.HaveSomethingToDelete()) {
-          PurgeObsoleteFiles(job_context);
-        }
-        job_context.Clean();
-        mutex_.Lock();
-      }
-      TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
     }
+    // delete unnecessary files if any, this is done outside the mutex
+    if (job_context.HaveSomethingToClean() ||
+        job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+      mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FilesFound");
+      // Have to flush the info logs before bg_flush_scheduled_--
+      // because if bg_flush_scheduled_ becomes 0 and the lock is
+      // released, the deconstructor of DB can kick in and destroy all the
+      // states of DB so info_log might not be available after that point.
+      // It also applies to access other states that DB owns.
+      log_buffer.FlushBufferToLog();
+      if (job_context.HaveSomethingToDelete()) {
+        PurgeObsoleteFiles(job_context);
+      }
+      job_context.Clean();
+      mutex_.Lock();
+    }
+    TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:ContextCleanedUp");
 
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
