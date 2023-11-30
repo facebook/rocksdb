@@ -814,6 +814,24 @@ def execute_cmd(cmd, timeout=None):
     return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8")
 
 
+def exit_if_stderr_has_errors(stderr, print_stderr=True):
+    if print_stderr:
+        for line in stderr.split("\n"):
+            if line != "" and not line.startswith("WARNING"):
+                print("stderr has error message:")
+                print("***" + line + "***")
+
+    stderrdata = stderr.lower()
+    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
+    print("#times error occurred in output is " + str(errorcount) + "\n")
+
+    if errorcount > 0:
+        print("TEST FAILED. Output has 'error'!!!\n")
+        sys.exit(2)
+    if stderrdata.find("fail") >= 0:
+        print("TEST FAILED. Output has 'fail'!!!\n")
+        sys.exit(2)
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -846,21 +864,7 @@ def blackbox_crash_main(args, unknown_args):
             print(errs)
             sys.exit(2)
 
-        for line in errs.split("\n"):
-            if line != "" and not line.startswith("WARNING"):
-                print("stderr has error message:")
-                print("***" + line + "***")
-
-        stderrdata = errs.lower()
-        errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-        print("#times error occurred in output is " + str(errorcount) + "\n")
-
-        if errorcount > 0:
-            print("TEST FAILED. Output has 'error'!!!\n")
-            sys.exit(2)
-        if stderrdata.find("fail") >= 0:
-            print("TEST FAILED. Output has 'fail'!!!\n")
-            sys.exit(2)
+        exit_if_stderr_has_errors(errs);
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -880,21 +884,7 @@ def blackbox_crash_main(args, unknown_args):
     # Print stats of the final run
     print("stdout:", outs)
 
-    for line in errs.split("\n"):
-        if line != "" and not line.startswith("WARNING"):
-            print("stderr has error message:")
-            print("***" + line + "***")
-
-    stderrdata = errs.lower()
-    errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-    print("#times error occurred in output is " + str(errorcount) + "\n")
-
-    if errorcount > 0:
-        print("TEST FAILED. Output has 'error'!!!\n")
-        sys.exit(2)
-    if stderrdata.find("fail") >= 0:
-        print("TEST FAILED. Output has 'fail'!!!\n")
-        sys.exit(2)
+    exit_if_stderr_has_errors(errs)
 
     # we need to clean up after ourselves -- only do this on test success
     shutil.rmtree(dbname, True)
@@ -1056,16 +1046,8 @@ def whitebox_crash_main(args, unknown_args):
             print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
-        stderrdata = stderrdata.lower()
-        errorcount = stderrdata.count("error") - stderrdata.count("got errors 0 times")
-        print("#times error occurred in output is " + str(errorcount) + "\n")
-
-        if errorcount > 0:
-            print("TEST FAILED. Output has 'error'!!!\n")
-            sys.exit(2)
-        if stderrdata.find("fail") >= 0:
-            print("TEST FAILED. Output has 'fail'!!!\n")
-            sys.exit(2)
+        #stderr already printed above
+        exit_if_stderr_has_errors(stderrdata, False)
 
         # First half of the duration, keep doing kill test. For the next half,
         # try different modes.
