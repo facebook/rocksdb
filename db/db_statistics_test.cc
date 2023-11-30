@@ -290,7 +290,6 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
 
   // Destroy the DB to recreate as a TransactionDB.
-  Close();
   Destroy(options, true);
 
   // Create a TransactionDB.
@@ -344,6 +343,10 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
             options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
                 kCommitMarkerSize);
+  
+  // Cleanup
+  db_ = nullptr;
+  delete txn_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
