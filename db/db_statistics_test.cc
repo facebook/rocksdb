@@ -9,6 +9,7 @@
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -281,6 +282,68 @@ TEST_F(DBStatisticsTest, BlockChecksumStats) {
             options.statistics->getTickerCount(BLOCK_CHECKSUM_COMPUTE_COUNT));
   ASSERT_EQ(1,
             options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
+}
+
+TEST_F(DBStatisticsTest, BytesWrittenStats) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db->GetBaseDB();
+
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
+
+  const int kNumKeysWritten = 100;
+  const int kCommitMarkerSize = 12;
+
+  // Scenario 0: Not using transactions.
+  // This will write to WAL and memtable directly.
+  ASSERT_OK(options.statistics->Reset());
+
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    ASSERT_OK(Put(Key(i), "val"));
+  }
+
+  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+            options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
+
+  // Scenario 1: Using transactions.
+  // This should not double count BYTES_WRITTEN (issue #12061).
+  ASSERT_OK(options.statistics->Reset());
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("txn1"));
+
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    ASSERT_OK(txn->Put(Key(i), "val"));
+  }
+
+  // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
+  ASSERT_OK(txn->Prepare());
+  EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
+  // BYTES_WRITTEN would have been non-zero previously (issue #12061).
+  EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+
+  // Commit() writes to memtable and also a commit marker to WAL.
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+            options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
+                kCommitMarkerSize);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
