@@ -88,7 +88,7 @@ class SstFileDumper {
   std::unique_ptr<TableReader> table_reader_;
   std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableOptions ioptions_;
+  ImmutableOptions ioptions_;
   const MutableCFOptions moptions_;
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
