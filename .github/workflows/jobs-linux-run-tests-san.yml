@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux-clang10-asan:
     runs-on: 
-      group: 2xlargeplus
+      group: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -13,7 +13,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-ubsan:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -23,7 +23,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-mini-tsan:
     runs-on: 
-      group: 2xlargeplus
+      group: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -33,7 +33,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-static_lib-alt_namespace-status_checked:
     runs-on:
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:

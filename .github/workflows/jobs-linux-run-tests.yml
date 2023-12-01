@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -13,7 +13,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
     runs-on: 
-      group: large
+      group: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -30,7 +30,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -42,7 +42,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-lite-no-test:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -53,7 +53,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -65,7 +65,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -76,7 +76,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     env:
@@ -91,7 +91,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark:
     runs-on: 
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -101,7 +101,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
     runs-on:
-      group: 2xlarge
+      group: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
