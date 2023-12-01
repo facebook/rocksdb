@@ -249,7 +249,7 @@ TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   fname = test::PerThreadDBPath("CuckooReaderUint64_WhenKeyExists");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i].resize(8);
-    memcpy(&user_keys[i][0], static_cast<void*>(&i), 8);
+    memcpy(user_keys[i].data(), static_cast<void*>(&i), 8);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
     values[i] = "value" + NumToStr(i);
@@ -296,7 +296,7 @@ TEST_F(CuckooReaderTest, CheckIteratorUint64) {
   fname = test::PerThreadDBPath("CuckooReader_CheckIterator");
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i].resize(8);
-    memcpy(&user_keys[i][0], static_cast<void*>(&i), 8);
+    memcpy(user_keys[i].data(), static_cast<void*>(&i), 8);
     ParsedInternalKey ikey(user_keys[i], 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
     values[i] = "value" + NumToStr(i);
@@ -425,7 +425,7 @@ void WriteFile(const std::vector<std::string>& keys, const uint64_t num,
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
-    builder.Add(Slice(keys[key_idx]), Slice(&keys[key_idx][0], 4));
+    builder.Add(Slice(keys[key_idx]), Slice(keys[key_idx].data(), 4));
     ASSERT_EQ(builder.NumEntries(), key_idx + 1);
     ASSERT_OK(builder.status());
   }
@@ -454,7 +454,7 @@ void WriteFile(const std::vector<std::string>& keys, const uint64_t num,
     value.Reset();
     value.clear();
     ASSERT_OK(reader.Get(r_options, Slice(keys[i]), &get_context, nullptr));
-    ASSERT_TRUE(Slice(keys[i]) == Slice(&keys[i][0], 4));
+    ASSERT_TRUE(Slice(keys[i]) == Slice(keys[i].data(), 4));
   }
 }
 

@@ -59,7 +59,7 @@ class MockTableReader : public TableReader {
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
-  ~MockTableReader() {}
+  ~MockTableReader() = default;
 
  private:
   const KVVector& table_;
@@ -134,7 +134,7 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~MockTableBuilder() {}
+  ~MockTableBuilder() = default;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
