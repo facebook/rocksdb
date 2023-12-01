@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux-release:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -27,7 +27,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-release-rtti:
     runs-on:
-      group: 8-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -40,7 +40,7 @@ jobs:
     - run: if ./db_stress --version; then false; else true; fi
   build-examples:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -51,7 +51,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-fuzzers:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -64,7 +64,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-clang-no_test_run:
     runs-on:
-      group: 8-core-ubuntu
+      labels: 8-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -73,7 +73,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -83,7 +83,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-8-no_test_run:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -93,7 +93,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-10-cxx20-no_test_run:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -103,7 +103,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-11-no_test_run:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:

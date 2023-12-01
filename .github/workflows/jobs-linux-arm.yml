@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux-arm:
     runs-on:
-      group: arm64large # GitHub hosted ARM runners do not yet exist
+      labels: arm64large # GitHub hosted ARM runners do not yet exist
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -12,7 +12,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-arm-cmake-no_test_run:
     runs-on:
-      group: arm64large # GitHub hosted ARM runners do not yet exist
+      labels: arm64large # GitHub hosted ARM runners do not yet exist
     env:
       JAVA_HOME: "/usr/lib/jvm/java-8-openjdk-arm64"
     steps:

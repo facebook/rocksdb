@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux-clang10-clang-analyze:
     runs-on:
-      group: 16-core-ubuntu
+      labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -19,7 +19,7 @@ jobs:
         path: scan_build_report.tar.gz
   build-linux-unity-and-headers:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: gcc:latest
     env:
@@ -33,7 +33,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:

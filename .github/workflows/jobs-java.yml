@@ -3,7 +3,7 @@ on: [push, pull_request]
 jobs:
   build-linux-java:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
@@ -19,7 +19,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-java-static:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     container:
       image: evolvedbinary/rocksjava:centos6_x64-be
     steps:
@@ -99,7 +99,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
     runs-on:
-      group: 4-core-ubuntu
+      labels: 4-core-ubuntu
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/install-maven"
