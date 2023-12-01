@@ -9,9 +9,8 @@
 
 #include "table/block_based/block_based_table_factory.h"
 
-#include <stdint.h>
-
 #include <cinttypes>
+#include <cstdint>
 #include <memory>
 #include <string>
 

@@ -208,7 +208,7 @@ class HashSkipListRep : public MemTableRep {
     // This is used when there wasn't a bucket. It is cheaper than
     // instantiating an empty bucket over which to iterate.
    public:
-    EmptyIterator() {}
+    EmptyIterator() = default;
     bool Valid() const override { return false; }
     const char* key() const override {
       assert(false);
@@ -248,7 +248,7 @@ HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
   }
 }
 
-HashSkipListRep::~HashSkipListRep() {}
+HashSkipListRep::~HashSkipListRep() = default;
 
 HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
     const Slice& transformed) {

@@ -87,7 +87,7 @@ class PartitionedFilterBlockTest
     table_options_.index_block_restart_interval = 3;
   }
 
-  ~PartitionedFilterBlockTest() override {}
+  ~PartitionedFilterBlockTest() override = default;
 
   static constexpr int kKeyNum = 4;
   static constexpr int kMissingKeyNum = 2;
@@ -200,7 +200,7 @@ class PartitionedFilterBlockTest
     // Querying added keys
     const bool no_io = true;
     std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
-    for (auto key : keys) {
+    for (const auto& key : keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(
@@ -220,7 +220,7 @@ class PartitionedFilterBlockTest
     // querying missing keys
     std::vector<std::string> missing_keys =
         PrepareKeys(missing_keys_without_ts, kMissingKeyNum);
-    for (auto key : missing_keys) {
+    for (const auto& key : missing_keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
@@ -386,7 +386,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   CutABlock(pib.get(), pkeys[2]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
-  for (auto key : pkeys) {
+  for (const auto& key : pkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(prefix_extractor->Transform(key),
@@ -400,7 +400,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
                                               "p-key31"};
   std::vector<std::string> pnonkeys =
       PrepareKeys(pnonkeys_without_ts, 4 /* number_of_keys */);
-  for (auto key : pnonkeys) {
+  for (const auto& key : pnonkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(prefix_extractor->Transform(key),
@@ -440,7 +440,7 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   CutABlock(pib.get(), pkeys[4]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
-  for (auto key : pkeys) {
+  for (const auto& key : pkeys) {
     auto prefix = prefix_extractor->Transform(key);
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());

@@ -1265,7 +1265,7 @@ class TestStatistics : public StatisticsImpl {
 
 class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  TestFlushBlockPolicyFactory() {}
+  TestFlushBlockPolicyFactory() = default;
 
   static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
   const char* Name() const override { return kClassName(); }

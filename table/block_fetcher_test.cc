@@ -134,7 +134,9 @@ class BlockFetcherTest : public testing::Test {
       std::array<TestStats, NumModes> expected_stats_by_mode) {
     for (CompressionType compression_type : GetSupportedCompressions()) {
       bool do_compress = compression_type != kNoCompression;
-      if (compressed != do_compress) continue;
+      if (compressed != do_compress) {
+        continue;
+      }
       std::string compression_type_str =
           CompressionTypeToString(compression_type);
 
