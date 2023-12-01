@@ -17,7 +17,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,7 +30,7 @@ import org.junit.runners.Parameterized.Parameters;
 public class SequenceNumberAllocationTest {
   @Parameters(name = "{0}")
   public static Iterable<Boolean> parameters() {
-     return Arrays.asList(true, false);
+    return Arrays.asList(true, false);
   }
 
   @Parameter(0) public boolean disableWAL;
@@ -44,22 +43,23 @@ public class SequenceNumberAllocationTest {
 
   @Test
   public void testSeqnoFlushAndClose() throws RocksDBException {
-     try (final Options options = new Options().setCreateIfMissing(true);
-          final WriteOptions writeOptions = new WriteOptions().setDisableWAL(disableWAL);
-          final FlushOptions flushOptions = new FlushOptions();
-          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
-       int count = fillDatabase(db, writeOptions, 0, 15);
-       assertEquals("Database values count mismatch", 15, count);
-       db.flush(flushOptions);
-       db.closeE();
-     }
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final WriteOptions writeOptions = new WriteOptions().setDisableWAL(disableWAL);
+         final FlushOptions flushOptions = new FlushOptions();
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      int count = fillDatabase(db, writeOptions, 0, 15);
+      assertEquals("Database values count mismatch", 15, count);
+      db.flush(flushOptions);
+      db.closeE();
+    }
 
-     try (final Options options = new Options().setCreateIfMissing(true);
-          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
-       assertTrue("Database should not be empty", db.getLatestSequenceNumber() != 0);
-       assertEquals("Sequence number changed between closing and reopening the database", 15,
-           db.getLatestSequenceNumber());
-     }
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      assertTrue("Database should not be empty", db.getLatestSequenceNumber() != 0);
+      assertEquals("Sequence number changed between closing and reopening the database", 15,
+          db.getLatestSequenceNumber());
+    }
+   }
   }
 
   @Test
