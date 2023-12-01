@@ -14,10 +14,8 @@
 #include <cinttypes>
 #include <filesystem>
 
-#include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
-#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "cloud/cloud_manifest.h"
 #include "cloud/cloud_scheduler.h"
-#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
@@ -26,6 +24,9 @@
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_file_system.h"
+#include "rocksdb/cloud/cloud_file_deletion_scheduler.h"
+#include "rocksdb/cloud/cloud_file_system_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider_impl.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
