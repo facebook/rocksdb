@@ -400,7 +400,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     // that whether it is a valid sst or not
     // (A directory "file" is not a valid sst)
     filenames.clear();
-    filenames.push_back(dir_or_file);
+    filenames.emplace_back(dir_or_file);
     dir = false;
   }
 
@@ -468,7 +468,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
         exit(1);
       } else {
-        fprintf(stdout, "raw dump written to file %s\n", &out_filename[0]);
+        fprintf(stdout, "raw dump written to file %s\n", out_filename.data());
       }
       continue;
     }
