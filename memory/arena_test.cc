@@ -170,7 +170,7 @@ static void SimpleTest(size_t huge_page_size) {
       r[b] = i % 256;
     }
     bytes += s;
-    allocated.push_back(std::make_pair(s, r));
+    allocated.emplace_back(s, r);
     ASSERT_GE(arena.ApproximateMemoryUsage(), bytes);
     if (i > N / 10) {
       ASSERT_LE(arena.ApproximateMemoryUsage(), bytes * 1.10);

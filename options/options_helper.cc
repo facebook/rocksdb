@@ -46,7 +46,9 @@ Status ValidateOptions(const DBOptions& db_opts,
   auto db_cfg = DBOptionsAsConfigurable(db_opts);
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
   s = db_cfg->ValidateOptions(db_opts, cf_opts);
-  if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
+  if (s.ok()) {
+    s = cf_cfg->ValidateOptions(db_opts, cf_opts);
+  }
   return s;
 }
 
@@ -912,7 +914,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
         ConfigOptions copy = config_options;
         copy.ignore_unknown_options = false;
         copy.invoke_prepare_options = false;
-        if (opt_value.find("=") != std::string::npos) {
+        if (opt_value.find('=') != std::string::npos) {
           return config->ConfigureFromString(copy, opt_value);
         } else {
           return config->ConfigureOption(copy, opt_name, opt_value);
@@ -1047,7 +1049,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
       }
       std::string value = custom->ToString(embedded);
       if (!embedded.mutable_options_only ||
-          value.find("=") != std::string::npos) {
+          value.find('=') != std::string::npos) {
         *opt_value = value;
       } else {
         *opt_value = "";
@@ -1423,7 +1425,7 @@ const OptionTypeInfo* OptionTypeInfo::Find(
     *elem_name = opt_name;                   // Return the name
     return &(iter->second);  // Return the contents of the iterator
   } else {
-    auto idx = opt_name.find(".");              // Look for a separator
+    auto idx = opt_name.find('.');              // Look for a separator
     if (idx > 0 && idx != std::string::npos) {  // We found a separator
       auto siter =
           opt_map.find(opt_name.substr(0, idx));  // Look for the short name

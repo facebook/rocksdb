@@ -33,9 +33,8 @@
 
 #include "table/block_based/block_builder.h"
 
-#include <assert.h>
-
 #include <algorithm>
+#include <cassert>
 
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
