@@ -10,7 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-LDBOptions::LDBOptions() {}
+LDBOptions::LDBOptions() = default;
 
 void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
                                  const char* /*exec_name*/, bool to_stderr) {

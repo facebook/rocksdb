@@ -390,7 +390,7 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
     if (checksum_type_ != kNoChecksum && format_version_ >= 6) {
       std::array<char, kNewVersionsEncodedLength> copy_without_checksum;
       std::copy_n(input.data(), kNewVersionsEncodedLength,
-                  &copy_without_checksum[0]);
+                  copy_without_checksum.data());
       EncodeFixed32(&copy_without_checksum[5], 0);  // Clear embedded checksum
       computed_checksum =
           ComputeBuiltinChecksum(checksum_type(), copy_without_checksum.data(),
@@ -518,9 +518,11 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
     } else {
       footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, &footer_buf[0], nullptr);
+                     &footer_input, footer_buf.data(), nullptr);
     }
-    if (!s.ok()) return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // Check that we actually read the whole footer from the file. It may be

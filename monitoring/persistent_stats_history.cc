@@ -74,7 +74,7 @@ void OptimizeForPersistentStats(ColumnFamilyOptions* cfo) {
   cfo->compression = kNoCompression;
 }
 
-PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() {}
+PersistentStatsHistoryIterator::~PersistentStatsHistoryIterator() = default;
 
 bool PersistentStatsHistoryIterator::Valid() const { return valid_; }
 
@@ -96,7 +96,7 @@ std::pair<uint64_t, std::string> parseKey(const Slice& key,
                                           uint64_t start_time) {
   std::pair<uint64_t, std::string> result;
   std::string key_str = key.ToString();
-  std::string::size_type pos = key_str.find("#");
+  std::string::size_type pos = key_str.find('#');
   // TODO(Zhongyi): add counters to track parse failures?
   if (pos == std::string::npos) {
     result.first = std::numeric_limits<uint64_t>::max();

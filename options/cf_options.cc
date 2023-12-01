@@ -417,7 +417,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // value, say, like "23", which would be assigned to
                // max_table_files_size.
                if (name == "compaction_options_fifo" &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  // Old format. Parse just a single uint64_t value.
                  auto options = static_cast<CompactionOptionsFIFO*>(addr);
                  options->max_table_files_size = ParseUint64(value);
@@ -529,7 +529,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -549,7 +549,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameBMCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -627,7 +627,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_size_to_maintain),
@@ -636,7 +636,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"min_write_buffer_number_to_merge",
          {offsetof(struct ImmutableCFOptions, min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"num_levels",
          {offsetof(struct ImmutableCFOptions, num_levels), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},

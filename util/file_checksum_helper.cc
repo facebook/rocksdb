@@ -31,7 +31,7 @@ Status FileChecksumListImpl::GetAllFileChecksums(
     return Status::InvalidArgument("Pointer has not been initiated");
   }
 
-  for (auto i : checksum_map_) {
+  for (const auto& i : checksum_map_) {
     file_numbers->push_back(i.first);
     checksums->push_back(i.second.first);
     checksum_func_names->push_back(i.second.second);

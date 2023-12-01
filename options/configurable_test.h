@@ -33,8 +33,8 @@ struct TestOptions {
   bool b = false;
   bool d = true;
   TestEnum e = TestEnum::kTestA;
-  std::string s = "";
-  std::string u = "";
+  std::string s;
+  std::string u;
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {

@@ -5,9 +5,8 @@
 
 #include "table/cuckoo/cuckoo_table_builder.h"
 
-#include <assert.h>
-
 #include <algorithm>
+#include <cassert>
 #include <limits>
 #include <string>
 #include <vector>
@@ -481,7 +480,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     uint64_t bid = hash_vals[hash_cnt];
     (*buckets)[static_cast<size_t>(bid)].make_space_for_key_call_id =
         make_space_for_key_call_id;
-    tree.push_back(CuckooNode(bid, 0, 0));
+    tree.emplace_back(bid, 0, 0);
   }
   bool null_found = false;
   uint32_t curr_pos = 0;
@@ -507,7 +506,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
         }
         (*buckets)[static_cast<size_t>(child_bucket_id)]
             .make_space_for_key_call_id = make_space_for_key_call_id;
-        tree.push_back(CuckooNode(child_bucket_id, curr_depth + 1, curr_pos));
+        tree.emplace_back(child_bucket_id, curr_depth + 1, curr_pos);
         if ((*buckets)[static_cast<size_t>(child_bucket_id)].vector_idx ==
             kMaxVectorIdx) {
           null_found = true;

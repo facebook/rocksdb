@@ -10,10 +10,10 @@
 #include "rocksdb/table.h"
 
 #include <gtest/gtest.h>
-#include <stddef.h>
-#include <stdio.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdio>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -186,7 +186,7 @@ class Constructor {
  public:
   explicit Constructor(const Comparator* cmp)
       : data_(stl_wrappers::LessOfComparator(cmp)) {}
-  virtual ~Constructor() {}
+  virtual ~Constructor() = default;
 
   void Add(const std::string& key, const Slice& value) {
     data_[key] = value.ToString();
@@ -295,8 +295,8 @@ class KeyConvertingIterator : public InternalIterator {
   bool arena_mode_;
 
   // No copying allowed
-  KeyConvertingIterator(const KeyConvertingIterator&);
-  void operator=(const KeyConvertingIterator&);
+  KeyConvertingIterator(const KeyConvertingIterator&) = delete;
+  void operator=(const KeyConvertingIterator&) = delete;
 };
 
 // `BlockConstructor` APIs always accept/return user keys.
@@ -345,7 +345,7 @@ class BlockConstructor : public Constructor {
   std::string data_;
   Block* block_;
 
-  BlockConstructor();
+  BlockConstructor() = delete;
 };
 
 class TableConstructor : public Constructor {
@@ -487,7 +487,7 @@ class TableConstructor : public Constructor {
   bool convert_to_internal_key_;
   int level_;
 
-  TableConstructor();
+  TableConstructor() = delete;
 
   static uint64_t cur_file_num_;
   EnvOptions soptions;
@@ -930,13 +930,17 @@ class HarnessTest : public testing::Test {
     InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     stl_wrappers::KVMap::const_iterator model_iter = data.begin();
-    if (kVerbose) fprintf(stderr, "---\n");
+    if (kVerbose) {
+      fprintf(stderr, "---\n");
+    }
     for (int i = 0; i < 200; i++) {
       const int toss = rnd->Uniform(support_prev_ ? 5 : 3);
       switch (toss) {
         case 0: {
           if (iter->Valid()) {
-            if (kVerbose) fprintf(stderr, "Next\n");
+            if (kVerbose) {
+              fprintf(stderr, "Next\n");
+            }
             iter->Next();
             ASSERT_OK(iter->status());
             ++model_iter;
@@ -946,7 +950,9 @@ class HarnessTest : public testing::Test {
         }
 
         case 1: {
-          if (kVerbose) fprintf(stderr, "SeekToFirst\n");
+          if (kVerbose) {
+            fprintf(stderr, "SeekToFirst\n");
+          }
           iter->SeekToFirst();
           ASSERT_OK(iter->status());
           model_iter = data.begin();
@@ -957,8 +963,9 @@ class HarnessTest : public testing::Test {
         case 2: {
           std::string key = PickRandomKey(rnd, keys);
           model_iter = data.lower_bound(key);
-          if (kVerbose)
+          if (kVerbose) {
             fprintf(stderr, "Seek '%s'\n", EscapeString(key).c_str());
+          }
           iter->Seek(Slice(key));
           ASSERT_OK(iter->status());
           ASSERT_EQ(ToString(data, model_iter), ToString(iter));
@@ -967,7 +974,9 @@ class HarnessTest : public testing::Test {
 
         case 3: {
           if (iter->Valid()) {
-            if (kVerbose) fprintf(stderr, "Prev\n");
+            if (kVerbose) {
+              fprintf(stderr, "Prev\n");
+            }
             iter->Prev();
             ASSERT_OK(iter->status());
             if (model_iter == data.begin()) {
@@ -981,7 +990,9 @@ class HarnessTest : public testing::Test {
         }
 
         case 4: {
-          if (kVerbose) fprintf(stderr, "SeekToLast\n");
+          if (kVerbose) {
+            fprintf(stderr, "SeekToLast\n");
+          }
           iter->SeekToLast();
           ASSERT_OK(iter->status());
           if (keys.empty()) {
@@ -1253,7 +1264,7 @@ class FileChecksumTestHelper {
  public:
   FileChecksumTestHelper(bool convert_to_internal_key = false)
       : convert_to_internal_key_(convert_to_internal_key) {}
-  ~FileChecksumTestHelper() {}
+  ~FileChecksumTestHelper() = default;
 
   void CreateWritableFile() {
     sink_ = new test::StringSink();
@@ -1437,7 +1448,7 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
     std::string euid;
     EXPECT_OK(GetExtendedUniqueIdFromTableProperties(*tp, &euid));
     EXPECT_EQ(euid.size(), 24U);
-    t.external_id[0] = DecodeFixed64(&euid[0]);
+    t.external_id[0] = DecodeFixed64(euid.data());
     t.external_id[1] = DecodeFixed64(&euid[8]);
     t.external_id[2] = DecodeFixed64(&euid[16]);
 
@@ -1445,7 +1456,7 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
     EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &uid));
     EXPECT_EQ(uid.size(), 16U);
     EXPECT_EQ(uid, euid.substr(0, 16));
-    EXPECT_EQ(t.external_id[0], DecodeFixed64(&uid[0]));
+    EXPECT_EQ(t.external_id[0], DecodeFixed64(uid.data()));
     EXPECT_EQ(t.external_id[1], DecodeFixed64(&uid[8]));
   }
   // All these should be effectively random
@@ -1930,19 +1941,19 @@ void AssertKeysInCache(BlockBasedTable* table_reader,
                        const std::vector<std::string>& keys_not_in_cache,
                        bool convert = false) {
   if (convert) {
-    for (auto key : keys_in_cache) {
+    for (const auto& key : keys_in_cache) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), ikey.Encode()));
     }
-    for (auto key : keys_not_in_cache) {
+    for (const auto& key : keys_not_in_cache) {
       InternalKey ikey(key, kMaxSequenceNumber, kTypeValue);
       ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), ikey.Encode()));
     }
   } else {
-    for (auto key : keys_in_cache) {
+    for (const auto& key : keys_in_cache) {
       ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
     }
-    for (auto key : keys_not_in_cache) {
+    for (const auto& key : keys_not_in_cache) {
       ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
     }
   }
@@ -3246,8 +3257,8 @@ TEST_P(BlockBasedTableTest, TracingMultiGetTest) {
     std::vector<GetContext> get_contexts;
     get_contexts.emplace_back(
         options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
-        ukeys[0], &values[0], nullptr, nullptr, nullptr, true, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, get_id_offset);
+        ukeys[0], values.data(), nullptr, nullptr, nullptr, true, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, get_id_offset);
     get_contexts.emplace_back(
         options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
         ukeys[1], &values[1], nullptr, nullptr, nullptr, true, nullptr, nullptr,
@@ -3258,12 +3269,12 @@ TEST_P(BlockBasedTableTest, TracingMultiGetTest) {
     std::array<Status, 2> statuses;
     autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
     key_context.emplace_back(/*ColumnFamilyHandle omitted*/ nullptr, ukeys[0],
-                             &values[0],
+                             values.data(),
                              /*PinnableWideColumns omitted*/ nullptr,
-                             /*timestamp omitted*/ nullptr, &statuses[0]);
+                             /*timestamp omitted*/ nullptr, statuses.data());
     key_context[0].ukey_without_ts = ukeys[0];
     key_context[0].ikey = encoded_keys[0];
-    key_context[0].get_context = &get_contexts[0];
+    key_context[0].get_context = get_contexts.data();
     key_context.emplace_back(/*ColumnFamilyHandle omitted*/ nullptr, ukeys[1],
                              &values[1],
                              /*PinnableWideColumns omitted*/ nullptr,
@@ -4660,14 +4671,15 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
 class PrefixTest : public testing::Test {
  public:
   PrefixTest() : testing::Test() {}
-  ~PrefixTest() override {}
+  ~PrefixTest() override = default;
 };
 
 namespace {
 // A simple PrefixExtractor that only works for test PrefixAndWholeKeyTest
 class TestPrefixExtractor : public ROCKSDB_NAMESPACE::SliceTransform {
  public:
-  ~TestPrefixExtractor() override{};
+  ~TestPrefixExtractor() override = default;
+  ;
   const char* Name() const override { return "TestPrefixExtractor"; }
 
   ROCKSDB_NAMESPACE::Slice Transform(

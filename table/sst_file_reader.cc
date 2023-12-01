@@ -36,7 +36,7 @@ struct SstFileReader::Rep {
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
 
-SstFileReader::~SstFileReader() {}
+SstFileReader::~SstFileReader() = default;
 
 Status SstFileReader::Open(const std::string& file_path) {
   auto r = rep_.get();
