@@ -2655,7 +2655,7 @@ void BlockBasedTable::TEST_GetDataBlockHandle(const ReadOptions& options,
                                               const Slice& key,
                                               BlockHandle& handle) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
-      options, /*need_upper_bound_check=*/false, /*input_iter=*/nullptr,
+      options, /*disable_prefix_seek=*/false, /*input_iter=*/nullptr,
       /*get_context=*/nullptr, /*lookup_context=*/nullptr));
   iiter->Seek(key);
   assert(iiter->Valid());

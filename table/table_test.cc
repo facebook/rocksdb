@@ -57,7 +57,6 @@
 #include "table/block_based/block_builder.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy_impl.h"
-#include "table/block_based/partitioned_index_iterator.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
