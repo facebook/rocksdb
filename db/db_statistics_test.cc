@@ -343,7 +343,7 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
             options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
                 kCommitMarkerSize);
-  
+
   // Cleanup
   db_ = nullptr;
   delete txn_db;
