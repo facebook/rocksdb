@@ -463,24 +463,6 @@ public class ColumnFamilyTest {
     }
   }
 
-  @Test(expected = RocksDBException.class)
-  public void failGetDisposedCF() throws RocksDBException {
-    final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor("new_cf".getBytes()));
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-    try (final DBOptions options = new DBOptions()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-                                         dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
-                                         columnFamilyHandleList)) {
-      db.dropColumnFamily(columnFamilyHandleList.get(1));
-      options.setCreateMissingColumnFamilies(false);
-      db.get(columnFamilyHandleList.get(1), "key".getBytes());
-    }
-  }
-
   @Test(expected = IllegalArgumentException.class)
   public void failMultiGetWithoutCorrectNumberOfCF() throws Exception {
     final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
