@@ -42,7 +42,7 @@ public class ColumnFamilyTest {
       final ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor(cfName, cfOptions);
 
       assertThat(cfDescriptor.getOptions().compressionType())
-              .isEqualTo(CompressionType.BZLIB2_COMPRESSION);
+          .isEqualTo(CompressionType.BZLIB2_COMPRESSION);
     }
   }
 
