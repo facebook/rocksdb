@@ -58,7 +58,7 @@ class ManualCompactionTest : public testing::Test {
 
 class DestroyAllCompactionFilter : public CompactionFilter {
  public:
-  DestroyAllCompactionFilter() {}
+  DestroyAllCompactionFilter() = default;
 
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& existing_value,
               std::string* /*new_value*/,

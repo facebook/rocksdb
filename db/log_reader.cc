@@ -9,7 +9,7 @@
 
 #include "db/log_reader.h"
 
-#include <stdio.h>
+#include <cstdio>
 
 #include "file/sequence_file_reader.h"
 #include "port/lang.h"
@@ -21,7 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace log {
 
-Reader::Reporter::~Reporter() {}
+Reader::Reporter::~Reporter() = default;
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,

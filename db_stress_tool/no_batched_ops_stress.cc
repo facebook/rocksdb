@@ -17,9 +17,9 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() {}
+  NonBatchedOpsStressTest() = default;
 
-  virtual ~NonBatchedOpsStressTest() {}
+  virtual ~NonBatchedOpsStressTest() = default;
 
   void VerifyDb(ThreadState* thread) const override {
     // This `ReadOptions` is for validation purposes. Ignore
@@ -624,7 +624,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!shared->AllowsOverwrite(rand_key) &&
             shared->Exists(column_family, rand_key)) {
           // Just do read your write checks for keys that allow overwrites.
-          ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.emplace_back(std::nullopt);
           continue;
         }
         // With a 1 in 10 probability, insert the just added key in the batch
@@ -667,7 +667,7 @@ class NonBatchedOpsStressTest : public StressTest {
             thread->shared->SafeTerminate();
           }
         } else {
-          ryw_expected_values.push_back(std::nullopt);
+          ryw_expected_values.emplace_back(std::nullopt);
         }
       }
     }

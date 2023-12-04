@@ -13,8 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
-  BatchedOpsStressTest() {}
-  virtual ~BatchedOpsStressTest() {}
+  BatchedOpsStressTest() = default;
+  virtual ~BatchedOpsStressTest() = default;
 
   bool IsStateTracked() const override { return false; }
 

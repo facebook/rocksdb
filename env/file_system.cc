@@ -22,9 +22,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-FileSystem::FileSystem() {}
+FileSystem::FileSystem() = default;
 
-FileSystem::~FileSystem() {}
+FileSystem::~FileSystem() = default;
 
 static int RegisterBuiltinFileSystems(ObjectLibrary& library,
                                       const std::string& /*arg*/) {

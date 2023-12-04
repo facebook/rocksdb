@@ -64,7 +64,7 @@ class MockWriteCallback : public WriteCallback {
   bool allow_batching_ = false;
   std::atomic<bool> was_called_{false};
 
-  MockWriteCallback() {}
+  MockWriteCallback() = default;
 
   MockWriteCallback(const MockWriteCallback& other) {
     should_fail_ = other.should_fail_;
@@ -111,7 +111,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     WriteOP(bool should_fail = false) { callback_.should_fail_ = should_fail; }
 
     void Put(const string& key, const string& val) {
-      kvs_.push_back(std::make_pair(key, val));
+      kvs_.emplace_back(key, val);
       ASSERT_OK(write_batch_.Put(key, val));
     }
 
@@ -176,8 +176,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     DBOptions db_options(options);
     ColumnFamilyOptions cf_options(options);
     std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.push_back(
-        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
     std::vector<ColumnFamilyHandle*> handles;
     auto open_s = DBImpl::Open(db_options, dbname, column_families, &handles,
                                &db, seq_per_batch_, true /* batch_per_txn */);
