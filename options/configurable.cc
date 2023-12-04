@@ -37,9 +37,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   // We ignore the invoke_prepare_options here intentionally,
   // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
-  for (auto opt_iter : options_) {
+  for (const auto& opt_iter : options_) {
     if (opt_iter.type_map != nullptr) {
-      for (auto map_iter : *(opt_iter.type_map)) {
+      for (const auto& map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldPrepare()) {
           status = opt_info.Prepare(opts, map_iter.first, opt_iter.opt_ptr);
@@ -56,9 +56,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
 Status Configurable::ValidateOptions(const DBOptions& db_opts,
                                      const ColumnFamilyOptions& cf_opts) const {
   Status status;
-  for (auto opt_iter : options_) {
+  for (const auto& opt_iter : options_) {
     if (opt_iter.type_map != nullptr) {
-      for (auto map_iter : *(opt_iter.type_map)) {
+      for (const auto& map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldValidate()) {
           status = opt_info.Validate(db_opts, cf_opts, map_iter.first,
@@ -80,7 +80,7 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
 /*********************************************************************************/
 
 const void* Configurable::GetOptionsPtr(const std::string& name) const {
-  for (auto o : options_) {
+  for (const auto& o : options_) {
     if (o.name == name) {
       return o.opt_ptr;
     }
@@ -95,7 +95,7 @@ std::string Configurable::GetOptionName(const std::string& opt_name) const {
 const OptionTypeInfo* ConfigurableHelper::FindOption(
     const std::vector<Configurable::RegisteredOptions>& options,
     const std::string& short_name, std::string* opt_name, void** opt_ptr) {
-  for (auto iter : options) {
+  for (const auto& iter : options) {
     if (iter.type_map != nullptr) {
       const auto opt_info =
           OptionTypeInfo::Find(short_name, *(iter.type_map), opt_name);
@@ -318,21 +318,29 @@ Status ConfigurableHelper::ConfigureSomeOptions(
   }    // End while found one or options remain
 
   // Now that we have been through the list, remove any unsupported
-  for (auto u : unsupported) {
+  for (const auto& u : unsupported) {
     auto it = options->find(u);
     if (it != options->end()) {
       options->erase(it);
     }
   }
   if (config_options.ignore_unknown_options) {
-    if (!result.ok()) result.PermitUncheckedError();
-    if (!notsup.ok()) notsup.PermitUncheckedError();
+    if (!result.ok()) {
+      result.PermitUncheckedError();
+    }
+    if (!notsup.ok()) {
+      notsup.PermitUncheckedError();
+    }
     return Status::OK();
   } else if (!result.ok()) {
-    if (!notsup.ok()) notsup.PermitUncheckedError();
+    if (!notsup.ok()) {
+      notsup.PermitUncheckedError();
+    }
     return result;
   } else if (config_options.ignore_unsupported_options) {
-    if (!notsup.ok()) notsup.PermitUncheckedError();
+    if (!notsup.ok()) {
+      notsup.PermitUncheckedError();
+    }
     return Status::OK();
   } else {
     return notsup;
@@ -374,7 +382,7 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
       return Status::OK();
     } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
       return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
-    } else if (value.find("=") != std::string::npos) {
+    } else if (value.find('=') != std::string::npos) {
       return custom->ConfigureFromString(copy, value);
     } else {
       return custom->ConfigureOption(copy, name, value);

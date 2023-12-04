@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include <assert.h>
+#include <cassert>
 
 #include "monitoring/perf_level_imp.h"
 

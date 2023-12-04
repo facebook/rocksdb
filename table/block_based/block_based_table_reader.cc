@@ -3053,7 +3053,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
                << " size " << blockhandles_iter->value().handle.size() << "\n";
 
     std::string str_key = user_key.ToString();
-    std::string res_key("");
+    std::string res_key;
     char cspace = ' ';
     for (size_t i = 0; i < str_key.size(); i++) {
       res_key.append(&str_key[i], 1);
@@ -3154,7 +3154,7 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
   std::string str_key = ikey.user_key().ToString();
   std::string str_value = value.ToString();
-  std::string res_key(""), res_value("");
+  std::string res_key, res_value;
   char cspace = ' ';
   for (size_t i = 0; i < str_key.size(); i++) {
     if (str_key[i] == '\0') {

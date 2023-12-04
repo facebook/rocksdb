@@ -49,7 +49,7 @@ class OptionsTest : public testing::Test {};
 
 class UnregisteredTableFactory : public TableFactory {
  public:
-  UnregisteredTableFactory() {}
+  UnregisteredTableFactory() = default;
   const char* Name() const override { return "Unregistered"; }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
@@ -1888,7 +1888,7 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
       "a={aa={};tt={xxx={}}};c=defff;d={{}yxx{}3{xx}}",
       "abc={{}{}{}{{{}}}{{}{}{}{}{}{}{}"};
 
-  for (std::string base : bases) {
+  for (const std::string& base : bases) {
     for (int rand_seed = 301; rand_seed < 401; rand_seed++) {
       Random rnd(rand_seed);
       for (int attempt = 0; attempt < 10; attempt++) {
@@ -1909,7 +1909,7 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
   for (int rand_seed = 301; rand_seed < 1301; rand_seed++) {
     Random rnd(rand_seed);
     int len = rnd.Uniform(30);
-    std::string str = "";
+    std::string str;
     for (int attempt = 0; attempt < len; attempt++) {
       // Add a random character
       size_t pos = static_cast<size_t>(
@@ -3554,7 +3554,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
       "3..2",
       ".", ".1.2",             // must have at least one digit before each dot
       "1.2.", "1.", "2.34."};  // must have at least one digit after each dot
-  for (auto iv : invalid_versions) {
+  for (const auto& iv : invalid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), iv.c_str());
 
     parser.Reset();
@@ -3564,7 +3564,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
 
   const std::vector<std::string> valid_versions = {
       "1.232", "100", "3.12", "1", "12.3  ", "  1.25  "};
-  for (auto vv : valid_versions) {
+  for (const auto& vv : valid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), vv.c_str());
     parser.Reset();
     ASSERT_OK(fs_->WriteToNewFile(vv, buffer));
@@ -4643,42 +4643,42 @@ TEST_F(OptionTypeInfoTest, TestCustomEnum) {
 
 TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
   ConfigOptions config_options;
-  for (auto iter : OptionsHelper::compaction_style_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_style_string_map) {
     CompactionStyle e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionStyle),
                               "CompactionStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compaction_pri_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_pri_string_map) {
     CompactionPri e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompactionPri),
                               "CompactionPri", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compression_type_string_map) {
+  for (const auto& iter : OptionsHelper::compression_type_string_map) {
     CompressionType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kCompressionType),
                               "CompressionType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::compaction_stop_style_string_map) {
+  for (const auto& iter : OptionsHelper::compaction_stop_style_string_map) {
     CompactionStopStyle e1, e2;
     TestParseAndCompareOption(
         config_options, OptionTypeInfo(0, OptionType::kCompactionStopStyle),
         "CompactionStopStyle", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::checksum_type_string_map) {
+  for (const auto& iter : OptionsHelper::checksum_type_string_map) {
     ChecksumType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kChecksumType),
                               "CheckSumType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::encoding_type_string_map) {
+  for (const auto& iter : OptionsHelper::encoding_type_string_map) {
     EncodingType e1, e2;
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kEncodingType),
