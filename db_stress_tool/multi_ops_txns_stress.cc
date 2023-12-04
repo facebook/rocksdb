@@ -150,7 +150,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   PutFixed32(&ret, kPrimaryIndexId);
   PutFixed32(&ret, a);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kPrimaryIndexId));
   std::reverse(buf + sizeof(kPrimaryIndexId),
                buf + sizeof(kPrimaryIndexId) + sizeof(a));
@@ -162,7 +162,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c) {
   PutFixed32(&ret, kSecondaryIndexId);
   PutFixed32(&ret, c);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kSecondaryIndexId));
   std::reverse(buf + sizeof(kSecondaryIndexId),
                buf + sizeof(kSecondaryIndexId) + sizeof(c));
@@ -176,7 +176,7 @@ std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c,
   PutFixed32(&ret, c);
   PutFixed32(&ret, a);
 
-  char* const buf = &ret[0];
+  char* const buf = ret.data();
   std::reverse(buf, buf + sizeof(kSecondaryIndexId));
   std::reverse(buf + sizeof(kSecondaryIndexId),
                buf + sizeof(kSecondaryIndexId) + sizeof(c));

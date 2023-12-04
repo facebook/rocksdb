@@ -562,7 +562,9 @@ TEST_F(VersionEditTest, AddWalDebug) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
        << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << "}";
-    if (i < n - 1) ss << ", ";
+    if (i < n - 1) {
+      ss << ", ";
+    }
     expected_json += ss.str();
   }
   expected_json += "], \"ColumnFamily\": 0}";

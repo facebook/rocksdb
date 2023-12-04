@@ -342,7 +342,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_OK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
   ASSERT_EQ(3U, children.size());
   ASSERT_EQ(3U, childAttr.size());
-  for (auto each : children) {
+  for (const auto& each : children) {
     env_->DeleteDir(test_dir_ + "/" + each).PermitUncheckedError();
   }  // necessary for default POSIX env
 

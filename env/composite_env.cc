@@ -504,7 +504,7 @@ EnvWrapper::EnvWrapper(const std::shared_ptr<Env>& t) : target_(t) {
   RegisterOptions("", &target_, &env_wrapper_type_info);
 }
 
-EnvWrapper::~EnvWrapper() {}
+EnvWrapper::~EnvWrapper() = default;
 
 Status EnvWrapper::PrepareOptions(const ConfigOptions& options) {
   target_.Prepare();

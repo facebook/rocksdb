@@ -34,7 +34,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
   LevelFilesBrief file_level_;
   Arena arena_;
 
-  GenerateLevelFilesBriefTest() {}
+  GenerateLevelFilesBriefTest() = default;
 
   ~GenerateLevelFilesBriefTest() override {
     for (size_t i = 0; i < files_.size(); i++) {
@@ -213,7 +213,7 @@ class VersionStorageInfoTest : public VersionStorageInfoTestBase {
  public:
   VersionStorageInfoTest() : VersionStorageInfoTestBase(BytewiseComparator()) {}
 
-  ~VersionStorageInfoTest() override {}
+  ~VersionStorageInfoTest() override = default;
 };
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
@@ -928,7 +928,7 @@ class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
   VersionStorageInfoTimestampTest()
       : VersionStorageInfoTestBase(test::BytewiseComparatorWithU64TsWrapper()) {
   }
-  ~VersionStorageInfoTimestampTest() override {}
+  ~VersionStorageInfoTimestampTest() override = default;
   std::string Timestamp(uint64_t ts) const {
     std::string ret;
     PutFixed64(&ret, ts);
@@ -982,7 +982,7 @@ class FindLevelFileTest : public testing::Test {
 
   FindLevelFileTest() : disjoint_sorted_files_(true) {}
 
-  ~FindLevelFileTest() override {}
+  ~FindLevelFileTest() override = default;
 
   void LevelFileInit(size_t num = 0) {
     char* mem = arena_.AllocateAligned(num * sizeof(FdWithKeyRange));
@@ -3662,7 +3662,7 @@ class ChargeFileMetadataTestWithParam
     : public ChargeFileMetadataTest,
       public testing::WithParamInterface<CacheEntryRoleOptions::Decision> {
  public:
-  ChargeFileMetadataTestWithParam() {}
+  ChargeFileMetadataTestWithParam() = default;
 };
 
 INSTANTIATE_TEST_CASE_P(

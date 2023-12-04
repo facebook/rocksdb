@@ -13,16 +13,17 @@
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
 #endif
-#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
@@ -30,9 +31,9 @@
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
 
 #include <algorithm>
+#include <ctime>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
 #elif defined(__MACH__)
@@ -143,7 +144,7 @@ class PosixFileSystem : public FileSystem {
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
 
-  ~PosixFileSystem() override {}
+  ~PosixFileSystem() override = default;
   bool IsInstanceOf(const std::string& name) const override {
     if (name == "posix") {
       return true;
