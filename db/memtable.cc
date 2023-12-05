@@ -1362,7 +1362,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         range_indexes[num_keys++] = iter.index();
       }
     }
-    bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
+    bloom_filter_->MayContain(num_keys, bloom_keys.data(), may_match.data());
     for (int i = 0; i < num_keys; ++i) {
       if (!may_match[i]) {
         temp_range.SkipIndex(range_indexes[i]);

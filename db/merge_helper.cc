@@ -428,7 +428,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
   Status s = ParseInternalKey(original_key, &orig_ikey, allow_data_in_errors);
   assert(s.ok());
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   assert(kTypeMerge == orig_ikey.type);
 
