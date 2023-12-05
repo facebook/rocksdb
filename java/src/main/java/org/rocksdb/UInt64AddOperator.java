@@ -9,7 +9,7 @@ package org.rocksdb;
  * Uint64AddOperator is a merge operator that accumlates a long
  * integer value.
  */
-public class UInt64AddOperator extends MergeOperator {
+public class UInt64AddOperator extends InBuiltMergeOperator {
     public UInt64AddOperator() {
         super(newSharedUInt64AddOperator());
     }
