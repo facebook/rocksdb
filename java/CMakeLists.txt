@@ -46,6 +46,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/import_column_family_options.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
+        rocksjni/jni_merge_operator_v2.cc
         rocksjni/jni_multiget_helpers.cc
         rocksjni/jni_perf_context.cc
         rocksjni/jnicallback.cc
@@ -179,6 +180,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
+  src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
+  src/main/java/org/rocksdb/InBuiltMergeOperator.java
   src/main/java/org/rocksdb/HyperClockCache.java
   src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
   src/main/java/org/rocksdb/IndexShorteningMode.java
@@ -198,6 +201,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/MemoryUsageType.java
   src/main/java/org/rocksdb/MemoryUtil.java
   src/main/java/org/rocksdb/MergeOperator.java
+  src/main/java/org/rocksdb/MergeOperatorV2.java
+  src/main/java/org/rocksdb/MergeOperatorOutput.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/MutableDBOptions.java
