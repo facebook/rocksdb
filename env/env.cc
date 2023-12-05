@@ -605,6 +605,7 @@ class LegacyFileSystemWrapper : public FileSystem {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
+
  private:
   Env* target_;
 };

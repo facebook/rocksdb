@@ -37,6 +37,19 @@ class LoggerJniCallback : public JniCallback, public Logger {
                     va_list ap);
 
  private:
+  // Logging thread that stays attached to the JVM.
+  // It's shared by all LoggerJniCallback instances.
+  static port::Mutex logging_thread_mtx;
+  static port::Thread logging_thread;    // guarded by logging_thread_mtx
+  static bool is_logging_thread_active;  // guarded by logging_thread_mtx
+
+  // Shared memory needed for message-passing
+  static port::Mutex message_mtx;
+  static port::CondVar message_cond;
+  static std::unique_ptr<char[]> message;  // guarded by message_mtx
+
+  void log_thread_loop();
+
   jmethodID m_jLogMethodId;
   jobject m_jdebug_level;
   jobject m_jinfo_level;
