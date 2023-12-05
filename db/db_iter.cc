@@ -1293,8 +1293,8 @@ bool DBIter::MergeWithNoBaseValue(const Slice& user_key) {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kNoBaseValue,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1306,8 +1306,8 @@ bool DBIter::MergeWithPlainBaseValue(const Slice& value,
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kPlainBaseValue, value,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1319,8 +1319,8 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 

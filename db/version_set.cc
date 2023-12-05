@@ -2536,8 +2536,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, MergeHelper::kNoBaseValue,
           merge_context->GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true, value ? value->GetSelf() : nullptr,
-          columns, /* op_failure_scope */ nullptr);
+          /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+          value ? value->GetSelf() : nullptr, columns);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           value->PinSelf();
@@ -2782,9 +2782,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, MergeHelper::kNoBaseValue,
           iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true,
-          iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
-          /* op_failure_scope */ nullptr);
+          /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+          iter->value ? iter->value->GetSelf() : nullptr, iter->columns);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());

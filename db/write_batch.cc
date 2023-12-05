@@ -2545,9 +2545,8 @@ class MemTableInserter : public WriteBatch::Handler {
               WideColumnsHelper::GetDefaultColumn(columns), {value},
               moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         } else {
           // `op_failure_scope` (an output parameter) is not provided (set to
           // nullptr) since a failure must be propagated regardless of its
@@ -2556,9 +2555,8 @@ class MemTableInserter : public WriteBatch::Handler {
               merge_operator, key, MergeHelper::kWideBaseValue, columns,
               {value}, moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         }
 
         if (!merge_status.ok()) {
