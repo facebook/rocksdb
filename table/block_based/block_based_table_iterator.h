@@ -329,6 +329,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // is used to disable the lookup.
   IterDirection direction_ = IterDirection::kForward;
 
+  void SeekSecondPass(const Slice* target);
+
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target, bool async_prefetch);
 

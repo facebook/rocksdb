@@ -64,9 +64,10 @@ struct BufferInfo {
   // initial end offset of this buffer which will be the starting
   // offset of next prefetch.
   //
-  // Note: No need to update/use in case async_io disabled. Prefetching will
-  // happen only when there is a cache miss. So start offset for prefetching
-  // will always be the passed offset to FilePrefetchBuffer (offset to read).
+  // For example - if end offset of previous buffer was 100 and because of
+  // readahead_size optimization, end_offset was trimmed to 60. Then for next
+  // prefetch call, start_offset should be intialized to 100 i.e  start_offset =
+  // buf->initial_end_offset_.
   uint64_t initial_end_offset_ = 0;
 };
 
