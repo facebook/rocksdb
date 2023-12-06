@@ -42,6 +42,7 @@ public class MergeOperatorOutput {
   /**
    * For JNI. Called from JniMergeOperatorV2
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private int getOpStatus() {
     return this.op_failure_scope.status;
   }
