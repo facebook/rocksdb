@@ -179,8 +179,8 @@ Status RocksDBOptionsParser::ParseSection(OptionSection* section,
   *section = kOptionSectionUnknown;
   // A section is of the form [<SectionName> "<SectionArg>"], where
   // "<SectionArg>" is optional.
-  size_t arg_start_pos = line.find("\"");
-  size_t arg_end_pos = line.rfind("\"");
+  size_t arg_start_pos = line.find('\"');
+  size_t arg_end_pos = line.rfind('\"');
   // The following if-then check tries to identify whether the input
   // section has the optional section argument.
   if (arg_start_pos != std::string::npos && arg_start_pos != arg_end_pos) {
@@ -224,7 +224,7 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
                                             std::string* value,
                                             const std::string& line,
                                             const int line_num) {
-  size_t eq_pos = line.find("=");
+  size_t eq_pos = line.find('=');
   if (eq_pos == std::string::npos) {
     return InvalidArgument(line_num, "A valid statement must have a '='.");
   }

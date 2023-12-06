@@ -1784,7 +1784,7 @@ Status StressTest::TestBackupRestore(
     // `ListColumnFamilies` to get names because it won't necessarily give
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
-    for (auto name : column_family_names_) {
+    for (const auto& name : column_family_names_) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(restore_options));
     }
     if (inplace_not_restore) {
@@ -2762,12 +2762,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       if (sorted_cfn != existing_column_families) {
         fprintf(stderr, "Expected column families differ from the existing:\n");
         fprintf(stderr, "Expected: {");
-        for (auto cf : sorted_cfn) {
+        for (const auto& cf : sorted_cfn) {
           fprintf(stderr, "%s ", cf.c_str());
         }
         fprintf(stderr, "}\n");
         fprintf(stderr, "Existing: {");
-        for (auto cf : existing_column_families) {
+        for (const auto& cf : existing_column_families) {
           fprintf(stderr, "%s ", cf.c_str());
         }
         fprintf(stderr, "}\n");
@@ -2775,7 +2775,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       assert(sorted_cfn == existing_column_families);
     }
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
-    for (auto name : column_family_names_) {
+    for (const auto& name : column_family_names_) {
       if (name != kDefaultColumnFamilyName) {
         new_column_family_name_ =
             std::max(new_column_family_name_.load(), std::stoi(name) + 1);

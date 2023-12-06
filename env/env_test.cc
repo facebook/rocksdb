@@ -26,13 +26,14 @@
 #ifdef OS_LINUX
 #include <fcntl.h>
 #include <linux/fs.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cstdlib>
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-#include <errno.h>
+#include <cerrno>
 #endif
 
 #include "db/db_impl/db_impl.h"
@@ -2955,7 +2956,7 @@ struct NoDuplicateMiniStressTest {
 
   NoDuplicateMiniStressTest() { env = Env::Default(); }
 
-  virtual ~NoDuplicateMiniStressTest() {}
+  virtual ~NoDuplicateMiniStressTest() = default;
 
   void Run() {
     std::array<std::thread, kThreads> threads;

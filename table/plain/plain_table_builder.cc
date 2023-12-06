@@ -5,8 +5,7 @@
 
 #include "table/plain/plain_table_builder.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <limits>
 #include <map>
 #include <string>

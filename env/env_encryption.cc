@@ -827,7 +827,7 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char* data,
   AllocateScratch(scratch);
 
   // Encrypt individual blocks.
-  while (1) {
+  while (true) {
     char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
@@ -871,7 +871,7 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char* data,
   AllocateScratch(scratch);
 
   // Decrypt individual blocks.
-  while (1) {
+  while (true) {
     char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {

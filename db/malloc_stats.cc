@@ -9,8 +9,7 @@
 
 #include "db/malloc_stats.h"
 
-#include <string.h>
-
+#include <cstring>
 #include <memory>
 
 #include "port/jemalloc_helper.h"

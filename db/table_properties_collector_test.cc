@@ -180,7 +180,6 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
                 uint64_t /* block_compressed_bytes_fast */,
                 uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
-    return;
   }
 
   UserCollectedProperties GetReadableProperties() const override {
@@ -227,7 +226,7 @@ class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
 
 class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit FlushBlockEveryThreePolicyFactory() {}
+  explicit FlushBlockEveryThreePolicyFactory() = default;
 
   const char* Name() const override {
     return "FlushBlockEveryThreePolicyFactory";

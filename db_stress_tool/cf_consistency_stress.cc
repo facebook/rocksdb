@@ -16,7 +16,7 @@ class CfConsistencyStressTest : public StressTest {
  public:
   CfConsistencyStressTest() : batch_id_(0) {}
 
-  ~CfConsistencyStressTest() override {}
+  ~CfConsistencyStressTest() override = default;
 
   bool IsStateTracked() const override { return false; }
 
@@ -232,7 +232,7 @@ class CfConsistencyStressTest : public StressTest {
     }
     db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
-    for (auto s : statuses) {
+    for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);
