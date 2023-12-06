@@ -1828,9 +1828,14 @@ Status StressTest::TestBackupRestore(
     Status get_status = restored_db->Get(
         read_opts, restored_cf_handles[rand_column_families[i]], key,
         &restored_value);
-    bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[0]);
+    const ExpectedValue expected_value =
+        thread->shared->Get(rand_column_families[i], rand_keys[0]);
+    bool not_exists =
+        ExpectedValueHelper::MustHaveNotExisted(expected_value, expected_value);
+    bool exists =
+        ExpectedValueHelper::MustHaveExisted(expected_value, expected_value);
     if (get_status.ok()) {
-      if (!exists && from_latest && ShouldAcquireMutexOnKey()) {
+      if (not_exists && from_latest && ShouldAcquireMutexOnKey()) {
         std::ostringstream oss;
         oss << "0x" << key.ToString(true)
             << " exists in restore but not in original db";
@@ -2084,10 +2089,15 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       std::string value;
       Status get_status = checkpoint_db->Get(
           read_opts, cf_handles[rand_column_families[i]], key, &value);
+
+      const ExpectedValue expected_value =
+          thread->shared->Get(rand_column_families[i], rand_keys[0]);
+      bool not_exists = ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                                expected_value);
       bool exists =
-          thread->shared->Exists(rand_column_families[i], rand_keys[0]);
+          ExpectedValueHelper::MustHaveExisted(expected_value, expected_value);
       if (get_status.ok()) {
-        if (!exists && ShouldAcquireMutexOnKey()) {
+        if (not_exists && ShouldAcquireMutexOnKey()) {
           std::ostringstream oss;
           oss << "0x" << key.ToString(true) << " exists in checkpoint "
               << checkpoint_dir << " but not in original db";
