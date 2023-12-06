@@ -3,7 +3,6 @@ package org.rocksdb;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public abstract class MergeOperatorV2 extends RocksCallbackObject implements MergeOperator {
@@ -29,9 +28,8 @@ public abstract class MergeOperatorV2 extends RocksCallbackObject implements Mer
 
   final MergeOperatorOutput mergeInternal(
       final ByteBuffer key, final ByteBuffer existingValue, final ByteBuffer[] operand) {
-    List<ByteBuffer> operandList = Arrays.stream(operand)
-                                       .map(ByteBuffer::asReadOnlyBuffer)
-                                       .collect(Collectors.toList());
+    List<ByteBuffer> operandList =
+        Arrays.stream(operand).map(ByteBuffer::asReadOnlyBuffer).collect(Collectors.toList());
 
     return fullMergeV2(key.asReadOnlyBuffer(), existingValue.asReadOnlyBuffer(), operandList);
   }
