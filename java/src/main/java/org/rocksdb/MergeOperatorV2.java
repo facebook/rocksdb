@@ -31,7 +31,7 @@ public abstract class MergeOperatorV2 extends RocksCallbackObject implements Mer
       final ByteBuffer key, final ByteBuffer existingValue, final ByteBuffer[] operand) {
     List<ByteBuffer> operandList = Arrays.stream(operand)
                                        .map(ByteBuffer::asReadOnlyBuffer)
-                                       .collect(Collectors.toUnmodifiableList());
+                                       .collect(Collectors.toList());
 
     return fullMergeV2(key.asReadOnlyBuffer(), existingValue.asReadOnlyBuffer(), operandList);
   }
