@@ -12,20 +12,19 @@ package org.rocksdb;
  * value.
  */
 public abstract class InBuiltMergeOperator extends RocksObject implements MergeOperator {
-    protected InBuiltMergeOperator(final long nativeHandle) {
-        super(nativeHandle);
-    }
+  protected InBuiltMergeOperator(final long nativeHandle) {
+    super(nativeHandle);
+  }
 
-    @Override
-    public long nativeHandler() {
-        return nativeHandle_;
-    }
+  @Override
+  public long nativeHandler() {
+    return nativeHandle_;
+  }
 }
-
 
 //
 // InBuiltMergeOperator
 // interface MergeOperator
 //
-//interface MergeOperatorV2 extends MergeOperator
-//interface MergeOperatorV3 extends MergeOperator
+// interface MergeOperatorV2 extends MergeOperator
+// interface MergeOperatorV3 extends MergeOperator
