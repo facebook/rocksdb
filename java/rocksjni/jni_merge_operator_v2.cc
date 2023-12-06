@@ -2,12 +2,10 @@
 // Created by rhubner on 29-Nov-23.
 //
 
-#include "include/org_rocksdb_MergeOperatorV2.h"
 #include "jni_merge_operator_v2.h"
+#include "include/org_rocksdb_MergeOperatorV2.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
-#include <iostream>
-
 
 jlong Java_org_rocksdb_MergeOperatorV2_toCString
     (JNIEnv* env, jclass, jstring operator_name) {
@@ -18,7 +16,7 @@ jlong Java_org_rocksdb_MergeOperatorV2_toCString
   auto operator_name_len = env->GetStringUTFLength(operator_name);
 
   char* ret_value = new char[operator_name_len + 1];
-  strcpy_s(ret_value, operator_name_len + 1, operator_name_utf);
+  memcpy(ret_value, operator_name_utf, operator_name_len + 1);
 
   env->ReleaseStringUTFChars(operator_name, operator_name_utf);
 
@@ -105,7 +103,6 @@ JniMergeOperatorV2::JniMergeOperatorV2(JNIEnv* env, jobject java_merge_operator,
     return ;
   }
 
-
   return ;
 }
 
@@ -120,13 +117,11 @@ bool JniMergeOperatorV2::FullMergeV2(const MergeOperationInput &merge_in, MergeO
     return clean_and_return_error(attached_thread, merge_out);
   }
 
-  for(int i = 0; i < merge_in.operand_list.size(); i++) {
-    //TODO - Setup array
+  for (auto i = 0u; i < merge_in.operand_list.size(); i++) {
     auto operand = merge_in.operand_list[i];
-    //auto byte_buffer = env->NewDirectByteBuffer((void *)operand.data(), operand.size()); //TODO - replace with C++ cast
     auto byte_buffer = env->NewDirectByteBuffer(
         const_cast<void*>(reinterpret_cast<const void*>(operand.data())),
-        operand.size()); //TODO - replace with C++ cast
+        operand.size());
 
     if(byte_buffer == nullptr) {
       return clean_and_return_error(attached_thread, merge_out);
@@ -204,7 +199,7 @@ bool JniMergeOperatorV2::clean_and_return_error(jboolean& attached_thread, Merge
   return false;
 }
 
-const MergeOperator::OpFailureScope JniMergeOperatorV2::javaToOpFailureScope(jint failure) const {
+MergeOperator::OpFailureScope JniMergeOperatorV2::javaToOpFailureScope(jint failure) const {
   switch (failure) {
     case 0: return MergeOperator::OpFailureScope::kDefault;
     case 1: return MergeOperator::OpFailureScope::kTryMerge;
