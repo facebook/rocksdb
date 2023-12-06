@@ -390,6 +390,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/WalFilterTest.java
   src/test/java/org/rocksdb/AbstractTransactionTest.java
   src/test/java/org/rocksdb/MergeTest.java
+  src/test/java/org/rocksdb/MergeOperatorV2Test.java
   src/test/java/org/rocksdb/OptionsTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/MultiGetManyKeysTest.java
@@ -439,6 +440,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.SnapshotTest
   org.rocksdb.CompactionJobStatsTest
   org.rocksdb.MemTableTest
+  org.rocksdb.MergeOperatorV2Test
   org.rocksdb.CompactionFilterFactoryTest
   # org.rocksdb.DefaultEnvTest
   org.rocksdb.DBOptionsTest

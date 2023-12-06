@@ -20,7 +20,7 @@ class JniMergeOperatorV2 : public JniCallback,
   ~JniMergeOperatorV2() override;
 
  private:
-  const MergeOperator::OpFailureScope javaToOpFailureScope(jint failure) const;
+  MergeOperator::OpFailureScope javaToOpFailureScope(jint failure) const;
   bool clean_and_return_error(jboolean& attached_thread, MergeOperationOutput *merge_out) const;
   jclass j_merge_class;
   jclass j_byte_buffer_class;
