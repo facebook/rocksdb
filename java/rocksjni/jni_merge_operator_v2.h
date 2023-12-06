@@ -5,23 +5,25 @@
 #define ROCKSDB_JNI_MERGE_OPERATOR_V2_H
 
 #include <jni.h>
-#include "rocksjni/jnicallback.h"
+
 #include "rocksdb/merge_operator.h"
+#include "rocksjni/jnicallback.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class JniMergeOperatorV2 : public JniCallback,
-                           public MergeOperator {
-
+class JniMergeOperatorV2 : public JniCallback, public MergeOperator {
  public:
-  JniMergeOperatorV2(JNIEnv* env1, jobject java_merge_operator, char* operator_name);
-  bool FullMergeV2(const MergeOperationInput &merge_in, MergeOperationOutput *merge_out) const override;
+  JniMergeOperatorV2(JNIEnv* env1, jobject java_merge_operator,
+                     char* operator_name);
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override;
   const char* Name() const override;
   ~JniMergeOperatorV2() override;
 
  private:
   MergeOperator::OpFailureScope javaToOpFailureScope(jint failure) const;
-  bool clean_and_return_error(jboolean& attached_thread, MergeOperationOutput *merge_out) const;
+  bool clean_and_return_error(jboolean& attached_thread,
+                              MergeOperationOutput* merge_out) const;
   jclass j_merge_class;
   jclass j_byte_buffer_class;
   jmethodID j_merge_internal;
@@ -31,9 +33,7 @@ class JniMergeOperatorV2 : public JniCallback,
   jmethodID byte_buffer_position;
   jmethodID byte_buffer_remaining;
   char* operator_name;
-
-
 };
 
-}
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_JNI_MERGE_OPERATOR_V2_H
