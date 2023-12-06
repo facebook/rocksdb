@@ -1325,6 +1325,10 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
       ropts.readahead_size = cmp_ro.readahead_size = 32768;
     }
 
+    if (std::get<1>(GetParam())) {
+      ropts.async_io = true;
+    }
+
     // With and without tuning readahead_size.
     {
       ASSERT_OK(options.statistics->Reset());

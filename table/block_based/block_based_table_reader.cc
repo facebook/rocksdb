@@ -2651,6 +2651,17 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   return TEST_BlockInCache(iiter->value().handle);
 }
 
+void BlockBasedTable::TEST_GetDataBlockHandle(const ReadOptions& options,
+                                              const Slice& key,
+                                              BlockHandle& handle) {
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
+      options, /*disable_prefix_seek=*/false, /*input_iter=*/nullptr,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr));
+  iiter->Seek(key);
+  assert(iiter->Valid());
+  handle = iiter->value().handle;
+}
+
 // REQUIRES: The following fields of rep_ should have already been populated:
 //  1. file
 //  2. index_handle,
