@@ -6,6 +6,7 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "db/write_batch_internal.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
@@ -304,7 +305,6 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
 
   const int kNumKeysWritten = 100;
-  const int kCommitMarkerSize = 12;
 
   // Scenario 0: Not using transactions.
   // This will write to WAL and memtable directly.
@@ -340,9 +340,51 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   // Commit() writes to memtable and also a commit marker to WAL.
   ASSERT_OK(txn->Commit());
   delete txn;
+
+  // The WAL has an extra header of size `kHeader` written to it,
+  // as we are writing twice to it (first during Prepare, second during Commit).
   EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
             options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
-                kCommitMarkerSize);
+                WriteBatchInternal::kHeader);
+
+  // Cleanup
+  db_ = nullptr;
+  delete txn_db;
+
+  // Scenario 2: Using transactions with pipelined write enabled.
+  // Recreate TransactionDB.
+  txn_db = nullptr;
+  options.enable_pipelined_write = true;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db->GetBaseDB();
+
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
+  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("txn1"));
+
+  for (int i = 0; i < kNumKeysWritten; ++i) {
+    ASSERT_OK(txn->Put(Key(i), "val"));
+  }
+
+  // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
+  ASSERT_OK(txn->Prepare());
+  EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
+  // BYTES_WRITTEN would have been non-zero previously (issue #12061).
+  EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+
+  // Commit() writes to memtable and also a commit marker to WAL.
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  // The WAL has an extra header of size `kHeader` written to it,
+  // as we are writing twice to it (first during Prepare, second during Commit).
+  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+            options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
+                WriteBatchInternal::kHeader);
 
   // Cleanup
   db_ = nullptr;

@@ -720,11 +720,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           if (writer->ShouldWriteToMemtable()) {
             writer->sequence = next_sequence;
             size_t count = WriteBatchInternal::Count(writer->batch);
+            total_byte_size = WriteBatchInternal::AppendedByteSize(
+                total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
             next_sequence += count;
             total_count += count;
           }
-          total_byte_size = WriteBatchInternal::AppendedByteSize(
-              total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
         }
       }
       if (w.disable_wal) {
