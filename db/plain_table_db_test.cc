@@ -292,7 +292,7 @@ class TestPlainTableReader : public PlainTableReader {
     table_properties_ = std::move(props);
   }
 
-  ~TestPlainTableReader() override {}
+  ~TestPlainTableReader() override = default;
 
  private:
   bool MatchBloom(uint32_t hash) const override {

@@ -9,7 +9,7 @@
 
 #include "db/log_writer.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"

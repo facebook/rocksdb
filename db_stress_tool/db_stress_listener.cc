@@ -67,7 +67,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
       std::string id(24U, '\0');
       Slice result;
       for (;;) {
-        s = reader->Read(id.size(), opts, &result, &id[0], /*dbg*/ nullptr);
+        s = reader->Read(id.size(), opts, &result, id.data(), /*dbg*/ nullptr);
         if (!s.ok()) {
           fprintf(stderr, "Error reading unique id file: %s\n",
                   s.ToString().c_str());

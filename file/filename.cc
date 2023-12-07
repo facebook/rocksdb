@@ -8,10 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "file/filename.h"
 
-#include <ctype.h>
-#include <stdio.h>
-
+#include <cctype>
 #include <cinttypes>
+#include <cstdio>
 #include <vector>
 
 #include "file/writable_file_writer.h"

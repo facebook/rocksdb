@@ -326,7 +326,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
   const SstFileMetaData* file_meta = nullptr;
   for (const auto& level_meta : import_cf_meta.levels) {
     if (!level_meta.files.empty()) {
-      file_meta = &(level_meta.files[0]);
+      file_meta = level_meta.files.data();
       break;
     }
   }
@@ -389,7 +389,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
                                               *metadata_ptr_, &import_cfh2_));
   ASSERT_NE(import_cfh2_, nullptr);
   delete metadata_ptr_;
-  metadata_ptr_ = NULL;
+  metadata_ptr_ = nullptr;
 
   std::string value1, value2;
 

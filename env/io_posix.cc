@@ -10,23 +10,24 @@
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
 
-#include <errno.h>
 #include <fcntl.h>
 
 #include <algorithm>
+#include <cerrno>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #ifndef FALLOC_FL_KEEP_SIZE
 #include <linux/falloc.h>
 #endif
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
@@ -437,7 +438,7 @@ void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
 
 size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
                                                   int fd) {
-  std::string dir = fname.substr(0, fname.find_last_of("/"));
+  std::string dir = fname.substr(0, fname.find_last_of('/'));
   if (dir.empty()) {
     dir = "/";
   }
@@ -654,7 +655,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
     size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
-    if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
+    if (this_reqs > kIoUringDepth) {
+      this_reqs = kIoUringDepth;
+    }
 
     assert(incomplete_rq_list.size() <= this_reqs);
     for (size_t i = 0; i < this_reqs; i++) {
