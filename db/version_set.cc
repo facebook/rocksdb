@@ -3067,9 +3067,7 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileIndexer();
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
-  if (!immutable_options.allow_ingest_behind) {
-    GenerateBottommostFiles();
-  }
+  GenerateBottommostFiles();
   GenerateFileLocationIndex();
 }
 
