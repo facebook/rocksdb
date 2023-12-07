@@ -177,7 +177,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
 Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
                                     std::string* trash_file) {
   // Sanity check of the path
-  size_t idx = file_path.rfind("/");
+  size_t idx = file_path.rfind('/');
   if (idx == std::string::npos || idx == file_path.size() - 1) {
     return Status::InvalidArgument("file_path is corrupted");
   }

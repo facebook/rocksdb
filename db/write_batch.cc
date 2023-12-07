@@ -233,9 +233,9 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() {}
+WriteBatch::~WriteBatch() = default;
 
-WriteBatch::Handler::~Handler() {}
+WriteBatch::Handler::~Handler() = default;
 
 void WriteBatch::Handler::LogData(const Slice& /*blob*/) {
   // If the user has not specified something to do with blobs, then we ignore
@@ -741,7 +741,7 @@ SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {
 }
 
 void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
-  EncodeFixed64(&b->rep_[0], seq);
+  EncodeFixed64(b->rep_.data(), seq);
 }
 
 size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
@@ -1856,7 +1856,9 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   void DecrementProtectionInfoIdxForTryAgain() {
-    if (prot_info_ != nullptr) --prot_info_idx_;
+    if (prot_info_ != nullptr) {
+      --prot_info_idx_;
+    }
   }
 
   void ResetProtectionInfo() {
@@ -2543,9 +2545,8 @@ class MemTableInserter : public WriteBatch::Handler {
               WideColumnsHelper::GetDefaultColumn(columns), {value},
               moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         } else {
           // `op_failure_scope` (an output parameter) is not provided (set to
           // nullptr) since a failure must be propagated regardless of its
@@ -2554,9 +2555,8 @@ class MemTableInserter : public WriteBatch::Handler {
               merge_operator, key, MergeHelper::kWideBaseValue, columns,
               {value}, moptions->info_log, moptions->statistics,
               SystemClock::Default().get(),
-              /* update_num_ops_stats */ false, &new_value,
-              /* result_operand */ nullptr, &new_value_type,
-              /* op_failure_scope */ nullptr);
+              /* update_num_ops_stats */ false, /* op_failure_scope */ nullptr,
+              &new_value, /* result_operand */ nullptr, &new_value_type);
         }
 
         if (!merge_status.ok()) {
@@ -3018,7 +3018,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   explicit ProtectionInfoUpdater(WriteBatch::ProtectionInfo* prot_info)
       : prot_info_(prot_info) {}
 
-  ~ProtectionInfoUpdater() override {}
+  ~ProtectionInfoUpdater() override = default;
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
     return UpdateProtInfo(cf, key, val, kTypeValue);

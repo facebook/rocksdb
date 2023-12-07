@@ -290,7 +290,7 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
   Reopen(options);
-  
+
   EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
   EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
 
@@ -311,7 +311,7 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   // This should not double count BYTES_WRITTEN (issue #12061).
   for (bool enable_pipelined_write : {false, true}) {
     ASSERT_OK(options.statistics->Reset());
-    
+
     // Destroy the DB to recreate as a TransactionDB.
     Destroy(options, true);
 
@@ -345,7 +345,8 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
     delete txn;
 
     // The WAL has an extra header of size `kHeader` written to it,
-    // as we are writing twice to it (first during Prepare, second during Commit).
+    // as we are writing twice to it (first during Prepare, second during
+    // Commit).
     EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
               options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
                   WriteBatchInternal::kHeader);

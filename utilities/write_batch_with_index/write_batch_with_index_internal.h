@@ -408,8 +408,8 @@ class WriteBatchWithIndexInternal {
     return MergeHelper::TimedFullMerge(
         ioptions->merge_operator.get(), key, MergeHelper::kNoBaseValue,
         context.GetOperands(), ioptions->logger, ioptions->stats,
-        ioptions->clock, /* update_num_ops_stats */ false, results...,
-        /* op_failure_scope */ nullptr);
+        ioptions->clock, /* update_num_ops_stats */ false,
+        /* op_failure_scope */ nullptr, results...);
   }
 
   template <typename BaseTag, typename BaseT, typename... ResultTs>
@@ -432,8 +432,8 @@ class WriteBatchWithIndexInternal {
     return MergeHelper::TimedFullMerge(
         ioptions->merge_operator.get(), key, base_tag, value,
         context.GetOperands(), ioptions->logger, ioptions->stats,
-        ioptions->clock, /* update_num_ops_stats */ false, results...,
-        /* op_failure_scope */ nullptr);
+        ioptions->clock, /* update_num_ops_stats */ false,
+        /* op_failure_scope */ nullptr, results...);
   }
 
   // If batch contains a value for key, store it in *value and return kFound.

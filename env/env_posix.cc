@@ -14,19 +14,21 @@
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
 #endif
-#include <errno.h>
 #include <fcntl.h>
+
+#include <cerrno>
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #endif
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #endif
@@ -36,10 +38,10 @@
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <sys/uio.h>
 #endif
-#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <ctime>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
 #elif defined(__MACH__)
@@ -199,7 +201,7 @@ class PosixClock : public SystemClock {
     std::string dummy;
     dummy.reserve(maxsize);
     dummy.resize(maxsize);
-    char* p = &dummy[0];
+    char* p = dummy.data();
     port::LocalTimeR(&seconds, &t);
     snprintf(p, maxsize, "%04d/%02d/%02d-%02d:%02d:%02d ", t.tm_year + 1900,
              t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
