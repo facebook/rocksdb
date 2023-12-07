@@ -1,6 +1,7 @@
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -111,7 +112,7 @@ public class MergeOperatorV2Test {
           db.merge(KEY, "value2".getBytes());
           db.merge(KEY, "value3".getBytes());
           byte[] valueFromDb = db.get(KEY);
-          assertThat(valueFromDb).containsExactly("value2".getBytes(StandardCharsets.UTF_8));
+          fail("We should never reach this.");
         }
       }
     }
@@ -136,7 +137,7 @@ public class MergeOperatorV2Test {
           db.merge(KEY, "value2".getBytes());
           db.merge(KEY, "value3".getBytes());
           byte[] valueFromDb = db.get(KEY);
-          assertThat(valueFromDb).containsExactly("value2".getBytes(StandardCharsets.UTF_8));
+          fail("We should never reach this.");
         }
       }
     }

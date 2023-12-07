@@ -1,5 +1,5 @@
 package org.rocksdb;
 
 public interface MergeOperator {
-  long nativeHandler();
+  long getNativeHandle();
 }
