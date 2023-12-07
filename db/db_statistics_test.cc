@@ -289,18 +289,8 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
-
-  // Destroy the DB to recreate as a TransactionDB.
-  Destroy(options, true);
-
-  // Create a TransactionDB.
-  TransactionDB* txn_db = nullptr;
-  TransactionDBOptions txn_db_opts;
-  txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
-  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
-  ASSERT_NE(txn_db, nullptr);
-  db_ = txn_db->GetBaseDB();
-
+  Reopen(options);
+  
   EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
   EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
 
@@ -319,76 +309,51 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
 
   // Scenario 1: Using transactions.
   // This should not double count BYTES_WRITTEN (issue #12061).
-  ASSERT_OK(options.statistics->Reset());
+  for (bool enable_pipelined_write : {false, true}) {
+    ASSERT_OK(options.statistics->Reset());
+    
+    // Destroy the DB to recreate as a TransactionDB.
+    Destroy(options, true);
 
-  WriteOptions wopts;
-  TransactionOptions txn_opts;
-  Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
-  ASSERT_NE(txn, nullptr);
-  ASSERT_OK(txn->SetName("txn1"));
+    // Create a TransactionDB.
+    TransactionDB* txn_db = nullptr;
+    TransactionDBOptions txn_db_opts;
+    txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+    options.enable_pipelined_write = enable_pipelined_write;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+    ASSERT_NE(txn_db, nullptr);
+    db_ = txn_db->GetBaseDB();
 
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    ASSERT_OK(txn->Put(Key(i), "val"));
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+
+    for (int i = 0; i < kNumKeysWritten; ++i) {
+      ASSERT_OK(txn->Put(Key(i), "val"));
+    }
+
+    // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
+    ASSERT_OK(txn->Prepare());
+    EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
+    // BYTES_WRITTEN would have been non-zero previously (issue #12061).
+    EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+
+    // Commit() writes to memtable and also a commit marker to WAL.
+    ASSERT_OK(txn->Commit());
+    delete txn;
+
+    // The WAL has an extra header of size `kHeader` written to it,
+    // as we are writing twice to it (first during Prepare, second during Commit).
+    EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
+              options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
+                  WriteBatchInternal::kHeader);
+
+    // Cleanup
+    db_ = nullptr;
+    delete txn_db;
   }
-
-  // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
-  ASSERT_OK(txn->Prepare());
-  EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
-  // BYTES_WRITTEN would have been non-zero previously (issue #12061).
-  EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
-
-  // Commit() writes to memtable and also a commit marker to WAL.
-  ASSERT_OK(txn->Commit());
-  delete txn;
-
-  // The WAL has an extra header of size `kHeader` written to it,
-  // as we are writing twice to it (first during Prepare, second during Commit).
-  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
-            options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
-                WriteBatchInternal::kHeader);
-
-  // Cleanup
-  db_ = nullptr;
-  delete txn_db;
-
-  // Scenario 2: Using transactions with pipelined write enabled.
-  // Recreate TransactionDB.
-  txn_db = nullptr;
-  options.enable_pipelined_write = true;
-  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
-  ASSERT_NE(txn_db, nullptr);
-  db_ = txn_db->GetBaseDB();
-
-  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(WAL_FILE_BYTES));
-  EXPECT_EQ(0, options.statistics->getAndResetTickerCount(BYTES_WRITTEN));
-
-  txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
-  ASSERT_NE(txn, nullptr);
-  ASSERT_OK(txn->SetName("txn1"));
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    ASSERT_OK(txn->Put(Key(i), "val"));
-  }
-
-  // Prepare() writes to WAL, but not to memtable. (WriteCommitted)
-  ASSERT_OK(txn->Prepare());
-  EXPECT_NE(0, options.statistics->getTickerCount(WAL_FILE_BYTES));
-  // BYTES_WRITTEN would have been non-zero previously (issue #12061).
-  EXPECT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
-
-  // Commit() writes to memtable and also a commit marker to WAL.
-  ASSERT_OK(txn->Commit());
-  delete txn;
-
-  // The WAL has an extra header of size `kHeader` written to it,
-  // as we are writing twice to it (first during Prepare, second during Commit).
-  EXPECT_EQ(options.statistics->getAndResetTickerCount(WAL_FILE_BYTES),
-            options.statistics->getAndResetTickerCount(BYTES_WRITTEN) +
-                WriteBatchInternal::kHeader);
-
-  // Cleanup
-  db_ = nullptr;
-  delete txn_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
