@@ -866,8 +866,8 @@ int GetL0FileCountForCompactionSpeedup(int level0_file_num_compaction_trigger,
 }
 
 uint64_t GetPendingCompactionBytesForCompactionSpeedup(
-    uint64_t soft_pending_compaction_bytes_limit) {
-  return soft_pending_compaction_bytes_limit / 4;
+    const MutableCFOptions& mutable_cf_options) {
+  return mutable_cf_options.soft_pending_compaction_bytes_limit / 4;
 }
 }  // anonymous namespace
 
@@ -1036,7 +1036,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             name_.c_str(), vstorage->l0_delay_trigger_count());
       } else if (vstorage->estimated_compaction_needed_bytes() >=
                  GetPendingCompactionBytesForCompactionSpeedup(
-                     mutable_cf_options.soft_pending_compaction_bytes_limit)) {
+                     mutable_cf_options)) {
         // Increase compaction threads if bytes needed for compaction exceeds
         // 1/4 of threshold for slowing down.
         // If soft pending compaction byte limit is not set, always speed up
