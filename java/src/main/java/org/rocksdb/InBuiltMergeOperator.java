@@ -15,7 +15,6 @@ public abstract class InBuiltMergeOperator extends RocksObject implements MergeO
   protected InBuiltMergeOperator(final long nativeHandle) {
     super(nativeHandle);
   }
-
 }
 
 //
