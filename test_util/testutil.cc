@@ -94,7 +94,9 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
-  if (raw < 1) raw = 1;
+  if (raw < 1) {
+    raw = 1;
+  }
   std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
@@ -109,7 +111,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 namespace {
 class Uint64ComparatorImpl : public Comparator {
  public:
-  Uint64ComparatorImpl() {}
+  Uint64ComparatorImpl() = default;
 
   const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
@@ -131,11 +133,9 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const override {
-    return;
-  }
+                             const Slice& /*limit*/) const override {}
 
-  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 }  // namespace
 
@@ -632,7 +632,7 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->GetIterator(arena);
   }
 
-  virtual ~SpecialMemTableRep() override {}
+  virtual ~SpecialMemTableRep() override = default;
 
  private:
   std::unique_ptr<MemTableRep> memtable_;
@@ -647,7 +647,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
            std::string* /* errmsg */) {
-          auto colon = uri.find(":");
+          auto colon = uri.find(':');
           if (colon != std::string::npos) {
             auto count = ParseInt(uri.substr(colon + 1));
             guard->reset(new SpecialSkipListFactory(count));

@@ -11,9 +11,8 @@
 // four bytes at a time.
 #include "util/crc32c.h"
 
-#include <stdint.h>
-
 #include <array>
+#include <cstdint>
 #include <utility>
 
 #include "port/lang.h"

@@ -15,9 +15,10 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
+
+#include <cstdio>
+#include <cstdlib>
 #ifdef __APPLE__
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
@@ -1258,23 +1259,23 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "none"))
+  if (!strcasecmp(ctype, "none")) {
     return ROCKSDB_NAMESPACE::kNoCompression;
-  else if (!strcasecmp(ctype, "snappy"))
+  } else if (!strcasecmp(ctype, "snappy")) {
     return ROCKSDB_NAMESPACE::kSnappyCompression;
-  else if (!strcasecmp(ctype, "zlib"))
+  } else if (!strcasecmp(ctype, "zlib")) {
     return ROCKSDB_NAMESPACE::kZlibCompression;
-  else if (!strcasecmp(ctype, "bzip2"))
+  } else if (!strcasecmp(ctype, "bzip2")) {
     return ROCKSDB_NAMESPACE::kBZip2Compression;
-  else if (!strcasecmp(ctype, "lz4"))
+  } else if (!strcasecmp(ctype, "lz4")) {
     return ROCKSDB_NAMESPACE::kLZ4Compression;
-  else if (!strcasecmp(ctype, "lz4hc"))
+  } else if (!strcasecmp(ctype, "lz4hc")) {
     return ROCKSDB_NAMESPACE::kLZ4HCCompression;
-  else if (!strcasecmp(ctype, "xpress"))
+  } else if (!strcasecmp(ctype, "xpress")) {
     return ROCKSDB_NAMESPACE::kXpressCompression;
-  else if (!strcasecmp(ctype, "zstd"))
+  } else if (!strcasecmp(ctype, "zstd")) {
     return ROCKSDB_NAMESPACE::kZSTD;
-  else {
+  } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
     exit(1);
   }
@@ -1284,15 +1285,15 @@ static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
     const char* policy) {
   assert(policy);
 
-  if (!strcasecmp(policy, "auto"))
+  if (!strcasecmp(policy, "auto")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyAuto;
-  else if (!strcasecmp(policy, "placeholder"))
+  } else if (!strcasecmp(policy, "placeholder")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyPlaceholder;
-  else if (!strcasecmp(policy, "allow_cache_hits"))
+  } else if (!strcasecmp(policy, "allow_cache_hits")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
-  else if (!strcasecmp(policy, "three_queue"))
+  } else if (!strcasecmp(policy, "three_queue")) {
     return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
-  else {
+  } else {
     fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);
   }
@@ -1806,12 +1807,13 @@ static enum DistributionType FLAGS_value_size_distribution_type_e = kFixed;
 static enum DistributionType StringToDistributionType(const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "fixed"))
+  if (!strcasecmp(ctype, "fixed")) {
     return kFixed;
-  else if (!strcasecmp(ctype, "uniform"))
+  } else if (!strcasecmp(ctype, "uniform")) {
     return kUniform;
-  else if (!strcasecmp(ctype, "normal"))
+  } else if (!strcasecmp(ctype, "normal")) {
     return kNormal;
+  }
 
   fprintf(stdout, "Cannot parse distribution type '%s'\n", ctype);
   exit(1);
@@ -1821,7 +1823,7 @@ class BaseDistribution {
  public:
   BaseDistribution(unsigned int _min, unsigned int _max)
       : min_value_size_(_min), max_value_size_(_max) {}
-  virtual ~BaseDistribution() {}
+  virtual ~BaseDistribution() = default;
 
   unsigned int Generate() {
     auto val = Get();
@@ -1938,7 +1940,9 @@ class RandomGenerator {
 };
 
 static void AppendWithSpace(std::string* str, Slice msg) {
-  if (msg.empty()) return;
+  if (msg.empty()) {
+    return;
+  }
   if (!str->empty()) {
     str->push_back(' ');
   }
@@ -2192,7 +2196,9 @@ class Stats {
   }
 
   void Merge(const Stats& other) {
-    if (other.exclude_from_merge_) return;
+    if (other.exclude_from_merge_) {
+      return;
+    }
 
     for (auto it = other.hist_.begin(); it != other.hist_.end(); ++it) {
       auto this_it = hist_.find(it->first);
@@ -2206,11 +2212,17 @@ class Stats {
     done_ += other.done_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
-    if (other.start_ < start_) start_ = other.start_;
-    if (other.finish_ > finish_) finish_ = other.finish_;
+    if (other.start_ < start_) {
+      start_ = other.start_;
+    }
+    if (other.finish_ > finish_) {
+      finish_ = other.finish_;
+    }
 
     // Just keep the messages from one thread.
-    if (message_.empty()) message_ = other.message_;
+    if (message_.empty()) {
+      message_ = other.message_;
+    }
   }
 
   void Stop() {
@@ -2289,20 +2301,21 @@ class Stats {
     done_ += num_ops;
     if (done_ >= next_report_ && FLAGS_progress_reports) {
       if (!FLAGS_stats_interval) {
-        if (next_report_ < 1000)
+        if (next_report_ < 1000) {
           next_report_ += 100;
-        else if (next_report_ < 5000)
+        } else if (next_report_ < 5000) {
           next_report_ += 500;
-        else if (next_report_ < 10000)
+        } else if (next_report_ < 10000) {
           next_report_ += 1000;
-        else if (next_report_ < 50000)
+        } else if (next_report_ < 50000) {
           next_report_ += 5000;
-        else if (next_report_ < 100000)
+        } else if (next_report_ < 100000) {
           next_report_ += 10000;
-        else if (next_report_ < 500000)
+        } else if (next_report_ < 500000) {
           next_report_ += 50000;
-        else
+        } else {
           next_report_ += 100000;
+        }
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
         uint64_t now = clock_->NowMicros();
@@ -2334,8 +2347,9 @@ class Stats {
             if (db_with_cfh && db_with_cfh->num_created.load()) {
               for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
                 if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
-                                    &stats))
+                                    &stats)) {
                   fprintf(stderr, "%s\n", stats.c_str());
+                }
                 if (FLAGS_show_table_properties) {
                   for (int level = 0; level < FLAGS_num_levels; ++level) {
                     if (db->GetProperty(
@@ -2393,7 +2407,9 @@ class Stats {
   void Report(const Slice& name) {
     // Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedOps().
-    if (done_ < 1) done_ = 1;
+    if (done_ < 1) {
+      done_ = 1;
+    }
 
     std::string extra;
     double elapsed = (finish_ - start_) * 1e-6;
@@ -2658,7 +2674,9 @@ class Duration {
   int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
 
   bool Done(int64_t increment) {
-    if (increment <= 0) increment = 1;  // avoid Done(0) and infinite loops
+    if (increment <= 0) {
+      increment = 1;  // avoid Done(0) and infinite loops
+    }
     ops_ += increment;
 
     if (max_seconds_) {
@@ -2725,7 +2743,7 @@ class Benchmark {
           no_auto_recovery_(false),
           recovery_complete_(false) {}
 
-    ~ErrorHandlerListener() override {}
+    ~ErrorHandlerListener() override = default;
 
     const char* Name() const override { return kClassName(); }
     static const char* kClassName() { return "ErrorHandlerListener"; }
@@ -4056,7 +4074,9 @@ class Benchmark {
       count++;
       thread->stats.FinishedOps(nullptr, nullptr, 1, kOthers);
     }
-    if (ptr == nullptr) exit(1);  // Disable unused variable warning.
+    if (ptr == nullptr) {
+      exit(1);  // Disable unused variable warning.
+    }
   }
 
   void Compress(ThreadState* thread) {
@@ -4836,8 +4856,8 @@ class Benchmark {
       }
       std::vector<ColumnFamilyDescriptor> column_families;
       for (size_t i = 0; i < num_hot; i++) {
-        column_families.push_back(ColumnFamilyDescriptor(
-            ColumnFamilyName(i), ColumnFamilyOptions(options)));
+        column_families.emplace_back(ColumnFamilyName(i),
+                                     ColumnFamilyOptions(options));
       }
       std::vector<int> cfh_idx_to_prob;
       if (!FLAGS_column_family_distribution.empty()) {
@@ -5660,7 +5680,7 @@ class Benchmark {
         auto total_size = meta.levels[0].size;
         if (total_size >=
             db->GetOptions().compaction_options_fifo.max_table_files_size) {
-          for (auto file_meta : meta.levels[0].files) {
+          for (const auto& file_meta : meta.levels[0].files) {
             file_names.emplace_back(file_meta.name);
           }
           break;
@@ -5711,7 +5731,7 @@ class Benchmark {
         SequenceNumber sorted_run_largest_seqno = 0;
         std::string sorted_run_smallest_key, sorted_run_largest_key;
         bool first_key = true;
-        for (auto fileMeta : sorted_runs[k][i]) {
+        for (const auto& fileMeta : sorted_runs[k][i]) {
           sorted_run_smallest_seqno =
               std::min(sorted_run_smallest_seqno, fileMeta.smallest_seqno);
           sorted_run_largest_seqno =
@@ -5732,7 +5752,7 @@ class Benchmark {
             (compaction_style == kCompactionStyleUniversal && level > 0)) {
           SequenceNumber level_smallest_seqno = kMaxSequenceNumber;
           SequenceNumber level_largest_seqno = 0;
-          for (auto fileMeta : meta.levels[level].files) {
+          for (const auto& fileMeta : meta.levels[level].files) {
             level_smallest_seqno =
                 std::min(level_smallest_seqno, fileMeta.smallest_seqno);
             level_largest_seqno =
@@ -6254,8 +6274,8 @@ class Benchmark {
         GenerateKeyFromInt(lkey, FLAGS_num, &lkeys[i]);
         GenerateKeyFromInt(rkey, FLAGS_num, &rkeys[i]);
       }
-      db->GetApproximateSizes(&ranges[0], static_cast<int>(entries_per_batch_),
-                              &sizes[0]);
+      db->GetApproximateSizes(
+          ranges.data(), static_cast<int>(entries_per_batch_), sizes.data());
       num_sizes += entries_per_batch_;
       for (int64_t size : sizes) {
         size_sum += size;
@@ -6308,8 +6328,8 @@ class Benchmark {
     std::vector<double> ratio_;
     int range_;
 
-    QueryDecider() {}
-    ~QueryDecider() {}
+    QueryDecider() = default;
+    ~QueryDecider() = default;
 
     Status Initiate(std::vector<double> ratio_input) {
       int range_max = 1000;
@@ -7652,7 +7672,9 @@ class Benchmark {
         thread->stats.FinishedOps(nullptr, db, 1, kMerge);
       } else {
         Status s = db->Get(read_options_, key, &value);
-        if (value.length() > max_length) max_length = value.length();
+        if (value.length() > max_length) {
+          max_length = value.length();
+        }
 
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
@@ -7717,10 +7739,16 @@ class Benchmark {
   }
 
   bool binary_search(std::vector<int>& data, int start, int end, int key) {
-    if (data.empty()) return false;
-    if (start > end) return false;
+    if (data.empty()) {
+      return false;
+    }
+    if (start > end) {
+      return false;
+    }
     int mid = start + (end - start) / 2;
-    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (mid > static_cast<int>(data.size()) - 1) {
+      return false;
+    }
     if (data[mid] == key) {
       return true;
     } else if (data[mid] > key) {
@@ -7793,7 +7821,9 @@ class Benchmark {
       found =
           binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
       data.clear();
-      if (found) break;
+      if (found) {
+        break;
+      }
     }
     std::cout << "Found key? " << std::to_string(found) << "\n";
     sp = FLAGS_env->NowNanos();
@@ -7803,7 +7833,9 @@ class Benchmark {
     std::cout << "Sample data from GetMergeOperands API call: ";
     for (PinnableSlice& psl : a_slice) {
       std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
-      if (to_print++ > 2) break;
+      if (to_print++ > 2) {
+        break;
+      }
     }
   }
 
@@ -8217,7 +8249,9 @@ class Benchmark {
       real_from_level = std::numeric_limits<int>::max();
 
       for (auto& f : files) {
-        if (f.level > 0 && f.level < real_from_level) real_from_level = f.level;
+        if (f.level > 0 && f.level < real_from_level) {
+          real_from_level = f.level;
+        }
       }
 
       if (real_from_level == std::numeric_limits<int>::max()) {
@@ -8233,10 +8267,11 @@ class Benchmark {
 
     std::vector<std::string> files_to_compact;
     for (auto& f : files) {
-      if (f.level == real_from_level)
+      if (f.level == real_from_level) {
         files_to_compact.push_back(f.name);
-      else if (f.level > real_from_level && f.level < next_level)
+      } else if (f.level > real_from_level && f.level < next_level) {
         next_level = f.level;
+      }
     }
 
     if (files_to_compact.empty()) {
@@ -8277,10 +8312,14 @@ class Benchmark {
 
   void CompactLevel(int from_level) {
     if (db_.db != nullptr) {
-      while (!CompactLevelHelper(db_, from_level)) WaitForCompaction();
+      while (!CompactLevelHelper(db_, from_level)) {
+        WaitForCompaction();
+      }
     }
     for (auto& db_with_cfh : multi_dbs_) {
-      while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
+      while (!CompactLevelHelper(db_with_cfh, from_level)) {
+        WaitForCompaction();
+      }
     }
   }
 
@@ -8614,15 +8653,15 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))
+  if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NONE;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NORMAL"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NORMAL")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NORMAL;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "SEQUENTIAL"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "SEQUENTIAL")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::SEQUENTIAL;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "WILLNEED"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "WILLNEED")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::WILLNEED;
-  else {
+  } else {
     fprintf(stdout, "Unknown compaction fadvice:%s\n",
             FLAGS_compaction_fadvice.c_str());
     exit(1);

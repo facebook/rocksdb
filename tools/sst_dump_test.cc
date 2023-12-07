@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "db/wide/wide_column_serialization.h"
 #include "file/random_access_file_reader.h"
