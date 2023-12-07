@@ -303,22 +303,6 @@ For Leveled Compaction users, `CompactRange()` with `bottommost_level_compaction
 * Updated xxHash source code, which should improve kXXH3 checksum speed, at least on ARM (#11098).
 * Improved CPU efficiency of DB reads, from block cache access improvements (#10975).
 
-* Java API extensions to improve consistency and completeness of APIs
-  * Extended `RocksDB.get( ... ByteBuffer key, ByteBuffer value ...)` which now accepts indirect buffer parameters as well as direct buffer parameters
-  * Extended `RocksDB.put( ... ByteBuffer key, ByteBuffer value ...)` which now accepts indirect buffer parameters as well as direct buffer parameters
-  * Added `RocksDB.merge( ... ByteBuffer key, ByteBuffer value ...)` methods with the same parameter options as `put(...)` - direct and indirect buffers are supported
-  * Added `RocksIterator.key( ... byte[] key, byte[] value ...)` methods which retrieve the iterator key into the supplied buffer
-  * Added `RocksIterator.value( ... byte[] key, byte[] value ...)` methods which retrieve the iterator value into the supplied buffer
-  * Deprecated `get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions, byte[])` in favour of `get(final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle, byte[])` which has consistent parameter ordering with other methods in the same class
-  * Added `Transaction.get( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
-  * Added `Transaction.get( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
- * Added `Transaction.getForUpdate( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
-  * Added `Transaction.getForUpdate( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
-  * Added `Transaction.getIterator()` method as a convenience which defaults the `ReadOptions` value supplied to existing `Transaction.iterator()` methods. This mirrors the existing `RocksDB.iterator()` method.
-  * Added `Transaction.put( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written in a `ByteBuffer` parameter
-  * Added `Transaction.merge( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
-  * Added `Transaction.mergeUntracked( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
- 
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
 * Fixed an iterator performance regression for delete range users when scanning through a consecutive sequence of range tombstones (#10877).
