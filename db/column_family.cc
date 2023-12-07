@@ -833,8 +833,8 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
   return write_controller->GetDelayToken(write_rate);
 }
 
-int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
-                                    int level0_slowdown_writes_trigger) {
+int GetL0FileCountForCompactionSpeedup(int level0_file_num_compaction_trigger,
+                                       int level0_slowdown_writes_trigger) {
   // SanitizeOptions() ensures it.
   assert(level0_file_num_compaction_trigger <= level0_slowdown_writes_trigger);
 
@@ -863,6 +863,11 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
     // res fits in int
     return static_cast<int>(res);
   }
+}
+
+uint64_t GetPendingCompactionBytesForCompactionSpeedup(
+    uint64_t soft_pending_compaction_bytes_limit) {
+  return soft_pending_compaction_bytes_limit / 4;
 }
 }  // anonymous namespace
 
@@ -1019,7 +1024,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     } else {
       assert(write_stall_condition == WriteStallCondition::kNormal);
       if (vstorage->l0_delay_trigger_count() >=
-          GetL0ThresholdSpeedupCompaction(
+          GetL0FileCountForCompactionSpeedup(
               mutable_cf_options.level0_file_num_compaction_trigger,
               mutable_cf_options.level0_slowdown_writes_trigger)) {
         write_controller_token_ =
@@ -1030,7 +1035,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             "files ",
             name_.c_str(), vstorage->l0_delay_trigger_count());
       } else if (vstorage->estimated_compaction_needed_bytes() >=
-                 mutable_cf_options.soft_pending_compaction_bytes_limit / 4) {
+                 GetPendingCompactionBytesForCompactionSpeedup(
+                     mutable_cf_options.soft_pending_compaction_bytes_limit)) {
         // Increase compaction threads if bytes needed for compaction exceeds
         // 1/4 of threshold for slowing down.
         // If soft pending compaction byte limit is not set, always speed up
