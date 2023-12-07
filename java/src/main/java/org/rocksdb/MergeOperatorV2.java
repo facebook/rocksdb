@@ -14,14 +14,13 @@ public abstract class MergeOperatorV2 extends RocksCallbackObject implements Mer
   }
 
   /**
-   * All parameters of this method are valid only during the call. If you want to keep this, you
-   * need to make deep copy/clone.
+   * This is the callback method which supplies the values to be merged for the provided key.
+   * The parameters are only valid until the method returns, and must be deep copied if you wish to retain them.
    *
-   *
-   * @param key
-   * @param existingValue
-   * @param operand
-   * @return
+   * @param key The key associated with the merge operation.
+   * @param existingValue The existing value of the current key, null means that the value doesn't exist.
+   * @param operand A list of operands to apply
+   * @return The method should return the result of merging the supplied values with the implemented merge algorithm.
    */
   public abstract MergeOperatorOutput fullMergeV2(
       final ByteBuffer key, final ByteBuffer existingValue, final List<ByteBuffer> operand);
@@ -35,7 +34,7 @@ public abstract class MergeOperatorV2 extends RocksCallbackObject implements Mer
   }
 
   @Override
-  final public long nativeHandler() {
+  public long getNativeHandle() {
     return nativeHandle_;
   }
 
