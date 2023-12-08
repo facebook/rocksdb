@@ -491,8 +491,7 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: PrepareForVersionAppend has been called
-  const autovector<std::pair<int, FileMetaData*>>&
-  BottommostFiles() const {
+  const autovector<std::pair<int, FileMetaData*>>& BottommostFiles() const {
     assert(finalized_);
     return bottommost_files_;
   }
