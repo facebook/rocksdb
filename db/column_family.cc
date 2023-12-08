@@ -879,8 +879,8 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
     bottommost_files_size += level_and_file.second->fd.GetFileSize();
   }
 
-  // Soft limit might be zero but that means compaction speedup should always
-  // happen, so no special treatment is needed.
+  // Slowdown trigger might be zero but that means compaction speedup should
+  // always happen (undocumented/historical), so no special treatment is needed.
   uint64_t slowdown_threshold =
       mutable_cf_options.soft_pending_compaction_bytes_limit /
       kSlowdownTriggerDivisor;
