@@ -577,9 +577,12 @@ struct BlockBasedTableBuilder::Rep {
     for (auto& factory : *tbo.int_tbl_prop_collector_factories) {
       assert(factory);
 
-      table_properties_collectors.emplace_back(
+      std::unique_ptr<IntTblPropCollector> collector{
           factory->CreateIntTblPropCollector(tbo.column_family_id,
-                                             tbo.level_at_creation));
+                                             tbo.level_at_creation)};
+      if (collector) {
+        table_properties_collectors.emplace_back(std::move(collector));
+      }
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
