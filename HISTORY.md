@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.9.1 (12/8/2023)
+### Bug Fixes
+* Avoid destroying the periodic task scheduler's default timer in order to prevent static destruction order issues.
+
 ## 8.9.0 (11/17/2023)
 ### New Features
 * Add GetEntity() and PutEntity() API implementation for Attribute Group support. Through the use of Column Families, AttributeGroup enables users to logically group wide-column entities.
