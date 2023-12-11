@@ -93,7 +93,8 @@ inline void Unref(const ClockHandle& h, uint64_t count = 1) {
   (void)old_meta;
 }
 
-inline bool ClockUpdate(ClockHandle& h, bool* purgeable = nullptr) {
+inline bool ClockUpdate(ClockHandle& h, BaseClockTable::EvictionData* data,
+                        bool* purgeable = nullptr) {
   uint64_t meta;
   if (purgeable) {
     assert(*purgeable == false);
@@ -125,6 +126,7 @@ inline bool ClockUpdate(ClockHandle& h, bool* purgeable = nullptr) {
       (meta >> ClockHandle::kReleaseCounterShift) & ClockHandle::kCounterMask;
   if (acquire_count != release_count) {
     // Only clock update entries with no outstanding refs
+    data->seen_pinned_count++;
     return false;
   }
   if ((meta >> ClockHandle::kStateShift == ClockHandle::kStateVisible) &&
@@ -148,6 +150,8 @@ inline bool ClockUpdate(ClockHandle& h, bool* purgeable = nullptr) {
                               << ClockHandle::kStateShift) |
                                  (meta & ClockHandle::kHitBitMask))) {
     // Took ownership.
+    data->freed_charge += h.GetTotalCharge();
+    data->freed_count += 1;
     return true;
   } else {
     // Compare-exchange failing probably
@@ -529,11 +533,7 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   return true;
 }
 
-void BaseClockTable::TrackAndReleaseEvictedEntry(
-    ClockHandle* h, BaseClockTable::EvictionData* data) {
-  data->freed_charge += h->GetTotalCharge();
-  data->freed_count += 1;
-
+void BaseClockTable::TrackAndReleaseEvictedEntry(ClockHandle* h) {
   bool took_value_ownership = false;
   if (eviction_callback_) {
     // For key reconstructed from hash
@@ -548,6 +548,14 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(
     h->FreeData(allocator_);
   }
   MarkEmpty(*h);
+}
+
+bool BaseClockTable::IsEvictionEffortExceeded(const EvictionData& data) const {
+  // Basically checks whether the ratio of useful effort to wasted effort is
+  // too low, with a start-up allowance for wasted effort before any useful
+  // effort.
+  return (data.freed_count + 1) * eviction_effort_cap_ <=
+         data.seen_pinned_count;
 }
 
 template <class Table>
@@ -692,7 +700,7 @@ FixedHyperClockTable::FixedHyperClockTable(
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(opts, metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
@@ -1104,10 +1112,10 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
   for (;;) {
     for (size_t i = 0; i < step_size; i++) {
       HandleImpl& h = array_[ModTableSize(Lower32of64(old_clock_pointer + i))];
-      bool evicting = ClockUpdate(h);
+      bool evicting = ClockUpdate(h, data);
       if (evicting) {
         Rollback(h.hashed_key, &h);
-        TrackAndReleaseEvictedEntry(&h, data);
+        TrackAndReleaseEvictedEntry(&h);
       }
     }
 
@@ -1116,6 +1124,9 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
       return;
     }
     if (old_clock_pointer >= max_clock_pointer) {
+      return;
+    }
+    if (IsEvictionEffortExceeded(*data)) {
       return;
     }
 
@@ -1912,7 +1923,7 @@ AutoHyperClockTable::AutoHyperClockTable(
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(opts, metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       array_(MemMapping::AllocateLazyZeroed(
           sizeof(HandleImpl) * CalcMaxUsableLength(capacity,
@@ -2589,7 +2600,8 @@ using ClockUpdateChainLockedOpData =
 template <class OpData>
 void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
                                           ChainRewriteLock& rewrite_lock,
-                                          size_t home) {
+                                          size_t home,
+                                          BaseClockTable::EvictionData* data) {
   constexpr bool kIsPurge = std::is_same_v<OpData, PurgeLockedOpData>;
   constexpr bool kIsClockUpdateChain =
       std::is_same_v<OpData, ClockUpdateChainLockedOpData>;
@@ -2631,7 +2643,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
       assert(home == BottomNBits(h->hashed_key[1], home_shift));
       if constexpr (kIsClockUpdateChain) {
         // Clock update and/or check for purgeable (under (de)construction)
-        if (ClockUpdate(*h, &purgeable)) {
+        if (ClockUpdate(*h, data, &purgeable)) {
           // Remember for finishing eviction
           op_data->push_back(h);
           // Entries for eviction become purgeable
@@ -2718,7 +2730,8 @@ using PurgeOpData = const UniqueId64x2;
 using ClockUpdateChainOpData = ClockUpdateChainLockedOpData;
 
 template <class OpData>
-void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
+void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home,
+                                    BaseClockTable::EvictionData* data) {
   // Early efforts to make AutoHCC fully wait-free ran into too many problems
   // that needed obscure and potentially inefficient work-arounds to have a
   // chance at working.
@@ -2799,9 +2812,9 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home) {
   if (!rewrite_lock.IsEnd()) {
     if constexpr (kIsPurge) {
       PurgeLockedOpData* locked_op_data{};
-      PurgeImplLocked(locked_op_data, rewrite_lock, home);
+      PurgeImplLocked(locked_op_data, rewrite_lock, home, data);
     } else {
-      PurgeImplLocked(op_data, rewrite_lock, home);
+      PurgeImplLocked(op_data, rewrite_lock, home, data);
     }
   }
 }
@@ -3462,12 +3475,12 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
         if (home >= used_length) {
           break;
         }
-        PurgeImpl(&to_finish_eviction, home);
+        PurgeImpl(&to_finish_eviction, home, data);
       }
     }
 
     for (HandleImpl* h : to_finish_eviction) {
-      TrackAndReleaseEvictedEntry(h, data);
+      TrackAndReleaseEvictedEntry(h);
       // NOTE: setting likely_empty_slot here can cause us to reduce the
       // portion of "at home" entries, probably because an evicted entry
       // is more likely to come back than a random new entry and would be
@@ -3493,6 +3506,10 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
     }
 
     if (old_clock_pointer + step_size >= max_clock_pointer) {
+      return;
+    }
+
+    if (IsEvictionEffortExceeded(*data)) {
       return;
     }
   }

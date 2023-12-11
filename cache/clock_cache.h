@@ -374,13 +374,25 @@ struct ClockHandle : public ClockHandleBasicData {
 
 class BaseClockTable {
  public:
-  BaseClockTable(CacheMetadataChargePolicy metadata_charge_policy,
+  struct BaseOpts {
+    explicit BaseOpts(int _eviction_effort_cap)
+        : eviction_effort_cap(_eviction_effort_cap) {
+      eviction_effort_cap = std::max(int{1}, _eviction_effort_cap);
+    }
+    explicit BaseOpts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {}
+    int eviction_effort_cap;
+  };
+
+  BaseClockTable(const BaseOpts& opts,
+                 CacheMetadataChargePolicy metadata_charge_policy,
                  MemoryAllocator* allocator,
                  const Cache::EvictionCallback* eviction_callback,
                  const uint32_t* hash_seed)
       : metadata_charge_policy_(metadata_charge_policy),
         allocator_(allocator),
         eviction_callback_(*eviction_callback),
+        eviction_effort_cap_(opts.eviction_effort_cap),
         hash_seed_(*hash_seed) {}
 
   template <class Table>
@@ -409,9 +421,12 @@ class BaseClockTable {
   struct EvictionData {
     size_t freed_charge = 0;
     size_t freed_count = 0;
+    size_t seen_pinned_count = 0;
   };
 
-  void TrackAndReleaseEvictedEntry(ClockHandle* h, EvictionData* data);
+  void TrackAndReleaseEvictedEntry(ClockHandle* h);
+
+  bool IsEvictionEffortExceeded(const EvictionData& data) const;
 
 #ifndef NDEBUG
   // Acquire N references
@@ -450,7 +465,6 @@ class BaseClockTable {
   bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
                                       bool need_evict_for_occupancy,
                                       typename Table::InsertState& state);
-
  protected:  // data
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
@@ -483,6 +497,9 @@ class BaseClockTable {
 
   // A reference to Cache::eviction_callback_
   const Cache::EvictionCallback& eviction_callback_;
+
+  // See HyperClockCacheOptions::eviction_effort_cap
+  int eviction_effort_cap_;
 
   // A reference to ShardedCacheBase::hash_seed_
   const uint32_t& hash_seed_;
@@ -517,10 +534,12 @@ class FixedHyperClockTable : public BaseClockTable {
     inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
-  struct Opts {
-    explicit Opts(size_t _estimated_value_size)
-        : estimated_value_size(_estimated_value_size) {}
-    explicit Opts(const HyperClockCacheOptions& opts) {
+  struct Opts : public BaseOpts {
+    explicit Opts(size_t _estimated_value_size, int _eviction_effort_cap)
+        : BaseOpts(_eviction_effort_cap),
+          estimated_value_size(_estimated_value_size) {}
+    explicit Opts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {
       assert(opts.estimated_entry_charge > 0);
       estimated_value_size = opts.estimated_entry_charge;
     }
@@ -803,11 +822,13 @@ class AutoHyperClockTable : public BaseClockTable {
     }
   };  // struct HandleImpl
 
-  struct Opts {
-    explicit Opts(size_t _min_avg_value_size)
-        : min_avg_value_size(_min_avg_value_size) {}
+  struct Opts : public BaseOpts {
+    explicit Opts(size_t _min_avg_value_size, int _eviction_effort_cap)
+        : BaseOpts(_eviction_effort_cap),
+          min_avg_value_size(_min_avg_value_size) {}
 
-    explicit Opts(const HyperClockCacheOptions& opts) {
+    explicit Opts(const HyperClockCacheOptions& opts)
+        : BaseOpts(opts.eviction_effort_cap) {
       assert(opts.estimated_entry_charge == 0);
       min_avg_value_size = opts.min_avg_entry_charge;
     }
@@ -906,7 +927,8 @@ class AutoHyperClockTable : public BaseClockTable {
   // with proper handling to ensure all existing data is seen even in the
   // presence of concurrent insertions, etc. (See implementation.)
   template <class OpData>
-  void PurgeImpl(OpData* op_data, size_t home = SIZE_MAX);
+  void PurgeImpl(OpData* op_data, size_t home = SIZE_MAX,
+                 EvictionData* data = nullptr);
 
   // An RAII wrapper for locking a chain of entries for removals. See
   // implementation.
@@ -916,7 +938,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // implementation.
   template <class OpData>
   void PurgeImplLocked(OpData* op_data, ChainRewriteLock& rewrite_lock,
-                       size_t home);
+                       size_t home, EvictionData* data);
 
   // Update length_info_ as much as possible without waiting, given a known
   // usable (ready for inserts and lookups) grow_home. (Previous grow_homes
