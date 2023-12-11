@@ -8,10 +8,12 @@ package org.rocksdb;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Function;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -181,8 +183,10 @@ public abstract class AbstractTransactionTest {
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
     }
   }
@@ -198,6 +202,135 @@ public abstract class AbstractTransactionTest {
       txn.put(k1, v1);
       assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
     }
+  }
+
+  @Test
+  public void getPutTargetBuffer_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final byte[] target = "overwrite1".getBytes(UTF_8);
+      GetStatus status = txn.get(readOptions, testCf, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.NotFound);
+      assertThat(status.requiredSize).isEqualTo(0);
+      txn.put(testCf, k1, v1);
+      status = txn.get(readOptions, testCf, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(status.requiredSize).isEqualTo(v1.length);
+      assertThat(target).isEqualTo("value1ite1".getBytes());
+    }
+  }
+
+  @Test
+  public void getPutTargetBuffer() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final byte[] target = "overwrite1".getBytes(UTF_8);
+      GetStatus status = txn.get(readOptions, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.NotFound);
+      assertThat(status.requiredSize).isEqualTo(0);
+      txn.put(k1, v1);
+      status = txn.get(readOptions, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(status.requiredSize).isEqualTo(v1.length);
+      assertThat(target).isEqualTo("value1ite1".getBytes());
+    }
+  }
+
+  public void getPutByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws RocksDBException {
+    final ByteBuffer k1 = allocateBuffer.apply(100).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = allocateBuffer.apply(100).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer vEmpty = allocateBuffer.apply(0);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer vGet = allocateBuffer.apply(100);
+      assertThat(txn.get(readOptions, k1, vGet).status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(k1, v1);
+
+      final GetStatus getStatusError = txn.get(readOptions, k1, vEmpty);
+      assertThat(getStatusError.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatusError.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+      assertThat(vEmpty.position()).isEqualTo(0);
+      assertThat(vEmpty.remaining()).isEqualTo(0);
+
+      vGet.put("12345".getBytes(UTF_8));
+
+      final GetStatus getStatus = txn.get(readOptions, k1, vGet);
+      assertThat(getStatusError.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatusError.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+
+      vGet.put("67890".getBytes(UTF_8));
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
+    }
+  }
+
+  @Test
+  public void getPutDirectByteBuffer() throws RocksDBException {
+    getPutByteBuffer(ByteBuffer::allocateDirect);
+  }
+
+  @Test
+  public void getPutIndirectByteBuffer() throws RocksDBException {
+    getPutByteBuffer(ByteBuffer::allocate);
+  }
+
+  public void getPutByteBuffer_cf(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws RocksDBException {
+    final ByteBuffer k1 = allocateBuffer.apply(100).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = allocateBuffer.apply(100).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer vEmpty = allocateBuffer.apply(0);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final ByteBuffer vGet = allocateBuffer.apply(100);
+      assertThat(txn.get(readOptions, testCf, k1, vGet).status.getCode())
+          .isEqualTo(Status.Code.NotFound);
+      txn.put(testCf, k1, v1);
+
+      final GetStatus getStatusError = txn.get(readOptions, testCf, k1, vEmpty);
+      assertThat(getStatusError.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatusError.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+      assertThat(vEmpty.position()).isEqualTo(0);
+      assertThat(vEmpty.remaining()).isEqualTo(0);
+
+      vGet.put("12345".getBytes(UTF_8));
+      final GetStatus getStatus = txn.get(readOptions, testCf, k1, vGet);
+      assertThat(getStatus.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatus.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+      vGet.put("67890".getBytes(UTF_8));
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
+    }
+  }
+
+  @Test
+  public void getPutDirectByteBuffer_cf() throws RocksDBException {
+    getPutByteBuffer_cf(ByteBuffer::allocateDirect);
+  }
+
+  @Test
+  public void getPutIndirectByteBuffer_cf() throws RocksDBException {
+    getPutByteBuffer_cf(ByteBuffer::allocate);
   }
 
   @Test
@@ -297,6 +430,162 @@ public abstract class AbstractTransactionTest {
       assertThat(txn.getForUpdate(readOptions, k1, true)).isNull();
       txn.put(k1, v1);
       assertThat(txn.getForUpdate(readOptions, k1, true)).isEqualTo(v1);
+    }
+  }
+
+  @Test
+  public void getForUpdateByteArray_cf_doValidate() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final byte[] vNonExistent = new byte[1];
+      final GetStatus sNonExistent =
+          txn.getForUpdate(readOptions, testCf, k1, vNonExistent, true, true);
+      assertThat(sNonExistent.status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(testCf, k1, v1);
+      final byte[] vPartial = new byte[4];
+      final GetStatus sPartial = txn.getForUpdate(readOptions, testCf, k1, vPartial, true, true);
+      assertThat(sPartial.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sPartial.requiredSize).isEqualTo(v1.length);
+      assertThat(vPartial).isEqualTo(Arrays.copyOfRange(v1, 0, vPartial.length));
+
+      final byte[] vTotal = new byte[sPartial.requiredSize];
+      final GetStatus sTotal = txn.getForUpdate(readOptions, testCf, k1, vTotal, true, true);
+      assertThat(sTotal.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sTotal.requiredSize).isEqualTo(v1.length);
+      assertThat(vTotal).isEqualTo(v1);
+    }
+  }
+
+  public void getForUpdateByteArray_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final byte[] vNonExistent = new byte[1];
+      final GetStatus sNonExistent = txn.getForUpdate(readOptions, testCf, k1, vNonExistent, true);
+      assertThat(sNonExistent.status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(testCf, k1, v1);
+      final byte[] vPartial = new byte[4];
+      final GetStatus sPartial = txn.getForUpdate(readOptions, testCf, k1, vPartial, true);
+      assertThat(sPartial.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sPartial.requiredSize).isEqualTo(v1.length);
+      assertThat(vPartial).isEqualTo(Arrays.copyOfRange(v1, 0, vPartial.length));
+
+      final byte[] vTotal = new byte[sPartial.requiredSize];
+      final GetStatus sTotal = txn.getForUpdate(readOptions, testCf, k1, vTotal, true);
+      assertThat(sTotal.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sTotal.requiredSize).isEqualTo(v1.length);
+      assertThat(vTotal).isEqualTo(v1);
+    }
+  }
+
+  @Test
+  public void getForUpdateByteArray() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final byte[] vNonExistent = new byte[1];
+      final GetStatus sNonExistent = txn.getForUpdate(readOptions, k1, vNonExistent, true);
+      assertThat(sNonExistent.status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(k1, v1);
+      final byte[] vPartial = new byte[4];
+      final GetStatus sPartial = txn.getForUpdate(readOptions, k1, vPartial, true);
+      assertThat(sPartial.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sPartial.requiredSize).isEqualTo(v1.length);
+      assertThat(vPartial).isEqualTo(Arrays.copyOfRange(v1, 0, vPartial.length));
+
+      final byte[] vTotal = new byte[sPartial.requiredSize];
+      final GetStatus sTotal = txn.getForUpdate(readOptions, k1, vTotal, true);
+      assertThat(sTotal.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(sTotal.requiredSize).isEqualTo(v1.length);
+      assertThat(vTotal).isEqualTo(v1);
+    }
+  }
+
+  @Test
+  public void getForUpdateDirectByteBuffer() throws Exception {
+    getForUpdateByteBuffer(ByteBuffer::allocateDirect);
+  }
+
+  @Test
+  public void getForUpdateIndirectByteBuffer() throws Exception {
+    getForUpdateByteBuffer(ByteBuffer::allocate);
+  }
+
+  public void getForUpdateByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws Exception {
+    final ByteBuffer k1 = allocateBuffer.apply(20).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = allocateBuffer.apply(20).put("value1".getBytes(UTF_8));
+    v1.flip();
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer v1Read1 = allocateBuffer.apply(20);
+      final GetStatus getStatus1 = txn.getForUpdate(readOptions, k1, v1Read1, true);
+      assertThat(getStatus1.status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(k1, v1);
+      final ByteBuffer v1Read2 = allocateBuffer.apply(20);
+      final GetStatus getStatus2 = txn.getForUpdate(readOptions, k1, v1Read2, true);
+      assertThat(getStatus2.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatus2.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+      assertThat(v1Read2).isEqualTo(allocateBuffer.apply(20).put("value1".getBytes(UTF_8)));
+    }
+  }
+
+  @Test
+  public void getForUpdateDirectByteBuffer_cf() throws Exception {
+    getForUpdateByteBuffer_cf(ByteBuffer::allocateDirect);
+  }
+
+  @Test
+  public void getForUpdateIndirectByteBuffer_cf() throws Exception {
+    getForUpdateByteBuffer_cf(ByteBuffer::allocate);
+  }
+
+  public void getForUpdateByteBuffer_cf(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws Exception {
+    final ByteBuffer k1 = allocateBuffer.apply(20).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = allocateBuffer.apply(20).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer k2 = allocateBuffer.apply(20).put("key2".getBytes(UTF_8));
+    k2.flip();
+    final ByteBuffer v2 = allocateBuffer.apply(20).put("value2".getBytes(UTF_8));
+    v2.flip();
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final ByteBuffer v1Read1 = allocateBuffer.apply(20);
+      final GetStatus getStatus1 = txn.getForUpdate(readOptions, testCf, k1, v1Read1, true);
+      assertThat(getStatus1.status.getCode()).isEqualTo(Status.Code.NotFound);
+      txn.put(k1, v1);
+      k1.flip();
+      v1.flip();
+      txn.put(testCf, k2, v2);
+      k2.flip();
+      v2.flip();
+      final ByteBuffer v1Read2 = allocateBuffer.apply(20);
+      final GetStatus getStatus2 = txn.getForUpdate(readOptions, testCf, k1, v1Read2, true);
+      assertThat(getStatus2.status.getCode()).isEqualTo(Status.Code.NotFound);
+      k1.flip();
+      txn.put(testCf, k1, v1);
+      k1.flip();
+      v1.flip();
+      final ByteBuffer v1Read3 = allocateBuffer.apply(20);
+      final GetStatus getStatus3 = txn.getForUpdate(readOptions, testCf, k1, v1Read3, true);
+      assertThat(getStatus3.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(getStatus3.requiredSize).isEqualTo("value1".getBytes(UTF_8).length);
+      assertThat(v1Read3).isEqualTo(allocateBuffer.apply(20).put("value1".getBytes(UTF_8)));
     }
   }
 
@@ -401,6 +690,13 @@ public abstract class AbstractTransactionTest {
         assertThat(iterator.key()).isEqualTo(k1);
         assertThat(iterator.value()).isEqualTo(v1);
       }
+
+      try (final RocksIterator iterator = txn.getIterator()) {
+        iterator.seek(k1);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo(k1);
+        assertThat(iterator.value()).isEqualTo(v1);
+      }
     }
   }
 
@@ -422,6 +718,13 @@ public abstract class AbstractTransactionTest {
         assertThat(iterator.key()).isEqualTo(k1);
         assertThat(iterator.value()).isEqualTo(v1);
       }
+
+      try (final RocksIterator iterator = txn.getIterator(testCf)) {
+        iterator.seek(k1);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo(k1);
+        assertThat(iterator.value()).isEqualTo(v1);
+      }
     }
   }
 
@@ -429,11 +732,15 @@ public abstract class AbstractTransactionTest {
   public void merge_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
-      txn.merge(testCf, k1, v1);
+      txn.put(testCf, k1, v1);
+      txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, k1)).isEqualTo("value1**value2".getBytes());
+      assertThat(txn.get(testCf, new ReadOptions(), k1)).isEqualTo("value1**value2".getBytes());
     }
   }
 
@@ -441,13 +748,94 @@ public abstract class AbstractTransactionTest {
   public void merge() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
-    try(final DBContainer dbContainer = startDb();
-        final Transaction txn = dbContainer.beginTransaction()) {
-      txn.merge(k1, v1);
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      txn.put(k1, v1);
+      txn.merge(k1, v2);
+      assertThat(txn.get(new ReadOptions(), k1)).isEqualTo("value1++value2".getBytes());
     }
   }
 
+  @Test
+  public void mergeDirectByteBuffer() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(100).put("key1".getBytes(UTF_8));
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(100).put("value1".getBytes(UTF_8));
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(100).put("value2".getBytes(UTF_8));
+    k1.flip();
+    v1.flip();
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      txn.put(k1, v1);
+      k1.flip();
+      v1.flip();
+      txn.merge(k1, v2);
+      assertThat(txn.get(new ReadOptions(), "key1".getBytes(UTF_8)))
+          .isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  public void mergeIndirectByteBuffer() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocate(100).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = ByteBuffer.allocate(100).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer v2 = ByteBuffer.allocate(100).put("value2".getBytes(UTF_8));
+    v2.flip();
+
+    try(final DBContainer dbContainer = startDb();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      txn.put(k1, v1);
+      txn.merge(k1, v2);
+      assertThat(txn.get(new ReadOptions(), "key1".getBytes(UTF_8)))
+          .isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  @Test
+  public void mergeDirectByteBuffer_cf() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(100).put("key1".getBytes(UTF_8));
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(100).put("value1".getBytes(UTF_8));
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(100).put("value2".getBytes(UTF_8));
+    k1.flip();
+    v1.flip();
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      txn.put(testCf, k1, v1);
+      k1.flip();
+      v1.flip();
+      txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
+      assertThat(txn.get(testCf, new ReadOptions(), "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
+    }
+  }
+  public void mergeIndirectByteBuffer_cf() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocate(100).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = ByteBuffer.allocate(100).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer v2 = ByteBuffer.allocate(100).put("value2".getBytes(UTF_8));
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      txn.put(testCf, k1, v1);
+      txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
+      assertThat(txn.get(testCf, new ReadOptions(), "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
+    }
+  }
 
   @Test
   public void delete_cf() throws RocksDBException {
@@ -459,9 +847,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
 
       txn.delete(testCf, k1);
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
     }
   }
@@ -495,11 +885,12 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, keyParts, valueParts);
       assertThat(txn.get(testCf, readOptions, key)).isEqualTo(value);
+      assertThat(txn.get(readOptions, testCf, key)).isEqualTo(value);
 
       txn.delete(testCf, keyParts);
 
-      assertThat(txn.get(testCf, readOptions, key))
-          .isNull();
+      assertThat(txn.get(readOptions, testCf, key)).isNull();
+      assertThat(txn.get(testCf, readOptions, key)).isNull();
     }
   }
 
@@ -532,8 +923,10 @@ public abstract class AbstractTransactionTest {
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
       txn.putUntracked(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
     }
   }
@@ -628,11 +1021,19 @@ public abstract class AbstractTransactionTest {
   public void mergeUntracked_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.mergeUntracked(testCf, k1, v1);
+      txn.mergeUntracked(testCf, k1, v2);
+      txn.commit();
+    }
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(new ReadOptions(), testCf, k1)).isEqualTo("value1**value2".getBytes());
     }
   }
 
@@ -640,10 +1041,89 @@ public abstract class AbstractTransactionTest {
   public void mergeUntracked() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.mergeUntracked(k1, v1);
+      txn.mergeUntracked(k1, v2);
+      txn.commit();
+    }
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      assertThat(txn.get(new ReadOptions(), k1)).isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  @Test
+  public void mergeUntrackedByteBuffer() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(20).put("key1".getBytes(UTF_8));
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(20).put("value1".getBytes(UTF_8));
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(20).put("value2".getBytes(UTF_8));
+    k1.flip();
+    v1.flip();
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      txn.mergeUntracked(k1, v1);
+      k1.flip();
+      v1.flip();
+      txn.mergeUntracked(k1, v2);
+      k1.flip();
+      v2.flip();
+      txn.commit();
+    }
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer v = ByteBuffer.allocateDirect(20);
+      final GetStatus status = txn.get(new ReadOptions(), k1, v);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      k1.flip();
+      v.flip();
+      final int expectedLength = "value1++value2".length();
+      assertThat(v.remaining()).isEqualTo(expectedLength);
+      final byte[] vBytes = new byte[expectedLength];
+      v.get(vBytes);
+      assertThat(vBytes).isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  @Test
+  public void mergeUntrackedByteBuffer_cf() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(20).put("key1".getBytes(UTF_8));
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(20).put("value1".getBytes(UTF_8));
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(20).put("value2".getBytes(UTF_8));
+    k1.flip();
+    v1.flip();
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      txn.mergeUntracked(testCf, k1, v1);
+      k1.flip();
+      v1.flip();
+      txn.mergeUntracked(testCf, k1, v2);
+      k1.flip();
+      v2.flip();
+      txn.commit();
+    }
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer v = ByteBuffer.allocateDirect(20);
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final GetStatus status = txn.get(new ReadOptions(), testCf, k1, v);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      k1.flip();
+      v.flip();
+      final int expectedLength = "value1++value2".length();
+      assertThat(v.remaining()).isEqualTo(expectedLength);
+      final byte[] vBytes = new byte[expectedLength];
+      v.get(vBytes);
+      assertThat(vBytes).isEqualTo("value1**value2".getBytes());
     }
   }
 
@@ -657,9 +1137,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
 
       txn.deleteUntracked(testCf, k1);
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
     }
   }
@@ -692,9 +1174,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, keyParts, valueParts);
+      assertThat(txn.get(readOptions, testCf, key)).isEqualTo(value);
       assertThat(txn.get(testCf, readOptions, key)).isEqualTo(value);
 
       txn.deleteUntracked(testCf, keyParts);
+      assertThat(txn.get(readOptions, testCf, key)).isNull();
       assertThat(txn.get(testCf, readOptions, key)).isNull();
     }
   }

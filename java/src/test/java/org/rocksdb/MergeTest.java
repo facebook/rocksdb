@@ -45,14 +45,14 @@ public class MergeTest {
     }
   }
 
-  private byte[] longToByteArray(final long l) {
+  static byte[] longToByteArray(final long l) {
     final ByteBuffer buf =
         ByteBuffer.allocate(Long.SIZE / Byte.SIZE).order(ByteOrder.LITTLE_ENDIAN);
     buf.putLong(l);
     return buf.array();
   }
 
-  private long longFromByteArray(final byte[] a) {
+  static long longFromByteArray(final byte[] a) {
     final ByteBuffer buf =
         ByteBuffer.allocate(Long.SIZE / Byte.SIZE).order(ByteOrder.LITTLE_ENDIAN);
     buf.put(a);

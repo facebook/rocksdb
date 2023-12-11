@@ -14,6 +14,7 @@
 
 #include "include/org_rocksdb_Transaction.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 
 #if defined(_MSC_VER)
@@ -158,90 +159,113 @@ typedef std::function<ROCKSDB_NAMESPACE::Status(
     std::string*)>
     FnGet;
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
-                          const jlong& jread_options_handle,
-                          const jbyteArray& jkey, const jint& jkey_part_len) {
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
-                                     jkey_part_len);
-
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  std::string value;
-  ROCKSDB_NAMESPACE::Status s = fn_get(*read_options, key_slice, &value);
-
-  // trigger java unref on key.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
-  if (s.IsNotFound()) {
-    return nullptr;
-  }
-
-  if (s.ok()) {
-    jbyteArray jret_value = env->NewByteArray(static_cast<jsize>(value.size()));
-    if (jret_value == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-    env->SetByteArrayRegion(
-        jret_value, 0, static_cast<jsize>(value.size()),
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      return nullptr;
-    }
-    return jret_value;
-  }
-
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  return nullptr;
-}
-
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    get
- * Signature: (JJ[BIJ)[B
+ * Signature: (JJ[BIIJ)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIJ(
+jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle) {
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len,
+    jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnGet fn_get =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
-          &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
-          column_family_handle, std::placeholders::_2, std::placeholders::_3);
-  return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, column_family_handle, key.slice(),
+                      &value.pinnable_slice()));
+    return value.NewByteArray();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
 }
 
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    get
- * Signature: (JJ[BI)[B
+ * Signature: (JJ[BII)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BI(
+jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BII(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len) {
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
-          &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
-          std::placeholders::_2, std::placeholders::_3);
-  return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, key.slice(), &value.pinnable_slice()));
+    return value.NewByteArray();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    get
+ * Signature: (JJ[BII[BIIJ)I
+ */
+jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
+    jint jval_off, jint jval_part_len, jlong jcolumn_family_handle) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_part_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, column_family_handle, key.slice(),
+                      &value.pinnable_slice()));
+    return value.Fetch();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)I
+ */
+jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
+                                            jlong jread_options_handle,
+                                            jobject jkey_bb, jint jkey_off,
+                                            jint jkey_part_len, jobject jval_bb,
+                                            jint jval_off, jint jval_part_len,
+                                            jlong jcolumn_family_handle) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
+                                              jkey_part_len);
+    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
+                                                        jval_part_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, column_family_handle, key.slice(),
+                      &value.pinnable_slice()));
+    return value.Fetch();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
 }
 
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
@@ -428,47 +452,91 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getForUpdate
- * Signature: (JJ[BIJZZ)[B
+ * Signature: (JJ[BIIJZZ)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
+jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIIJZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle,
-    jboolean jexclusive, jboolean jdo_validate) {
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len,
+    jlong jcolumn_family_handle, jboolean jexclusive, jboolean jdo_validate) {
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get_for_update =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, column_family_handle, std::placeholders::_2,
-          std::placeholders::_3, jexclusive, jdo_validate);
-  return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
-                        jkey_part_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
+                          &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.NewByteArray();
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
 }
 
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getForUpdate
- * Signature: (JJ[BIZZ)[B
+ * Signature: (JJ[BII[BIIJZZ)I
  */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
+jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len, jboolean jexclusive,
-    jboolean jdo_validate) {
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
+    jint jval_off, jint jval_len, jlong jcolumn_family_handle,
+    jboolean jexclusive, jboolean jdo_validate) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get_for_update =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-          jexclusive, jdo_validate);
-  return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
-                        jkey_part_len);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                     jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
+                          &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.Fetch();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getDirectForUpdate
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZZ)I
+ */
+jint Java_org_rocksdb_Transaction_getDirectForUpdate(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
+    jobject jkey_bb, jint jkey_off, jint jkey_part_len, jobject jval_bb,
+    jint jval_off, jint jval_len, jlong jcolumn_family_handle,
+    jboolean jexclusive, jboolean jdo_validate) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
+                                              jkey_part_len);
+    ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
+                                                        jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
+                          &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.Fetch();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
 }
 
 /*
@@ -522,26 +590,12 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getIterator
- * Signature: (JJ)J
- */
-jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle,
-                                                   jlong jread_options_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return GET_CPLUSPLUS_POINTER(txn->GetIterator(*read_options));
-}
-
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    getIterator
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jread_options_handle, jlong jcolumn_family_handle) {
+jlong Java_org_rocksdb_Transaction_getIterator(JNIEnv* /*env*/,
+                                               jobject /*jobj*/, jlong jhandle,
+                                               jlong jread_options_handle,
+                                               jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
@@ -552,84 +606,93 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
       txn->GetIterator(*read_options, column_family_handle));
 }
 
-typedef std::function<ROCKSDB_NAMESPACE::Status(
-    const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>
-    FnWriteKV;
-
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-void txn_write_kv_helper(JNIEnv* env, const FnWriteKV& fn_write_kv,
-                         const jbyteArray& jkey, const jint& jkey_part_len,
-                         const jbyteArray& jval, const jint& jval_len) {
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    put
+ * Signature: (J[BII[BIIJZ)V
+ */
+void Java_org_rocksdb_Transaction_put__J_3BII_3BIIJZ(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(column_family_handle, key.slice(), value.slice(),
+                      jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
     return;
   }
-  jbyte* value = env->GetByteArrayElements(jval, nullptr);
-  if (value == nullptr) {
-    // exception thrown: OutOfMemoryError
-    env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-    return;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
-                                     jkey_part_len);
-  ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value),
-                                       jval_len);
-
-  ROCKSDB_NAMESPACE::Status s = fn_write_kv(key_slice, value_slice);
-
-  // trigger java unref on key.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jval, value, JNI_ABORT);
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
-  if (s.ok()) {
-    return;
-  }
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    put
- * Signature: (J[BI[BIJZ)V
+ * Signature: (J[BII[BII)V
  */
-void Java_org_rocksdb_Transaction_put__J_3BI_3BIJZ(
+void Java_org_rocksdb_Transaction_put__J_3BII_3BII(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len,
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    putDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZ)V
+ */
+void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2IIJZ(
+    JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
+    jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len,
     jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_put =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
-          bool)>(&ROCKSDB_NAMESPACE::Transaction::Put, txn,
-                 column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
-  txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(column_family_handle, key.slice(), value.slice(),
+                      jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
  * Class:     org_rocksdb_Transaction
- * Method:    put
- * Signature: (J[BI[BI)V
+ * Method:    putDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
  */
-void Java_org_rocksdb_Transaction_put__J_3BI_3BI(JNIEnv* env, jobject /*jobj*/,
-                                                 jlong jhandle, jbyteArray jkey,
-                                                 jint jkey_part_len,
-                                                 jbyteArray jval,
-                                                 jint jval_len) {
+void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2II(
+    JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
+    jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_put =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
-          std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -780,41 +843,92 @@ void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BI(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    merge
- * Signature: (J[BI[BIJZ)V
+ * Signature: (J[BII[BIIJZ)V
  */
-void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJZ(
+void Java_org_rocksdb_Transaction_merge__J_3BII_3BIIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len,
-    jlong jcolumn_family_handle, jboolean jassume_tracked) {
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_merge =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
-          bool)>(&ROCKSDB_NAMESPACE::Transaction::Merge, txn,
-                 column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
-  txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(column_family_handle, key.slice(), value.slice(),
+                        jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    merge
- * Signature: (J[BI[BI)V
+ * Signature: (J[BII[BII)V
  */
-void Java_org_rocksdb_Transaction_merge__J_3BI_3BI(
+void Java_org_rocksdb_Transaction_merge__J_3BII_3BII(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len) {
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_merge =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::Merge, txn, std::placeholders::_1,
-          std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    mergeDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZ)V
+ */
+JNIEXPORT void JNICALL
+Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2IIJZ(
+    JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
+    jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len,
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(column_family_handle, key.slice(), value.slice(),
+                        jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    mergeDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ */
+JNIEXPORT void JNICALL
+Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2II(
+    JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
+    jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -1065,14 +1179,15 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_put_untracked =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->PutUntracked(column_family_handle, key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -1084,13 +1199,14 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_put_untracked =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
-          std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->PutUntracked(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -1137,42 +1253,50 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BI(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    mergeUntracked
- * Signature: (J[BI[BIJ)V
+ * Signature: (J[BII[BIIJ)V
  */
-void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
+void Java_org_rocksdb_Transaction_mergeUntracked(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len,
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len, jlong jcolumn_family_handle) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->MergeUntracked(column_family_handle, key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    mergeUntrackedDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_Transaction_mergeUntrackedDirect(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobject jkey, jint jkey_off,
+    jint jkey_part_len, jobject jval, jint jval_off, jint jval_len,
     jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_merge_untracked =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
-}
-
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    mergeUntracked
- * Signature: (J[BI[BI)V
- */
-void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
-    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_merge_untracked =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
-          std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_off,
+                                              jkey_part_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->MergeUntracked(column_family_handle, key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
