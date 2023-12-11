@@ -7,7 +7,7 @@
   6 Deprecated `get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions, byte[])` in favour of `get(final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle, byte[])` which has consistent parameter ordering with other methods in the same class
   7 Added `Transaction.get( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
   8 Added `Transaction.get( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
- 9 Added `Transaction.getForUpdate( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
+  9 Added `Transaction.getForUpdate( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
   10 Added `Transaction.getForUpdate( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
   11 Added `Transaction.getIterator()` method as a convenience which defaults the `ReadOptions` value supplied to existing `Transaction.iterator()` methods. This mirrors the existing `RocksDB.iterator()` method.
   12 Added `Transaction.put( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written in a `ByteBuffer` parameter
