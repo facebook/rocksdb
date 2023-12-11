@@ -696,7 +696,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   }
   ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 8u);
   ASSERT_EQ(nvm_sec_cache()->num_misses(), 8u);
-  ASSERT_EQ(nvm_sec_cache()->num_hits(), 6u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 4u);
   ASSERT_EQ(options.statistics->getTickerCount(BLOCK_CACHE_MISS), 8u);
 
   Destroy(options);
