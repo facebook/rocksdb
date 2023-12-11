@@ -212,7 +212,7 @@ class DBTieredSecondaryCacheTest : public DBTestBase {
 
   void ClearPrimaryCache() {
     ASSERT_EQ(UpdateTieredCache(cache_, -1, 1.0), Status::OK());
-    ASSERT_EQ(UpdateTieredCache(cache_, compressed_secondary_ratio_),
+    ASSERT_EQ(UpdateTieredCache(cache_, -1, compressed_secondary_ratio_),
               Status::OK());
   }
 
