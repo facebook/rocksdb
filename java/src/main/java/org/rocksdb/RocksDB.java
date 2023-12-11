@@ -33,10 +33,6 @@ public class RocksDB extends RocksObject {
   private static final AtomicReference<LibraryState> libraryLoaded =
       new AtomicReference<>(LibraryState.NOT_LOADED);
 
-  static {
-    RocksDB.loadLibrary();
-  }
-
   static final String PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD =
       "Performance optimization for a very specific workload";
 
