@@ -454,22 +454,12 @@ blob_params = {
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
 }
 
-# To ensure value for flag `persist_user_defined_timestamps` are consistent
-# through multiple stress test runs.
-class PersistUserDefinedTimestampsInitializer:
-    _initialized = False
-    _persist_udt = 0
-    def __call__(self):
-        if not PersistUserDefinedTimestampsInitializer._initialized:
-            PersistUserDefinedTimestampsInitializer._persist_udt = random.choice([0, 1, 1])
-            PersistUserDefinedTimestampsInitializer._initialized = True
-        return PersistUserDefinedTimestampsInitializer._persist_udt
-
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
-    "persist_user_defined_timestamps": PersistUserDefinedTimestampsInitializer(),
+    # Below flag is randomly picked once and kept consistent in following runs.
+    "persist_user_defined_timestamps": random.choice([0, 1, 1]),
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
@@ -562,7 +552,6 @@ multiops_wp_txn_params = {
     "clear_wp_commit_cache_one_in": 10,
     "create_timestamped_snapshot_one_in": 0,
 }
-
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}

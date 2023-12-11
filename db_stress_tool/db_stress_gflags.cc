@@ -1026,8 +1026,8 @@ DEFINE_uint64(user_timestamp_size, 0,
               "8-byte is supported");
 
 DEFINE_bool(persist_user_defined_timestamps, true,
-            "Flag to indicate whether user-defined timestamps will be stripped"
-            "during Flush");
+            "Flag to indicate whether user-defined timestamps will be persisted"
+            " during Flush");
 
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
