@@ -499,6 +499,10 @@ enum TieredAdmissionPolicy {
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
 struct TieredCacheOptions {
+  // This should point to an instance of either LRUCacheOptions or
+  // HyperClockCacheOptions, depending on the cache_type. In either
+  // case, the capacity and secondary_cache fields in those options
+  // should not be set. If set, they will be ignored by NewTieredCache.
   ShardedCacheOptions* cache_opts = nullptr;
   PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
   TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
