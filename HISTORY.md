@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.9.2 (12/12/2023)
+### Bug Fixes
+* A lookup by MultiGet in a TieredCache that goes to the local flash cache and finishes with very low latency, i.e before the subsequent call to WaitAll, is ignored, resulting in a false negative and a memory leak.
+* Sanitize the cache_opts->secondary_cache field in TieredCacheOptions. It can be mistakenly set by the user, which would conflict with nvm_sec_cache in TieredCacheOptions if not sanitized to nullptr.
+
 ## 8.9.1 (12/8/2023)
 ### Bug Fixes
 * Avoid destroying the periodic task scheduler's default timer in order to prevent static destruction order issues.
