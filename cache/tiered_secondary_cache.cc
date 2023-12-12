@@ -109,10 +109,8 @@ void TieredSecondaryCache::WaitAll(
   }
   nvm_sec_cache_->WaitAll(nvm_handles);
   for (auto handle : my_handles) {
-    assert(handle->IsReady());
-    auto nvm_handle = handle->inner_handle();
-    handle->SetSize(nvm_handle->Size());
-    handle->SetValue(nvm_handle->Value());
+    assert(handle->inner_handle()->IsReady());
+    handle->Complete();
   }
 }
 
