@@ -123,7 +123,7 @@ void partitioned_counters_destroy(void);
 // Effect: Destroy any partitioned counters data structures.
 
 #if defined(__cplusplus)
-};
+}
 #endif
 
 #if 0

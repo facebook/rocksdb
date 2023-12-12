@@ -32,6 +32,11 @@ struct IOOptions;
 class RandomAccessFileReader;
 
 struct BufferInfo {
+  void ClearBuffer() {
+    buffer_.Clear();
+    initial_end_offset_ = 0;
+  }
+
   AlignedBuffer buffer_;
 
   uint64_t offset_ = 0;
@@ -52,6 +57,18 @@ struct BufferInfo {
 
   // pos represents the index of this buffer in vector of BufferInfo.
   uint32_t pos_ = 0;
+
+  // initial_end_offset is used to keep track of the end offset of the buffer
+  // that was originally called. It's helpful in case of autotuning of readahead
+  // size when callback is made to BlockBasedTableIterator.
+  // initial end offset of this buffer which will be the starting
+  // offset of next prefetch.
+  //
+  // For example - if end offset of previous buffer was 100 and because of
+  // readahead_size optimization, end_offset was trimmed to 60. Then for next
+  // prefetch call, start_offset should be intialized to 100 i.e  start_offset =
+  // buf->initial_end_offset_.
+  uint64_t initial_end_offset_ = 0;
 };
 
 enum class FilePrefetchBufferUsage {
@@ -91,7 +108,7 @@ class FilePrefetchBuffer {
       uint64_t num_file_reads_for_auto_readahead = 0,
       uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
-      const std::function<void(uint64_t, size_t, size_t&)>& cb = nullptr,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -239,9 +256,6 @@ class FilePrefetchBuffer {
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool decrease_readaheadsize) {
     if (decrease_readaheadsize) {
-      // Since this block was eligible for prefetch but it was found in
-      // cache, so check and decrease the readahead_size by 8KB (default)
-      // if eligible.
       DecreaseReadAheadIfEligible(offset, len);
     }
     prev_offset_ = offset;
@@ -287,6 +301,12 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_auto_readahead_size_;
   }
 
+  void TEST_GetBufferOffsetandSize(uint32_t index, uint64_t& offset,
+                                   size_t& len) {
+    offset = bufs_[index].offset_;
+    len = bufs_[index].buffer_.CurrentSize();
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
@@ -299,12 +319,12 @@ class FilePrefetchBuffer {
 
   void AbortAllIOs();
 
-  void UpdateBuffersIfNeeded(uint64_t offset);
+  void UpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   // It calls Poll API if any there is any pending asynchronous request. It then
   // checks if data is in any buffer. It clears the outdated data and swaps the
   // buffers if required.
-  void PollAndUpdateBuffersIfNeeded(uint64_t offset);
+  void PollAndUpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   Status PrefetchAsyncInternal(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
@@ -312,11 +332,11 @@ class FilePrefetchBuffer {
                                bool& copy_to_third_buffer);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
-              uint64_t read_len, uint64_t chunk_len, uint64_t rounddown_start,
+              uint64_t read_len, uint64_t chunk_len, uint64_t start_offset,
               uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   uint64_t read_len, uint64_t rounddown_start, uint32_t index);
+                   uint64_t read_len, uint64_t start_offset, uint32_t index);
 
   // Copy the data from src to third buffer.
   void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);
@@ -402,7 +422,7 @@ class FilePrefetchBuffer {
       return false;
     }
 
-    bufs_[second].buffer_.Clear();
+    bufs_[second].ClearBuffer();
     return true;
   }
 
@@ -451,19 +471,20 @@ class FilePrefetchBuffer {
     return false;
   }
 
-  // Performs tuning to calculate readahead_size.
-  size_t ReadAheadSizeTuning(uint64_t offset, size_t n) {
-    UpdateReadAheadSizeForUpperBound(offset, n);
+  void ReadAheadSizeTuning(bool read_curr_block, bool refit_tail,
+                           uint64_t prev_buf_end_offset, uint32_t index,
+                           size_t alignment, size_t length,
+                           size_t readahead_size, uint64_t& offset,
+                           uint64_t& end_offset, size_t& read_len,
+                           uint64_t& chunk_len);
 
-    if (readaheadsize_cb_ != nullptr && readahead_size_ > 0) {
-      size_t updated_readahead_size = 0;
-      readaheadsize_cb_(offset, readahead_size_, updated_readahead_size);
-      if (readahead_size_ != updated_readahead_size) {
-        RecordTick(stats_, READAHEAD_TRIMMED);
-      }
-      return updated_readahead_size;
+  void UpdateStats(bool found_in_buffer, size_t length_found) {
+    if (found_in_buffer) {
+      RecordTick(stats_, PREFETCH_HITS);
     }
-    return readahead_size_;
+    if (length_found > 0) {
+      RecordTick(stats_, PREFETCH_BYTES_USEFUL, length_found);
+    }
   }
 
   std::vector<BufferInfo> bufs_;
@@ -512,6 +533,6 @@ class FilePrefetchBuffer {
   // ReadOptions.auto_readahead_size are set to trim readahead_size upto
   // upper_bound_offset_ during prefetching.
   uint64_t upper_bound_offset_ = 0;
-  std::function<void(uint64_t, size_t, size_t&)> readaheadsize_cb_;
+  std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE

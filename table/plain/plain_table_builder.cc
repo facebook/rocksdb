@@ -118,9 +118,12 @@ PlainTableBuilder::PlainTableBuilder(
   for (auto& factory : *int_tbl_prop_collector_factories) {
     assert(factory);
 
-    table_properties_collectors_.emplace_back(
+    std::unique_ptr<IntTblPropCollector> collector{
         factory->CreateIntTblPropCollector(column_family_id,
-                                           level_at_creation));
+                                           level_at_creation)};
+    if (collector) {
+      table_properties_collectors_.emplace_back(std::move(collector));
+    }
   }
 }
 

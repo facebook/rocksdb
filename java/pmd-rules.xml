@@ -21,6 +21,7 @@
         <exclude name="FieldNamingConventions"/>
         <exclude name="FormalParameterNamingConventions"/>
         <exclude name="LinguisticNaming"/>
+        <exclude name="ConfusingTernary"/>
         <!-- These could be fixed if we take the time to do it -->
         <exclude name="CommentDefaultAccessModifier"/>
         <exclude name="FieldDeclarationsShouldBeAtStartOfClass"/>

@@ -16,7 +16,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
     const BlockBasedTable::Rep* rep, const BlockHandle& handle,
     const size_t readahead_size, bool is_for_compaction,
     const bool no_sequential_checking, const ReadOptions& read_options,
-    const std::function<void(uint64_t, size_t, size_t&)>& readaheadsize_cb) {
+    const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb) {
   const size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   const size_t offset = handle.offset();
   if (is_for_compaction) {

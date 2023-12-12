@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import static org.rocksdb.util.BufferUtil.CheckBounds;
+
 import java.nio.ByteBuffer;
 
 /**
@@ -47,8 +49,46 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
    * <p>REQUIRES: {@link #isValid()}</p>
    *
    * @param key the out-value to receive the retrieved key.
+   * @return The size of the actual key. If the return key is greater than
+   *     the length of the buffer {@code key}, then it indicates that the size of the
+   *     input buffer {@code key} is insufficient and partial result will
+   *     be returned.
+   */
+  public int key(final byte[] key) {
+    assert isOwningHandle();
+    return keyByteArray0(nativeHandle_, key, 0, key.length);
+  }
+
+  /**
+   * <p>Return the key for the current entry.  The underlying storage for
+   * the returned slice is valid only until the next modification of
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}</p>
+   *
+   * @param key the out-value to receive the retrieved key.
+   * @param offset in {@code key} at which to place the retrieved key
+   * @param len limit to length of received key returned
+   * @return The size of the actual key. If the return key is greater than
+   *     {@code len}, then it indicates that the size of the
+   *     input buffer {@code key} is insufficient and partial result will
+   *     be returned.
+   */
+  public int key(final byte[] key, final int offset, final int len) {
+    assert isOwningHandle();
+    CheckBounds(offset, len, key.length);
+    return keyByteArray0(nativeHandle_, key, offset, len);
+  }
+
+  /**
+   * <p>Return the key for the current entry.  The underlying storage for
+   * the returned slice is valid only until the next modification of
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}</p>
+   *
+   * @param key the out-value to receive the retrieved key.
    *     It is using position and limit. Limit is set according to key size.
-   *     Supports direct buffer only.
    * @return The size of the actual key. If the return key is greater than the
    *     length of {@code key}, then it indicates that the size of the
    *     input buffer {@code key} is insufficient and partial result will
@@ -90,7 +130,6 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
    *
    * @param value the out-value to receive the retrieved value.
    *     It is using position and limit. Limit is set according to value size.
-   *     Supports direct buffer only.
    * @return The size of the actual value. If the return value is greater than the
    *     length of {@code value}, then it indicates that the size of the
    *     input buffer {@code value} is insufficient and partial result will
@@ -108,6 +147,45 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
     }
     value.limit(Math.min(value.position() + result, value.limit()));
     return result;
+  }
+
+  /**
+   * <p>Return the value for the current entry.  The underlying storage for
+   * the returned slice is valid only until the next modification of
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}</p>
+   *
+   * @param value the out-value to receive the retrieved value.
+   * @return The size of the actual value. If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.
+   */
+  public int value(final byte[] value) {
+    assert isOwningHandle();
+    return valueByteArray0(nativeHandle_, value, 0, value.length);
+  }
+
+  /**
+   * <p>Return the value for the current entry.  The underlying storage for
+   * the returned slice is valid only until the next modification of
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}</p>
+   *
+   * @param value the out-value to receive the retrieved value.
+   * @param offset the offset within value at which to place the result
+   * @param len the length available in value after offset, for placing the result
+   * @return The size of the actual value. If the return value is greater than {@code len},
+   *     then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.
+   */
+  public int value(final byte[] value, final int offset, final int len) {
+    assert isOwningHandle();
+    CheckBounds(offset, len, value.length);
+    return valueByteArray0(nativeHandle_, value, offset, len);
   }
 
   @Override protected final native void disposeInternal(final long handle);

@@ -74,7 +74,7 @@ extern thread_local PerfContext perf_context;
 #define PERF_COUNTER_ADD(metric, value)        \
   if (perf_level >= PerfLevel::kEnableCount) { \
     perf_context.metric += value;              \
-  } \
+  }                                            \
   static_assert(true, "semicolon required")
 
 // Increase metric value
