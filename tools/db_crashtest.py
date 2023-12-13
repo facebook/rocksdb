@@ -458,6 +458,8 @@ ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
+    # Below flag is randomly picked once and kept consistent in following runs.
+    "persist_user_defined_timestamps": random.choice([0, 1, 1]),
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
@@ -550,7 +552,6 @@ multiops_wp_txn_params = {
     "clear_wp_commit_cache_one_in": 10,
     "create_timestamped_snapshot_one_in": 0,
 }
-
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
@@ -712,6 +713,28 @@ def finalize_and_sanitize(src_params):
         if (dest_params["cache_size"] <= 0
             or dest_params["db_write_buffer_size"] <= 0):
             dest_params["use_write_buffer_manager"] = 0
+    if dest_params["user_timestamp_size"] > 0 and dest_params["persist_user_defined_timestamps"] == 0:
+        # Features that are not compatible with UDT in memtable only feature.
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
+        dest_params["enable_blob_files"] = 0
+        dest_params["atomic_flush"] = 0
+        dest_params["allow_concurrent_memtable_write"] = 0
+        dest_params["block_protection_bytes_per_key"] = 0
+        # TODO(yuzhangyu): make stress test logic handle this and enable testing
+        # these APIs.
+        # These operations need to compare side to side one operation with another.
+        # It's hard to guarantee their consistency because when timestamps can be
+        # collapsed, only operations using the same SuperVersion can be consistent
+        # with each other. There is no external APIs to ensure that.
+        dest_params["use_multiget"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10);
+        dest_params["iterpercent"] = 0
+        # Only best efforts recovery test support disabling wal and
+        # disable atomic flush.
+        if dest_params["test_best_efforts_recovery"] == 0:
+          dest_params["disable_wal"] = 0
     return dest_params
 
 
