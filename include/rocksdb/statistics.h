@@ -452,15 +452,6 @@ enum Tickers : uint32_t {
   READ_ASYNC_MICROS,
   // Number of errors returned to the async read callback
   ASYNC_READ_ERROR_COUNT,
-  
-  // RocksDB-Cloud contribution begin
-
-  // Total number of files read in MultiGet operations
-  MULTIGET_SST_FILE_READ_COUNT,
-  // Number of times file reads were serialized behind other reads
-  MULTIGET_SST_SERIALIZED_FILE_READ_COUNT,
-
-  // RocksDB-Cloud contribution end
 
   TICKER_ENUM_MAX
 };

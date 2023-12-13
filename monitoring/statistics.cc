@@ -235,13 +235,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
     {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
     {READ_ASYNC_MICROS, "rocksdb.read.async.micros"},
-    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"},
-    // RocksDB-Cloud contribution begin
-    {MULTIGET_SST_FILE_READ_COUNT, "rodksdb.number.multiget.sst_file_reads"},
-    {MULTIGET_SST_SERIALIZED_FILE_READ_COUNT,
-        "rocksdb.number.multiget.sst_serialized_file_reads"}
-    // RocksDB-Cloud contribution end
-    };
+    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
