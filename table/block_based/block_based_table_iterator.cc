@@ -304,19 +304,26 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 
 void BlockBasedTableIterator::Prev() {
   if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
-    // In case of readahead_cache_lookup, db_iter calls SeekForPrev for Prev
-    // operation, to reverse the direction and disable readahead_cache_lookup.
-    // However, there can be cases SeekForPrev couldn't be called. So, It'll
-    // call SeekForPrev here in that case to point index_iter_ to the right
-    // block.
+    // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
+    // need to reseek the index_iter_ to point to current block by using
+    // block_iter_'s key.
     if (Valid()) {
-      SeekForPrev(key());
+      ResetBlockCacheLookupVar();
+      direction_ = IterDirection::kBackward;
+      Slice last_key = key();
+
+      index_iter_->Seek(last_key);
+      is_index_at_curr_block_ = true;
+
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
     }
 
     if (!Valid()) {
-      block_iter_.Invalidate(
-          Status::NotSupported("auto tuning of readahead_size in is not "
-                               "supported with Prev operation."));
+      ResetDataIter();
       return;
     }
   }
