@@ -43,6 +43,13 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+
+  // RocksDB-Cloud contribution begin
+  multiget_sst_file_read_count = other.multiget_sst_file_read_count;
+  multiget_sst_serialized_file_read_count = 
+      other.multiget_sst_serialized_file_read_count;
+  // RocksDB-Cloud contribution end
+
   secondary_cache_hit_count = other.secondary_cache_hit_count;
   compressed_sec_cache_insert_real_count =
       other.compressed_sec_cache_insert_real_count;
@@ -162,6 +169,13 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+
+  // RocksDB-Cloud contribution begin
+  multiget_sst_file_read_count = other.multiget_sst_file_read_count;
+  multiget_sst_serialized_file_read_count = 
+      other.multiget_sst_serialized_file_read_count;
+  // RocksDB-Cloud contribution end
+
   secondary_cache_hit_count = other.secondary_cache_hit_count;
   compressed_sec_cache_insert_real_count =
       other.compressed_sec_cache_insert_real_count;
@@ -283,6 +297,13 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+
+  // RocksDB-Cloud contribution begin
+  multiget_sst_file_read_count = other.multiget_sst_file_read_count;
+  multiget_sst_serialized_file_read_count = 
+      other.multiget_sst_serialized_file_read_count;
+  // RocksDB-Cloud contribution end
+
   secondary_cache_hit_count = other.secondary_cache_hit_count;
   compressed_sec_cache_insert_real_count =
       other.compressed_sec_cache_insert_real_count;
@@ -400,6 +421,12 @@ void PerfContext::Reset() {
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
+
+  // RocksDB-Cloud contribution begin
+  multiget_sst_file_read_count = 0;
+  multiget_sst_serialized_file_read_count = 0;
+  // RocksDB-Cloud contribution end
+
   secondary_cache_hit_count = 0;
   compressed_sec_cache_insert_real_count = 0;
   compressed_sec_cache_insert_dummy_count = 0;
@@ -536,6 +563,12 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
+
+  // RocksDB-Cloud contribution begin
+  PERF_CONTEXT_OUTPUT(multiget_sst_file_read_count);
+  PERF_CONTEXT_OUTPUT(multiget_sst_serialized_file_read_count);
+  // RocksDB-Cloud contribution end
+  
   PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
   PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_real_count);
   PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_dummy_count);

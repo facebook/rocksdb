@@ -2521,9 +2521,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           if (fp.GetHitFileLevel() == 0) {
             dump_stats_for_l0_file = true;
           }
+          // RocksDB-Cloud contribution begin
+          PERF_COUNTER_ADD(multiget_sst_file_read_count, 1);
+          // RocksDB-Cloud contribution end
         }
         if (s.ok()) {
           f = fp.GetNextFileInLevel();
+          // RocksDB-Cloud contribution begin
+          if (f) {
+            // We have another file to read. This implies that the read on 
+            // this file was blocked (or serialized) behind the previous read.
+            PERF_COUNTER_ADD(multiget_sst_serialized_file_read_count, 1);
+          }
+          // RocksDB-Cloud contribution end
         }
 #if USE_COROUTINES
       } else {
@@ -2567,6 +2577,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         if (mget_tasks.size() > 0) {
           RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
                      mget_tasks.size());
+          // RocksDB-Cloud contribution begin
+          PERF_COUNTER_ADD(multiget_sst_file_read_count, mget_tasks.size());
+          // RocksDB-Cloud contribution end
           // Collect all results so far
           std::vector<Status> statuses = folly::coro::blockingWait(
               folly::coro::collectAllRange(std::move(mget_tasks))
@@ -2582,6 +2595,13 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (s.ok() && fp.KeyMaySpanNextFile()) {
             f = fp.GetNextFileInLevel();
+            // RocksDB-Cloud contribution begin
+            if (f) {
+              // We couldn't read all the files in this level 'in one go'.
+              // Record the number of files that were waiting.
+              PERF_COUNTER_ADD(multiget_sst_serialized_file_read_count, 1);
+            }
+            // RocksDB-Cloud contribution end
           }
         }
 #endif  // USE_COROUTINES
@@ -2763,6 +2783,9 @@ Status Version::ProcessBatch(
                             table_handle, std::get<0>(stat->second),
                             std::get<1>(stat->second),
                             std::get<2>(stat->second));
+        // RocksDB-Cloud contribution begin
+        PERF_COUNTER_ADD(multiget_sst_file_read_count, mget_tasks.size());
+        // RocksDB-Cloud contribution end
       } else {
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, file_range, fp.GetHitFileLevel(), skip_filters,
@@ -2853,6 +2876,9 @@ Status Version::MultiGetAsync(
       if (mget_tasks.size() > 0) {
         assert(waiting.size());
         RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
+        // RocksDB-Cloud contribution begin
+        PERF_COUNTER_ADD(multiget_sst_file_read_count, mget_tasks.size());
+        // RocksDB-Cloud contribution end
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
@@ -2879,6 +2905,13 @@ Status Version::MultiGetAsync(
           // and no need to prepare the next level.
           if (!fp.GetHitFile() && !fp.GetRange().empty()) {
             fp.PrepareNextLevelForSearch();
+          } else {
+            // RocksDB-Cloud contribution begin
+            // We still need to read files in the current level despite running
+            // some rounds of coroutine parallel reads. Record the fact that 
+            // file reads were serialized.
+            PERF_COUNTER_ADD(multiget_sst_serialized_file_read_count, 1);
+            // RocksDB-Cloud contribution end
           }
         }
         to_process.swap(waiting);
