@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -378,6 +379,8 @@ class BaseClockTable {
     explicit BaseOpts(int _eviction_effort_cap)
         : eviction_effort_cap(_eviction_effort_cap) {
       eviction_effort_cap = std::max(int{1}, _eviction_effort_cap);
+      // Avoid overflow in IsEvictionEffortExceeded
+      eviction_effort_cap = std::min(INT32_MAX, eviction_effort_cap);
     }
     explicit BaseOpts(const HyperClockCacheOptions& opts)
         : BaseOpts(opts.eviction_effort_cap) {}
@@ -568,7 +571,8 @@ class FixedHyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
+             bool enforce_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -862,7 +866,8 @@ class AutoHyperClockTable : public BaseClockTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
+             bool enforce_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 

@@ -448,7 +448,8 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   }
   if (request_evict_charge > 0) {
     EvictionData data;
-    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data);
+    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data,
+                                     /*enforce_effort_cap=*/false);
     occupancy_.FetchSub(data.freed_count);
     if (LIKELY(data.freed_charge > need_evict_charge)) {
       assert(data.freed_count > 0);
@@ -514,7 +515,8 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   }
   EvictionData data;
   if (need_evict_charge > 0) {
-    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data);
+    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data,
+                                     /*enforce_effort_cap=*/true);
     // Deal with potential occupancy deficit
     if (UNLIKELY(need_evict_for_occupancy) && data.freed_count == 0) {
       assert(data.freed_charge == 0);
@@ -554,7 +556,8 @@ bool BaseClockTable::IsEvictionEffortExceeded(const EvictionData& data) const {
   // Basically checks whether the ratio of useful effort to wasted effort is
   // too low, with a start-up allowance for wasted effort before any useful
   // effort.
-  return (data.freed_count + 1) * eviction_effort_cap_ <=
+  return (data.freed_count + 1U) *
+             static_cast<uint64_t>(eviction_effort_cap_) <=
          data.seen_pinned_count;
 }
 
@@ -1091,7 +1094,8 @@ inline void FixedHyperClockTable::ReclaimEntryUsage(size_t total_charge) {
 }
 
 inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
-                                        EvictionData* data) {
+                                        EvictionData* data,
+                                        bool enforce_effort_cap) {
   // precondition
   assert(requested_charge > 0);
 
@@ -1126,7 +1130,7 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
     if (old_clock_pointer >= max_clock_pointer) {
       return;
     }
-    if (IsEvictionEffortExceeded(*data)) {
+    if (enforce_effort_cap && IsEvictionEffortExceeded(*data)) {
       return;
     }
 
@@ -2653,6 +2657,7 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         }
       } else {
         (void)op_data;
+        (void)data;
         purgeable = ((h->meta.Load() >> ClockHandle::kStateShift) &
                      ClockHandle::kStateShareableBit) == 0;
       }
@@ -3417,7 +3422,7 @@ void AutoHyperClockTable::EraseUnRefEntries() {
 }
 
 void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
-                                EvictionData* data) {
+                                EvictionData* data, bool enforce_effort_cap) {
   // precondition
   assert(requested_charge > 0);
 
@@ -3509,7 +3514,7 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
       return;
     }
 
-    if (IsEvictionEffortExceeded(*data)) {
+    if (enforce_effort_cap && IsEvictionEffortExceeded(*data)) {
       return;
     }
   }

@@ -694,37 +694,47 @@ TYPED_TEST(ClockCacheTest, ClockEvictionTest) {
 
 TYPED_TEST(ClockCacheTest, ClockEvictionEffortCapTest) {
   using HandleImpl = typename ClockCacheTest<TypeParam>::Shard::HandleImpl;
-  for (int eec : {-42, 0, 1, 10, 100, 1000}) {
-    SCOPED_TRACE("eviction_effort_cap = " + std::to_string(eec));
-    constexpr size_t kCapacity = 1000;
-    // Start with much larger capacity to ensure that we can go way over
-    // capacity without reaching table occupancy limit.
-    this->NewShard(3 * kCapacity, /*strict_capacity_limit=*/false, eec);
-    auto& shard = *this->shard_;
-    shard.SetCapacity(kCapacity);
+  for (bool strict_capacity_limit : {true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+    for (int eec : {-42, 0, 1, 10, 100, 1000}) {
+      SCOPED_TRACE("eviction_effort_cap = " + std::to_string(eec));
+      constexpr size_t kCapacity = 1000;
+      // Start with much larger capacity to ensure that we can go way over
+      // capacity without reaching table occupancy limit.
+      this->NewShard(3 * kCapacity, strict_capacity_limit, eec);
+      auto& shard = *this->shard_;
+      shard.SetCapacity(kCapacity);
 
-    // Nearly fill the cache with pinned entries, then add a bunch of
-    // non-pinned entries. eviction_effort_cap should affect how many
-    // evictable entries are present beyond the cache capacity, despite
-    // being evictable.
-    constexpr size_t kCount = kCapacity - 1;
-    std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [kCount] {} };
-    for (size_t i = 0; i < 2 * kCount; ++i) {
-      UniqueId64x2 hkey = this->CheapHash(i);
-      ASSERT_OK(shard.Insert(
-          this->TestKey(hkey), hkey, nullptr /*value*/, &kNoopCacheItemHelper,
-          1 /*charge*/, i < kCount ? &ha[i] : nullptr, Cache::Priority::LOW));
-    }
+      // Nearly fill the cache with pinned entries, then add a bunch of
+      // non-pinned entries. eviction_effort_cap should affect how many
+      // evictable entries are present beyond the cache capacity, despite
+      // being evictable.
+      constexpr size_t kCount = kCapacity - 1;
+      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [kCount] {} };
+      for (size_t i = 0; i < 2 * kCount; ++i) {
+        UniqueId64x2 hkey = this->CheapHash(i);
+        ASSERT_OK(shard.Insert(
+            this->TestKey(hkey), hkey, nullptr /*value*/, &kNoopCacheItemHelper,
+            1 /*charge*/, i < kCount ? &ha[i] : nullptr, Cache::Priority::LOW));
+      }
 
-    // Rough inverse relationship between cap and possible memory
-    // explosion, which shows up as increased table occupancy count.
-    int effective_eec = std::max(int{1}, eec) + 1;
-    EXPECT_NEAR(shard.GetOccupancyCount() * 1.0,
-                kCount * (1 + 1.4 / effective_eec),
-                kCount * (0.6 / effective_eec) + 1.0);
+      if (strict_capacity_limit) {
+        // If strict_capacity_limit is enabled, the cache will never exceed its
+        // capacity
+        EXPECT_EQ(shard.GetOccupancyCount(), kCapacity);
+      } else {
+        // Rough inverse relationship between cap and possible memory
+        // explosion, which shows up as increased table occupancy count.
+        int effective_eec = std::max(int{1}, eec) + 1;
+        EXPECT_NEAR(shard.GetOccupancyCount() * 1.0,
+                    kCount * (1 + 1.4 / effective_eec),
+                    kCount * (0.6 / effective_eec) + 1.0);
+      }
 
-    for (size_t i = 0; i < kCount; ++i) {
-      shard.Release(ha[i]);
+      for (size_t i = 0; i < kCount; ++i) {
+        shard.Release(ha[i]);
+      }
     }
   }
 }
