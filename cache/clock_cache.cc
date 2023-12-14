@@ -1132,6 +1132,7 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
       return;
     }
     if (enforce_effort_cap && IsEvictionEffortExceeded(*data)) {
+      eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
 
@@ -1518,14 +1519,20 @@ void BaseHyperClockCache<Table>::ReportProblems(
     const std::shared_ptr<Logger>& info_log) const {
   if (info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
     LoadVarianceStats slot_stats;
+    uint64_t eviction_effort_exceeded_count = 0;
     this->ForEachShard([&](const BaseHyperClockCache<Table>::Shard* shard) {
       size_t count = shard->GetTableAddressCount();
       for (size_t i = 0; i < count; ++i) {
         slot_stats.Add(IsSlotOccupied(*shard->GetTable().HandlePtr(i)));
       }
+      eviction_effort_exceeded_count +=
+          shard->GetTable().GetEvictionEffortExceededCount();
     });
     ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
                        "Slot occupancy stats: %s", slot_stats.Report().c_str());
+    ROCKS_LOG_AT_LEVEL(info_log, InfoLogLevel::DEBUG_LEVEL,
+                       "Eviction effort exceeded: %" PRIu64,
+                       eviction_effort_exceeded_count);
   }
 }
 
@@ -3516,6 +3523,7 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
     }
 
     if (enforce_effort_cap && IsEvictionEffortExceeded(*data)) {
+      eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
   }

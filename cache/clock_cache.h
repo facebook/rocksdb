@@ -421,6 +421,10 @@ class BaseClockTable {
 
   uint64_t GetYieldCount() const { return yield_count_.LoadRelaxed(); }
 
+  uint64_t GetEvictionEffortExceededCount() const {
+    return eviction_effort_exceeded_count_.LoadRelaxed();
+  }
+
   struct EvictionData {
     size_t freed_charge = 0;
     size_t freed_count = 0;
@@ -480,6 +484,11 @@ class BaseClockTable {
   // Counter for number of times we yield to wait on another thread.
   // (Relaxed: a simple stat counter.)
   RelaxedAtomic<uint64_t> yield_count_{};
+
+  // Counter for number of times eviction effort cap is exceeded.
+  // It is normal for this to occur rarely in normal operation.
+  // (Relaxed: a simple stat counter.)
+  RelaxedAtomic<uint64_t> eviction_effort_exceeded_count_{};
 
   // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
