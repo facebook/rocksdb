@@ -830,7 +830,7 @@ public class RocksDB extends RocksObject {
     final int metadataNum = metadatas.size();
     final long[] metadataHandleList = new long[metadataNum];
     for (int i = 0; i < metadataNum; i++) {
-      metadataHandleList[i] = metadatas.get(i).getNativeHandle();
+      metadataHandleList[i] = metadatas.get(i).nativeHandle_;
     }
     final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
         createColumnFamilyWithImport(nativeHandle_, columnFamilyDescriptor.getName(),

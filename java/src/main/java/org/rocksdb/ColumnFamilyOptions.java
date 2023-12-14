@@ -147,7 +147,7 @@ public class ColumnFamilyOptions
 
   @Override
   public ColumnFamilyOptions optimizeForSmallDb(final Cache cache) {
-    optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
+    optimizeForSmallDb(nativeHandle_, cache.nativeHandle_);
     return this;
   }
 
