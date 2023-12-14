@@ -105,8 +105,7 @@ class FilePrefetchBuffer {
       size_t readahead_size = 0, size_t max_readahead_size = 0,
       bool enable = true, bool track_min_offset = false,
       bool implicit_auto_readahead = false, uint64_t num_file_reads = 0,
-      uint64_t num_file_reads_for_auto_readahead = 0,
-      uint64_t upper_bound_offset = 0, FileSystem* fs = nullptr,
+      uint64_t num_file_reads_for_auto_readahead = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
       const std::function<void(bool, uint64_t&, uint64_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
@@ -127,7 +126,6 @@ class FilePrefetchBuffer {
         clock_(clock),
         stats_(stats),
         usage_(usage),
-        upper_bound_offset_(upper_bound_offset),
         readaheadsize_cb_(cb) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
@@ -296,11 +294,6 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
-  void ResetUpperBoundOffset(uint64_t upper_bound_offset) {
-    upper_bound_offset_ = upper_bound_offset;
-    readahead_size_ = initial_auto_readahead_size_;
-  }
-
   void TEST_GetBufferOffsetandSize(uint32_t index, uint64_t& offset,
                                    size_t& len) {
     offset = bufs_[index].offset_;
@@ -452,25 +445,6 @@ class FilePrefetchBuffer {
                                       uint64_t offset, size_t n, Slice* result,
                                       Status* status);
 
-  void UpdateReadAheadSizeForUpperBound(uint64_t offset, size_t n) {
-    // Adjust readhahead_size till upper_bound if upper_bound_offset_ is
-    // set.
-    if (readahead_size_ > 0 && upper_bound_offset_ > 0 &&
-        upper_bound_offset_ > offset) {
-      if (upper_bound_offset_ < offset + n + readahead_size_) {
-        readahead_size_ = (upper_bound_offset_ - offset) - n;
-        RecordTick(stats_, READAHEAD_TRIMMED);
-      }
-    }
-  }
-
-  inline bool IsOffsetOutOfBound(uint64_t offset) {
-    if (upper_bound_offset_ > 0) {
-      return (offset >= upper_bound_offset_);
-    }
-    return false;
-  }
-
   void ReadAheadSizeTuning(bool read_curr_block, bool refit_tail,
                            uint64_t prev_buf_end_offset, uint32_t index,
                            size_t alignment, size_t length,
@@ -484,6 +458,13 @@ class FilePrefetchBuffer {
     }
     if (length_found > 0) {
       RecordTick(stats_, PREFETCH_BYTES_USEFUL, length_found);
+    }
+  }
+
+  void UpdateReadAheadTrimmedStat(size_t initial_length,
+                                  size_t updated_length) {
+    if (initial_length != updated_length) {
+      RecordTick(stats_, READAHEAD_TRIMMED);
     }
   }
 
@@ -529,10 +510,6 @@ class FilePrefetchBuffer {
 
   FilePrefetchBufferUsage usage_;
 
-  // upper_bound_offset_ is set when ReadOptions.iterate_upper_bound and
-  // ReadOptions.auto_readahead_size are set to trim readahead_size upto
-  // upper_bound_offset_ during prefetching.
-  uint64_t upper_bound_offset_ = 0;
   std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE

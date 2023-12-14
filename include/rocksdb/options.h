@@ -1737,8 +1737,6 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Experimental
-  //
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
   // during scans internally.
   // For this feature to enabled, iterate_upper_bound must also be specified.
@@ -1748,8 +1746,8 @@ struct ReadOptions {
   //          disabled internally and won't be enabled again if the forward scan
   //          is issued again.
   //
-  // Default: false
-  bool auto_readahead_size = false;
+  // Default: true
+  bool auto_readahead_size = true;
 
   // *** END options only relevant to iterators or scans ***
 

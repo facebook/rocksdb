@@ -371,7 +371,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   // *** BEGIN APIs relevant to auto tuning of readahead_size ***
-  void FindReadAheadSizeUpperBound();
 
   // This API is called to lookup the data blocks ahead in the cache to tune
   // the start and end offsets passed.
