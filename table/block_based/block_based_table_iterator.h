@@ -411,7 +411,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                     uint64_t& start_updated_offset,
                                     uint64_t& end_updated_offset,
                                     size_t& prev_handles_size);
-
   // *** END APIs relevant to auto tuning of readahead_size ***
 };
 }  // namespace ROCKSDB_NAMESPACE

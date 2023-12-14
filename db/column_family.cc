@@ -833,8 +833,8 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
   return write_controller->GetDelayToken(write_rate);
 }
 
-int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
-                                    int level0_slowdown_writes_trigger) {
+int GetL0FileCountForCompactionSpeedup(int level0_file_num_compaction_trigger,
+                                       int level0_slowdown_writes_trigger) {
   // SanitizeOptions() ensures it.
   assert(level0_file_num_compaction_trigger <= level0_slowdown_writes_trigger);
 
@@ -863,6 +863,36 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
     // res fits in int
     return static_cast<int>(res);
   }
+}
+
+uint64_t GetPendingCompactionBytesForCompactionSpeedup(
+    const MutableCFOptions& mutable_cf_options,
+    const VersionStorageInfo* vstorage) {
+  // Compaction debt relatively large compared to the stable (bottommost) data
+  // size indicates compaction fell behind.
+  const uint64_t kBottommostSizeMultiplier = 8;
+  // Meaningful progress toward the slowdown trigger is another good indication.
+  const uint64_t kSlowdownTriggerDivisor = 4;
+
+  uint64_t bottommost_files_size = 0;
+  for (const auto& level_and_file : vstorage->BottommostFiles()) {
+    bottommost_files_size += level_and_file.second->fd.GetFileSize();
+  }
+
+  // Slowdown trigger might be zero but that means compaction speedup should
+  // always happen (undocumented/historical), so no special treatment is needed.
+  uint64_t slowdown_threshold =
+      mutable_cf_options.soft_pending_compaction_bytes_limit /
+      kSlowdownTriggerDivisor;
+
+  // Size of zero, however, should not be used to decide to speedup compaction.
+  if (bottommost_files_size == 0) {
+    return slowdown_threshold;
+  }
+
+  uint64_t size_threshold =
+      MultiplyCheckOverflow(bottommost_files_size, kBottommostSizeMultiplier);
+  return std::min(size_threshold, slowdown_threshold);
 }
 }  // anonymous namespace
 
@@ -1019,7 +1049,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     } else {
       assert(write_stall_condition == WriteStallCondition::kNormal);
       if (vstorage->l0_delay_trigger_count() >=
-          GetL0ThresholdSpeedupCompaction(
+          GetL0FileCountForCompactionSpeedup(
               mutable_cf_options.level0_file_num_compaction_trigger,
               mutable_cf_options.level0_slowdown_writes_trigger)) {
         write_controller_token_ =
@@ -1029,22 +1059,22 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             "[%s] Increasing compaction threads because we have %d level-0 "
             "files ",
             name_.c_str(), vstorage->l0_delay_trigger_count());
-      } else if (vstorage->estimated_compaction_needed_bytes() >=
-                 mutable_cf_options.soft_pending_compaction_bytes_limit / 4) {
-        // Increase compaction threads if bytes needed for compaction exceeds
-        // 1/4 of threshold for slowing down.
+      } else if (mutable_cf_options.soft_pending_compaction_bytes_limit == 0) {
         // If soft pending compaction byte limit is not set, always speed up
         // compaction.
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
-        if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
-          ROCKS_LOG_INFO(
-              ioptions_.logger,
-              "[%s] Increasing compaction threads because of estimated pending "
-              "compaction "
-              "bytes %" PRIu64,
-              name_.c_str(), vstorage->estimated_compaction_needed_bytes());
-        }
+      } else if (vstorage->estimated_compaction_needed_bytes() >=
+                 GetPendingCompactionBytesForCompactionSpeedup(
+                     mutable_cf_options, vstorage)) {
+        write_controller_token_ =
+            write_controller->GetCompactionPressureToken();
+        ROCKS_LOG_INFO(
+            ioptions_.logger,
+            "[%s] Increasing compaction threads because of estimated pending "
+            "compaction "
+            "bytes %" PRIu64,
+            name_.c_str(), vstorage->estimated_compaction_needed_bytes());
       } else {
         write_controller_token_.reset();
       }

@@ -303,12 +303,29 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // Return Error.
-  if (readahead_cache_lookup_) {
-    block_iter_.Invalidate(
-        Status::NotSupported("auto tuning of readahead_size in is not "
-                             "supported with Prev operation."));
-    return;
+  if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
+    // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
+    // need to reseek the index_iter_ to point to current block by using
+    // block_iter_'s key.
+    if (Valid()) {
+      ResetBlockCacheLookupVar();
+      direction_ = IterDirection::kBackward;
+      Slice last_key = key();
+
+      index_iter_->Seek(last_key);
+      is_index_at_curr_block_ = true;
+
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
+    }
+
+    if (!Valid()) {
+      ResetDataIter();
+      return;
+    }
   }
 
   ResetBlockCacheLookupVar();
