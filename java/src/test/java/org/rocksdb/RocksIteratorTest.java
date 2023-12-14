@@ -166,7 +166,7 @@ public class RocksIteratorTest {
   @Test
   public void rocksIteratorSeekAndInsert() throws RocksDBException {
     try (final Options options =
-                 new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
       db.put("key2".getBytes(), "value2".getBytes());
@@ -239,13 +239,12 @@ public class RocksIteratorTest {
   @Test
   public void rocksIteratorSeekAndInsertOnSnapshot() throws RocksDBException {
     try (final Options options =
-                 new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
       db.put("key2".getBytes(), "value2".getBytes());
 
       try (final Snapshot snapshot = db.getSnapshot()) {
-
         try (final RocksIterator iterator = db.newIterator()) {
           // check for just keys 1 and 2
           iterator.seek("key0".getBytes());

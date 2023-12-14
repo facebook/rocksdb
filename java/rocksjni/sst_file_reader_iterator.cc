@@ -382,7 +382,8 @@ void Java_org_rocksdb_SstFileReaderIterator_refresh1(JNIEnv* env,
                                                      jlong handle,
                                                      jlong snapshot_handle) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  auto* snapshot = reinterpret_cast<ROCKSDB_NAMESPACE::Snapshot*>(snapshot_handle);
+  auto* snapshot =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Snapshot*>(snapshot_handle);
   ROCKSDB_NAMESPACE::Status s = it->Refresh(snapshot);
 
   if (s.ok()) {
