@@ -169,7 +169,7 @@ public class Options extends RocksObject
 
   @Override
   public Options optimizeForSmallDb(final Cache cache) {
-    optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
+    optimizeForSmallDb(nativeHandle_, cache.nativeHandle_);
     return this;
   }
 
