@@ -169,21 +169,26 @@ most processors made since roughly 2013.
 
     * Install the dependencies for RocksDB:
 
-        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch
+      `pkg_add gmake gflags snappy bzip2 lz4 zstd git bash findutils gnuwatch`
 
     * Build RocksDB from source:
 
+        ```bash
         cd ~
         git clone https://github.com/facebook/rocksdb.git
         cd rocksdb
         gmake static_lib
+        ```
 
     * Build RocksJava from source (optional):
-
+        * In OpenBSD, JDK depends on XWindows system, so please check that you installed OpenBSD with `xbase` package.
+        * Install dependencies : `pkg_add -v jdk%1.8`
+        ```bash
         cd rocksdb
         export JAVA_HOME=/usr/local/jdk-1.8.0
         export PATH=$PATH:/usr/local/jdk-1.8.0/bin
-        gmake rocksdbjava
+        gmake rocksdbjava SHA256_CMD='sha256 -q'
+        ```
 
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define an important pre-processing macros: `IOS_CROSS_COMPILE`.
