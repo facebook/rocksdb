@@ -61,6 +61,7 @@ struct BufferInfo {
   void ClearBuffer() {
     buffer_.Clear();
     initial_end_offset_ = 0;
+    async_req_len_ = 0;
   }
 
   AlignedBuffer buffer_;
@@ -96,6 +97,34 @@ struct BufferInfo {
   // prefetch call, start_offset should be intialized to 100 i.e  start_offset =
   // buf->initial_end_offset_.
   uint64_t initial_end_offset_ = 0;
+
+  bool IsDataBlockInBuffer(uint64_t offset, size_t length) {
+    return (offset >= offset_ &&
+            offset + length <= offset_ + buffer_.CurrentSize());
+  }
+
+  bool IsOffsetInBuffer(uint64_t offset) {
+    return (offset >= offset_ && offset < offset_ + buffer_.CurrentSize());
+  }
+
+  bool DoesBufferContainData() { return buffer_.CurrentSize() > 0; }
+
+  bool IsBufferOutdated(uint64_t offset) {
+    return (!async_read_in_progress_ && DoesBufferContainData() &&
+            offset >= offset_ + buffer_.CurrentSize());
+  }
+
+  bool IsBufferOutdatedWithAsyncProgress(uint64_t offset) {
+    return (async_read_in_progress_ && io_handle_ != nullptr &&
+            offset >= offset_ + async_req_len_);
+  }
+
+  bool IsOffsetInBufferWithAsyncProgress(uint64_t offset) {
+    return (async_read_in_progress_ && offset >= offset_ &&
+            offset < offset_ + async_req_len_);
+  }
+
+  size_t CurrentSize() { return buffer_.CurrentSize(); }
 };
 
 enum class FilePrefetchBufferUsage {
@@ -105,22 +134,25 @@ enum class FilePrefetchBufferUsage {
 };
 
 // Implementation:
-// FilePrefetchBuffer maintains a dequeu of free buffers (free_bufs_) of size
-// num_buffers_ and bufs_ which contains the prefetched data. Whenever a buffer
-// is consumed or is outdated (w.r.t. to requested offset), that buffer is
-// cleared and returned to free_bufs_.
+// FilePrefetchBuffer maintains a dequeu of free buffers (free_bufs_) with no
+// data and bufs_ which contains the prefetched data. Whenever a buffer is
+// consumed or is outdated (w.r.t. to requested offset), that buffer is cleared
+// and returned to free_bufs_.
 //
 // If a buffer is available in free_bufs_, it's moved to bufs_ and is sent for
-// prefetching. num_buffers_ defines how many buffers are maintained that
-// contains prefetched data.
+// prefetching.
+// num_buffers_ defines how many buffers FilePrefetchBuffer can maintain at a
+// time that contains prefetched data with num_buffers_ == bufs_.size() +
+// free_bufs_.size().
+//
 // If num_buffers_ == 1, it's a sequential read flow. Read API will be called on
 // that one buffer whenever the data is requested and is not in the buffer.
 // If num_buffers_ > 1, then the data is prefetched asynchronosuly in the
 // buffers whenever the data is consumed from the buffers and that buffer is
 // freed.
 // If num_buffers > 1, then requested data can be overlapping between 2 buffers.
-// To return the continuous buffer, overlap_bufs_ is used. The requested data is
-// copied from 2 buffers to the overlap_bufs_ and overlap_bufs_ is returned to
+// To return the continuous buffer, overlap_buf_ is used. The requested data is
+// copied from 2 buffers to the overlap_buf_ and overlap_buf_ is returned to
 // the caller.
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
@@ -174,9 +206,9 @@ class FilePrefetchBuffer {
 
     // If num_buffers_ > 1, data is asynchronously filled in the
     // queue. As result, data can be overlapping in two buffers. It copies the
-    // data to overlap_bufs_ in order to to return continuous buffer.
+    // data to overlap_buf_ in order to to return continuous buffer.
     if (num_buffers_ > 1) {
-      overlap_bufs_.emplace_back(new BufferInfo());
+      overlap_buf_ = new BufferInfo();
     }
 
     free_bufs_.resize(num_buffers_);
@@ -214,7 +246,7 @@ class FilePrefetchBuffer {
     uint64_t bytes_discarded = 0;
     // Iterated over buffers.
     for (auto& buf : bufs_) {
-      if (DoesBufferContainData(buf)) {
+      if (buf->DoesBufferContainData()) {
         // If last read was from this block and some bytes are still unconsumed.
         if (prev_offset_ >= buf->offset_ &&
             prev_offset_ + prev_len_ <
@@ -242,9 +274,9 @@ class FilePrefetchBuffer {
       buf = nullptr;
     }
 
-    for (auto& buf : overlap_bufs_) {
-      delete buf;
-      buf = nullptr;
+    if (overlap_buf_ != nullptr) {
+      delete overlap_buf_;
+      overlap_buf_ = nullptr;
     }
   }
 
@@ -381,7 +413,7 @@ class FilePrefetchBuffer {
                    RandomAccessFileReader* reader, uint64_t read_len,
                    uint64_t start_offset);
 
-  // Copy the data from src to overlap_bufs_.
+  // Copy the data from src to overlap_buf_.
   void CopyDataToBuffer(BufferInfo* src, uint64_t& offset, size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
@@ -478,32 +510,6 @@ class FilePrefetchBuffer {
                             uint64_t end_offset1, size_t alignment,
                             size_t readahead_size);
 
-  // *** BEGIN Helper APIs related to data in Buffers ***
-  bool IsDataBlockInBuffer(BufferInfo* buf, uint64_t offset, size_t length) {
-    return (offset >= buf->offset_ &&
-            offset + length <= buf->offset_ + buf->buffer_.CurrentSize());
-  }
-  bool IsOffsetInBuffer(BufferInfo* buf, uint64_t offset) {
-    return (offset >= buf->offset_ &&
-            offset < buf->offset_ + buf->buffer_.CurrentSize());
-  }
-  bool DoesBufferContainData(BufferInfo* buf) {
-    return buf->buffer_.CurrentSize() > 0;
-  }
-  bool IsBufferOutdated(BufferInfo* buf, uint64_t offset) {
-    return (!buf->async_read_in_progress_ && DoesBufferContainData(buf) &&
-            offset >= buf->offset_ + buf->buffer_.CurrentSize());
-  }
-  bool IsBufferOutdatedWithAsyncProgress(BufferInfo* buf, uint64_t offset) {
-    return (buf->async_read_in_progress_ && buf->io_handle_ != nullptr &&
-            offset >= buf->offset_ + buf->async_req_len_);
-  }
-  bool IsOffsetInBufferWithAsyncProgress(BufferInfo* buf, uint64_t offset) {
-    return (buf->async_read_in_progress_ && offset >= buf->offset_ &&
-            offset < buf->offset_ + buf->async_req_len_);
-  }
-  // *** END Helper APIs related to data in Buffers ***
-
   // *** BEGIN APIs related to allocating and freeing buffers ***
   bool IsBufferQueueEmpty() { return bufs_.empty(); }
 
@@ -528,14 +534,14 @@ class FilePrefetchBuffer {
 
   void FreeFrontBuffer() {
     BufferInfo* buf = bufs_.front();
-    buf->buffer_.Clear();
+    buf->ClearBuffer();
     bufs_.pop_front();
     free_bufs_.emplace_back(buf);
   }
 
   void FreeLastBuffer() {
     BufferInfo* buf = bufs_.back();
-    buf->buffer_.Clear();
+    buf->ClearBuffer();
     bufs_.pop_back();
     free_bufs_.emplace_back(buf);
   }
@@ -557,7 +563,7 @@ class FilePrefetchBuffer {
     while (!bufs_.empty()) {
       BufferInfo* buf = bufs_.front();
       bufs_.pop_front();
-      if (buf->async_read_in_progress_ || DoesBufferContainData(buf)) {
+      if (buf->async_read_in_progress_ || buf->DoesBufferContainData()) {
         tmp_buf.emplace_back(buf);
       } else {
         free_bufs_.emplace_back(buf);
@@ -570,7 +576,7 @@ class FilePrefetchBuffer {
 
   std::deque<BufferInfo*> bufs_;
   std::deque<BufferInfo*> free_bufs_;
-  std::deque<BufferInfo*> overlap_bufs_;
+  BufferInfo* overlap_buf_ = nullptr;
 
   size_t readahead_size_;
   size_t initial_auto_readahead_size_;
