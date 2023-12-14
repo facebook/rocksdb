@@ -531,6 +531,12 @@ enum Tickers : uint32_t {
   // Number of FS reads avoided due to scan prefetching
   PREFETCH_HITS,
 
+  // Compressed secondary cache related stats
+  COMPRESSED_SECONDARY_CACHE_DUMMY_HITS,
+  COMPRESSED_SECONDARY_CACHE_HITS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTIONS,
+  COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS,
+
   TICKER_ENUM_MAX
 };
 
