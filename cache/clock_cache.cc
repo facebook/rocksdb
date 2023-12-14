@@ -51,14 +51,15 @@ inline uint64_t GetInitialCountdown(Cache::Priority priority) {
   switch (priority) {
     case Cache::Priority::HIGH:
       return ClockHandle::kHighCountdown;
-    default:
-      assert(false);
-      FALLTHROUGH_INTENDED;
     case Cache::Priority::LOW:
       return ClockHandle::kLowCountdown;
     case Cache::Priority::BOTTOM:
       return ClockHandle::kBottomCountdown;
   }
+  // Switch should have been exhaustive.
+  assert(false);
+  // For release build, fall back on something reasonable.
+  return ClockHandle::kLowCountdown;
 }
 
 inline void MarkEmpty(ClockHandle& h) {
