@@ -3189,6 +3189,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
   Options options;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
   table_options.index_type =
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   table_options.block_cache = NewLRUCache(1024 * 1024, 0);
@@ -3232,6 +3233,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
                                          "00000255"};
       WarmUpCache(&c, moptions, warm_keys);
 
+      ASSERT_OK(options.statistics->Reset());
+
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
           read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
           /*skip_filters=*/false, TableReaderCaller::kUncategorized));
@@ -3256,6 +3259,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       // One block data.
       ASSERT_EQ(buffer_len, 4096);
       ASSERT_EQ(buffer_offset, block_handle.offset());
+
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                1);
     }
 
     {
@@ -3309,6 +3315,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
       ASSERT_EQ(buffer_offset, 106496);
       ASSERT_EQ(buffer_offset, block_handle.offset());
+
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                1);
     }
   }
   c.ResetTableReader();
@@ -3320,6 +3329,7 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
   std::unique_ptr<Env> env(
       new CompositeEnvWrapper(c.env_, FileSystem::Default()));
   options.env = env.get();
+  options.statistics = CreateDBStatistics();
   c.env_ = env.get();
 
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3369,6 +3379,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                          "00000255"};
       WarmUpCache(&c, moptions, warm_keys);
 
+      ASSERT_OK(options.statistics->Reset());
+
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
           read_options, moptions.prefix_extractor.get(), nullptr, false,
           TableReaderCaller::kUncategorized));
@@ -3396,6 +3408,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       prefetch_buffer->TEST_GetBufferOffsetandSize(1, buffer_offset,
                                                    buffer_len);
       ASSERT_EQ(buffer_len, 0);
+
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                2);
     }
     {
       // Check the behavior when it's -
@@ -3442,6 +3457,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                      block_handle);
         ASSERT_EQ(buffer_len, 8192);
         ASSERT_EQ(buffer_offset, block_handle.offset());
+
+        ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                  1);
       }
     }
 
@@ -3492,6 +3510,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                      block_handle);
         ASSERT_EQ(buffer_len, 8192);
         ASSERT_EQ(buffer_offset, block_handle.offset());
+
+        ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                  1);
       }
 
       // Third prefetch ReadAsync (buffers will swap).
@@ -3525,6 +3546,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                      block_handle);
         ASSERT_EQ(buffer_len, 4096);
         ASSERT_EQ(buffer_offset, block_handle.offset());
+
+        ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                  1);
       }
 
       // 4th Prefetch ReadAsync (buffers will swap).
@@ -3558,6 +3582,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                      block_handle);
         ASSERT_EQ(buffer_len, 4096);
         ASSERT_EQ(buffer_offset, block_handle.offset());
+
+        ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                  1);
       }
 
       // 5th Prefetch ReadAsync.
@@ -3591,6 +3618,9 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
                                      block_handle);
         ASSERT_EQ(buffer_len, 8192);
         ASSERT_EQ(buffer_offset, block_handle.offset());
+
+        ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
+                  0);
       }
     }
   }

@@ -1839,11 +1839,12 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
       delay = 0;
     }
     TEST_SYNC_POINT("DBImpl::DelayWrite:Start");
+    start_time = immutable_db_options_.clock->NowMicros();
+
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
       }
-      start_time = immutable_db_options_.clock->NowMicros();
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
 
       // Notify write_thread about the stall so it can setup a barrier and
