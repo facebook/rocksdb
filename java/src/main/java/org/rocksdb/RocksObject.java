@@ -39,4 +39,7 @@ public abstract class RocksObject extends AbstractImmutableNativeReference {
 
   protected abstract void disposeInternal(final long handle);
 
+//  long getNativeHandle() {
+//    return nativeHandle_;
+//  }
 }
