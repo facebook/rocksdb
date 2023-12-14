@@ -647,8 +647,10 @@ if [ "$PORTABLE" == "" ] || [ "$PORTABLE" == 0 ]; then
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    RISC_ISA=$(cat /proc/cpuinfo | grep -E '^isa\s*:' | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    if [ -n "${RISCV_ISA}" ]; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    fi
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
   else
@@ -660,8 +662,7 @@ else
     if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
     elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-      RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+      COMMON_FLAGS="$COMMON_FLAGS -march=rv64gc"
     elif test "$USE_SSE"; then
       # USE_SSE is DEPRECATED
       # This is a rough approximation of the old USE_SSE behavior
