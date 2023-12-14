@@ -14,13 +14,16 @@ import java.util.List;
  */
 public class CompactionOptions extends RocksObject {
 
+  /**
+   * Constructs a new CompactionOptions.
+   */
   public CompactionOptions() {
     super(newCompactionOptions());
   }
 
   /**
    * Get the compaction output compression type.
-   *
+   * <p>
    * See {@link #setCompression(CompressionType)}.
    *
    * @return the compression type.
@@ -32,9 +35,9 @@ public class CompactionOptions extends RocksObject {
 
   /**
    * Set the compaction output compression type.
-   *
+   * <p>
    * Default: snappy
-   *
+   * <p>
    * If set to {@link CompressionType#DISABLE_COMPRESSION_OPTION},
    * RocksDB will choose compression type according to the
    * {@link ColumnFamilyOptions#compressionType()}, taking into account
@@ -52,7 +55,7 @@ public class CompactionOptions extends RocksObject {
 
   /**
    * Get the compaction output file size limit.
-   *
+   * <p>
    * See {@link #setOutputFileSizeLimit(long)}.
    *
    * @return the file size limit.
@@ -63,7 +66,7 @@ public class CompactionOptions extends RocksObject {
 
   /**
    * Compaction will create files of size {@link #outputFileSizeLimit()}.
-   *
+   * <p>
    * Default: 2^64-1, which means that compaction will create a single file
    *
    * @param outputFileSizeLimit the size limit
@@ -90,9 +93,9 @@ public class CompactionOptions extends RocksObject {
    * This value represents the maximum number of threads that will
    * concurrently perform a compaction job by breaking it into multiple,
    * smaller ones that are run simultaneously.
-   *
+   * <p>
    * Default: 0 (i.e. no subcompactions)
-   *
+   * <p>
    * If &gt; 0, it will replace the option in
    * {@link DBOptions#maxSubcompactions()} for this compaction.
    *

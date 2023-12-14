@@ -23,8 +23,15 @@ import java.nio.ByteBuffer;
  * @see org.rocksdb.RocksObject
  */
 public class RocksIterator extends AbstractRocksIterator<RocksDB> {
-  protected RocksIterator(final RocksDB rocksDB, final long nativeHandle) {
-    super(rocksDB, nativeHandle);
+
+  /**
+   * Constructs a RocksIterator.
+   *
+   * @param rocksDb the database.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ RocksIterator.
+   */
+  protected RocksIterator(final RocksDB rocksDb, final long nativeHandle) {
+    super(rocksDb, nativeHandle);
   }
 
   /**

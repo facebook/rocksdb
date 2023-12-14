@@ -12,28 +12,120 @@ import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
  */
 @SuppressWarnings("PMD.AvoidDuplicateLiterals")
 public abstract class AbstractEventListener extends RocksCallbackObject implements EventListener {
+
+  /**
+   * Callback events that can be enabled.
+   */
   public enum EnabledEventCallback {
+
+    /**
+     * Flush completed.
+     */
     ON_FLUSH_COMPLETED((byte) 0x0),
+
+    /**
+     * Flush beginning.
+     */
     ON_FLUSH_BEGIN((byte) 0x1),
+
+    /**
+     * Table file was deleted.
+     */
     ON_TABLE_FILE_DELETED((byte) 0x2),
+
+    /**
+     * Compaction beginning.
+     */
     ON_COMPACTION_BEGIN((byte) 0x3),
+
+    /**
+     * Compaction completed.
+     */
     ON_COMPACTION_COMPLETED((byte) 0x4),
+
+    /**
+     * Table file created.
+     */
     ON_TABLE_FILE_CREATED((byte) 0x5),
+
+    /**
+     * Started creation of Table file.
+     */
     ON_TABLE_FILE_CREATION_STARTED((byte) 0x6),
+
+    /**
+     * Memtable has been sealed.
+     */
     ON_MEMTABLE_SEALED((byte) 0x7),
+
+    /**
+     * Started deletion of Column Family handle.
+     */
     ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED((byte) 0x8),
+
+    /**
+     * External file ingested.
+     */
     ON_EXTERNAL_FILE_INGESTED((byte) 0x9),
+
+    /**
+     * Background error.
+     */
     ON_BACKGROUND_ERROR((byte) 0xA),
+
+    /**
+     * Stall conditions have been changed.
+     */
     ON_STALL_CONDITIONS_CHANGED((byte) 0xB),
+
+    /**
+     * File read has finished.
+     */
     ON_FILE_READ_FINISH((byte) 0xC),
+
+    /**
+     * File write has finished.
+     */
     ON_FILE_WRITE_FINISH((byte) 0xD),
+
+    /**
+     * File flush has finished.
+     */
     ON_FILE_FLUSH_FINISH((byte) 0xE),
+
+    /**
+     * File sync has finished.
+     */
     ON_FILE_SYNC_FINISH((byte) 0xF),
+
+    /**
+     * Range file read sync finished.
+     */
     ON_FILE_RANGE_SYNC_FINISH((byte) 0x10),
+
+    /**
+     * File truncation has finished.
+     */
     ON_FILE_TRUNCATE_FINISH((byte) 0x11),
+
+    /**
+     * Closing a file has finished.
+     */
     ON_FILE_CLOSE_FINISH((byte) 0x12),
+
+    /**
+     * Flag has been set to be notified on file IO.
+     */
     SHOULD_BE_NOTIFIED_ON_FILE_IO((byte) 0x13),
+
+    /**
+     * Error recovery beginning.
+     */
     ON_ERROR_RECOVERY_BEGIN((byte) 0x14),
+
+    /**
+     * Error recovery completed.
+     */
     ON_ERROR_RECOVERY_COMPLETED((byte) 0x15);
 
     private final byte value;

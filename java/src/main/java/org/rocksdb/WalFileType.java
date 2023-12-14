@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+/**
+ * Types of WAL file.
+ */
 public enum WalFileType {
   /**
    * Indicates that WAL file is in archive directory. WAL files are moved from

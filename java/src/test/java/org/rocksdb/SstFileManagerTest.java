@@ -47,7 +47,7 @@ public class SstFileManagerTest {
   @Test
   public void deleteRateBytesPerSecond() throws RocksDBException {
     try (final SstFileManager sstFileManager = new SstFileManager(Env.getDefault())) {
-      assertThat(sstFileManager.getDeleteRateBytesPerSecond()).isEqualTo(SstFileManager.RATE_BYTES_PER_SEC_DEFAULT);
+      assertThat(sstFileManager.getDeleteRateBytesPerSecond()).isEqualTo(SstFileManager.DEFAULT_RATE_BYTES_PER_SEC);
       final long ratePerSecond = 1024 * 1024 * 52;
       sstFileManager.setDeleteRateBytesPerSecond(ratePerSecond);
       assertThat(sstFileManager.getDeleteRateBytesPerSecond()).isEqualTo(ratePerSecond);
@@ -57,7 +57,7 @@ public class SstFileManagerTest {
   @Test
   public void maxTrashDBRatio() throws RocksDBException {
     try (final SstFileManager sstFileManager = new SstFileManager(Env.getDefault())) {
-      assertThat(sstFileManager.getMaxTrashDBRatio()).isEqualTo(SstFileManager.MAX_TRASH_DB_RATION_DEFAULT);
+      assertThat(sstFileManager.getMaxTrashDBRatio()).isEqualTo(SstFileManager.DEFAULT_MAX_TRASH_DB_RATIO);
       final double trashRatio = 0.2;
       sstFileManager.setMaxTrashDBRatio(trashRatio);
       assertThat(sstFileManager.getMaxTrashDBRatio()).isEqualTo(trashRatio);

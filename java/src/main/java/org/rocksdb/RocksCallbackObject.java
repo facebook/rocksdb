@@ -30,6 +30,11 @@ public abstract class RocksCallbackObject extends
    */
   protected final long nativeHandle_;
 
+  /**
+   * Constructs a RocksCallbackObject.
+   *
+   * @param nativeParameterHandles reference to the value of the C++ pointers pointing to the underlying native RocksDB C++ objects.
+   */
   protected RocksCallbackObject(final long... nativeParameterHandles) {
     super(true);
     this.nativeHandle_ = initializeNative(nativeParameterHandles);

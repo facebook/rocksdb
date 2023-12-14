@@ -12,11 +12,16 @@ import java.util.List;
  */
 public class IngestExternalFileOptions extends RocksObject {
 
+  /**
+   * Constructs an IngestExternalFileOptions.
+   */
   public IngestExternalFileOptions() {
     super(newIngestExternalFileOptions());
   }
 
   /**
+   * Constructs an IngestExternalFileOptions.
+   *
    * @param moveFiles {@link #setMoveFiles(boolean)}
    * @param snapshotConsistency {@link #setSnapshotConsistency(boolean)}
    * @param allowGlobalSeqNo {@link #setAllowGlobalSeqNo(boolean)}

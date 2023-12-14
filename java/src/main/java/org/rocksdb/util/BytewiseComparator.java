@@ -23,6 +23,11 @@ import static org.rocksdb.util.ByteUtil.memcmp;
  */
 public final class BytewiseComparator extends AbstractComparator {
 
+  /**
+   * Constructs a new BytewiseComparator.
+   *
+   * @param copt the configuration options for the comparator.
+   */
   public BytewiseComparator(final ComparatorOptions copt) {
     super(copt);
   }

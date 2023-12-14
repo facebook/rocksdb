@@ -100,19 +100,44 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
   }
 
   @Override
-  public long getNativeHandle() {
-    return nativeHandle_;
-  }
-
-  @Override
   public final LoggerType getLoggerType() {
     return LoggerType.JAVA_IMPLEMENTATION;
   }
 
-  protected abstract void log(final InfoLogLevel logLevel, final String logMsg);
+  /**
+   * Log a message.
+   *
+   * @param logLevel the log level.
+   * @param logMsg the log message.
+   */
+  protected abstract void log(final InfoLogLevel logLevel,
+      final String logMsg);
 
+  /**
+   * Create a new Logger with Options.
+   *
+   * @param logLevel the log level.
+   *
+   * @return the native handle to the underlying C++ native Logger object.
+   */
   protected native long newLogger(final long logLevel);
-  protected native void setInfoLogLevel(final long handle, final byte logLevel);
+
+  /**
+   * Set the log level.
+   *
+   * @param handle the native handle to the underlying C++ native Logger object.
+   * @param logLevel the log level.
+   */
+  protected native void setInfoLogLevel(final long handle,
+      final byte logLevel);
+
+  /**
+   * Get the log level.
+   *
+   * @param handle the native handle to the underlying C++ native Logger object.
+   *
+   * @return the log level.
+   */
   protected native byte infoLogLevel(final long handle);
 
   /**

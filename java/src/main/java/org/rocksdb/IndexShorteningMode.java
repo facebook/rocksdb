@@ -11,7 +11,7 @@ package org.rocksdb;
  * enabled ({@link DBOptions#useDirectReads()} == true).
  * The default mode is the best tradeoff for most use cases.
  * This option only affects newly written tables.
- *
+ * <p>
  * The index contains a key separating each pair of consecutive blocks.
  * Let A be the highest key in one block, B the lowest key in the next block,
  * and I the index entry separating these two blocks:
@@ -22,7 +22,7 @@ package org.rocksdb;
  * However, if I=A, this can't happen, and we'll read only the second block.
  * In kNoShortening mode, we use I=A. In other modes, we use the shortest
  * key in [A, B), which usually significantly reduces index size.
- *
+ * <p>
  * There's a similar story for the last index entry, which is an upper bound
  * of the highest key in the file. If it's shortened and therefore
  * overestimated, iterator is likely to unnecessarily read the last data block

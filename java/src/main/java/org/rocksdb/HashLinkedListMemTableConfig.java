@@ -15,22 +15,42 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashLinkedListMemTableConfig extends MemTableConfig {
-  public static final long DEFAULT_BUCKET_COUNT = 50_000;
-  public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
-  public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
-  public static final boolean
-      DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
-  public static final int DEFAUL_THRESHOLD_USE_SKIPLIST = 256;
 
   /**
-   * HashLinkedListMemTableConfig constructor
+   * The default number of buckets.
+   */
+  public static final long DEFAULT_BUCKET_COUNT = 50_000;
+
+  /**
+   * The default size of huge TLB pages.
+   */
+  public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
+
+  /**
+   * The default log threshold for bucket entries.
+   */
+  public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
+
+  /**
+   * The default of whether to log when a bucket is flushed.
+   */
+  public static final boolean
+      DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
+
+  /**
+   * The default threshold for determining when to use a Skip List.
+   */
+  public static final int DEFAULT_THRESHOLD_USE_SKIPLIST = 256;
+
+  /**
+   * Constructs a HashLinkedListMemTableConfig.
    */
   public HashLinkedListMemTableConfig() {
     bucketCount_ = DEFAULT_BUCKET_COUNT;
     hugePageTlbSize_ = DEFAULT_HUGE_PAGE_TLB_SIZE;
     bucketEntriesLoggingThreshold_ = DEFAULT_BUCKET_ENTRIES_LOG_THRES;
     ifLogBucketDistWhenFlush_ = DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH;
-    thresholdUseSkiplist_ = DEFAUL_THRESHOLD_USE_SKIPLIST;
+    thresholdUseSkiplist_ = DEFAULT_THRESHOLD_USE_SKIPLIST;
   }
 
   /**

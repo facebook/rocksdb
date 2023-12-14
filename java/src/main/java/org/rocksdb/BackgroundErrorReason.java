@@ -5,10 +5,28 @@
 
 package org.rocksdb;
 
+/**
+ * Reasons for the background error.
+ */
 public enum BackgroundErrorReason {
+  /**
+   * Flush.
+   */
   FLUSH((byte) 0x0),
+
+  /**
+   * Compaction.
+   */
   COMPACTION((byte) 0x1),
+
+  /**
+   * Write callback.
+   */
   WRITE_CALLBACK((byte) 0x2),
+
+  /**
+   * Memtable.
+   */
   MEMTABLE((byte) 0x3);
 
   private final byte value;

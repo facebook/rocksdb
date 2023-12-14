@@ -6,9 +6,24 @@
 
 package org.rocksdb;
 
+/**
+ * The Sanity Level.
+ */
 public enum SanityLevel {
+
+  /**
+   * None.
+   */
   NONE((byte) 0x0),
+
+  /**
+   * Loosely compatible.
+   */
   LOOSELY_COMPATIBLE((byte) 0x1),
+
+  /**
+   * Exactly matches.
+   */
   EXACT_MATCH((byte) 0xFF);
 
   private final byte value;

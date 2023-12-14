@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Map;
 
+/**
+ * The status of a Thread.
+ */
 public class ThreadStatus {
   private final long threadId;
   private final ThreadType threadType;
@@ -155,6 +158,13 @@ public class ThreadStatus {
     return getOperationName(operationType.getValue());
   }
 
+  /**
+   * Converts microseconds to a string representation.
+   *
+   * @param operationElapsedTime the microseconds.
+   *
+   * @return the string representation.
+   */
   public static String microsToString(final long operationElapsedTime) {
     return microsToStringNative(operationElapsedTime);
   }

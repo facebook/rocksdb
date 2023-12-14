@@ -12,11 +12,17 @@ package org.rocksdb;
  * become out-of-scope to release the allocated memory in c++.
  */
 public class ReadOptions extends RocksObject {
+
+  /**
+   * Constructs a ReadOptions.
+   */
   public ReadOptions() {
     super(newReadOptions());
   }
 
   /**
+   * Constructs a ReadOptions.
+   *
    * @param verifyChecksums verification will be performed on every read
    *     when set to true
    * @param fillCache if true, then fill-cache behavior will be performed.

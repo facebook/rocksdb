@@ -7,10 +7,19 @@ package org.rocksdb;
 
 import java.nio.ByteBuffer;
 
+/**
+ * Iterator over the contents of a Write Batch With Index.
+ */
 public class WBWIRocksIterator
     extends AbstractRocksIterator<WriteBatchWithIndex> {
   private final WriteEntry entry = new WriteEntry();
 
+  /**
+   * Constructs a WBWIRocksIterator.
+   *
+   * @param wbwi the write batch with index.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ WBWIRocksIterator.
+   */
   protected WBWIRocksIterator(final WriteBatchWithIndex wbwi,
       final long nativeHandle) {
     super(wbwi, nativeHandle);
@@ -127,12 +136,40 @@ public class WBWIRocksIterator
    * that created the record in the Write Batch
    */
   public enum WriteType {
+
+    /**
+     * Put.
+     */
     PUT((byte)0x0),
+
+    /**
+     * Merge.
+     */
     MERGE((byte)0x1),
+
+    /**
+     * Delete.
+     */
     DELETE((byte)0x2),
+
+    /**
+     * Single Delete.
+     */
     SINGLE_DELETE((byte)0x3),
+
+    /**
+     * Delete Range.
+     */
     DELETE_RANGE((byte)0x4),
+
+    /**
+     * Log.
+     */
     LOG((byte)0x5),
+
+    /**
+     * Transaction ID.
+     */
     XID((byte)0x6);
 
     final byte id;
@@ -140,13 +177,22 @@ public class WBWIRocksIterator
       this.id = id;
     }
 
-    public static WriteType fromId(final byte id) {
+    /**
+     * Get a WriteType from its byte representation.
+     *
+     * @param value the byte representation of the WriteType.
+     *
+     * @return the WriteType
+     *
+     * @throws IllegalArgumentException if the {@code value} parameter does not represent a WriteType.
+     */
+    public static WriteType fromId(final byte value) {
       for(final WriteType wt : WriteType.values()) {
-        if(id == wt.id) {
+        if(value == wt.id) {
           return wt;
         }
       }
-      throw new IllegalArgumentException("No WriteType with id=" + id);
+      throw new IllegalArgumentException("No WriteType with id=" + value);
     }
   }
 
@@ -182,6 +228,13 @@ public class WBWIRocksIterator
       value = new DirectSlice();
     }
 
+    /**
+     * Constructs a WriteEntry.
+     *
+     * @param type the type of the write.
+     * @param key the key.
+     * @param value the value.
+     */
     public WriteEntry(final WriteType type, final DirectSlice key,
         final DirectSlice value) {
       this.type = type;

@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Brief information on Table File creation.
+ */
 public class TableFileCreationBriefInfo {
   private final String dbName;
   private final String columnFamilyName;

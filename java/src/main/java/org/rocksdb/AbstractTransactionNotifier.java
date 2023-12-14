@@ -12,6 +12,9 @@ package org.rocksdb;
 public abstract class AbstractTransactionNotifier
     extends RocksCallbackObject {
 
+  /**
+   * Constructs an AbstractTransactionNotifier.
+   */
   protected AbstractTransactionNotifier() {
     super();
   }
@@ -50,6 +53,15 @@ public abstract class AbstractTransactionNotifier
   protected void disposeInternal() {
     disposeInternal(nativeHandle_);
   }
+
+  /**
+   * Deletes underlying C++ transaction notifier pointer.
+   * Note that this function should be called only after all
+   * RocksDB instances referencing the transaction notifier are closed.
+   * Otherwise, an undefined behavior will occur.
+   *
+   * @param handle the value of the C++ pointer to the underlying native C++ object.
+   */
   protected final void disposeInternal(final long handle) {
     disposeInternalJni(handle);
   }

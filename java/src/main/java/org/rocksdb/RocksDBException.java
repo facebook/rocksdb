@@ -11,22 +11,38 @@ package org.rocksdb;
  */
 public class RocksDBException extends Exception {
   private static final long serialVersionUID = -5187634878466267120L;
+
+  /**
+   * The error status that led to this exception.
+   */
   /* @Nullable */ private final Status status;
 
   /**
    * The private construct used by a set of public static factory method.
    *
-   * @param msg the specified error message.
+   * @param message the specified error message.
    */
-  public RocksDBException(final String msg) {
-    this(msg, null);
+  public RocksDBException(final String message) {
+    this(message, null);
   }
 
-  public RocksDBException(final String msg, final Status status) {
-    super(msg);
+  /**
+   * Constructs a RocksDBException.
+   *
+   * @param message the detail message. The detail message is saved for later retrieval by the
+   *     {@link #getMessage()} method.
+   * @param status the error status that led to this exception.
+   */
+  public RocksDBException(final String message, final Status status) {
+    super(message);
     this.status = status;
   }
 
+  /**
+   * Constructs a RocksDBException.
+   *
+   * @param status the error status that led to this exception.
+   */
   public RocksDBException(final Status status) {
     super(status.getState() != null ? status.getState()
         : status.getCodeString());

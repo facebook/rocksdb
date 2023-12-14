@@ -6,6 +6,9 @@ package org.rocksdb;
  */
 public class SkipListMemTableConfig extends MemTableConfig {
 
+  /**
+   * The default lookahead.
+   */
   public static final long DEFAULT_LOOKAHEAD = 0;
 
   /**

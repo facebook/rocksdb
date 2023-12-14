@@ -5,7 +5,14 @@
 
 package org.rocksdb;
 
+/**
+ * Reasons for compaction.
+ */
 public enum CompactionReason {
+
+  /**
+   * Unknown.
+   */
   kUnknown((byte)0x0),
 
   /**

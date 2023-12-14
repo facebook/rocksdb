@@ -21,6 +21,13 @@ import java.nio.ByteBuffer;
  * @see RocksObject
  */
 public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> {
+
+  /**
+   * Constructs a SstFileReaderIterator.
+   *
+   * @param reader the SST file reader.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ SstFileReaderIterator.
+   */
   protected SstFileReaderIterator(final SstFileReader reader, final long nativeHandle) {
     super(reader, nativeHandle);
   }

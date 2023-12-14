@@ -3,6 +3,11 @@ package org.rocksdb;
 
 import static org.rocksdb.AbstractMutableOptions.INT_ARRAY_INT_SEPARATOR;
 
+/**
+ * Base class for the value of a mutable option.
+ *
+ * @param <T> the concrete type of the value.
+ */
 public abstract class MutableOptionValue<T> {
 
   abstract double asDouble() throws NumberFormatException;

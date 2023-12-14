@@ -14,6 +14,7 @@ package org.rocksdb;
  * configuration parameter that is not provided by this API. This function
  * simply returns a new LRUCache for functional compatibility.
  */
+@Deprecated
 public class ClockCache extends Cache {
   /**
    * Create a new cache with a fixed size capacity.
@@ -22,6 +23,7 @@ public class ClockCache extends Cache {
    *
    * @param capacity The fixed size capacity of the cache
    */
+  @Deprecated
   public ClockCache(final long capacity) {
     super(newClockCache(capacity, -1, false));
   }
@@ -39,6 +41,7 @@ public class ClockCache extends Cache {
    * @param numShardBits The cache is sharded to 2^numShardBits shards,
    *     by hash of the key
    */
+  @Deprecated
   public ClockCache(final long capacity, final int numShardBits) {
     super(newClockCache(capacity, numShardBits, false));
   }
@@ -58,6 +61,7 @@ public class ClockCache extends Cache {
    *     by hash of the key
    * @param strictCapacityLimit insert to the cache will fail when cache is full
    */
+  @Deprecated
   public ClockCache(final long capacity, final int numShardBits,
       final boolean strictCapacityLimit) {
     super(newClockCache(capacity, numShardBits, strictCapacityLimit));

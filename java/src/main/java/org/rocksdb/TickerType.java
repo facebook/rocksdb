@@ -19,7 +19,7 @@ public enum TickerType {
 
     /**
      * total block cache misses
-     *
+     * <p>
      * REQUIRES: BLOCK_CACHE_MISS == BLOCK_CACHE_INDEX_MISS +
      *     BLOCK_CACHE_FILTER_MISS +
      *     BLOCK_CACHE_DATA_MISS;
@@ -28,7 +28,7 @@ public enum TickerType {
 
     /**
      * total block cache hit
-     *
+     * <p>
      * REQUIRES: BLOCK_CACHE_HIT == BLOCK_CACHE_INDEX_HIT +
      *     BLOCK_CACHE_FILTER_HIT +
      *     BLOCK_CACHE_DATA_HIT;
@@ -38,177 +38,238 @@ public enum TickerType {
     BLOCK_CACHE_ADD((byte) 0x2),
 
     /**
-     * # of failures when adding blocks to block cache.
+     * Number of failures when adding blocks to block cache.
      */
     BLOCK_CACHE_ADD_FAILURES((byte) 0x3),
 
     /**
-     * # of times cache miss when accessing index block from block cache.
+     * Number of times cache miss when accessing index block from block cache.
      */
     BLOCK_CACHE_INDEX_MISS((byte) 0x4),
 
     /**
-     * # of times cache hit when accessing index block from block cache.
+     * Number of times cache hit when accessing index block from block cache.
      */
     BLOCK_CACHE_INDEX_HIT((byte) 0x5),
 
     /**
-     * # of index blocks added to block cache.
+     * Number of index blocks added to block cache.
      */
     BLOCK_CACHE_INDEX_ADD((byte) 0x6),
 
     /**
-     * # of bytes of index blocks inserted into cache
+     * Number of bytes of index blocks inserted into cache
      */
     BLOCK_CACHE_INDEX_BYTES_INSERT((byte) 0x7),
 
     /**
-     * # of times cache miss when accessing filter block from block cache.
+     * Number of times cache miss when accessing filter block from block cache.
      */
     BLOCK_CACHE_FILTER_MISS((byte) 0x8),
 
     /**
-     * # of times cache hit when accessing filter block from block cache.
+     * Number of times cache hit when accessing filter block from block cache.
      */
     BLOCK_CACHE_FILTER_HIT((byte) 0x9),
 
     /**
-     * # of filter blocks added to block cache.
+     * Number of filter blocks added to block cache.
      */
     BLOCK_CACHE_FILTER_ADD((byte) 0xA),
 
     /**
-     * # of bytes of bloom filter blocks inserted into cache
+     * Number of bytes of bloom filter blocks inserted into cache
      */
     BLOCK_CACHE_FILTER_BYTES_INSERT((byte) 0xB),
 
     /**
-     * # of times cache miss when accessing data block from block cache.
+     * Number of times cache miss when accessing data block from block cache.
      */
     BLOCK_CACHE_DATA_MISS((byte) 0xC),
 
     /**
-     * # of times cache hit when accessing data block from block cache.
+     * Number of times cache hit when accessing data block from block cache.
      */
     BLOCK_CACHE_DATA_HIT((byte) 0xD),
 
     /**
-     * # of data blocks added to block cache.
+     * Number of data blocks added to block cache.
      */
     BLOCK_CACHE_DATA_ADD((byte) 0xE),
 
     /**
-     * # of bytes of data blocks inserted into cache
+     * Number of bytes of data blocks inserted into cache
      */
     BLOCK_CACHE_DATA_BYTES_INSERT((byte) 0xF),
 
     /**
-     * # of bytes read from cache.
+     * Number of bytes read from cache.
      */
     BLOCK_CACHE_BYTES_READ((byte) 0x10),
 
     /**
-     * # of bytes written into cache.
+     * Number of bytes written into cache.
      */
     BLOCK_CACHE_BYTES_WRITE((byte) 0x11),
 
     /**
-     * Block cache related stats for Compression dictionaries
+     * Number of Block cache Compression dictionary misses.
      */
     BLOCK_CACHE_COMPRESSION_DICT_MISS((byte) 0x12),
+
+    /**
+     * Number of Block cache Compression dictionary hits.
+     */
     BLOCK_CACHE_COMPRESSION_DICT_HIT((byte) 0x13),
+
+    /**
+     * Number of Block cache Compression dictionary additions.
+     */
     BLOCK_CACHE_COMPRESSION_DICT_ADD((byte) 0x14),
+
+    /**
+     * Number of Block cache Compression dictionary bytes inserted.
+     */
     BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT((byte) 0x15),
 
     /**
-     * Redundant additions to block cache
+     * Redundant additions to block cache.
      */
     BLOCK_CACHE_ADD_REDUNDANT((byte) 0x16),
+
+    /**
+     * Redundant additions to block cache index.
+     */
     BLOCK_CACHE_INDEX_ADD_REDUNDANT((byte) 0x17),
+
+    /**
+     * Redundant additions to block cache filter.
+     */
     BLOCK_CACHE_FILTER_ADD_REDUNDANT((byte) 0x18),
+
+    /**
+     * Redundant additions to block cache data.
+     */
     BLOCK_CACHE_DATA_ADD_REDUNDANT((byte) 0x19),
+
+    /**
+     * Redundant additions to block cache compression dictionary.
+     */
     BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT((byte) 0x1A),
 
     /**
-     * Number of secondary cache hits
+     * Number of secondary cache hits.
      */
     SECONDARY_CACHE_HITS((byte) 0x1B),
+
+    /**
+     * Number of secondary cache filter hits.
+     */
     SECONDARY_CACHE_FILTER_HITS((byte) 0x1C),
+
+    /**
+     * Number of secondary cache index hits.
+     */
     SECONDARY_CACHE_INDEX_HITS((byte) 0x1D),
+
+    /**
+     * Number of secondary cache data hits.
+     */
     SECONDARY_CACHE_DATA_HITS((byte) 0x1E),
 
+    /**
+     * Number of compressed secondary cache dummy hits.
+     */
     COMPRESSED_SECONDARY_CACHE_DUMMY_HITS((byte) 0x1F),
+
+    /**
+     * Number of compressed secondary cache hits.
+     */
     COMPRESSED_SECONDARY_CACHE_HITS((byte) 0x20),
+
+    /**
+     * Number of compressed secondary cache promotions.
+     */
     COMPRESSED_SECONDARY_CACHE_PROMOTIONS((byte) 0x21),
+
+    /**
+     * Number of compressed secondary cache promotion skips.
+     */
     COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS((byte) 0x22),
 
     /**
-     * # of times bloom filter has avoided file reads.
+     * Number of times bloom filter has avoided file reads.
      */
     BLOOM_FILTER_USEFUL((byte) 0x23),
 
     /**
-     * # of times bloom FullFilter has not avoided the reads.
+     * Number of times bloom FullFilter has not avoided the reads.
      */
     BLOOM_FILTER_FULL_POSITIVE((byte) 0x24),
 
     /**
-     * # of times bloom FullFilter has not avoided the reads and data actually
+     * Number of times bloom FullFilter has not avoided the reads and data actually
      * exist.
      */
     BLOOM_FILTER_FULL_TRUE_POSITIVE((byte) 0x25),
 
     /**
-     * Number of times bloom was checked before creating iterator on a
-     * file, and the number of times the check was useful in avoiding
-     * iterator creation (and thus likely IOPs).
+     * Number of times bloom was checked before creating iterator on a file.
      */
     BLOOM_FILTER_PREFIX_CHECKED((byte) 0x26),
+
+    /**
+     * Number of times it was useful (in avoiding iterator creation) that bloom was checked before creating iterator on a file.
+     */
     BLOOM_FILTER_PREFIX_USEFUL((byte) 0x27),
+
+    /**
+     * Number of times bloom produced a true positive result.
+     */
     BLOOM_FILTER_PREFIX_TRUE_POSITIVE((byte) 0x28),
 
     /**
-     * # persistent cache hit
+     * Number of persistent cache hit
      */
     PERSISTENT_CACHE_HIT((byte) 0x29),
 
     /**
-     * # persistent cache miss
+     * Number of persistent cache miss
      */
     PERSISTENT_CACHE_MISS((byte) 0x2A),
 
     /**
-     * # total simulation block cache hits
+     * Number of total simulation block cache hits
      */
     SIM_BLOCK_CACHE_HIT((byte) 0x2B),
 
     /**
-     * # total simulation block cache misses
+     * Number of total simulation block cache misses
      */
     SIM_BLOCK_CACHE_MISS((byte) 0x2C),
 
     /**
-     * # of memtable hits.
+     * Number of memtable hits.
      */
     MEMTABLE_HIT((byte) 0x2D),
 
     /**
-     * # of memtable misses.
+     * Number of of memtable misses.
      */
     MEMTABLE_MISS((byte) 0x2E),
 
     /**
-     * # of Get() queries served by L0
+     * Number of Get() queries served by L0
      */
     GET_HIT_L0((byte) 0x2F),
 
     /**
-     * # of Get() queries served by L1
+     * Number of Get() queries served by L1
      */
     GET_HIT_L1((byte) 0x30),
 
     /**
-     * # of Get() queries served by L2 and up
+     * Number of Get() queries served by L2 and up
      */
     GET_HIT_L2_AND_UP((byte) 0x31),
 
@@ -340,8 +401,14 @@ public enum TickerType {
      */
     NO_ITERATOR_DELETED((byte) 0x48),
 
+    /**
+     * Number of file opens.
+     */
     NO_FILE_OPENS((byte) 0x49),
 
+    /**
+     * Number of file errors.
+     */
     NO_FILE_ERRORS((byte) 0x4A),
 
     /**
@@ -376,6 +443,9 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_KEYS_FOUND((byte) 0x50),
 
+    /**
+     * Number of Merge failures.
+     */
     NUMBER_MERGE_FAILURES((byte) 0x51),
 
     /**
@@ -426,47 +496,129 @@ public enum TickerType {
     FLUSH_WRITE_BYTES((byte) 0x5A),
 
     /**
-     * Compaction read and write statistics broken down by CompactionReason
+     * Compaction read bytes marked.
      */
     COMPACT_READ_BYTES_MARKED((byte) 0x5B),
+
+    /**
+     * Compaction read bytes periodically.
+     */
     COMPACT_READ_BYTES_PERIODIC((byte) 0x5C),
+
+    /**
+     * Compaction read bytes TTL.
+     */
     COMPACT_READ_BYTES_TTL((byte) 0x5D),
+
+    /**
+     * Compaction write bytes marked.
+     */
     COMPACT_WRITE_BYTES_MARKED((byte) 0x5E),
+
+    /**
+     * Compaction write bytes periodically.
+     */
     COMPACT_WRITE_BYTES_PERIODIC((byte) 0x5F),
+
+    /**
+     * Compaction write bytes TTL.
+     */
     COMPACT_WRITE_BYTES_TTL((byte) 0x60),
 
     /**
-     * Number of table's properties loaded directly from file, without creating
-     * table reader object.
+     * Number of table's properties loaded directly from file, without creating table reader object.
      */
     NUMBER_DIRECT_LOAD_TABLE_PROPERTIES((byte) 0x61),
+
+    /**
+     * Number of supervision acquires.
+     */
     NUMBER_SUPERVERSION_ACQUIRES((byte) 0x62),
+
+    /**
+     * Number of supervision releases.
+     */
     NUMBER_SUPERVERSION_RELEASES((byte) 0x63),
+
+    /**
+     * Number of supervision cleanups.
+     */
     NUMBER_SUPERVERSION_CLEANUPS((byte) 0x64),
 
     /**
-     * # of compressions/decompressions executed
+     * Number of compressions executed.
      */
     NUMBER_BLOCK_COMPRESSED((byte) 0x65),
+
+    /**
+     * Number of decompressions executed.
+     */
     NUMBER_BLOCK_DECOMPRESSED((byte) 0x66),
 
+    /**
+     * Number of input bytes (uncompressed) to compression for SST blocks that are stored compressed.
+     */
     BYTES_COMPRESSED_FROM((byte) 0x67),
+
+    /**
+     * Number of output bytes (compressed) from compression for SST blocks that are stored compressed.
+     */
     BYTES_COMPRESSED_TO((byte) 0x68),
+
+    /**
+     *  Number of uncompressed bytes for SST blocks that are stored uncompressed because compression type is kNoCompression, or some error case caused compression not to run or produce an output. Index blocks are only counted if enable_index_compression is true.
+     */
     BYTES_COMPRESSION_BYPASSED((byte) 0x69),
+
+    /**
+     * Number of input bytes (uncompressed) to compression for SST blocks that are stored uncompressed because the compression result was rejected, either because the ratio was not acceptable (see CompressionOptions::max_compressed_bytes_per_kb) or found invalid by the `verify_compression` option.
+     */
     BYTES_COMPRESSION_REJECTED((byte) 0x6A),
+
+    /**
+     * Like {@link #BYTES_COMPRESSION_BYPASSED} but counting number of blocks.
+     */
     NUMBER_BLOCK_COMPRESSION_BYPASSED((byte) 0x6B),
+
+    /**
+     * Like {@link #BYTES_COMPRESSION_REJECTED} but counting number of blocks.
+     */
     NUMBER_BLOCK_COMPRESSION_REJECTED((byte) 0x6C),
+
+    /**
+     * Number of input bytes (compressed) to decompression in reading compressed SST blocks from storage.
+     */
     BYTES_DECOMPRESSED_FROM((byte) 0x6D),
+
+    /**
+     * Number of output bytes (uncompressed) from decompression in reading compressed SST blocks from storage.
+     */
     BYTES_DECOMPRESSED_TO((byte) 0x6E),
 
+    /**
+     * Merge operations cumulative time.
+     */
     MERGE_OPERATION_TOTAL_TIME((byte) 0x6F),
+
+
+    /**
+     * Filter operations cumulative time.
+     */
     FILTER_OPERATION_TOTAL_TIME((byte) 0x70),
+
+    /**
+     * Compaction CPU cumulative time.
+     */
     COMPACTION_CPU_TOTAL_TIME((byte) 0x71),
 
     /**
-     * Row cache.
+     * Row cache hits.
      */
     ROW_CACHE_HIT((byte) 0x72),
+
+    /**
+     * Row cache misses.
+     */
     ROW_CACHE_MISS((byte) 0x73),
 
     /**
@@ -495,97 +647,97 @@ public enum TickerType {
 
     /**
      * BlobDB specific stats
-     * # of Put/PutTTL/PutUntil to BlobDB.
+     * Number of Put/PutTTL/PutUntil to BlobDB.
      */
     BLOB_DB_NUM_PUT((byte) 0x77),
 
     /**
-     * # of Write to BlobDB.
+     * Number of Write to BlobDB.
      */
     BLOB_DB_NUM_WRITE((byte) 0x78),
 
     /**
-     * # of Get to BlobDB.
+     * Number of Get to BlobDB.
      */
     BLOB_DB_NUM_GET((byte) 0x79),
 
     /**
-     * # of MultiGet to BlobDB.
+     * Number of MultiGet to BlobDB.
      */
     BLOB_DB_NUM_MULTIGET((byte) 0x7A),
 
     /**
-     * # of Seek/SeekToFirst/SeekToLast/SeekForPrev to BlobDB iterator.
+     * Number of Seek/SeekToFirst/SeekToLast/SeekForPrev to BlobDB iterator.
      */
     BLOB_DB_NUM_SEEK((byte) 0x7B),
 
     /**
-     * # of Next to BlobDB iterator.
+     * Number of Next to BlobDB iterator.
      */
     BLOB_DB_NUM_NEXT((byte) 0x7C),
 
     /**
-     * # of Prev to BlobDB iterator.
+     * Number of Prev to BlobDB iterator.
      */
     BLOB_DB_NUM_PREV((byte) 0x7D),
 
     /**
-     * # of keys written to BlobDB.
+     * Number of keys written to BlobDB.
      */
     BLOB_DB_NUM_KEYS_WRITTEN((byte) 0x7E),
 
     /**
-     * # of keys read from BlobDB.
+     * Number of keys read from BlobDB.
      */
     BLOB_DB_NUM_KEYS_READ((byte) 0x7F),
 
     /**
-     * # of bytes (key + value) written to BlobDB.
+     * Number of bytes (key + value) written to BlobDB.
      */
     BLOB_DB_BYTES_WRITTEN((byte) -0x1),
 
     /**
-     * # of bytes (keys + value) read from BlobDB.
+     * Number of bytes (keys + value) read from BlobDB.
      */
     BLOB_DB_BYTES_READ((byte) -0x2),
 
     /**
-     * # of keys written by BlobDB as non-TTL inlined value.
+     * Number of keys written by BlobDB as non-TTL inlined value.
      */
     BLOB_DB_WRITE_INLINED((byte) -0x3),
 
     /**
-     * # of keys written by BlobDB as TTL inlined value.
+     * Number of keys written by BlobDB as TTL inlined value.
      */
     BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
 
     /**
-     * # of keys written by BlobDB as non-TTL blob value.
+     * Number of keys written by BlobDB as non-TTL blob value.
      */
     BLOB_DB_WRITE_BLOB((byte) -0x5),
 
     /**
-     * # of keys written by BlobDB as TTL blob value.
+     * Number of keys written by BlobDB as TTL blob value.
      */
     BLOB_DB_WRITE_BLOB_TTL((byte) -0x6),
 
     /**
-     * # of bytes written to blob file.
+     * Number of bytes written to blob file.
      */
     BLOB_DB_BLOB_FILE_BYTES_WRITTEN((byte) -0x7),
 
     /**
-     * # of bytes read from blob file.
+     * Number of bytes read from blob file.
      */
     BLOB_DB_BLOB_FILE_BYTES_READ((byte) -0x8),
 
     /**
-     * # of times a blob files being synced.
+     * Number of times a blob files being synced.
      */
     BLOB_DB_BLOB_FILE_SYNCED((byte) -0x9),
 
     /**
-     * # of blob index evicted from base DB by BlobDB compaction filter because
+     * Number of blob index evicted from base DB by BlobDB compaction filter because
      * of expiration.
      */
     BLOB_DB_BLOB_INDEX_EXPIRED_COUNT((byte) -0xA),
@@ -597,7 +749,7 @@ public enum TickerType {
     BLOB_DB_BLOB_INDEX_EXPIRED_SIZE((byte) -0xB),
 
     /**
-     * # of blob index evicted from base DB by BlobDB compaction filter because
+     * Number of blob index evicted from base DB by BlobDB compaction filter because
      * of corresponding file deleted.
      */
     BLOB_DB_BLOB_INDEX_EVICTED_COUNT((byte) -0xC),
@@ -609,114 +761,114 @@ public enum TickerType {
     BLOB_DB_BLOB_INDEX_EVICTED_SIZE((byte) -0xD),
 
     /**
-     * # of blob files being garbage collected.
+     * Number of blob files being garbage collected.
      */
     BLOB_DB_GC_NUM_FILES((byte) -0xE),
 
     /**
-     * # of blob files generated by garbage collection.
+     * Number of blob files generated by garbage collection.
      */
     BLOB_DB_GC_NUM_NEW_FILES((byte) -0xF),
 
     /**
-     * # of BlobDB garbage collection failures.
+     * Number of BlobDB garbage collection failures.
      */
     BLOB_DB_GC_FAILURES((byte) -0x10),
 
     /**
-     * # of keys relocated to new blob file by garbage collection.
+     * Number of keys relocated to new blob file by garbage collection.
      */
     BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x11),
 
     /**
-     * # of bytes relocated to new blob file by garbage collection.
+     * Number of bytes relocated to new blob file by garbage collection.
      */
     BLOB_DB_GC_BYTES_RELOCATED((byte) -0x12),
 
     /**
-     * # of blob files evicted because of BlobDB is full.
+     * Number of blob files evicted because of BlobDB is full.
      */
     BLOB_DB_FIFO_NUM_FILES_EVICTED((byte) -0x13),
 
     /**
-     * # of keys in the blob files evicted because of BlobDB is full.
+     * Number of keys in the blob files evicted because of BlobDB is full.
      */
     BLOB_DB_FIFO_NUM_KEYS_EVICTED((byte) -0x14),
 
     /**
-     * # of bytes in the blob files evicted because of BlobDB is full.
+     * Number of bytes in the blob files evicted because of BlobDB is full.
      */
     BLOB_DB_FIFO_BYTES_EVICTED((byte) -0x15),
 
     /**
-     * # of times cache miss when accessing blob from blob cache.
+     * Number of times cache miss when accessing blob from blob cache.
      */
     BLOB_DB_CACHE_MISS((byte) -0x16),
 
     /**
-     * # of times cache hit when accessing blob from blob cache.
+     * Number of times cache hit when accessing blob from blob cache.
      */
     BLOB_DB_CACHE_HIT((byte) -0x17),
 
     /**
-     * # of data blocks added to blob cache.
+     * Number of data blocks added to blob cache.
      */
     BLOB_DB_CACHE_ADD((byte) -0x18),
 
     /**
-     * # # of failures when adding blobs to blob cache.
+     * Number of failures when adding blobs to blob cache.
      */
     BLOB_DB_CACHE_ADD_FAILURES((byte) -0x19),
 
     /**
-     * # of bytes read from blob cache.
+     * Number of bytes read from blob cache.
      */
     BLOB_DB_CACHE_BYTES_READ((byte) -0x1A),
 
     /**
-     * # of bytes written into blob cache.
+     * Number of bytes written into blob cache.
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x1B),
 
     /**
      * These counters indicate a performance issue in WritePrepared transactions.
      * We should not seem them ticking them much.
-     * # of times prepare_mutex_ is acquired in the fast path.
+     * Number of times prepare_mutex_ is acquired in the fast path.
      */
     TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x1C),
 
     /**
-     * # of times old_commit_map_mutex_ is acquired in the fast path.
+     * Number of times old_commit_map_mutex_ is acquired in the fast path.
      */
     TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x1D),
 
     /**
-     * # of times we checked a batch for duplicate keys.
+     * Number of times we checked a batch for duplicate keys.
      */
     TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x1E),
 
     /**
-     * # of times snapshot_mutex_ is acquired in the fast path.
+     * Number of times snapshot_mutex_ is acquired in the fast path.
      */
     TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x1F),
 
     /**
-     * # of times ::Get returned TryAgain due to expired snapshot seq
+     * Number of times ::Get returned TryAgain due to expired snapshot seq
      */
     TXN_GET_TRY_AGAIN((byte) -0x20),
 
     /**
-     * # of files marked as trash by delete scheduler
+     * Number of files marked as trash by delete scheduler
      */
     FILES_MARKED_TRASH((byte) -0x21),
 
     /**
-     * # of trash files deleted by the background thread from the trash queue
+     * Number of trash files deleted by the background thread from the trash queue
      */
     FILES_DELETED_FROM_TRASH_QUEUE((byte) -0x22),
 
     /**
-     * # of files deleted immediately by delete scheduler
+     * Number of files deleted immediately by delete scheduler
      */
     FILES_DELETED_IMMEDIATELY((byte) -0x23),
 
@@ -724,10 +876,31 @@ public enum TickerType {
      * DB error handler statistics
      */
     ERROR_HANDLER_BG_ERROR_COUNT((byte) -0x24),
+
+    /**
+     * Number of background errors handled by the error handler.
+     */
     ERROR_HANDLER_BG_IO_ERROR_COUNT((byte) -0x25),
+
+    /**
+     * Number of retryable background I/O errors handled by the error handler.
+     * This is a subset of {@link #ERROR_HANDLER_BG_IO_ERROR_COUNT}.
+     */
     ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT((byte) -0x26),
+
+    /**
+     * Number of auto resumes handled by the error handler.
+     */
     ERROR_HANDLER_AUTORESUME_COUNT((byte) -0x27),
+
+    /**
+     * Total Number of auto resume retries handled by the error handler.
+     */
     ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x28),
+
+    /**
+     * Number of auto resumes that succeded that were handled by the error handler.
+     */
     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x29),
 
     /**
@@ -737,6 +910,7 @@ public enum TickerType {
      * eventually be written to SSTable).
      */
     MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x2A),
+
     /**
      * Outdated bytes of data present on memtable at flush time.
      */
@@ -748,37 +922,93 @@ public enum TickerType {
     VERIFY_CHECKSUM_READ_BYTES((byte) -0x2C),
 
     /**
-     * Bytes read/written while creating backups
+     * Bytes read whilst creating backups.
      */
     BACKUP_READ_BYTES((byte) -0x2D),
+
+    /**
+     * Bytes written whilst creating backups.
+     */
     BACKUP_WRITE_BYTES((byte) -0x2E),
 
     /**
-     * Remote compaction read/write statistics
+     * Remote compaction bytes read.
      */
     REMOTE_COMPACT_READ_BYTES((byte) -0x2F),
+
+    /**
+     * Remote compaction bytes written.
+     */
     REMOTE_COMPACT_WRITE_BYTES((byte) -0x30),
 
     /**
-     * Tiered storage related statistics
+     * Bytes read from hot files.
      */
     HOT_FILE_READ_BYTES((byte) -0x31),
+
+    /**
+     * Bytes read from warm files.
+     */
     WARM_FILE_READ_BYTES((byte) -0x32),
+
+    /**
+     * Bytes read from cool files.
+     */
     COOL_FILE_READ_BYTES((byte) -0x5B),
+
+    /**
+     * Bytes read from cold files.
+     */
     COLD_FILE_READ_BYTES((byte) -0x33),
+
+    /**
+     * Bytes read from ice cold files.
+     */
     ICE_FILE_READ_BYTES((byte) -0x59),
+
+    /**
+     * Numer of reads from hot files.
+     */
     HOT_FILE_READ_COUNT((byte) -0x34),
+
+    /**
+     * Numer of reads from warm files.
+     */
     WARM_FILE_READ_COUNT((byte) -0x35),
+
+    /**
+     * Numer of reads from cool files.
+     */
     COOL_FILE_READ_COUNT((byte) -0x5C),
+
+    /**
+     * Numer of reads from cold files.
+     */
     COLD_FILE_READ_COUNT((byte) -0x36),
+
+    /**
+     * Numer of reads from ice cold files.
+     */
     ICE_FILE_READ_COUNT((byte) -0x5A),
 
     /**
-     * (non-)last level read statistics
+     * Bytes read from the last level.
      */
     LAST_LEVEL_READ_BYTES((byte) -0x37),
+
+    /**
+     * Number of reads from the last level.
+     */
     LAST_LEVEL_READ_COUNT((byte) -0x38),
+
+    /**
+     * Bytes read from the non-last level.
+     */
     NON_LAST_LEVEL_READ_BYTES((byte) -0x39),
+
+    /**
+     * Number of reads from the non-last level.
+     */
     NON_LAST_LEVEL_READ_COUNT((byte) -0x3A),
 
     /**
@@ -789,22 +1019,26 @@ public enum TickerType {
      * not find anything relevant, so avoided a likely access to data+index
      * blocks.
      */
+
     LAST_LEVEL_SEEK_FILTERED((byte) -0x3B),
     /**
      * Filter match: a filter such as prefix Bloom filter was queried but did
      * not filter out the seek.
      */
     LAST_LEVEL_SEEK_FILTER_MATCH((byte) -0x3C),
+
     /**
      * At least one data block was accessed for a Seek() (or variant) on a
      * sorted run.
      */
     LAST_LEVEL_SEEK_DATA((byte) -0x3D),
+
     /**
      * At least one value() was accessed for the seek (suggesting it was useful),
      * and no filter such as prefix Bloom was queried.
      */
     LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER((byte) -0x3E),
+
     /**
      * At least one value() was accessed for the seek (suggesting it was useful),
      * after querying a filter such as prefix Bloom.
@@ -812,16 +1046,32 @@ public enum TickerType {
     LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH((byte) -0x3F),
 
     /**
-     * The same set of stats, but for non-last level seeks.
+     * Similar to {@link #LAST_LEVEL_SEEK_FILTERED} but for the non-last level.
      */
     NON_LAST_LEVEL_SEEK_FILTERED((byte) -0x40),
+
+    /**
+     * Similar to {@link #LAST_LEVEL_SEEK_FILTER_MATCH} but for the non-last level.
+     */
     NON_LAST_LEVEL_SEEK_FILTER_MATCH((byte) -0x41),
+
+    /**
+     * Similar to {@link #LAST_LEVEL_SEEK_DATA} but for the non-last level.
+     */
     NON_LAST_LEVEL_SEEK_DATA((byte) -0x42),
+
+    /**
+     * Similar to {@link #LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER} but for the non-last level.
+     */
     NON_LAST_LEVEL_SEEK_DATA_USEFUL_NO_FILTER((byte) -0x43),
+
+    /**
+     * Similar to {@link #LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH} but for the non-last level.
+     */
     NON_LAST_LEVEL_SEEK_DATA_USEFUL_FILTER_MATCH((byte) -0x44),
 
     /**
-     * Number of block checksum verifications
+     * Number of block checksum verifications.
      */
     BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x45),
 
@@ -832,15 +1082,18 @@ public enum TickerType {
      */
     BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x46),
 
+    /**
+     * Number of multiget co-rountines.
+     */
     MULTIGET_COROUTINE_COUNT((byte) -0x47),
 
     /**
-     * Time spent in the ReadAsync file system call
+     * Time spent in the ReadAsync file system call.
      */
     READ_ASYNC_MICROS((byte) -0x48),
 
     /**
-     * Number of errors returned to the async read callback
+     * Number of errors returned to the async read callback.
      */
     ASYNC_READ_ERROR_COUNT((byte) -0x49),
 
@@ -859,33 +1112,63 @@ public enum TickerType {
     TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x4B),
 
     /**
-     * # of times timestamps are checked on accessing the table
+     * Number of times timestamps are checked on accessing the table
      */
     TIMESTAMP_FILTER_TABLE_CHECKED((byte) -0x4C),
 
     /**
-     * # of times timestamps can successfully help skip the table access
+     * Number of times timestamps can successfully help skip the table access
      */
     TIMESTAMP_FILTER_TABLE_FILTERED((byte) -0x4D),
 
+    /**
+     * Number of times readahead is trimmed during scans when ReadOptions.auto_readahead_size is set.
+     */
     READAHEAD_TRIMMED((byte) -0x4E),
 
+    /**
+     * Maximum size of the FIFO compactions.
+     */
     FIFO_MAX_SIZE_COMPACTIONS((byte) -0x4F),
 
+    /**
+     * TTL of the FIFO compactions.
+     */
     FIFO_TTL_COMPACTIONS((byte) -0x50),
 
+    /**
+     * Change temperature of the FIFO compactions.
+     */
     FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x58),
 
+    /**
+     * Number of bytes prefetched during user initiated scan.
+     */
     PREFETCH_BYTES((byte) -0x51),
 
+    /**
+     * Number of prefetched bytes that were actually useful during user initiated scan.
+     */
     PREFETCH_BYTES_USEFUL((byte) -0x52),
 
+    /**
+     * Number of FS reads avoided due to prefetching during user initiated scan.
+     */
     PREFETCH_HITS((byte) -0x53),
 
+    /**
+     * Footer corruption detected when opening an SST file for reading.
+     */
     SST_FOOTER_CORRUPTION_COUNT((byte) -0x55),
 
+    /**
+     * Counters for file read retries with the verify_and_reconstruct_read file system option after detecting a checksum mismatch.
+     */
     FILE_READ_CORRUPTION_RETRY_COUNT((byte) -0x56),
 
+    /**
+     * Counters for file read retries with the verify_and_reconstruct_read file system option after detecting a checksum mismatch.
+     */
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
 
     /**
@@ -897,12 +1180,12 @@ public enum TickerType {
     NUMBER_WBWI_INGEST((byte) -0x5D),
 
     /**
-     * Failure to load the UDI during SST table open
+     * Failure to load the UDI during SST table open.
      */
     SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT((byte) -0x5E),
 
     /**
-     * Bytes of output files successfully resumed during remote compaction
+     * Bytes of output files successfully resumed during remote compaction.
      */
     REMOTE_COMPACT_RESUMED_BYTES((byte) -0x5F),
 
@@ -911,50 +1194,53 @@ public enum TickerType {
      */
 
     /**
-     * # of calls to Iterator::Prepare() for multi-scan
+     * Number of calls to Iterator::Prepare() for multi-scan.
      */
     MULTISCAN_PREPARE_CALLS((byte) -0x60),
 
     /**
-     * # of errors during Iterator::Prepare() for multi-scan
+     * Number of errors during Iterator::Prepare() for multi-scan.
      */
     MULTISCAN_PREPARE_ERRORS((byte) -0x61),
 
     /**
-     * # of data blocks prefetched during multi-scan Prepare()
+     * Number of data blocks prefetched during multi-scan Prepare().
      */
     MULTISCAN_BLOCKS_PREFETCHED((byte) -0x62),
 
     /**
-     * # of data blocks found in cache during multi-scan Prepare()
+     * Number of data blocks found in cache during multi-scan Prepare().
      */
     MULTISCAN_BLOCKS_FROM_CACHE((byte) -0x63),
 
     /**
-     * Total bytes prefetched during multi-scan Prepare()
+     * Total bytes prefetched during multi-scan Prepare().
      */
     MULTISCAN_PREFETCH_BYTES((byte) -0x64),
 
     /**
-     * # of prefetched blocks that were never accessed (wasted)
+     * Number of prefetched blocks that were never accessed (wasted).
      */
     MULTISCAN_PREFETCH_BLOCKS_WASTED((byte) -0x65),
 
     /**
-     * # of I/O requests issued during multi-scan Prepare()
+     * Number of I/O requests issued during multi-scan Prepare().
      */
     MULTISCAN_IO_REQUESTS((byte) -0x66),
 
     /**
-     * # of non-adjacent blocks coalesced into single I/O request
+     * Number of non-adjacent blocks coalesced into single I/O request.
      */
     MULTISCAN_IO_COALESCED_NONADJACENT((byte) -0x67),
 
     /**
-     * # of seek errors during multi-scan iteration
+     * Number of seek errors during multi-scan iteration.
      */
     MULTISCAN_SEEK_ERRORS((byte) -0x68),
 
+    /**
+     * Maximum number of ticker types.
+     */
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;
