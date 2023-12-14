@@ -7,9 +7,27 @@ package org.rocksdb;
 
 import java.nio.ByteBuffer;
 
+/**
+ * WriteBatch holds a collection of updates to apply atomically to a DB.
+ * <p>
+ * The updates are applied in the order in which they are added
+ * to the WriteBatch.  For example, the value of "key" will be "v3"
+ * after the following batch is written:
+ * <pre><code>
+ *    batch.put("key", "v1");
+ *    batch.remove("key");
+ *    batch.put("key", "v2");
+ *    batch.put("key", "v3");
+ * </code></pre>
+ */
 public abstract class AbstractWriteBatch extends RocksObject
     implements WriteBatchInterface {
 
+  /**
+   * Construct an AbstractWriteBatch.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ Write Batch object.
+   */
   protected AbstractWriteBatch(final long nativeHandle) {
     super(nativeHandle);
   }

@@ -10,6 +10,8 @@ package org.rocksdb;
  * <p>
  * Taken from include/rocksdb/advanced_options.h
  * and MutableCFOptions in util/cf_options.h
+ *
+ * @param <T> the concrete type of the Column Family Options.
  */
 public interface AdvancedMutableColumnFamilyOptionsInterface<
     T extends AdvancedMutableColumnFamilyOptionsInterface<T>> {

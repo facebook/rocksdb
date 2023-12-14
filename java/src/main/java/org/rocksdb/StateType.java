@@ -12,7 +12,15 @@ package org.rocksdb;
  * such as reading / writing a file or waiting for a mutex.
  */
 public enum StateType {
+
+  /**
+   * Unknown.
+   */
   STATE_UNKNOWN((byte)0x0),
+
+  /**
+   * Waiting on Mutex.
+   */
   STATE_MUTEX_WAIT((byte)0x1);
 
   private final byte value;

@@ -5,8 +5,14 @@
 
 package org.rocksdb;
 
+/**
+ * Options for TransactionDB.
+ */
 public class TransactionDBOptions extends RocksObject {
 
+  /**
+   * Constructs a TransactionDB.
+   */
   public TransactionDBOptions() {
     super(newTransactionDBOptions());
   }
@@ -110,16 +116,15 @@ public class TransactionDBOptions extends RocksObject {
 
   /**
    * The wait timeout in milliseconds when writing a key
-   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
+   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put(byte[], byte[])},
+   * {@link RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(WriteOptions, byte[])} or {@link RocksDB#write(WriteOptions, WriteBatch)}
    * directly).
    * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
    * a lock.
    *
-   * @return the timeout in milliseconds when writing a key OUTSIDE of a
-   *     transaction
+   * @return the timeout in milliseconds when writing a key outside of the transaction
    */
   public long getDefaultLockTimeout() {
     assert(isOwningHandle());
@@ -128,8 +133,8 @@ public class TransactionDBOptions extends RocksObject {
 
   /**
    * If positive, specifies the wait timeout in milliseconds when writing a key
-   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
+   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put(byte[], byte[])},
+   * {@link RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link RocksDB#write(WriteOptions, WriteBatch)}
    * directly).
    * <p>
    * If 0, no waiting is done if a lock cannot instantly be acquired.
@@ -145,7 +150,7 @@ public class TransactionDBOptions extends RocksObject {
    * Default: 1000
    *
    * @param defaultLockTimeout the timeout in milliseconds when writing a key
-   *     OUTSIDE of a transaction
+   *     outside of the transaction
    * @return this TransactionDBOptions instance
    */
   public TransactionDBOptions setDefaultLockTimeout(final long defaultLockTimeout) {

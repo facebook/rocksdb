@@ -19,5 +19,10 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.SOURCE)
 @Target({ElementType.TYPE, ElementType.METHOD})
 public @interface Experimental {
+  /**
+   * A description explaining why the feature is experimental.
+   *
+   * @return the explanation of why the feature is experimental.
+   */
   String value();
 }

@@ -16,6 +16,10 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
+
+  /**
+   * Constant for No Direct Slice.
+   */
   public static final DirectSlice NONE = new DirectSlice();
 
   /**
@@ -110,6 +114,11 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     this.internalBufferOffset += n;
   }
 
+  /**
+   * Set the length of the direct slice.
+   *
+   * @param n the length.
+   */
   public void setLength(final int n) {
     setLength0(getNativeHandle(), n);
   }

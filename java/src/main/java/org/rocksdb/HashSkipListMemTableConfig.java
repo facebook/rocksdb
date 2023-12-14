@@ -15,12 +15,24 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashSkipListMemTableConfig extends MemTableConfig {
+
+  /**
+   * The default number of buckets.
+   */
   public static final int DEFAULT_BUCKET_COUNT = 1_000_000;
+
+  /**
+   * The default branching factor.
+   */
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
+
+  /**
+   * The default skip list height.
+   */
   public static final int DEFAULT_HEIGHT = 4;
 
   /**
-   * HashSkipListMemTableConfig constructor
+   * Constructs a HashSkipListMemTableConfig.
    */
   public HashSkipListMemTableConfig() {
     bucketCount_ = DEFAULT_BUCKET_COUNT;

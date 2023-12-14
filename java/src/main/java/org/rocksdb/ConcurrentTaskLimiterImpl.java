@@ -6,7 +6,17 @@
 
 package org.rocksdb;
 
+/**
+ * Concurrent Task Limiter.
+ */
 public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
+
+  /**
+   * Construct a new Concurrent Task Limiter.
+   *
+   * @param name the name of the limiter.
+   * @param maxOutstandingTask the maximum concurrent tasks.
+   */
   public ConcurrentTaskLimiterImpl(final String name, final int maxOutstandingTask) {
     super(newConcurrentTaskLimiterImpl0(name, maxOutstandingTask));
   }

@@ -25,11 +25,21 @@ public class StatsCollectorInput {
     _statsCallback = statsCallback;
   }
 
+  /**
+   * Get the statistics.
+   *
+   * @return the statistics.
+   */
   public Statistics getStatistics() {
     return _statistics;
   }
 
-  public StatisticsCollectorCallback getCallback() {
+  /**
+   * Get the statistics collector callback.
+   *
+   * @return the statistics collector callback.
+   */
+  StatisticsCollectorCallback getCallback() {
     return _statsCallback;
   }
 }

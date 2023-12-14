@@ -24,6 +24,11 @@ import java.nio.ByteBuffer;
  */
 public final class ReverseBytewiseComparator extends AbstractComparator {
 
+  /**
+   * Constructs a ReverseBytewiseComparator.
+   *
+   * @param copt the comparator options.
+   */
   public ReverseBytewiseComparator(final ComparatorOptions copt) {
     super(copt);
   }

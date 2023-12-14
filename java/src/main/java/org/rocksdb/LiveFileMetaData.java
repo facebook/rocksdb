@@ -46,7 +46,7 @@ public class LiveFileMetaData extends SstFileMetaData {
     return level;
   }
 
-  public long newLiveFileMetaDataHandle() {
+  private long newLiveFileMetaDataHandle() {
     return newLiveFileMetaDataHandle(columnFamilyName(), columnFamilyName().length, level(),
         fileName(), path(), size(), smallestSeqno(), largestSeqno(), smallestKey(),
         smallestKey().length, largestKey(), largestKey().length, numReadsSampled(),

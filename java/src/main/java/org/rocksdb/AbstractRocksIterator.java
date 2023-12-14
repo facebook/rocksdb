@@ -25,6 +25,12 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
 
+  /**
+   * Constructs an AbstractRocksIterator.
+   *
+   * @param parent the parent object from which the Rocks Iterator was created.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ RocksIterator.
+   */
   protected AbstractRocksIterator(final P parent,
       final long nativeHandle) {
     super(nativeHandle);

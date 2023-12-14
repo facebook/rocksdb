@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+/**
+ * Performance monitoring levels.
+ */
 public enum PerfLevel {
   /**
    * Unknown setting
@@ -45,16 +48,31 @@ public enum PerfLevel {
 
   private final byte _value;
 
+  /**
+   * Get the internal representation value.
+   *
+   * @return the internal representation value.
+   */
   public byte getValue() {
     return _value;
   }
 
+  /**
+   * Get the PerfLevel from the internal representation value.
+   *
+   * @param level the internal representation value.
+   *
+   * @return the PerfLevel
+   *
+   * @throws IllegalArgumentException if the value does not match a
+   *     PerfLevel
+   */
   public static PerfLevel getPerfLevel(byte level) {
     for (PerfLevel l : PerfLevel.values()) {
       if (l.getValue() == level) {
         return l;
       }
     }
-    throw new IllegalArgumentException("Uknknown PerfLevel constant : " + level);
+    throw new IllegalArgumentException("Unknown PerfLevel constant : " + level);
   }
 }

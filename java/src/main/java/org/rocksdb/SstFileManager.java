@@ -17,9 +17,25 @@ import java.util.Map;
  */
 //@ThreadSafe
 public final class SstFileManager extends RocksObject {
+
+  /**
+   * The default bytes-per-sec rate.
+   */
   public static final long DEFAULT_RATE_BYTES_PER_SEC = 0;
+
+  /**
+   * The default of whether to delete existing trash.
+   */
   public static final boolean DEFAULT_DELETE_EXISTING_TRASH = true;
-  public static final double DEFAULT_MAX_TRASH_DB_RATION = 0.25;
+
+  /**
+   * The default max trash db ratio.
+   */
+  public static final double DEFAULT_MAX_TRASH_DB_RATIO = 0.25;
+
+  /**
+   * The default max delete chunk size in bytes.
+   */
   public static final long DEFAULT_BYTES_MAX_DELETE_CHUNK = 64 * 1024 * 1024;
 
   /**
@@ -65,7 +81,7 @@ public final class SstFileManager extends RocksObject {
    */
   public SstFileManager(final Env env, /*@Nullable*/  final Logger logger,
       final long rateBytesPerSec) throws RocksDBException {
-    this(env, logger, rateBytesPerSec, DEFAULT_MAX_TRASH_DB_RATION);
+    this(env, logger, rateBytesPerSec, DEFAULT_MAX_TRASH_DB_RATIO);
   }
 
   /**
