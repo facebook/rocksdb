@@ -46,7 +46,7 @@ public final class BytewiseComparator extends AbstractComparator {
       if (a.remaining() < b.remaining()) {
         r = -1;
       } else if (a.remaining() > b.remaining()) {
-        r = +1;
+        r = 1;
       }
     }
     return r;
