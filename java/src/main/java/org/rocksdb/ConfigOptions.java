@@ -6,33 +6,72 @@
 
 package org.rocksdb;
 
+/**
+ * Configuration options.
+ */
 public class ConfigOptions extends RocksObject {
   /**
-   * Construct with default Options
+   * Constructs a new ConfigOptions.
    */
   public ConfigOptions() {
     super(newConfigOptionsInstance());
   }
 
+  /**
+   * Set the delimiter used between options.
+   *
+   * @param delimiter the delimiter
+   *
+   * @return the reference to the current options
+   */
   public ConfigOptions setDelimiter(final String delimiter) {
     setDelimiter(nativeHandle_, delimiter);
     return this;
   }
+
+  /**
+   * Set whether to ignore unknown options.
+   *
+   * @param ignore true to ignore unknown options, otherwise raise an error.
+   *
+   * @return the reference to the current options
+   */
   public ConfigOptions setIgnoreUnknownOptions(final boolean ignore) {
     setIgnoreUnknownOptions(nativeHandle_, ignore);
     return this;
   }
 
+  /**
+   * Set the environment.
+   *
+   * @param env the environment.
+   *
+   * @return the reference to the current options
+   */
   public ConfigOptions setEnv(final Env env) {
     setEnv(nativeHandle_, env.nativeHandle_);
     return this;
   }
 
+  /**
+   * Set whether to escape input strings.
+   *
+   * @param escaped true to escape input strings, false otherwise.
+   *
+   * @return the reference to the current options
+   */
   public ConfigOptions setInputStringsEscaped(final boolean escaped) {
     setInputStringsEscaped(nativeHandle_, escaped);
     return this;
   }
 
+  /**
+   * Set the sanity level.
+   *
+   * @param level the sanity level.
+   *
+   * @return the reference to the current options
+   */
   public ConfigOptions setSanityLevel(final SanityLevel level) {
     setSanityLevel(nativeHandle_, level.getValue());
     return this;

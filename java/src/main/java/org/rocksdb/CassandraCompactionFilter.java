@@ -6,10 +6,26 @@
 package org.rocksdb;
 
 /**
- * Just a Java wrapper around CassandraCompactionFilter implemented in C++
+ * Just a Java wrapper around CassandraCompactionFilter implemented in C++.
+ * <p>
+ * Compaction filter for removing expired Cassandra data with ttl.
+ * Is also in charge of removing tombstone that has been
+ * promoted to kValue type after serials of merging in compaction.
  */
 public class CassandraCompactionFilter
     extends AbstractCompactionFilter<Slice> {
+
+  /**
+   * Constructs a new CasandraCompactionFilter.
+   *
+   * @param purgeTtlOnExpiration if set to true, expired data will be directly purged,
+   *                             otherwise expired data will be converted to tombstones
+   *                             first and then be eventually removed after
+   *                             {@code gcGracePeriodInSeconds}. Should only be on in
+   *                             the case that all the writes have the same ttl setting,
+   *                             otherwise it could bring old data back.
+   * @param gcGracePeriodInSeconds the grace period in seconds for gc.
+   */
   public CassandraCompactionFilter(
       final boolean purgeTtlOnExpiration, final int gcGracePeriodInSeconds) {
     super(createNewCassandraCompactionFilter0(purgeTtlOnExpiration, gcGracePeriodInSeconds));

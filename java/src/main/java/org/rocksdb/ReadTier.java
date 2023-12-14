@@ -9,9 +9,25 @@ package org.rocksdb;
  * RocksDB {@link ReadOptions} read tiers.
  */
 public enum ReadTier {
+
+  /**
+   * Read all tiers.
+   */
   READ_ALL_TIER((byte)0),
+
+  /**
+   * Read block cache.
+   */
   BLOCK_CACHE_TIER((byte)1),
+
+  /**
+   * Read persisted.
+   */
   PERSISTED_TIER((byte)2),
+
+  /**
+   * Read Memtable(s).
+   */
   MEMTABLE_TIER((byte)3);
 
   private final byte value;

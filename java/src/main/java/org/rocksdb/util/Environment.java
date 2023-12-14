@@ -5,6 +5,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
 
+/**
+ * Provides information about the environment in which RocksJava is executing.
+ */
 public class Environment {
   @SuppressWarnings("FieldMayBeFinal")
   private static String OS = System.getProperty("os.name").toLowerCase(Locale.getDefault());
@@ -24,38 +27,83 @@ public class Environment {
    */
   private static Boolean MUSL_LIBC = null;
 
+  /**
+   * Returns true if the CPU architecture is aarch64.
+   *
+   * @return true if the CPU architecture is aarch64, false otherwise.
+   */
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
   }
 
+  /**
+   * Returns true if the CPU architecture is ppc.
+   *
+   * @return true if the CPU architecture is ppc, false otherwise.
+   */
   public static boolean isPowerPC() {
     return ARCH.contains("ppc");
   }
 
+  /**
+   * Returns true if the CPU architecture is s390x.
+   *
+   * @return true if the CPU architecture is s390x, false otherwise.
+   */
   public static boolean isS390x() {
     return ARCH.contains("s390x");
   }
 
+  /**
+   * Returns true if the CPU architecture is riscv64.
+   *
+   * @return true if the CPU architecture is riscv64, false otherwise.
+   */
   public static boolean isRiscv64() {
     return ARCH.contains("riscv64");
   }
 
+  /**
+   * Returns true if the OS is Windows.
+   *
+   * @return true if the OS is Windows, false otherwise.
+   */
   public static boolean isWindows() {
     return (OS.contains("win"));
   }
 
+  /**
+   * Returns true if the OS is FreeBSD.
+   *
+   * @return true if the OS is FreeBSD, false otherwise.
+   */
   public static boolean isFreeBSD() {
     return (OS.contains("freebsd"));
   }
 
+  /**
+   * Returns true if the OS is Mac.
+   *
+   * @return true if the OS is Mac, false otherwise.
+   */
   public static boolean isMac() {
     return (OS.contains("mac"));
   }
 
+  /**
+   * Returns true if the OS is AIX.
+   *
+   * @return true if the OS is AIX, false otherwise.
+   */
   public static boolean isAix() {
     return OS.contains("aix");
   }
-  
+
+  /**
+   * Returns true if the OS is Unix.
+   *
+   * @return true if the OS is Unix, false otherwise.
+   */
   public static boolean isUnix() {
     return OS.contains("nix") ||
         OS.contains("nux");
@@ -75,9 +123,9 @@ public class Environment {
 
   /**
    * Determine if the environment has a musl libc.
-   *
+   * <p>
    * The initialisation counterpart of {@link #isMuslLibc()}.
-   *
+   * <p>
    * Intentionally package-private for testing.
    *
    * @return true if the environment has a musl libc, false otherwise.
@@ -136,14 +184,29 @@ public class Environment {
     return false;
   }
 
+  /**
+   * Returns true if the OS is Solaris.
+   *
+   * @return true if the OS is Solaris, false otherwise.
+   */
   public static boolean isSolaris() {
     return OS.contains("sunos");
   }
 
+  /**
+   * Returns true if the OS is OpenBSD.
+   *
+   * @return true if the OS is OpenBSD, false otherwise.
+   */
   public static boolean isOpenBSD() {
     return (OS.contains("openbsd"));
   }
 
+  /**
+   * Returns true if the system architecture is 64 bit.
+   *
+   * @return true if the system architecture is 64 bit, false otherwise.
+   */
   public static boolean is64Bit() {
     if (ARCH.contains(SPARCV9)) {
       return true;
@@ -151,10 +214,24 @@ public class Environment {
     return (ARCH.indexOf("64") > 0);
   }
 
+  /**
+   * Get the name as that of a shared JNI library.
+   *
+   * @param name the name.
+   *
+   * @return the name of the shared JNI library.
+   */
   public static String getSharedLibraryName(final String name) {
     return name + "jni";
   }
 
+  /**
+   * Get the filename as that of a shared JNI library.
+   *
+   * @param name the name.
+   *
+   * @return the filename of the shared JNI library.
+   */
   public static String getSharedLibraryFileName(final String name) {
     return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
   }
@@ -181,6 +258,16 @@ public class Environment {
     return "-" + libcName;
   }
 
+
+  /**
+   * Get the name as that of a JNI library.
+   * <p>
+   * Deals with platform and architecture specific naming.
+   *
+   * @param name the name.
+   *
+   * @return the name of the JNI library.
+   */
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
@@ -219,6 +306,15 @@ public class Environment {
     throw new UnsupportedOperationException(String.format("Cannot determine JNI library name for ARCH='%s' OS='%s' name='%s'", ARCH, OS, name));
   }
 
+  /**
+   * Get a fallback name as that of a JNI library.
+   * <p>
+   * Deals with platform and architecture specific naming.
+   *
+   * @param name the name.
+   *
+   * @return the fallback name of the JNI library.
+   */
   public static /*@Nullable*/ String getFallbackJniLibraryName(final String name) {
     if (isMac() && is64Bit()) {
       return String.format("%sjni-osx", name);
@@ -226,10 +322,28 @@ public class Environment {
     return null;
   }
 
+  /**
+   * Get the filename as that of a JNI library.
+   * <p>
+   * Deals with platform and architecture specific naming.
+   *
+   * @param name the name.
+   *
+   * @return the filename of the JNI library.
+   */
   public static String getJniLibraryFileName(final String name) {
     return appendLibOsSuffix("lib" + getJniLibraryName(name), false);
   }
 
+  /**
+   * Get the fallback filename as that of a JNI library.
+   * <p>
+   * Deals with platform and architecture specific naming.
+   *
+   * @param name the name.
+   *
+   * @return the fallback filename of the JNI library.
+   */
   public static /*@Nullable*/ String getFallbackJniLibraryFileName(final String name) {
     final String fallbackJniLibraryName = getFallbackJniLibraryName(name);
     if (fallbackJniLibraryName == null) {
@@ -249,6 +363,13 @@ public class Environment {
     throw new UnsupportedOperationException();
   }
 
+  /**
+   * Get the filename extension used for a JNI library.
+   * <p>
+   * Deals with platform and architecture specific naming.
+   *
+   * @return the filename extension.
+   */
   public static String getJniLibraryExtension() {
     if (isWindows()) {
       return ".dll";

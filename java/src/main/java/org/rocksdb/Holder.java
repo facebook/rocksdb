@@ -7,6 +7,8 @@ package org.rocksdb;
 
 /**
  * Simple instance reference wrapper.
+ *
+ * @param <T> the concrete type that this holder holds.
  */
 public class Holder<T> {
   private /* @Nullable */ T value;

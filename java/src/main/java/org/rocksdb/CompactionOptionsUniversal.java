@@ -10,6 +10,9 @@ package org.rocksdb;
  */
 public class CompactionOptionsUniversal extends RocksObject {
 
+  /**
+   * Constructs a new CompactionOptionsUniversal.
+   */
   public CompactionOptionsUniversal() {
     super(newCompactionOptionsUniversal());
   }

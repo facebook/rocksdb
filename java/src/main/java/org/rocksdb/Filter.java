@@ -15,13 +15,18 @@ package org.rocksdb;
 //TODO(AR) should be renamed FilterPolicy
 public abstract class Filter extends RocksObject {
 
+  /**
+   * Constructs a filter.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ filter object.
+   */
   protected Filter(final long nativeHandle) {
     super(nativeHandle);
   }
 
   /**
    * Deletes underlying C++ filter pointer.
-   *
+   * <p>
    * Note that this function should be called only after all
    * RocksDB instances referencing the filter are closed.
    * Otherwise an undefined behavior will occur.

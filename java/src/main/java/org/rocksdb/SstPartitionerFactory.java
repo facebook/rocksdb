@@ -9,6 +9,11 @@ package org.rocksdb;
  * Handle to factory for SstPartitioner. It is used in {@link ColumnFamilyOptions}
  */
 public abstract class SstPartitionerFactory extends RocksObject {
+  /**
+   * Constructs a SstPartitionerFactory.
+   *
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ SstPartitionerFactory.
+   */
   protected SstPartitionerFactory(final long nativeHandle) {
     super(nativeHandle);
   }

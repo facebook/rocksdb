@@ -10,6 +10,9 @@ package org.rocksdb;
  * integer value.
  */
 public class UInt64AddOperator extends MergeOperator {
+    /**
+     * Constructs a UInt64AddOperator.
+     */
     public UInt64AddOperator() {
         super(newSharedUInt64AddOperator());
     }
