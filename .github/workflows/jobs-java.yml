@@ -23,7 +23,7 @@ jobs:
     container:
       image: evolvedbinary/rocksjava:centos6_x64-be
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: actions/checkout@v3 # see https://github.com/actions/checkout/issues/1474
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-

@@ -2,17 +2,22 @@ name: facebook/rocksdb/jobs-linux-run-tests-san
 on: [push, pull_request]
 jobs:
   build-linux-clang10-asan:
-    runs-on: 
+    runs-on:
       labels: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - name: Setup tmate session #TEMPORARY!
+      uses: mxschmitt/action-tmate@v3
+      timeout: 20
+      with:
+        limit-access-to-actor: true
     - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-ubsan:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
@@ -22,7 +27,7 @@ jobs:
     - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-mini-tsan:
-    runs-on: 
+    runs-on:
       labels: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6

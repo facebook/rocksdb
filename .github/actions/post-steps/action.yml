@@ -2,6 +2,13 @@ name: post-steps
 runs:
   using: composite
   steps:
+  - uses: actions/checkout@v3
+  - name: Setup tmate session #TEMPORARY!
+    if: ${{ failure() }}
+    uses: mxschmitt/action-tmate@v3
+    timeout: 60
+    with:
+      limit-access-to-actor: true
   - uses: actions/upload-artifact@v3.1.3
     with:
       path: "${{ runner.temp }}/test-results"
