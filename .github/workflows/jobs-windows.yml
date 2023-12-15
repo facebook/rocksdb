@@ -10,23 +10,7 @@ env:
   SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.1.8;${{ github.workspace }}/thirdparty/snappy-1.1.8/build
   SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
 jobs:
-# TODO: move some to nightly as in a140b51
-  build-windows-vs2022-avx2:
-    runs-on: windows-2022
-    env:
-      CMAKE_GENERATOR: Visual Studio 17 2022
-      CMAKE_PORTABLE: AVX2
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/windows-build-steps"
-  build-windows-vs2022:
-    runs-on: windows-2022
-    env:
-      CMAKE_GENERATOR: Visual Studio 17 2022
-      CMAKE_PORTABLE: 1
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/windows-build-steps"
+  # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-vs2019:
     runs-on: windows-2019
     env:
@@ -35,4 +19,3 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/windows-build-steps"
-  
