@@ -1,6 +1,44 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 8.10.0 (12/15/2023)
+### New Features
+* Provide support for async_io to trim readahead_size by doing block cache lookup
+* Added initial wide-column support in `WriteBatchWithIndex`. This includes the `PutEntity` API and support for wide columns in the existing read APIs (`GetFromBatch`, `GetFromBatchAndDB`, `MultiGetFromBatchAndDB`, and `BaseDeltaIterator`).
+
+### Public API Changes
+* Custom implementations of `TablePropertiesCollectorFactory` may now return a `nullptr` collector to decline processing a file, reducing callback overheads in such cases.
+
+### Behavior Changes
+* Make ReadOptions.auto_readahead_size default true which does prefetching optimizations for forward scans if iterate_upper_bound and block_cache is also specified.
+* Compactions can be scheduled in parallel in an additional scenario: high compaction debt relative to the data size
+* HyperClockCache now has built-in protection against excessive CPU consumption under the extreme stress condition of no (or very few) evictable cache entries, which can slightly increase memory usage such conditions. New option `HyperClockCacheOptions::eviction_effort_cap` controls the space-time trade-off of the response. The default should be generally well-balanced, with no measurable affect on normal operation.
+
+### Bug Fixes
+* Fix a corner case with auto_readahead_size where Prev Operation returns NOT SUPPORTED error when scans direction is changed from forward to backward.
+* Avoid destroying the periodic task scheduler's default timer in order to prevent static destruction order issues.
+* Fix double counting of BYTES_WRITTEN ticker when doing writes with transactions.
+* Fix a WRITE_STALL counter that was reporting wrong value in few cases.
+* A lookup by MultiGet in a TieredCache that goes to the local flash cache and finishes with very low latency, i.e before the subsequent call to WaitAll, is ignored, resulting in a false negative and a memory leak.
+
+### Performance Improvements
+* Java API extensions to improve consistency and completeness of APIs
+1 Extended `RocksDB.get([ColumnFamilyHandle columnFamilyHandle,] ReadOptions opt, ByteBuffer key, ByteBuffer value)` which now accepts indirect buffer parameters as well as direct buffer parameters
+2 Extended `RocksDB.put( [ColumnFamilyHandle columnFamilyHandle,] WriteOptions writeOpts, final ByteBuffer key, final ByteBuffer value)` which now accepts indirect buffer parameters as well as direct buffer parameters
+3 Added `RocksDB.merge([ColumnFamilyHandle columnFamilyHandle,] WriteOptions writeOptions, ByteBuffer key, ByteBuffer value)` methods with the same parameter options as `put(...)` - direct and indirect buffers are supported
+4 Added `RocksIterator.key( byte[] key [, int offset, int len])` methods which retrieve the iterator key into the supplied buffer
+5 Added `RocksIterator.value( byte[] value [, int offset, int len])` methods which retrieve the iterator value into the supplied buffer
+6 Deprecated `get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions, byte[])` in favour of `get(final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle, byte[])` which has consistent parameter ordering with other methods in the same class
+7 Added `Transaction.get( ReadOptions opt, [ColumnFamilyHandle columnFamilyHandle, ] byte[] key, byte[] value)` methods which retrieve the requested value into the supplied buffer
+8 Added `Transaction.get( ReadOptions opt, [ColumnFamilyHandle columnFamilyHandle, ] ByteBuffer key, ByteBuffer value)` methods which retrieve the requested value into the supplied buffer
+9 Added `Transaction.getForUpdate( ReadOptions readOptions, [ColumnFamilyHandle columnFamilyHandle, ] byte[] key, byte[] value, boolean exclusive [, boolean doValidate])` methods which retrieve the requested value into the supplied buffer
+10 Added `Transaction.getForUpdate( ReadOptions readOptions, [ColumnFamilyHandle columnFamilyHandle, ] ByteBuffer key, ByteBuffer value, boolean exclusive [, boolean doValidate])` methods which retrieve the requested value into the supplied buffer
+11 Added `Transaction.getIterator()` method as a convenience which defaults the `ReadOptions` value supplied to existing `Transaction.iterator()` methods. This mirrors the existing `RocksDB.iterator()` method.
+12 Added `Transaction.put([ColumnFamilyHandle columnFamilyHandle, ]  ByteBuffer key, ByteBuffer value [, boolean assumeTracked])` methods which supply the key, and the value to be written in a `ByteBuffer` parameter
+13 Added `Transaction.merge([ColumnFamilyHandle columnFamilyHandle, ] ByteBuffer key, ByteBuffer value [,  boolean assumeTracked])` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
+14 Added `Transaction.mergeUntracked([ColumnFamilyHandle columnFamilyHandle, ] ByteBuffer key, ByteBuffer value)` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
+
+
 ## 8.9.0 (11/17/2023)
 ### New Features
 * Add GetEntity() and PutEntity() API implementation for Attribute Group support. Through the use of Column Families, AttributeGroup enables users to logically group wide-column entities.
