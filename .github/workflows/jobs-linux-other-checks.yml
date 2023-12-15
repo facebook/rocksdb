@@ -31,6 +31,7 @@ jobs:
     - run: apt-get update -y && apt-get install -y libgflags-dev
     - name: Unity build
       run: make V=1 -j8 unity_test
+      syntax-error: foo
     - run: make V=1 -j8 -k check-headers
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:

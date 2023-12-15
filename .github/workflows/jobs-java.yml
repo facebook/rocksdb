@@ -1,5 +1,6 @@
 name: facebook/rocksdb/jobs-java
 on: [push, pull_request]
+syntax-error: foo
 jobs:
   build-linux-java:
     runs-on:

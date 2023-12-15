@@ -19,6 +19,7 @@ jobs:
         tools/check_format_compatible.sh
     - uses: "./.github/actions/post-steps"
   build-linux-arm-test-full:
+    syntax-error: blah
     runs-on:
       group: arm64large
     container:
