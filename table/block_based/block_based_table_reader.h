@@ -707,12 +707,10 @@ struct BlockBasedTable::Rep {
   }
 
   void CreateFilePrefetchBufferIfNotExists(
-          const ReadaheadParams& readahead_params,
-          std::unique_ptr<FilePrefetchBuffer>* fpb,
-          const std::function<void(bool, uint64_t&, uint64_t&)>&
-              readaheadsize_cb,
-          FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
-          const {
+      const ReadaheadParams& readahead_params,
+      std::unique_ptr<FilePrefetchBuffer>* fpb,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+      FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_params, fpb, readaheadsize_cb, usage);
     }
