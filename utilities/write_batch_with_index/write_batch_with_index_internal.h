@@ -8,7 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/merge_helper.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -47,6 +49,7 @@ class BaseDeltaIterator : public Iterator {
   void Prev() override;
   Slice key() const override;
   Slice value() const override { return value_; }
+  const WideColumns& columns() const override { return columns_; }
   Slice timestamp() const override;
   Status status() const override;
   void Invalidate(Status s);
@@ -58,9 +61,9 @@ class BaseDeltaIterator : public Iterator {
   void AdvanceBase();
   bool BaseValid() const;
   bool DeltaValid() const;
-  void ResetValue();
-  void SetValueFromBase();
-  void SetValueFromDelta();
+  void ResetValueAndColumns();
+  void SetValueAndColumnsFromBase();
+  void SetValueAndColumnsFromDelta();
   void UpdateCurrent();
 
   bool forward_;
@@ -74,6 +77,7 @@ class BaseDeltaIterator : public Iterator {
   MergeContext merge_context_;
   std::string merge_result_;
   Slice value_;
+  WideColumns columns_;
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
@@ -145,7 +149,7 @@ class ReadableWriteBatch : public WriteBatch {
                    default_cf_ts_sz) {}
   // Retrieve some information from a write entry in the write batch, given
   // the start offset of the write entry.
-  Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,
+  Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* key,
                                 Slice* value, Slice* blob, Slice* xid) const;
 };
 
@@ -319,12 +323,12 @@ class WBWIIteratorImpl : public WBWIIterator {
   // Moves the iterator to first entry of the next key.
   void NextKey();
 
-  // Moves the iterator to the Update (Put or Delete) for the current key
-  // If there are no Put/Delete, the Iterator will point to the first entry for
-  // this key
-  // @return kFound if a Put was found for the key
+  // Moves the iterator to the Update (Put, PutEntity or Delete) for the current
+  // key. If there is no Put/PutEntity/Delete, the Iterator will point to the
+  // first entry for this key.
+  // @return kFound if a Put/PutEntity was found for the key
   // @return kDeleted if a delete was found for the key
-  // @return kMergeInProgress if only merges were fouund for the key
+  // @return kMergeInProgress if only merges were found for the key
   // @return kError if an unsupported operation was found for the key
   // @return kNotFound if no operations were found for this key
   //
@@ -385,15 +389,52 @@ class WriteBatchWithIndexInternal {
   static const Comparator* GetUserComparator(const WriteBatchWithIndex& wbwi,
                                              uint32_t cf_id);
 
+  template <typename... ResultTs>
   static Status MergeKeyWithNoBaseValue(ColumnFamilyHandle* column_family,
                                         const Slice& key,
                                         const MergeContext& context,
-                                        std::string* result);
+                                        ResultTs... results) {
+    const ImmutableOptions* ioptions = nullptr;
 
-  static Status MergeKeyWithPlainBaseValue(ColumnFamilyHandle* column_family,
-                                           const Slice& key, const Slice& value,
-                                           const MergeContext& context,
-                                           std::string* result);
+    const Status s = CheckAndGetImmutableOptions(column_family, &ioptions);
+    if (!s.ok()) {
+      return s;
+    }
+
+    assert(ioptions);
+
+    // `op_failure_scope` (an output parameter) is not provided (set to
+    // nullptr) since a failure must be propagated regardless of its value.
+    return MergeHelper::TimedFullMerge(
+        ioptions->merge_operator.get(), key, MergeHelper::kNoBaseValue,
+        context.GetOperands(), ioptions->logger, ioptions->stats,
+        ioptions->clock, /* update_num_ops_stats */ false,
+        /* op_failure_scope */ nullptr, results...);
+  }
+
+  template <typename BaseTag, typename BaseT, typename... ResultTs>
+  static Status MergeKeyWithBaseValue(ColumnFamilyHandle* column_family,
+                                      const Slice& key, const BaseTag& base_tag,
+                                      const BaseT& value,
+                                      const MergeContext& context,
+                                      ResultTs... results) {
+    const ImmutableOptions* ioptions = nullptr;
+
+    const Status s = CheckAndGetImmutableOptions(column_family, &ioptions);
+    if (!s.ok()) {
+      return s;
+    }
+
+    assert(ioptions);
+
+    // `op_failure_scope` (an output parameter) is not provided (set to
+    // nullptr) since a failure must be propagated regardless of its value.
+    return MergeHelper::TimedFullMerge(
+        ioptions->merge_operator.get(), key, base_tag, value,
+        context.GetOperands(), ioptions->logger, ioptions->stats,
+        ioptions->clock, /* update_num_ops_stats */ false,
+        /* op_failure_scope */ nullptr, results...);
+  }
 
   // If batch contains a value for key, store it in *value and return kFound.
   // If batch contains a deletion for key, return Deleted.
@@ -407,6 +448,10 @@ class WriteBatchWithIndexInternal {
       WriteBatchWithIndex* batch, ColumnFamilyHandle* column_family,
       const Slice& key, MergeContext* merge_context, std::string* value,
       Status* s);
+
+ private:
+  static Status CheckAndGetImmutableOptions(ColumnFamilyHandle* column_family,
+                                            const ImmutableOptions** ioptions);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -79,7 +79,10 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     ~ResultHandle() override {}
 
     bool IsReady() override {
-      return !inner_handle_ || inner_handle_->IsReady();
+      if (inner_handle_ && inner_handle_->IsReady()) {
+        Complete();
+      }
+      return ready_;
     }
 
     void Wait() override {
@@ -92,10 +95,10 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     Cache::ObjectPtr Value() override { return value_; }
 
     void Complete() {
-      assert(IsReady());
       size_ = inner_handle_->Size();
       value_ = inner_handle_->Value();
       inner_handle_.reset();
+      ready_ = true;
     }
 
     void SetInnerHandle(std::unique_ptr<SecondaryCacheResultHandle>&& handle) {
@@ -115,6 +118,7 @@ class TieredSecondaryCache : public SecondaryCacheWrapper {
     CreateContext ctx_;
     size_t size_;
     Cache::ObjectPtr value_;
+    bool ready_ = false;
   };
 
   static void NoopDelete(Cache::ObjectPtr /*obj*/,

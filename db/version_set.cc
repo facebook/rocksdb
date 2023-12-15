@@ -122,7 +122,9 @@ Status OverlapWithIterator(const Comparator* ucmp,
     ParsedInternalKey seek_result;
     Status s = ParseInternalKey(iter->key(), &seek_result,
                                 false /* log_err_key */);  // TODO
-    if (!s.ok()) return s;
+    if (!s.ok()) {
+      return s;
+    }
 
     if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
         0) {
@@ -835,9 +837,9 @@ Version::~Version() {
         assert(cfd_ != nullptr);
         uint32_t path_id = f->fd.GetPathId();
         assert(path_id < cfd_->ioptions()->cf_paths.size());
-        vset_->obsolete_files_.push_back(
-            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path,
-                             cfd_->GetFileMetadataCacheReservationManager()));
+        vset_->obsolete_files_.emplace_back(
+            f, cfd_->ioptions()->cf_paths[path_id].path,
+            cfd_->GetFileMetadataCacheReservationManager());
       }
     }
   }
@@ -2534,8 +2536,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, MergeHelper::kNoBaseValue,
           merge_context->GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true, value ? value->GetSelf() : nullptr,
-          columns, /* op_failure_scope */ nullptr);
+          /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+          value ? value->GetSelf() : nullptr, columns);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           value->PinSelf();
@@ -2780,9 +2782,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, MergeHelper::kNoBaseValue,
           iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
-          /* update_num_ops_stats */ true,
-          iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
-          /* op_failure_scope */ nullptr);
+          /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+          iter->value ? iter->value->GetSelf() : nullptr, iter->columns);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
@@ -3066,9 +3067,7 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileIndexer();
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
-  if (!immutable_options.allow_ingest_behind) {
-    GenerateBottommostFiles();
-  }
+  GenerateBottommostFiles();
   GenerateFileLocationIndex();
 }
 
@@ -3101,7 +3100,9 @@ bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
                     file_meta->fd.GetNumber(), s.ToString().c_str());
     return false;
   }
-  if (tp.get() == nullptr) return false;
+  if (tp.get() == nullptr) {
+    return false;
+  }
   file_meta->num_entries = tp->num_entries;
   file_meta->num_deletions = tp->num_deletions;
   file_meta->raw_value_size = tp->raw_value_size;
@@ -4515,7 +4516,9 @@ const char* VersionStorageInfo::LevelSummary(
   for (int i = 0; i < num_levels(); i++) {
     int sz = sizeof(scratch->buffer) - len;
     int ret = snprintf(scratch->buffer + len, sz, "%d ", int(files_[i].size()));
-    if (ret < 0 || ret >= sz) break;
+    if (ret < 0 || ret >= sz) {
+      break;
+    }
     len += ret;
   }
   if (len > 0) {
@@ -4545,7 +4548,9 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
                        "#%" PRIu64 "(seq=%" PRIu64 ",sz=%s,%d) ",
                        f->fd.GetNumber(), f->fd.smallest_seqno, sztxt,
                        static_cast<int>(f->being_compacted));
-    if (ret < 0 || ret >= sz) break;
+    if (ret < 0 || ret >= sz) {
+      break;
+    }
     len += ret;
   }
   // overwrite the last space (only if files_[level].size() is non-zero)
@@ -5384,9 +5389,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state.emplace(std::make_pair(
+      curr_state.emplace(
           cfd->GetID(),
-          MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow())));
+          MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow()));
     }
 
     for (const auto& wal : wals_.GetWals()) {
@@ -7277,7 +7282,7 @@ ReactiveVersionSet::ReactiveVersionSet(
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr) {}
 
-ReactiveVersionSet::~ReactiveVersionSet() {}
+ReactiveVersionSet::~ReactiveVersionSet() = default;
 
 Status ReactiveVersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,

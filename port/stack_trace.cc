@@ -26,11 +26,12 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <cxxabi.h>
 #include <execinfo.h>
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #ifdef OS_OPENBSD
 #include <sys/wait.h>

@@ -887,7 +887,7 @@ Status BlockBasedTable::PrefetchTail(
       0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
       true /* track_min_offset */, false /* implicit_auto_readahead */,
       0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
-      0 /* upper_bound_offset */, nullptr /* fs */, nullptr /* clock */, stats,
+      nullptr /* fs */, nullptr /* clock */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
@@ -2651,6 +2651,17 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   return TEST_BlockInCache(iiter->value().handle);
 }
 
+void BlockBasedTable::TEST_GetDataBlockHandle(const ReadOptions& options,
+                                              const Slice& key,
+                                              BlockHandle& handle) {
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
+      options, /*disable_prefix_seek=*/false, /*input_iter=*/nullptr,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr));
+  iiter->Seek(key);
+  assert(iiter->Valid());
+  handle = iiter->value().handle;
+}
+
 // REQUIRES: The following fields of rep_ should have already been populated:
 //  1. file
 //  2. index_handle,
@@ -3053,7 +3064,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
                << " size " << blockhandles_iter->value().handle.size() << "\n";
 
     std::string str_key = user_key.ToString();
-    std::string res_key("");
+    std::string res_key;
     char cspace = ' ';
     for (size_t i = 0; i < str_key.size(); i++) {
       res_key.append(&str_key[i], 1);
@@ -3154,7 +3165,7 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
   std::string str_key = ikey.user_key().ToString();
   std::string str_value = value.ToString();
-  std::string res_key(""), res_value("");
+  std::string res_key, res_value;
   char cspace = ' ';
   for (size_t i = 0; i < str_key.size(); i++) {
     if (str_key[i] == '\0') {

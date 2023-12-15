@@ -83,8 +83,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
-      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
-      auto_readahead_size_(read_options.auto_readahead_size) {
+      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -747,22 +746,15 @@ bool DBIter::ReverseToBackward() {
   // When current_entry_is_merged_ is true, iter_ may be positioned on the next
   // key, which may not exist or may have prefix different from current.
   // If that's the case, seek to saved_key_.
-  //
-  // In case of auto_readahead_size enabled, index_iter moves forward during
-  // forward scan for block cache lookup and points to different block. If Prev
-  // op is called, it needs to call SeekForPrev to point to right index_iter_ in
-  // BlockBasedTableIterator. This only happens when direction is changed from
-  // forward to backward.
-  if ((current_entry_is_merged_ &&
-       (!expect_total_order_inner_iter() || !iter_.Valid())) ||
-      auto_readahead_size_) {
+  if (current_entry_is_merged_ &&
+      (!expect_total_order_inner_iter() || !iter_.Valid())) {
     IterKey last_key;
     // Using kMaxSequenceNumber and kValueTypeForSeek
     // (not kValueTypeForSeekForPrev) to seek to a key strictly smaller
     // than saved_key_.
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    if (!expect_total_order_inner_iter() || auto_readahead_size_) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key.GetInternalKey());
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
@@ -1293,8 +1285,8 @@ bool DBIter::MergeWithNoBaseValue(const Slice& user_key) {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kNoBaseValue,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1306,8 +1298,8 @@ bool DBIter::MergeWithPlainBaseValue(const Slice& value,
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kPlainBaseValue, value,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1319,8 +1311,8 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, MergeHelper::kWideBaseValue, entity,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true, &saved_value_, &pinned_value_,
-      &result_type, /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 

@@ -185,7 +185,7 @@ class FileChecksumTestHelper {
  public:
   FileChecksumTestHelper(Options& options, DB* db, std::string db_name)
       : options_(options), db_(db), dbname_(db_name) {}
-  ~FileChecksumTestHelper() {}
+  ~FileChecksumTestHelper() = default;
 
   // Verify the checksum information in Manifest.
   Status VerifyChecksumInManifest(
@@ -233,8 +233,8 @@ class FileChecksumTestHelper {
       return Status::Corruption("The number of files does not match!");
     }
     for (size_t i = 0; i < live_files.size(); i++) {
-      std::string stored_checksum = "";
-      std::string stored_func_name = "";
+      std::string stored_checksum;
+      std::string stored_func_name;
       s = checksum_list->SearchOneFileChecksum(
           live_files[i].file_number, &stored_checksum, &stored_func_name);
       if (s.IsNotFound()) {
@@ -634,9 +634,9 @@ TEST_F(LdbCmdTest, OptionParsing) {
   opts.env = TryLoadCustomOrDefaultEnv();
   {
     std::vector<std::string> args;
-    args.push_back("scan");
-    args.push_back("--ttl");
-    args.push_back("--timestamp");
+    args.emplace_back("scan");
+    args.emplace_back("--ttl");
+    args.emplace_back("--timestamp");
     LDBCommand* command = ROCKSDB_NAMESPACE::LDBCommand::InitFromCmdLineArgs(
         args, opts, LDBOptions(), nullptr);
     const std::vector<std::string> flags = command->TEST_GetFlags();
@@ -648,9 +648,9 @@ TEST_F(LdbCmdTest, OptionParsing) {
   // test parsing options which contains equal sign in the option value
   {
     std::vector<std::string> args;
-    args.push_back("scan");
-    args.push_back("--db=/dev/shm/ldbtest/");
-    args.push_back(
+    args.emplace_back("scan");
+    args.emplace_back("--db=/dev/shm/ldbtest/");
+    args.emplace_back(
         "--from='abcd/efg/hijk/lmn/"
         "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
         "ef=gh.ijk'");

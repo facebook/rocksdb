@@ -89,8 +89,12 @@ class TestKeyComparator : public Comparator {
     const TestKey* key_a = &kkey_a;
     const TestKey* key_b = &kkey_b;
     if (key_a->prefix != key_b->prefix) {
-      if (key_a->prefix < key_b->prefix) return -1;
-      if (key_a->prefix > key_b->prefix) return 1;
+      if (key_a->prefix < key_b->prefix) {
+        return -1;
+      }
+      if (key_a->prefix > key_b->prefix) {
+        return 1;
+      }
     } else {
       EXPECT_TRUE(key_a->prefix == key_b->prefix);
       // note, both a and b could be prefix only
@@ -99,8 +103,12 @@ class TestKeyComparator : public Comparator {
         EXPECT_TRUE(
             (a.size() == sizeof(uint64_t) && b.size() == sizeof(TestKey)) ||
             (b.size() == sizeof(uint64_t) && a.size() == sizeof(TestKey)));
-        if (a.size() < b.size()) return -1;
-        if (a.size() > b.size()) return 1;
+        if (a.size() < b.size()) {
+          return -1;
+        }
+        if (a.size() > b.size()) {
+          return 1;
+        }
       } else {
         // both a and b are prefix
         if (a.size() == sizeof(uint64_t)) {
@@ -109,9 +117,15 @@ class TestKeyComparator : public Comparator {
 
         // both a and b are whole key
         EXPECT_TRUE(a.size() == sizeof(TestKey) && b.size() == sizeof(TestKey));
-        if (key_a->sorted < key_b->sorted) return -1;
-        if (key_a->sorted > key_b->sorted) return 1;
-        if (key_a->sorted == key_b->sorted) return 0;
+        if (key_a->sorted < key_b->sorted) {
+          return -1;
+        }
+        if (key_a->sorted > key_b->sorted) {
+          return 1;
+        }
+        if (key_a->sorted == key_b->sorted) {
+          return 0;
+        }
       }
     }
     return 0;
@@ -892,4 +906,3 @@ int main(int argc, char** argv) {
 }
 
 #endif  // GFLAGS
-

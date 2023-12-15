@@ -232,7 +232,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       return true;  // to continue to the next seq
     }
 
-
     if (seq_ != nullptr) {
       // Set the sequence number if it is uninitialized
       if (*seq_ == kMaxSequenceNumber) {
@@ -496,9 +495,8 @@ void GetContext::MergeWithNoBaseValue() {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key_, MergeHelper::kNoBaseValue,
       merge_context_->GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true,
-      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
-      /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
   PostprocessMerge(s);
 }
 
@@ -512,9 +510,8 @@ void GetContext::MergeWithPlainBaseValue(const Slice& value) {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key_, MergeHelper::kPlainBaseValue, value,
       merge_context_->GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true,
-      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
-      /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
   PostprocessMerge(s);
 }
 
@@ -528,9 +525,8 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key_, MergeHelper::kWideBaseValue, entity,
       merge_context_->GetOperands(), logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true,
-      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_,
-      /* op_failure_scope */ nullptr);
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
   PostprocessMerge(s);
 }
 

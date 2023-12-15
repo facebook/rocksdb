@@ -430,6 +430,13 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   PinnableSlice v;
   s = db->Get(ropt, cf, snap_state.key, &v);
   if (!s.ok() && !s.IsNotFound()) {
+    // When `persist_user_defined_timestamps` is false, a repeated read with
+    // both a read timestamp and an explicitly taken snapshot cannot guarantee
+    // consistent result all the time. When it cannot return consistent result,
+    // it will return an `InvalidArgument` status.
+    if (s.IsInvalidArgument() && !FLAGS_persist_user_defined_timestamps) {
+      return Status::OK();
+    }
     return s;
   }
   if (snap_state.status != s) {
@@ -1784,7 +1791,7 @@ Status StressTest::TestBackupRestore(
     // `ListColumnFamilies` to get names because it won't necessarily give
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
-    for (auto name : column_family_names_) {
+    for (const auto& name : column_family_names_) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(restore_options));
     }
     if (inplace_not_restore) {
@@ -2668,6 +2675,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "Persist user defined timestamps : %d\n",
+          FLAGS_persist_user_defined_timestamps);
   fprintf(stdout, "WAL compression           : %s\n",
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
@@ -2762,12 +2771,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       if (sorted_cfn != existing_column_families) {
         fprintf(stderr, "Expected column families differ from the existing:\n");
         fprintf(stderr, "Expected: {");
-        for (auto cf : sorted_cfn) {
+        for (const auto& cf : sorted_cfn) {
           fprintf(stderr, "%s ", cf.c_str());
         }
         fprintf(stderr, "}\n");
         fprintf(stderr, "Existing: {");
-        for (auto cf : existing_column_families) {
+        for (const auto& cf : existing_column_families) {
           fprintf(stderr, "%s ", cf.c_str());
         }
         fprintf(stderr, "}\n");
@@ -2775,7 +2784,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       assert(sorted_cfn == existing_column_families);
     }
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
-    for (auto name : column_family_names_) {
+    for (const auto& name : column_family_names_) {
       if (name != kDefaultColumnFamilyName) {
         new_column_family_name_ =
             std::max(new_column_family_name_.load(), std::stoi(name) + 1);
@@ -3087,6 +3096,11 @@ bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
     return false;
   }
 
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Not read with older timestamps to avoid get InvalidArgument.
+    return false;
+  }
+
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
     return false;
@@ -3113,6 +3127,11 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
                                                     Slice& ts_slice,
                                                     ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Not read with older timestamps to avoid get InvalidArgument.
     return;
   }
 
@@ -3175,6 +3194,8 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     exit(1);
   }
   options.comparator = cmp;
+  options.persist_user_defined_timestamps =
+      FLAGS_persist_user_defined_timestamps;
 }
 
 bool InitializeOptionsFromFile(Options& options) {

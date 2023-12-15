@@ -1061,8 +1061,8 @@ static bool SaveValue(void* arg, const char* entry) {
                 merge_operator, s->key->user_key(),
                 MergeHelper::kPlainBaseValue, v, merge_context->GetOperands(),
                 s->logger, s->statistics, s->clock,
-                /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
+                s->value, s->columns);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1114,8 +1114,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kWideBaseValue,
                 v, merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1152,8 +1152,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
                 merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           } else {
             // We have found a final value (a base deletion) and have newer
             // merge operands that we do not intend to merge. Nothing remains
@@ -1192,8 +1192,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
                 merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true, s->value, s->columns,
-                /* op_failure_scope */ nullptr);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr, s->value, s->columns);
           }
 
           *(s->found_final_value) = true;
@@ -1362,7 +1362,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         range_indexes[num_keys++] = iter.index();
       }
     }
-    bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
+    bloom_filter_->MayContain(num_keys, bloom_keys.data(), may_match.data());
     for (int i = 0; i < num_keys; ++i) {
       if (!may_match[i]) {
         temp_range.SkipIndex(range_indexes[i]);

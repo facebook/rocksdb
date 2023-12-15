@@ -58,8 +58,8 @@ Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
   std::vector<std::string> s_vec;
   int begin = 0, end;
   for (int i = 0; i < 3; i++) {
-    assert(header.payload.find("\t", begin) != std::string::npos);
-    end = static_cast<int>(header.payload.find("\t", begin));
+    assert(header.payload.find('\t', begin) != std::string::npos);
+    end = static_cast<int>(header.payload.find('\t', begin));
     s_vec.push_back(header.payload.substr(begin, end - begin));
     begin = end + 1;
   }

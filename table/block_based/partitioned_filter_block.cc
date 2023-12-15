@@ -498,7 +498,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(
     rep->CreateFilePrefetchBuffer(
         0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
         0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/,
-        /*upper_bound_offset*/ 0, /*readaheadsize_cb*/ nullptr,
+        /*readaheadsize_cb*/ nullptr,
         /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
     IOOptions opts;

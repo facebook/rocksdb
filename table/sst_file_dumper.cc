@@ -71,6 +71,7 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
 extern const uint64_t kLegacyPlainTableMagicNumber;
+extern const uint64_t kCuckooTableMagicNumber;
 
 const char* testFileName = "test_file_name";
 
@@ -123,8 +124,14 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   if (s.ok()) {
     if (magic_number == kPlainTableMagicNumber ||
-        magic_number == kLegacyPlainTableMagicNumber) {
+        magic_number == kLegacyPlainTableMagicNumber ||
+        magic_number == kCuckooTableMagicNumber) {
       soptions_.use_mmap_reads = true;
+
+      if (magic_number == kCuckooTableMagicNumber) {
+        fopts = soptions_;
+        fopts.temperature = file_temp_;
+      }
 
       fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
@@ -426,6 +433,13 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
     if (!silent_) {
       fprintf(stdout, "Sst file format: plain table\n");
     }
+  } else if (table_magic_number == kCuckooTableMagicNumber) {
+    ioptions_.allow_mmap_reads = true;
+
+    options_.table_factory.reset(NewCuckooTableFactory());
+    if (!silent_) {
+      fprintf(stdout, "Sst file format: cuckoo table\n");
+    }
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
@@ -481,7 +495,9 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (read_num > 0 && i > read_num) break;
+    if (read_num > 0 && i > read_num) {
+      break;
+    }
 
     ParsedInternalKey ikey;
     Status pik_status = ParseInternalKey(key, &ikey, true /* log_err_key */);

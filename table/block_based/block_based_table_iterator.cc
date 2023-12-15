@@ -16,23 +16,42 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
   SeekImpl(&target, true);
 }
 
+void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
+  AsyncInitDataBlock(/*is_first_pass=*/false);
+
+  if (target) {
+    block_iter_.Seek(*target);
+  } else {
+    block_iter_.SeekToFirst();
+  }
+  FindKeyForward();
+
+  CheckOutOfBound();
+
+  if (target) {
+    assert(!Valid() || icomp_.Compare(*target, key()) <= 0);
+  }
+}
+
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  ResetBlockCacheLookupVar();
   bool is_first_pass = !async_read_in_progress_;
+
+  if (!is_first_pass) {
+    SeekSecondPass(target);
+    return;
+  }
+
+  ResetBlockCacheLookupVar();
+
   bool autotune_readaheadsize = is_first_pass &&
                                 read_options_.auto_readahead_size &&
                                 read_options_.iterate_upper_bound;
 
   if (autotune_readaheadsize &&
       table_->get_rep()->table_options.block_cache.get() &&
-      !read_options_.async_io && direction_ == IterDirection::kForward) {
+      direction_ == IterDirection::kForward) {
     readahead_cache_lookup_ = true;
-  }
-
-  // Second pass.
-  if (async_read_in_progress_) {
-    AsyncInitDataBlock(false);
   }
 
   is_out_of_bound_ = false;
@@ -57,7 +76,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   bool need_seek_index = true;
 
   //  In case of readahead_cache_lookup_, index_iter_ could change to find the
-  //  readahead size in BlockCacheLookupForReadAheadSize so it needs to reseek.
+  //  readahead size in BlockCacheLookupForReadAheadSize so it needs to
+  //  reseek.
   if (IsIndexAtCurr() && block_iter_points_to_real_block_ &&
       block_iter_.Valid()) {
     // Reseek.
@@ -94,24 +114,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (autotune_readaheadsize) {
-    FindReadAheadSizeUpperBound();
-    if (target) {
-      index_iter_->Seek(*target);
-    } else {
-      index_iter_->SeekToFirst();
-    }
-
-    // Check for IO error.
-    if (!index_iter_->Valid()) {
-      ResetDataIter();
-      return;
-    }
-  }
-
   // After reseek, index_iter_ point to the right key i.e. target in
   // case of readahead_cache_lookup_. So index_iter_ can be used directly.
-
   IndexValue v = index_iter_->value();
   const bool same_block = block_iter_points_to_real_block_ &&
                           v.handle.offset() == prev_block_offset_;
@@ -130,14 +134,12 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     // Need to use the data block.
     if (!same_block) {
       if (read_options_.async_io && async_prefetch) {
-        if (is_first_pass) {
-          AsyncInitDataBlock(is_first_pass);
-        }
+        AsyncInitDataBlock(/*is_first_pass=*/true);
         if (async_read_in_progress_) {
           // Status::TryAgain indicates asynchronous request for retrieval of
           // data blocks has been submitted. So it should return at this point
-          // and Seek should be called again to retrieve the requested block and
-          // execute the remaining code.
+          // and Seek should be called again to retrieve the requested block
+          // and execute the remaining code.
           return;
         }
       } else {
@@ -286,11 +288,29 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // Return Error.
-  if (readahead_cache_lookup_) {
-    block_iter_.Invalidate(Status::NotSupported(
-        "auto tuning of readahead_size is not supported with Prev operation."));
-    return;
+  if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
+    // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
+    // need to reseek the index_iter_ to point to current block by using
+    // block_iter_'s key.
+    if (Valid()) {
+      ResetBlockCacheLookupVar();
+      direction_ = IterDirection::kBackward;
+      Slice last_key = key();
+
+      index_iter_->Seek(last_key);
+      is_index_at_curr_block_ = true;
+
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
+    }
+
+    if (!Valid()) {
+      ResetDataIter();
+      return;
+    }
   }
 
   ResetBlockCacheLookupVar();
@@ -346,7 +366,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     } else {
       auto* rep = table_->get_rep();
 
-      std::function<void(uint64_t offset, size_t, size_t&)> readaheadsize_cb =
+      std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb =
           nullptr;
       if (readahead_cache_lookup_) {
         readaheadsize_cb = std::bind(
@@ -389,10 +409,11 @@ void BlockBasedTableIterator::InitDataBlock() {
 }
 
 void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
-  BlockHandle data_block_handle = index_iter_->value().handle;
+  BlockHandle data_block_handle;
   bool is_for_compaction =
       lookup_context_.caller == TableReaderCaller::kCompaction;
   if (is_first_pass) {
+    data_block_handle = index_iter_->value().handle;
     if (!block_iter_points_to_real_block_ ||
         data_block_handle.offset() != prev_block_offset_ ||
         // if previous attempt of reading the block missed cache, try again
@@ -402,7 +423,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       }
       auto* rep = table_->get_rep();
 
-      std::function<void(uint64_t offset, size_t, size_t&)> readaheadsize_cb =
+      std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb =
           nullptr;
       if (readahead_cache_lookup_) {
         readaheadsize_cb = std::bind(
@@ -441,13 +462,30 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
   } else {
     // Second pass will call the Poll to get the data block which has been
     // requested asynchronously.
+    bool is_in_cache = false;
+
+    if (DoesContainBlockHandles()) {
+      data_block_handle = block_handles_.front().handle_;
+      is_in_cache = block_handles_.front().is_cache_hit_;
+    } else {
+      data_block_handle = index_iter_->value().handle;
+    }
+
     Status s;
-    table_->NewDataBlockIterator<DataBlockIter>(
-        read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_,
-        block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
-        /*use_block_cache_for_lookup=*/false);
+    // Initialize Data Block From CacheableEntry.
+    if (is_in_cache) {
+      block_iter_.Invalidate(Status::OK());
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, (block_handles_.front().cachable_entry_).As<Block>(),
+          &block_iter_, s);
+    } else {
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, data_block_handle, &block_iter_, BlockType::kData,
+          /*get_context=*/nullptr, &lookup_context_,
+          block_prefetcher_.prefetch_buffer(),
+          /*for_compaction=*/is_for_compaction, /*async_read=*/false, s,
+          /*use_block_cache_for_lookup=*/false);
+    }
   }
   block_iter_points_to_real_block_ = true;
   CheckDataBlockWithinUpperBound();
@@ -638,99 +676,144 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
   }
 }
 
-void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
-  size_t total_bytes_till_upper_bound = 0;
+void BlockBasedTableIterator::InitializeStartAndEndOffsets(
+    bool read_curr_block, bool& found_first_miss_block,
+    uint64_t& start_updated_offset, uint64_t& end_updated_offset,
+    size_t& prev_handles_size) {
+  prev_handles_size = block_handles_.size();
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
-  uint64_t start_offset = index_iter_->value().handle.offset();
 
-  do {
-    BlockHandle block_handle = index_iter_->value().handle;
-    total_bytes_till_upper_bound += block_handle.size();
-    total_bytes_till_upper_bound += footer;
+  // It initialize start and end offset to begin which is covered by following
+  // scenarios
+  if (read_curr_block) {
+    if (!DoesContainBlockHandles()) {
+      // Scenario 1 : read_curr_block (callback made on miss block which caller
+      //              was reading) and it has no existing handles in queue. i.e.
+      //              index_iter_ is pointing to block that is being read by
+      //              caller.
+      //
+      // Add current block here as it doesn't need any lookup.
+      BlockHandleInfo block_handle_info;
+      block_handle_info.handle_ = index_iter_->value().handle;
+      block_handle_info.SetFirstInternalKey(
+          index_iter_->value().first_internal_key);
 
-    // Can't figure out for current block if current block
-    // is out of bound. But for next block we can find that.
-    // If curr block's index key >= iterate_upper_bound, it
-    // means all the keys in next block or above are out of
-    // bound.
-    if (IsNextBlockOutOfBound()) {
-      break;
+      end_updated_offset = block_handle_info.handle_.offset() + footer +
+                           block_handle_info.handle_.size();
+      block_handles_.emplace_back(std::move(block_handle_info));
+
+      index_iter_->Next();
+      is_index_at_curr_block_ = false;
+      found_first_miss_block = true;
+    } else {
+      // Scenario 2 : read_curr_block (callback made on miss block which caller
+      //              was reading) but the queue already has some handles.
+      //
+      // It can be due to reading error in second buffer in FilePrefetchBuffer.
+      // BlockHandles already added to the queue but there was error in fetching
+      // those data blocks. So in this call they need to be read again.
+      assert(block_handles_.front().is_cache_hit_ == false);
+      found_first_miss_block = true;
+      // Initialize prev_handles_size to 0 as all those handles need to be read
+      // again.
+      prev_handles_size = 0;
+      start_updated_offset = block_handles_.front().handle_.offset();
+      end_updated_offset = block_handles_.back().handle_.offset() + footer +
+                           block_handles_.back().handle_.size();
     }
-
-    // Since next block is not out of bound, iterate to that
-    // index block and add it's Data block size to
-    // readahead_size.
-    index_iter_->Next();
-
-    if (!index_iter_->Valid()) {
-      break;
+  } else {
+    // Scenario 3 : read_curr_block is false (callback made to do additional
+    //              prefetching in buffers) and the queue already has some
+    //              handles from first buffer.
+    if (DoesContainBlockHandles()) {
+      start_updated_offset = block_handles_.back().handle_.offset() + footer +
+                             block_handles_.back().handle_.size();
+      end_updated_offset = start_updated_offset;
+    } else {
+      // Scenario 4 : read_curr_block is false (callback made to do additional
+      //              prefetching in buffers) but the queue has no handle
+      //              from first buffer.
+      //
+      // It can be when Reseek is from block cache (which doesn't clear the
+      // buffers in FilePrefetchBuffer but clears block handles from queue) and
+      // reseek also lies within the buffer. So Next will get data from
+      // exisiting buffers untill this callback is made to prefetch additional
+      // data. All handles need to be added to the queue starting from
+      // index_iter_.
+      assert(index_iter_->Valid());
+      start_updated_offset = index_iter_->value().handle.offset();
+      end_updated_offset = start_updated_offset;
     }
-
-  } while (true);
-
-  block_prefetcher_.SetUpperBoundOffset(start_offset +
-                                        total_bytes_till_upper_bound);
+  }
 }
 
+// BlockCacheLookupForReadAheadSize API lookups in the block cache and tries to
+// reduce the start and end offset passed.
+//
+// Implementation -
+// This function looks into the block cache for the blocks between start_offset
+// and end_offset and add all the handles in the queue.
+// It then iterates from the end to find first miss block and update the end
+// offset to that block.
+// It also iterates from the start and find first miss block and update the
+// start offset to that block.
+//
+// Arguments -
+// start_offset    : Offset from which the caller wants to read.
+// end_offset      : End offset till which the caller wants to read.
+// read_curr_block : True if this call was due to miss in the cache and
+//                   caller wants to read that block.
+//                   False if current call is to prefetch additional data in
+//                   extra buffers.
 void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
-    uint64_t offset, size_t readahead_size, size_t& updated_readahead_size) {
-  updated_readahead_size = readahead_size;
+    bool read_curr_block, uint64_t& start_offset, uint64_t& end_offset) {
+  uint64_t start_updated_offset = start_offset;
 
-  // readahead_cache_lookup_ can be set false after Seek, if after Seek or Next
+  // readahead_cache_lookup_ can be set false, if after Seek and Next
   // there is SeekForPrev or any other backward operation.
   if (!readahead_cache_lookup_) {
     return;
   }
 
-  assert(!DoesContainBlockHandles());
-  assert(index_iter_->value().handle.offset() == offset);
-
-  // Error. current offset should be equal to what's requested for prefetching.
-  if (index_iter_->value().handle.offset() != offset) {
-    return;
-  }
-
-  if (IsNextBlockOutOfBound()) {
-    updated_readahead_size = 0;
-    return;
-  }
-
-  size_t current_readahead_size = 0;
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
-
-  // Add the current block to block_handles_.
-  {
-    BlockHandleInfo block_handle_info;
-    block_handle_info.handle_ = index_iter_->value().handle;
-    block_handle_info.SetFirstInternalKey(
-        index_iter_->value().first_internal_key);
-    block_handles_.emplace_back(std::move(block_handle_info));
+  if (read_curr_block && !DoesContainBlockHandles() &&
+      IsNextBlockOutOfBound()) {
+    end_offset = index_iter_->value().handle.offset() + footer +
+                 index_iter_->value().handle.size();
+    return;
   }
 
-  // Current block is included in length. Readahead should start from next
-  // block.
-  index_iter_->Next();
-  is_index_at_curr_block_ = false;
+  uint64_t end_updated_offset = start_updated_offset;
+  bool found_first_miss_block = false;
+  size_t prev_handles_size;
 
-  while (index_iter_->Valid()) {
+  // Initialize start and end offsets based on exisiting handles in the queue
+  // and read_curr_block argument passed.
+  InitializeStartAndEndOffsets(read_curr_block, found_first_miss_block,
+                               start_updated_offset, end_updated_offset,
+                               prev_handles_size);
+
+  while (index_iter_->Valid() && !is_index_out_of_bound_) {
     BlockHandle block_handle = index_iter_->value().handle;
 
-    // Adding this data block exceeds passed down readahead_size. So this data
+    // Adding this data block exceeds end offset. So this data
     // block won't be added.
-    if (current_readahead_size + block_handle.size() + footer >
-        readahead_size) {
+    // There can be a case where passed end offset is smaller than
+    // block_handle.size() + footer because of readahead_size truncated to
+    // upper_bound. So we prefer to read the block rather than skip it to avoid
+    // sync read calls in case of async_io.
+    if (start_updated_offset != end_updated_offset &&
+        (end_updated_offset + block_handle.size() + footer > end_offset)) {
       break;
     }
 
-    current_readahead_size += block_handle.size();
-    current_readahead_size += footer;
-
     // For current data block, do the lookup in the cache. Lookup should pin the
-    // data block and add the placeholder for cache.
+    // data block in cache.
     BlockHandleInfo block_handle_info;
     block_handle_info.handle_ = index_iter_->value().handle;
     block_handle_info.SetFirstInternalKey(
         index_iter_->value().first_internal_key);
+    end_updated_offset += footer + block_handle_info.handle_.size();
 
     Status s = table_->LookupAndPinBlocksInCache<Block_kData>(
         read_options_, block_handle,
@@ -742,6 +825,12 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     block_handle_info.is_cache_hit_ =
         (block_handle_info.cachable_entry_.GetValue() ||
          block_handle_info.cachable_entry_.GetCacheHandle());
+
+    // If this is the first miss block, update start offset to this block.
+    if (!found_first_miss_block && !block_handle_info.is_cache_hit_) {
+      found_first_miss_block = true;
+      start_updated_offset = block_handle_info.handle_.offset();
+    }
 
     // Add the handle to the queue.
     block_handles_.emplace_back(std::move(block_handle_info));
@@ -756,16 +845,28 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
       break;
     }
     index_iter_->Next();
+    is_index_at_curr_block_ = false;
   };
 
-  // Iterate cache hit block handles from the end till a Miss is there, to
-  // update the readahead_size.
-  for (auto it = block_handles_.rbegin();
-       it != block_handles_.rend() && (*it).is_cache_hit_ == true; ++it) {
-    current_readahead_size -= (*it).handle_.size();
-    current_readahead_size -= footer;
+  if (found_first_miss_block) {
+    // Iterate cache hit block handles from the end till a Miss is there, to
+    // truncate and update the end offset till that Miss.
+    auto it = block_handles_.rbegin();
+    auto it_end =
+        block_handles_.rbegin() + (block_handles_.size() - prev_handles_size);
+
+    while (it != it_end && (*it).is_cache_hit_) {
+      it++;
+    }
+    end_updated_offset = (*it).handle_.offset() + footer + (*it).handle_.size();
+  } else {
+    // Nothing to read. Can be because of IOError in index_iter_->Next() or
+    // reached upper_bound.
+    end_updated_offset = start_updated_offset;
   }
-  updated_readahead_size = current_readahead_size;
+
+  end_offset = end_updated_offset;
+  start_offset = start_updated_offset;
   ResetPreviousBlockOffset();
 }
 

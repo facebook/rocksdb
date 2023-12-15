@@ -484,7 +484,6 @@ void VersionEdit::EncodeFileBoundaries(std::string* dst,
   StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
   PutLengthPrefixedSlice(dst, smallest_buf);
   PutLengthPrefixedSlice(dst, largest_buf);
-  return;
 };
 
 Status VersionEdit::DecodeFrom(const Slice& src) {

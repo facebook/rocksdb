@@ -8,16 +8,16 @@ Mac
 ```
 make clean jclean
 DEBUG_LEVEL=0 make -j12 rocksdbjava
-(cd java/target; cp rocksdbjni-7.9.0-osx.jar rocksdbjni-7.9.0-SNAPSHOT-osx.jar)
-mvn install:install-file -Dfile=./java/target/rocksdbjni-7.9.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.9.0-SNAPSHOT -Dpackaging=jar
+(cd java/target; cp rocksdbjni-7.10.0-osx.jar rocksdbjni-7.10.0-SNAPSHOT-osx.jar)
+mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-osx.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.10.0-SNAPSHOT -Dpackaging=jar
 ```
 
 Linux
 ```
 make clean jclean
 DEBUG_LEVEL=0 make -j12 rocksdbjava
-(cd java/target; cp rocksdbjni-7.9.0-linux64.jar rocksdbjni-7.9.0-SNAPSHOT-linux64.jar)
-mvn install:install-file -Dfile=./java/target/rocksdbjni-7.9.0-SNAPSHOT-linux64.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.9.0-SNAPSHOT -Dpackaging=jar
+(cd java/target; cp rocksdbjni-7.10.0-linux64.jar rocksdbjni-7.10.0-SNAPSHOT-linux64.jar)
+mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-linux64.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.10.0-SNAPSHOT -Dpackaging=jar
 ```
 
 Build jmh test package, on either platform
@@ -35,37 +35,23 @@ The long performance run (as big as we can make it on our Ubuntu box without fil
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,50000 -p keySize=128 -p valueSize=1024,16384 -p columnFamilyTestType="1_column_family","20_column_families" GetBenchmarks.get GetBenchmarks.preallocatedByteBufferGet GetBenchmarks.preallocatedGet
 ```
 
-## Results (small runs, Mac)
-
-These are run on a 10-core M1 with 64GB of memory and 2TB of SSD.
-They probably reflect the absolute best case for this optimization, hitting in-memory buffers and completely eliminating a buffer copy.
-
-### Before
-Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (multiGetSize)  (valueSize)   Mode  Cnt          Score        Error  Units
-GetBenchmarks.get                              no_column_family        1000        128             N/A        32768  thrpt   25      43496.578 ±   5743.090  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128             N/A        32768  thrpt   25      70765.578 ±    697.548  ops/s
-GetBenchmarks.preallocatedGet                  no_column_family        1000        128             N/A        32768  thrpt   25      69883.554 ±    944.184  ops/s
-
-### After fixing byte[] (.get and .preallocatedGet)
-
-Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (multiGetSize)  (valueSize)   Mode  Cnt          Score        Error  Units
-GetBenchmarks.get                              no_column_family        1000        128             N/A        32768  thrpt   25     149207.681 ±   2261.671  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128             N/A        32768  thrpt   25      68920.489 ±   1574.664  ops/s
-GetBenchmarks.preallocatedGet                  no_column_family        1000        128             N/A        32768  thrpt   25     177399.022 ±   2107.375  ops/s
-
-### After fixing ByteBuffer (.preallocatedByteBufferGet)
-
-Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (multiGetSize)  (valueSize)   Mode  Cnt          Score        Error  Units
-GetBenchmarks.get                              no_column_family        1000        128             N/A        32768  thrpt   25     150389.259 ±   1371.473  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128             N/A        32768  thrpt   25     179919.468 ±   1670.714  ops/s
-GetBenchmarks.preallocatedGet                  no_column_family        1000        128             N/A        32768  thrpt   25     178261.938 ±   2630.571  ops/s
 ## Results (Ubuntu, big runs)
+
+NB - we have removed some test results we initially observed on Mac which were not later reproducible.
+
 These take 3-4 hours
 ```
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,50000 -p keySize=128 -p valueSize=1024,16384 -p columnFamilyTestType="1_column_family","20_column_families" GetBenchmarks.get GetBenchmarks.preallocatedByteBufferGet GetBenchmarks.preallocatedGet
 ```
 It's clear that all `get()` variants have noticeably improved performance, though not the spectacular gains of the M1.
 ### With fixes for all of the `get()` instances
+
+The tests which use methods which have had performance improvements applied are:
+```java
+get()
+preallocatedGet()
+preallocatedByteBufferGet()
+```
 
 Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt        Score       Error  Units
 GetBenchmarks.get                               1_column_family        1000        128         1024  thrpt   25   935648.793 ± 22879.910  ops/s
@@ -158,4 +144,61 @@ GetBenchmarks.preallocatedGet                no_column_families        1000     
 ## Conclusion
 
 The performance improvement is real.
+
+# Put Performance Benchmarks
+
+Results associated with [Java API consistency between RocksDB.put() , .merge() and Transaction.put() , .merge()](https://github.com/facebook/rocksdb/pull/11019)
+
+This work was not designed specifically as a performance optimization, but we want to confirm that it has not regressed what it has changed, and to provide
+a baseline for future possible performance work.
+
+## Build/Run
+
+Building is as above. Running is a different invocation of the same JMH jar.
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,50000 -p keySize=128 -p valueSize=1024,32768 -p columnFamilyTestType="no_column_family" PutBenchmarks
+```
+
+## Before Changes
+
+These results were generated in a private branch with the `PutBenchmarks` from the PR backported onto the current *main*.
+
+Benchmark                     (bufferListSize)  (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt      Score      Error  Units
+PutBenchmarks.put                           16        no_column_family        1000        128         1024  thrpt   25  76670.200 ± 2555.248  ops/s
+PutBenchmarks.put                           16        no_column_family        1000        128        32768  thrpt   25   3913.692 ±  225.690  ops/s
+PutBenchmarks.put                           16        no_column_family       50000        128         1024  thrpt   25  74479.589 ±  988.361  ops/s
+PutBenchmarks.put                           16        no_column_family       50000        128        32768  thrpt   25   4070.800 ±  194.838  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family        1000        128         1024  thrpt   25  72150.853 ± 1744.216  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family        1000        128        32768  thrpt   25   3896.646 ±  188.629  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family       50000        128         1024  thrpt   25  71753.287 ± 1053.904  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family       50000        128        32768  thrpt   25   3928.503 ±  264.443  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family        1000        128         1024  thrpt   25  72595.105 ± 1027.258  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family        1000        128        32768  thrpt   25   3890.100 ±  199.131  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family       50000        128         1024  thrpt   25  70878.133 ± 1181.601  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family       50000        128        32768  thrpt   25   3863.181 ±  215.888  ops/s
+
+## After Changes
+
+These results were generated on the PR branch.
+
+Benchmark                     (bufferListSize)  (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt      Score      Error  Units
+PutBenchmarks.put                           16        no_column_family        1000        128         1024  thrpt   25  75178.751 ± 2644.775  ops/s
+PutBenchmarks.put                           16        no_column_family        1000        128        32768  thrpt   25   3937.175 ±  257.039  ops/s
+PutBenchmarks.put                           16        no_column_family       50000        128         1024  thrpt   25  74375.519 ± 1776.654  ops/s
+PutBenchmarks.put                           16        no_column_family       50000        128        32768  thrpt   25   4013.413 ±  257.706  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family        1000        128         1024  thrpt   25  71418.303 ± 1610.977  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family        1000        128        32768  thrpt   25   4027.581 ±  227.900  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family       50000        128         1024  thrpt   25  71229.107 ± 2720.083  ops/s
+PutBenchmarks.putByteArrays                 16        no_column_family       50000        128        32768  thrpt   25   4022.635 ±  212.540  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family        1000        128         1024  thrpt   25  71718.501 ±  787.537  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family        1000        128        32768  thrpt   25   4078.050 ±  176.331  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family       50000        128         1024  thrpt   25  72736.754 ±  828.971  ops/s
+PutBenchmarks.putByteBuffers                16        no_column_family       50000        128        32768  thrpt   25   3987.232 ±  205.577  ops/s
+
+## Discussion
+
+The changes don't appear to have had a material effect on performance. We are happy with this.
+
+ * We would obviously advise running future changes before and after to confirm they have no adverse effects.
+
 

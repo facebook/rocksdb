@@ -98,8 +98,13 @@ class UserKeyTablePropertiesCollectorFactory
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
     context.level_at_creation = level_at_creation;
-    return new UserKeyTablePropertiesCollector(
-        user_collector_factory_->CreateTablePropertiesCollector(context));
+    TablePropertiesCollector* collector =
+        user_collector_factory_->CreateTablePropertiesCollector(context);
+    if (collector) {
+      return new UserKeyTablePropertiesCollector(collector);
+    } else {
+      return nullptr;
+    }
   }
 
   virtual const char* Name() const override {
