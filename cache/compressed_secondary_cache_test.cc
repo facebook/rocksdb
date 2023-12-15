@@ -992,6 +992,8 @@ class CompressedSecCacheTestWithTiered
         /*_capacity=*/0,
         /*_estimated_entry_charge=*/256 << 10,
         /*_num_shard_bits=*/0);
+    // eviction_effort_cap setting simply to avoid churn in existing test
+    hcc_opts.eviction_effort_cap = 100;
     TieredCacheOptions opts;
     lru_opts.capacity = 0;
     lru_opts.num_shard_bits = 0;
