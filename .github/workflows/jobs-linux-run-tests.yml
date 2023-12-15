@@ -2,20 +2,22 @@ name: facebook/rocksdb/jobs-linux-run-tests
 on: [push, pull_request]
 jobs:
   build-linux:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
-    runs-on: 
+    runs-on:
       labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -29,10 +31,11 @@ jobs:
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -41,10 +44,11 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-lite-no-test:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -52,10 +56,11 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -64,10 +69,11 @@ jobs:
     - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -75,10 +81,11 @@ jobs:
     - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     env:
       CC: gcc-10
       CXX: g++-10
@@ -90,10 +97,11 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark:
-    runs-on: 
+    runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -104,6 +112,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"

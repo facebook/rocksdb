@@ -6,6 +6,7 @@ jobs:
       labels: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -21,6 +22,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -31,6 +33,7 @@ jobs:
       labels: 32-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -41,6 +44,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=2gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
