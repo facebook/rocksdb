@@ -356,6 +356,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   uint64_t updated_end_offset =
       Roundup(start_offset + length + readahead_size, alignment);
   uint64_t initial_end_offset = updated_end_offset;
+  uint64_t initial_start_offset = updated_start_offset;
 
   // Callback to tune the start and end offsets.
   if (readaheadsize_cb_ != nullptr && readahead_size > 0) {
@@ -365,6 +366,8 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 
   // read_len will be 0 and there is nothing to read/prefetch.
   if (updated_start_offset == updated_end_offset) {
+    UpdateReadAheadTrimmedStat((initial_end_offset - initial_start_offset),
+                               (updated_end_offset - updated_start_offset));
     return;
   }
 
@@ -377,6 +380,8 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
     // means data has been already prefetched.
     if (updated_end_offset <= prev_buf_end_offset) {
       start_offset = end_offset = prev_buf_end_offset;
+      UpdateReadAheadTrimmedStat((initial_end_offset - initial_start_offset),
+                                 (end_offset - start_offset));
       return;
     }
   }
@@ -404,6 +409,9 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   // offset of next prefetch.
   bufs_[index].initial_end_offset_ = initial_end_offset;
   read_len = static_cast<size_t>(roundup_len - chunk_len);
+
+  UpdateReadAheadTrimmedStat((initial_end_offset - initial_start_offset),
+                             (end_offset - start_offset));
 }
 
 Status FilePrefetchBuffer::HandleOverlappingData(
@@ -449,8 +457,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     uint64_t start_offset = bufs_[second].initial_end_offset_;
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size &&
-        !IsOffsetOutOfBound(start_offset)) {
+    if (tmp_offset + tmp_length <= bufs_[second].offset_ + second_size) {
       size_t read_len = 0;
       uint64_t end_offset = start_offset, chunk_len = 0;
 
@@ -635,9 +642,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
     // prefetching.
     uint64_t start_offset2 = bufs_[curr_].initial_end_offset_;
 
-    // Second buffer might be out of bound if first buffer already prefetched
-    // that data.
-    if (!IsOffsetOutOfBound(start_offset2)) {
       // Find updated readahead size after tuning
       size_t read_len2 = 0;
       uint64_t end_offset2 = start_offset2, chunk_len2 = 0;
@@ -653,7 +657,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(const IOOptions& opts,
           bufs_[second].ClearBuffer();
           return s;
         }
-      }
     }
   }
 
@@ -737,7 +740,6 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
             return false;
           }
         }
-        UpdateReadAheadSizeForUpperBound(offset, n);
         s = Prefetch(opts, reader, offset, n + readahead_size_);
       }
       if (!s.ok()) {
@@ -837,8 +839,6 @@ bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
         }
       }
 
-      UpdateReadAheadSizeForUpperBound(offset, n);
-
       // Prefetch n + readahead_size_/2 synchronously as remaining
       // readahead_size_/2 will be prefetched asynchronously.
       s = PrefetchAsyncInternal(opts, reader, offset, n, readahead_size_ / 2,
@@ -919,7 +919,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   explicit_prefetch_submitted_ = false;
   bool is_eligible_for_prefetching = false;
 
-  UpdateReadAheadSizeForUpperBound(offset, n);
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
        num_file_reads_ >= num_file_reads_for_auto_readahead_)) {
@@ -1014,14 +1013,13 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     start_offset2 = bufs_[curr_].initial_end_offset_;
     // Second buffer might be out of bound if first buffer already prefetched
     // that data.
-    if (!IsOffsetOutOfBound(start_offset2)) {
+
       uint64_t end_offset2 = start_offset2, chunk_len2 = 0;
       ReadAheadSizeTuning(/*read_curr_block=*/false, /*refit_tail=*/false,
                           /*prev_buf_end_offset=*/end_offset1, second,
                           alignment,
                           /*length=*/0, readahead_size, start_offset2,
                           end_offset2, read_len2, chunk_len2);
-    }
   }
 
   if (read_len1) {

@@ -36,6 +36,10 @@ public class Environment {
     return ARCH.contains("s390x");
   }
 
+  public static boolean isRiscv64() {
+    return ARCH.contains("riscv64");
+  }
+
   public static boolean isWindows() {
     return (OS.contains("win"));
   }
@@ -180,7 +184,7 @@ public class Environment {
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
-      if (isPowerPC() || isAarch64()) {
+      if (isPowerPC() || isAarch64() || isRiscv64()) {
         return String.format("%sjni-linux-%s%s", name, ARCH, getLibcPostfix());
       } else if (isS390x()) {
         return String.format("%sjni-linux-%s", name, ARCH);

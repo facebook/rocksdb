@@ -520,6 +520,55 @@ TEST_F(VersionStorageInfoTest, EstimateLiveDataSize2) {
   ASSERT_EQ(4U, vstorage_.EstimateLiveDataSize());
 }
 
+TEST_F(VersionStorageInfoTest, SingleLevelBottommostData) {
+  // In case of a single level, the oldest L0 file is bottommost. This could be
+  // improved in case the L0 files cover disjoint key-ranges.
+  Add(0 /* level */, 1U /* file_number */, "A" /* smallest */,
+      "Z" /* largest */, 1U /* file_size */);
+  Add(0 /* level */, 2U /* file_number */, "A" /* smallest */,
+      "Z" /* largest */, 1U /* file_size */);
+  Add(0 /* level */, 3U /* file_number */, "0" /* smallest */,
+      "9" /* largest */, 1U /* file_size */);
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1, vstorage_.BottommostFiles().size());
+  ASSERT_EQ(0, vstorage_.BottommostFiles()[0].first);
+  ASSERT_EQ(3U, vstorage_.BottommostFiles()[0].second->fd.GetNumber());
+}
+
+TEST_F(VersionStorageInfoTest, MultiLevelBottommostData) {
+  // In case of multiple levels, the oldest file for a key-range from each L1+
+  // level is bottommost. This could be improved in case an L0 file contains the
+  // oldest data for some range of keys.
+  Add(0 /* level */, 1U /* file_number */, "A" /* smallest */,
+      "Z" /* largest */, 1U /* file_size */);
+  Add(0 /* level */, 2U /* file_number */, "0" /* smallest */,
+      "9" /* largest */, 1U /* file_size */);
+  Add(1 /* level */, 3U /* file_number */, "A" /* smallest */,
+      "D" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 4U /* file_number */, "E" /* smallest */,
+      "H" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 5U /* file_number */, "I" /* smallest */,
+      "L" /* largest */, 1U /* file_size */);
+
+  UpdateVersionStorageInfo();
+
+  autovector<std::pair<int, FileMetaData*>> bottommost_files =
+      vstorage_.BottommostFiles();
+  std::sort(bottommost_files.begin(), bottommost_files.end(),
+            [](const std::pair<int, FileMetaData*>& lhs,
+               const std::pair<int, FileMetaData*>& rhs) {
+              assert(lhs.second);
+              assert(rhs.second);
+              return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+            });
+  ASSERT_EQ(3, bottommost_files.size());
+  ASSERT_EQ(3U, bottommost_files[0].second->fd.GetNumber());
+  ASSERT_EQ(4U, bottommost_files[1].second->fd.GetNumber());
+  ASSERT_EQ(5U, bottommost_files[2].second->fd.GetNumber());
+}
+
 TEST_F(VersionStorageInfoTest, GetOverlappingInputs) {
   // Two files that overlap at the range deletion tombstone sentinel.
   Add(1, 1U, {"a", 0, kTypeValue},

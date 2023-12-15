@@ -430,6 +430,13 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   PinnableSlice v;
   s = db->Get(ropt, cf, snap_state.key, &v);
   if (!s.ok() && !s.IsNotFound()) {
+    // When `persist_user_defined_timestamps` is false, a repeated read with
+    // both a read timestamp and an explicitly taken snapshot cannot guarantee
+    // consistent result all the time. When it cannot return consistent result,
+    // it will return an `InvalidArgument` status.
+    if (s.IsInvalidArgument() && !FLAGS_persist_user_defined_timestamps) {
+      return Status::OK();
+    }
     return s;
   }
   if (snap_state.status != s) {
@@ -2668,6 +2675,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "Persist user defined timestamps : %d\n",
+          FLAGS_persist_user_defined_timestamps);
   fprintf(stdout, "WAL compression           : %s\n",
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
@@ -3087,6 +3096,11 @@ bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
     return false;
   }
 
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Not read with older timestamps to avoid get InvalidArgument.
+    return false;
+  }
+
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
     return false;
@@ -3113,6 +3127,11 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
                                                     Slice& ts_slice,
                                                     ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Not read with older timestamps to avoid get InvalidArgument.
     return;
   }
 
@@ -3175,6 +3194,8 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     exit(1);
   }
   options.comparator = cmp;
+  options.persist_user_defined_timestamps =
+      FLAGS_persist_user_defined_timestamps;
 }
 
 bool InitializeOptionsFromFile(Options& options) {

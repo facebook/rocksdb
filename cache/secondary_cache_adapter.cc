@@ -683,12 +683,14 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
         *(static_cast_with_check<LRUCacheOptions, ShardedCacheOptions>(
             opts.cache_opts));
     cache_opts.capacity = opts.total_capacity;
+    cache_opts.secondary_cache = nullptr;
     cache = cache_opts.MakeSharedCache();
   } else if (opts.cache_type == PrimaryCacheType::kCacheTypeHCC) {
     HyperClockCacheOptions cache_opts =
         *(static_cast_with_check<HyperClockCacheOptions, ShardedCacheOptions>(
             opts.cache_opts));
     cache_opts.capacity = opts.total_capacity;
+    cache_opts.secondary_cache = nullptr;
     cache = cache_opts.MakeSharedCache();
   } else {
     return nullptr;

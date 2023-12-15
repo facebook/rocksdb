@@ -490,6 +490,12 @@ class VersionStorageInfo {
     files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 
+  // REQUIRES: PrepareForVersionAppend has been called
+  const autovector<std::pair<int, FileMetaData*>>& BottommostFiles() const {
+    assert(finalized_);
+    return bottommost_files_;
+  }
+
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&

@@ -114,21 +114,6 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     }
   }
 
-  if (autotune_readaheadsize) {
-    FindReadAheadSizeUpperBound();
-    if (target) {
-      index_iter_->Seek(*target);
-    } else {
-      index_iter_->SeekToFirst();
-    }
-
-    // Check for IO error.
-    if (!index_iter_->Valid()) {
-      ResetDataIter();
-      return;
-    }
-  }
-
   // After reseek, index_iter_ point to the right key i.e. target in
   // case of readahead_cache_lookup_. So index_iter_ can be used directly.
   IndexValue v = index_iter_->value();
@@ -303,12 +288,29 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  // Return Error.
-  if (readahead_cache_lookup_) {
-    block_iter_.Invalidate(
-        Status::NotSupported("auto tuning of readahead_size in is not "
-                             "supported with Prev operation."));
-    return;
+  if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
+    // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
+    // need to reseek the index_iter_ to point to current block by using
+    // block_iter_'s key.
+    if (Valid()) {
+      ResetBlockCacheLookupVar();
+      direction_ = IterDirection::kBackward;
+      Slice last_key = key();
+
+      index_iter_->Seek(last_key);
+      is_index_at_curr_block_ = true;
+
+      // Check for IO error.
+      if (!index_iter_->Valid()) {
+        ResetDataIter();
+        return;
+      }
+    }
+
+    if (!Valid()) {
+      ResetDataIter();
+      return;
+    }
   }
 
   ResetBlockCacheLookupVar();
@@ -672,40 +674,6 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
                                    ? BlockUpperBound::kUpperBoundBeyondCurBlock
                                    : BlockUpperBound::kUpperBoundInCurBlock;
   }
-}
-
-void BlockBasedTableIterator::FindReadAheadSizeUpperBound() {
-  size_t total_bytes_till_upper_bound = 0;
-  size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
-  uint64_t start_offset = index_iter_->value().handle.offset();
-
-  do {
-    BlockHandle block_handle = index_iter_->value().handle;
-    total_bytes_till_upper_bound += block_handle.size();
-    total_bytes_till_upper_bound += footer;
-
-    // Can't figure out for current block if current block
-    // is out of bound. But for next block we can find that.
-    // If curr block's index key >= iterate_upper_bound, it
-    // means all the keys in next block or above are out of
-    // bound.
-    if (IsNextBlockOutOfBound()) {
-      break;
-    }
-
-    // Since next block is not out of bound, iterate to that
-    // index block and add it's Data block size to
-    // readahead_size.
-    index_iter_->Next();
-
-    if (!index_iter_->Valid()) {
-      break;
-    }
-
-  } while (true);
-
-  block_prefetcher_.SetUpperBoundOffset(start_offset +
-                                        total_bytes_till_upper_bound);
 }
 
 void BlockBasedTableIterator::InitializeStartAndEndOffsets(
