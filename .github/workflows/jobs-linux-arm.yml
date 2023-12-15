@@ -2,6 +2,7 @@ name: facebook/rocksdb/jobs-linux-arm
 on: [push, pull_request]
 jobs:
   build-linux-arm:
+    syntax-error: foo
     runs-on:
       labels: arm64large # GitHub hosted ARM runners do not yet exist
     steps:

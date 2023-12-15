@@ -2,6 +2,7 @@ name: facebook/rocksdb/jobs-macos
 on: [push, pull_request]
 jobs:
   build-macos:
+    syntax-error: foo
     runs-on: macos-13
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
@@ -40,4 +41,3 @@ jobs:
       run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j16 -I 1,,2
       if: ${{ ! matrix.run_even_tests  }}
     - uses: "./.github/actions/post-steps"
-

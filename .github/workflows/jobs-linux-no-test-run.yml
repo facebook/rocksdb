@@ -2,7 +2,6 @@ name: facebook/rocksdb/jobs-linux-no-test-run
 on: [push, pull_request]
 jobs:
   build-linux-release:
-    syntax-error: foo
     runs-on:
       labels: 16-core-ubuntu
     container:

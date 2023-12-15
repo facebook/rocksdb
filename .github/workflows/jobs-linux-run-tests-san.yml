@@ -1,6 +1,7 @@
 name: facebook/rocksdb/jobs-linux-run-tests-san
 on: [push, pull_request]
 jobs:
+  syntax-error: foo
   build-linux-clang10-asan:
     runs-on:
       labels: 32-core-ubuntu
