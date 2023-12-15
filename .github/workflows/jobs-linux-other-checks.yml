@@ -6,7 +6,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
-      options: --shm-size=2gb
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -23,7 +23,7 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: gcc:latest
-      options: --shm-size=2gb
+      options: --shm-size=16gb
     env:
       EXTRA_CXXFLAGS: "-mno-avx512f"
     steps:
@@ -38,7 +38,7 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
-      options: --shm-size=2gb
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"

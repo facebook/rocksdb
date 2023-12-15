@@ -9,6 +9,7 @@ jobs:
       group: 2xlarge
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -25,6 +26,7 @@ jobs:
       group: arm64large
     container:
       image: ubuntu-2004:202111-02
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -36,6 +38,7 @@ jobs:
       group: 2xlarge
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -46,6 +49,7 @@ jobs:
       group: 2xlarge
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
     env:
       TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
     steps:
@@ -58,6 +62,7 @@ jobs:
       group: 2xlarge
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -70,6 +75,7 @@ jobs:
       group: 2xlarge
     container:
       image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"

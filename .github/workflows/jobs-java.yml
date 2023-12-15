@@ -6,7 +6,7 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
-      options: --shm-size=2gb
+      options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -23,9 +23,9 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: evolvedbinary/rocksjava:centos6_x64-be
-      options: --shm-size=2gb
+      options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v3 # see https://github.com/actions/checkout/issues/1474
+    - uses: actions/checkout@v4.0 # see https://github.com/actions/checkout/issues/1474
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
