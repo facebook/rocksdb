@@ -377,37 +377,31 @@ class BaseClockTable {
  public:
   struct BaseOpts {
     explicit BaseOpts(int _eviction_effort_cap)
-        : eviction_effort_cap(_eviction_effort_cap) {
-      eviction_effort_cap = std::max(int{1}, _eviction_effort_cap);
-      // Avoid overflow in IsEvictionEffortExceeded
-      eviction_effort_cap = std::min(INT32_MAX, eviction_effort_cap);
-    }
+        : eviction_effort_cap(_eviction_effort_cap) {}
     explicit BaseOpts(const HyperClockCacheOptions& opts)
         : BaseOpts(opts.eviction_effort_cap) {}
     int eviction_effort_cap;
   };
 
-  BaseClockTable(const BaseOpts& opts,
-                 CacheMetadataChargePolicy metadata_charge_policy,
+  BaseClockTable(CacheMetadataChargePolicy metadata_charge_policy,
                  MemoryAllocator* allocator,
                  const Cache::EvictionCallback* eviction_callback,
                  const uint32_t* hash_seed)
       : metadata_charge_policy_(metadata_charge_policy),
         allocator_(allocator),
         eviction_callback_(*eviction_callback),
-        eviction_effort_cap_(opts.eviction_effort_cap),
         hash_seed_(*hash_seed) {}
 
   template <class Table>
   typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
                                                size_t capacity,
-                                               bool strict_capacity_limit,
+                                               uint32_t eec_and_scl,
                                                bool allow_uncharged);
 
   template <class Table>
   Status Insert(const ClockHandleBasicData& proto,
                 typename Table::HandleImpl** handle, Cache::Priority priority,
-                size_t capacity, bool strict_capacity_limit);
+                size_t capacity, uint32_t eec_and_scl);
 
   void Ref(ClockHandle& handle);
 
@@ -433,8 +427,6 @@ class BaseClockTable {
 
   void TrackAndReleaseEvictedEntry(ClockHandle* h);
 
-  bool IsEvictionEffortExceeded(const EvictionData& data) const;
-
 #ifndef NDEBUG
   // Acquire N references
   void TEST_RefN(ClockHandle& handle, size_t n);
@@ -458,6 +450,7 @@ class BaseClockTable {
   template <class Table>
   Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
                                      bool need_evict_for_occupancy,
+                                     uint32_t eviction_effort_cap,
                                      typename Table::InsertState& state);
 
   // Helper for updating `usage_` for new entry with given `total_charge`
@@ -471,7 +464,9 @@ class BaseClockTable {
   template <class Table>
   bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
                                       bool need_evict_for_occupancy,
+                                      uint32_t eviction_effort_cap,
                                       typename Table::InsertState& state);
+
  protected:  // data
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
@@ -482,6 +477,7 @@ class BaseClockTable {
   RelaxedAtomic<uint64_t> clock_pointer_{};
 
   // Counter for number of times we yield to wait on another thread.
+  // It is normal for this to occur rarely in normal operation.
   // (Relaxed: a simple stat counter.)
   RelaxedAtomic<uint64_t> yield_count_{};
 
@@ -509,9 +505,6 @@ class BaseClockTable {
 
   // A reference to Cache::eviction_callback_
   const Cache::EvictionCallback& eviction_callback_;
-
-  // See HyperClockCacheOptions::eviction_effort_cap
-  int eviction_effort_cap_;
 
   // A reference to ShardedCacheBase::hash_seed_
   const uint32_t& hash_seed_;
@@ -558,7 +551,7 @@ class FixedHyperClockTable : public BaseClockTable {
     size_t estimated_value_size;
   };
 
-  FixedHyperClockTable(size_t capacity, bool strict_capacity_limit,
+  FixedHyperClockTable(size_t capacity,
                        CacheMetadataChargePolicy metadata_charge_policy,
                        MemoryAllocator* allocator,
                        const Cache::EvictionCallback* eviction_callback,
@@ -581,7 +574,7 @@ class FixedHyperClockTable : public BaseClockTable {
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
   void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
-             bool enforce_effort_cap);
+             uint32_t eviction_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -848,7 +841,7 @@ class AutoHyperClockTable : public BaseClockTable {
     size_t min_avg_value_size;
   };
 
-  AutoHyperClockTable(size_t capacity, bool strict_capacity_limit,
+  AutoHyperClockTable(size_t capacity,
                       CacheMetadataChargePolicy metadata_charge_policy,
                       MemoryAllocator* allocator,
                       const Cache::EvictionCallback* eviction_callback,
@@ -876,7 +869,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
   void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
-             bool enforce_effort_cap);
+             uint32_t eviction_effort_cap);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -1114,9 +1107,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   // (Relaxed: eventual consistency/update is OK)
   RelaxedAtomic<size_t> capacity_;
 
-  // Whether to reject insertion if cache reaches its full capacity.
+  // Encodes eviction_effort_cap (bottom 31 bits) and strict_capacity_limit
+  // (top bit). See HyperClockCacheOptions::eviction_effort_cap etc.
   // (Relaxed: eventual consistency/update is OK)
-  RelaxedAtomic<bool> strict_capacity_limit_;
+  RelaxedAtomic<uint32_t> eec_and_scl_;
 };  // class ClockCacheShard
 
 template <class Table>
