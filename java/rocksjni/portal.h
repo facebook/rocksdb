@@ -5175,6 +5175,15 @@ class TickerTypeJni {
         return -0x41;
       case ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS:
         return -0x42;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_DUMMY_HITS:
+        return -0x43;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS:
+        return -0x44;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_PROMOTIONS:
+        return -0x45;
+      case ROCKSDB_NAMESPACE::Tickers::
+          COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS:
+        return -0x46;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5550,6 +5559,17 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_BYTES_USEFUL;
       case -0x42:
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
+      case -0x43:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_DUMMY_HITS;
+      case -0x44:
+        return ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SECONDARY_CACHE_HITS;
+      case -0x45:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTIONS;
+      case -0x46:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
