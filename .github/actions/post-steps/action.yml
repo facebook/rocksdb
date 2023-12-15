@@ -6,7 +6,7 @@ runs:
   - name: Setup tmate session #TEMPORARY!
     if: ${{ failure() }}
     uses: mxschmitt/action-tmate@v3
-    timeout: 60
+    timeout-minutes: 60
     with:
       limit-access-to-actor: true
   - uses: actions/upload-artifact@v3.1.3
