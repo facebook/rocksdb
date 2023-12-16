@@ -1213,7 +1213,8 @@ class MyComparator : public rocksdb::Comparator {
     return a.compare(b);
   }
   void FindShortSuccessor(std::string* /*key*/) const override {}
-  void FindShortestSeparator(std::string* /*start*/, const Slice& /*limit*/) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
   const char* Name() const override { return "my_comparator"; }
 };
 
@@ -1245,8 +1246,8 @@ TEST_F(LdbCmdTest, CustomComparator) {
   char arg4[] = "k1";
   char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
 
-  ASSERT_EQ(0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
-}
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));}
 
 }  // namespace ROCKSDB_NAMESPACE
 
