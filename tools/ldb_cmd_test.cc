@@ -1247,7 +1247,7 @@ TEST_F(LdbCmdTest, CustomComparator) {
   char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
 
   ASSERT_EQ(0,
-            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));}
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
 
 }  // namespace ROCKSDB_NAMESPACE
 
