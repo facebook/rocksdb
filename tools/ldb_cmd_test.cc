@@ -1207,6 +1207,47 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
   ASSERT_OK(DestroyDB(new_dbname, opts));
 }
 
+class MyComparator : public rocksdb::Comparator {
+ public:
+  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
+    return a.compare(b);
+  }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortestSeparator(std::string* /*start*/, const Slice& /*limit*/) const override {}
+  const char* Name() const override { return "my_comparator"; }
+};
+
+TEST_F(LdbCmdTest, CustomComparator) {
+  Env* env = TryLoadCustomOrDefaultEnv();
+  Options opts;
+  opts.env = env;
+  opts.create_if_missing = true;
+  opts.create_missing_column_families = true;
+  opts.comparator = new MyComparator;
+
+  std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
+  DB* db = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cfds = {{kDefaultColumnFamilyName, opts}};
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DestroyDB(dbname, opts));
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "k1", "v1"));
+
+  for (auto& h : handles) {
+    ASSERT_OK(db->DestroyColumnFamilyHandle(h));
+  }
+  delete db;
+
+  char arg1[] = "./ldb";
+  std::string arg2 = "--db=" + dbname;
+  char arg3[] = "get";
+  char arg4[] = "k1";
+  char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
+
+  ASSERT_EQ(0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
