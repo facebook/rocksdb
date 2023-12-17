@@ -94,7 +94,8 @@ default_params = {
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
-    "max_key": 25000000,
+    # max_key has to be the same across invocations for verification to work, hence no lambda
+    "max_key": random.choice([100000, 25000000]),
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -116,7 +117,7 @@ default_params = {
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
     "long_running_snapshots": lambda: random.randint(0, 1),
     "subcompactions": lambda: random.randint(1, 4),
-    "target_file_size_base": 2097152,
+    "target_file_size_base": lambda: random.choice([512 * 1024, 2048 * 1024]),
     "target_file_size_multiplier": 2,
     "test_batches_snapshots": random.randint(0, 1),
     "top_level_index_pinning": lambda: random.randint(0, 3),
@@ -139,7 +140,7 @@ default_params = {
     "value_size_mult": 32,
     "verification_only": 0,
     "verify_checksum": 1,
-    "write_buffer_size": 4 * 1024 * 1024,
+    "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
     "format_version": lambda: random.choice([2, 3, 4, 5, 6, 6]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
