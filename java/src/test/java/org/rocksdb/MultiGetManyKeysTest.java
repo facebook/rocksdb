@@ -7,7 +7,6 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.*;
-
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -34,7 +33,8 @@ public class MultiGetManyKeysTest {
 
   @BeforeClass
   public static void beforeAllTest() {
-    Assume.assumeFalse("We are not running this test on OpenBSD dues to memory constraints", Environment.isOpenBSD());
+    Assume.assumeFalse("We are not running this test on OpenBSD dues to memory constraints",
+        Environment.isOpenBSD());
   }
 
   /**
