@@ -14,6 +14,7 @@
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_checksum.h"
@@ -1207,7 +1208,7 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
   ASSERT_OK(DestroyDB(new_dbname, opts));
 }
 
-class MyComparator : public rocksdb::Comparator {
+class MyComparator : public Comparator {
  public:
   int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
     return a.compare(b);
@@ -1220,11 +1221,12 @@ class MyComparator : public rocksdb::Comparator {
 
 TEST_F(LdbCmdTest, CustomComparator) {
   Env* env = TryLoadCustomOrDefaultEnv();
+  MyComparator my_comparator;
   Options opts;
   opts.env = env;
   opts.create_if_missing = true;
   opts.create_missing_column_families = true;
-  opts.comparator = new MyComparator;
+  opts.comparator = &my_comparator;
 
   std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
   DB* db = nullptr;
