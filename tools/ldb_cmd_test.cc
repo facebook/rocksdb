@@ -1250,7 +1250,7 @@ TEST_F(LdbCmdTest, CustomComparator) {
 
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
-  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 
