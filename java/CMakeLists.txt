@@ -77,6 +77,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
+        rocksjni/table_properties_collector_factory.cc
         rocksjni/testable_event_listener.cc
         rocksjni/thread_status.cc
         rocksjni/trace_writer.cc
@@ -257,6 +258,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/TableFileDeletionInfo.java
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
+  src/main/java/org/rocksdb/TablePropertiesCollectorFactory.java
   src/main/java/org/rocksdb/TableFormatConfig.java
   src/main/java/org/rocksdb/ThreadType.java
   src/main/java/org/rocksdb/ThreadStatus.java
