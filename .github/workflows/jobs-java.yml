@@ -29,6 +29,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        yum install -y git
         git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
         git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
@@ -51,6 +52,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        yum install -y git
         git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
         git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
@@ -73,6 +75,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        yum install -y git
         git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
         git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
@@ -95,6 +98,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        yum install -y git
         git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
         git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
@@ -117,6 +121,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        yum install -y git
         git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
         git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
