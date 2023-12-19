@@ -11,7 +11,8 @@ jobs:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
     steps:
-    - uses: "./.github/actions/checkout-full"
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/full-repo"
     - uses: "./.github/actions/pre-steps"
     - name: test
       run: |-
