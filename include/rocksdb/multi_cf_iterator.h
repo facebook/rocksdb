@@ -10,7 +10,6 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "rocksdb/wide_columns.h"
-#include "util/heap.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,113 +25,13 @@ struct ReadOptions;
 class MultiCfIterator : public Iterator {
  public:
   MultiCfIterator() {}
-  MultiCfIterator(const Comparator* comparator,
-                  const std::vector<ColumnFamilyHandle*>& column_families,
-                  const std::vector<Iterator*>& child_iterators)
-      : comparator_(comparator),
-        min_heap_(MultiCfMinHeapItemComparator(comparator_)) {
-    assert(column_families.size() > 0);
-    assert(column_families.size() == child_iterators.size());
-
-    cfhs_.reserve(column_families.size());
-    iterators_.reserve(column_families.size());
-    for (size_t i = 0; i < column_families.size(); ++i) {
-      cfhs_.push_back(column_families[i]);
-      iterators_.push_back(child_iterators[i]);
-    }
-  }
-  ~MultiCfIterator() {
-    for (auto iter : iterators_) {
-      delete iter;
-    }
-    status_.PermitUncheckedError();
-  }
+  virtual ~MultiCfIterator() {}
 
   // No copy allowed
   MultiCfIterator(const MultiCfIterator&) = delete;
   MultiCfIterator& operator=(const MultiCfIterator&) = delete;
 
-  Slice key() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->key();
-  }
-  bool Valid() const override { return !min_heap_.empty() && status_.ok(); }
-  Status status() const override { return status_; }
-  void considerStatus(Status s) {
-    if (!s.ok() && status_.ok()) {
-      status_ = s;
-    }
-  }
-  void Reset() {
-    min_heap_.clear();
-    status_ = Status::OK();
-  }
-
-  void SeekToFirst() override;
-  void Next() override;
-
-  // TODO - Implement these
-  void Seek(const Slice& /*target*/) override {}
-  void SeekForPrev(const Slice& /*target*/) override {}
-  void SeekToLast() override {}
-  void Prev() override { assert(false); }
-  Slice value() const override {
-    assert(Valid());
-    return min_heap_.top().iterator->value();
-  }
-  const WideColumns& columns() const override {
-    assert(false);
-    // TODO - Lazily merge columns from child iterators
-    return wide_columns_;
-  }
-  const AttributeGroups& attribute_groups() {
-    assert(false);
-    // TODO - Lazily populate attribute groups from child iterators
-    return attribute_groups_;
-  }
-
- private:
-  std::vector<ColumnFamilyHandle*> cfhs_;
-  std::vector<Iterator*> iterators_;
-  ReadOptions read_options_;
-  Status status_;
-
-  Slice value_;
-  WideColumns wide_columns_;
-  AttributeGroups attribute_groups_;
-
-  struct MultiCfIteratorInfo {
-    Iterator* iterator;
-    ColumnFamilyHandle* cfh;
-    int order;
-  };
-
-  class MultiCfMinHeapItemComparator {
-   public:
-    MultiCfMinHeapItemComparator() {}
-    explicit MultiCfMinHeapItemComparator(const Comparator* comparator)
-        : comparator_(comparator) {}
-
-    bool operator()(MultiCfIteratorInfo a, MultiCfIteratorInfo b) const {
-      assert(a.iterator);
-      assert(b.iterator);
-      assert(a.iterator->Valid());
-      assert(b.iterator->Valid());
-      int c = comparator_->Compare(a.iterator->key(), b.iterator->key());
-      assert(c != 0 || a.order != b.order);
-      return c == 0 ? a.order - b.order > 0 : c > 0;
-    }
-
-   private:
-    const Comparator* comparator_;
-  };
-
-  const Comparator* comparator_;
-  using MultiCfMinHeap =
-      BinaryHeap<MultiCfIteratorInfo, MultiCfMinHeapItemComparator>;
-  MultiCfMinHeap min_heap_;
-  // TODO: MaxHeap for Reverse Iteration
-  // TODO: Lower and Upper bounds
+  virtual const AttributeGroups& attribute_groups() const = 0;
 };
 extern MultiCfIterator* NewMultiColumnFamilyIterator(
     const Comparator* comparator,

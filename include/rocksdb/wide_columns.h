@@ -246,6 +246,9 @@ inline bool operator==(const AttributeGroup& lhs, const AttributeGroup& rhs) {
 // A collection of Attribute Groups.
 using AttributeGroups = std::vector<AttributeGroup>;
 
+// An empty set of Attribute Groups.
+extern const AttributeGroups kNoAttributeGroups;
+
 // Used in Read Path. Wide-columns returned from the query are pinnable.
 class PinnableAttributeGroup {
  public:
