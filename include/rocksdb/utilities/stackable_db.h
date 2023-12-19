@@ -262,8 +262,9 @@ class StackableDB : public DB {
   using DB::NewMultiCfIterator;
   MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families) override {
-    return db_->NewMultiCfIterator(options, column_families);
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const Comparator* comparator = BytewiseComparator()) override {
+    return db_->NewMultiCfIterator(options, column_families, comparator);
   }
 
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }

@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "comparator.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -962,7 +963,8 @@ class DB {
   // the order that column family is provided in column_families
   virtual MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const Comparator* comparator = BytewiseComparator()) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB

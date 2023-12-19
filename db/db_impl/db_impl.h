@@ -358,7 +358,8 @@ class DBImpl : public DB {
   // the order that column family is provided in column_families
   MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_families) override;
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const Comparator* comparator = BytewiseComparator()) override;
 
   // Create a timestamped snapshot. This snapshot can be shared by multiple
   // readers. If any of them uses it for write conflict checking, then

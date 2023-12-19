@@ -3738,13 +3738,14 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 
 MultiCfIterator* DBImpl::NewMultiCfIterator(
     const ReadOptions& _read_options,
-    const std::vector<ColumnFamilyHandle*>& column_families) {
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    const Comparator* comparator) {
   assert(column_families.size() > 0);
 
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (s.ok()) {
-    return NewMultiColumnFamilyIterator(BytewiseComparator(), column_families,
+    return NewMultiColumnFamilyIterator(comparator, column_families,
                                         child_iterators);
   }
   // TODO - return something like NewErrorIterator?
