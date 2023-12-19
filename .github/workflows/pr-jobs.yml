@@ -284,24 +284,6 @@ jobs:
     - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
   # ======================== Linux Other Checks ======================= #
-  check-format-and-targets:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: "./.github/actions/checkout-full"
-    - name: Setup Python
-      uses: actions/setup-python@v1
-    - name: Install Dependencies
-      run: python -m pip install --upgrade pip
-    - name: Install argparse
-      run: pip install argparse
-    - name: Download clang-format-diff.py
-      run: wget https://raw.githubusercontent.com/llvm/llvm-project/release/12.x/clang/tools/clang-format/clang-format-diff.py
-    - name: Check format
-      run: VERBOSE_CHECK=1 make check-format
-    - name: Compare buckify output
-      run: make check-buck-targets
-    - name: Simple source code checks
-      run: make check-sources
   build-linux-clang10-clang-analyze:
     runs-on:
       labels: 16-core-ubuntu

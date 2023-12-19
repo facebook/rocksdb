@@ -885,9 +885,6 @@ workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
   jobs-linux-arm:
     jobs:
       - build-linux-arm
-  build-fuzzers:
-    jobs:
-      - build-fuzzers
   benchmark-linux:
     triggers:
       - schedule:
@@ -907,11 +904,4 @@ workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
               only:
                 - main
     jobs:
-      - build-format-compatible
       - build-linux-arm-test-full
-      - build-linux-run-microbench
-      - build-linux-non-shm
-      - build-linux-clang-13-asan-ubsan-with-folly
-      - build-linux-valgrind
-      - build-windows-vs2022-avx2
-      - build-windows-vs2022
