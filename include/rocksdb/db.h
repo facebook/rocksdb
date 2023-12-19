@@ -17,8 +17,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "comparator.h"
 #include "rocksdb/block_cache_trace_writer.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -958,9 +958,10 @@ class DB {
       std::vector<Iterator*>* iterators) = 0;
 
   // DO NOT USE, UNDER CONSTRUCTION
-  // Returns a cross-column-family iterator from a consistent database state.
-  // When the same key exists in more than one column families, this iterates in
-  // the order that column family is provided in column_families
+  // Return a cross-column-family iterator from a consistent database state.
+  // When the same key exists in more than one column families, the iterator
+  // selects the value from the first column family containing the key, in the
+  // order provided in the `column_families` parameter.
   virtual MultiCfIterator* NewMultiCfIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,

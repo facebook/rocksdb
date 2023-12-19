@@ -3748,8 +3748,7 @@ MultiCfIterator* DBImpl::NewMultiCfIterator(
     return NewMultiColumnFamilyIterator(comparator, column_families,
                                         child_iterators);
   }
-  // TODO - return something like NewErrorIterator?
-  return nullptr;
+  return NewErrorMultiColumnFamilyIterator(s);
 }
 
 Status DBImpl::NewIterators(
