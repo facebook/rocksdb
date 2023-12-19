@@ -80,6 +80,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/multi_cf_iterator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/status.h"
@@ -3733,6 +3734,21 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;
+}
+
+MultiCfIterator* DBImpl::NewMultiCfIterator(
+    const ReadOptions& _read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  assert(column_families.size() > 0);
+
+  std::vector<Iterator*> child_iterators;
+  Status s = NewIterators(_read_options, column_families, &child_iterators);
+  if (s.ok()) {
+    return NewMultiColumnFamilyIterator(BytewiseComparator(), column_families,
+                                        child_iterators);
+  }
+  // TODO - return something like NewErrorIterator?
+  return nullptr;
 }
 
 Status DBImpl::NewIterators(
