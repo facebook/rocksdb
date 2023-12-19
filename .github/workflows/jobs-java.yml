@@ -25,7 +25,12 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v2.7.0 # see https://github.com/actions/checkout/issues/1474
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -42,7 +47,12 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v3.5.3 # see https://github.com/actions/checkout/issues/1474
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -59,7 +69,12 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v3.6.0 # see https://github.com/actions/checkout/issues/1474
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -76,7 +91,12 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.0.0 # see https://github.com/actions/checkout/issues/1474
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -93,7 +113,12 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.1 # see https://github.com/actions/checkout/issues/1474
+    - name: Checkout
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.head_ref }}
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
