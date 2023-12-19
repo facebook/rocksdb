@@ -6,6 +6,44 @@ jobs:
   # making it easy to overlook something broken. Grouping everything into one
   # workflow minimizes the problem because it will be suspicious if there are
   # no GHA results.
+  # FIXME: temporary
+  tmp-build-format-compatible:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: "./.github/actions/checkout-full"
+    - uses: "./.github/actions/pre-steps"
+    - name: test
+      run: |-
+        export TEST_TMPDIR=/dev/shm/rocksdb
+        rm -rf /dev/shm/rocksdb
+        mkdir /dev/shm/rocksdb
+        git config --global --add safe.directory /__w/rocksdb/rocksdb
+        tools/check_format_compatible.sh
+    - uses: "./.github/actions/post-steps"
+
+  # ======================== Fast Initial Checks ====================== #
+  check-format-and-targets:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: "./.github/actions/checkout-full"
+    - name: Setup Python
+      uses: actions/setup-python@v1
+    - name: Install Dependencies
+      run: python -m pip install --upgrade pip
+    - name: Install argparse
+      run: pip install argparse
+    - name: Download clang-format-diff.py
+      run: wget https://raw.githubusercontent.com/llvm/llvm-project/release/12.x/clang/tools/clang-format/clang-format-diff.py
+    - name: Check format
+      run: VERBOSE_CHECK=1 make check-format
+    - name: Compare buckify output
+      run: make check-buck-targets
+    - name: Simple source code checks
+      run: make check-sources
   # ========================= Linux With Tests ======================== #
   build-linux:
     runs-on:
@@ -249,16 +287,7 @@ jobs:
   check-format-and-targets:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout feature branch
-      uses: actions/checkout@v4.1.0
-    - name: Fetch from upstream
-      run: |
-        git remote add upstream https://github.com/facebook/rocksdb.git && git fetch upstream
-    - name: Where am I
-      run: |
-        echo git status && git status
-        echo "git remote -v" && git remote -v
-        echo git branch && git branch
+    - uses: "./.github/actions/checkout-full"
     - name: Setup Python
       uses: actions/setup-python@v1
     - name: Install Dependencies
@@ -373,7 +402,7 @@ jobs:
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Run all tests
-      run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=16 -j16 all
+      run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
     - uses: "./.github/actions/post-steps"
   build-macos-cmake:
     runs-on: macos-13

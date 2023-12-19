@@ -1,0 +1,14 @@
+name: build-folly
+runs:
+  using: composite
+  steps:
+  - uses: actions/checkout@v4.1.0
+    with:
+      fetch-depth: 0 # Get whole repo history
+      fetch-tags: true
+  - name: Set upstream
+    run: git remote add upstream https://github.com/facebook/rocksdb.git
+  - name: Fetch upstream
+    run: git fetch upstream
+  - name: Git status
+    run: git status && git remote -v && git branch

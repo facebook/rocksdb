@@ -1,5 +1,8 @@
 name: facebook/rocksdb/nightly
-on: [push, pull_request] # TEMPORARY: test on PR
+on:
+  schedule:
+  - cron: 0 9 * * *
+  workflow_dispatch:
 jobs:
   build-format-compatible:
     runs-on:
@@ -8,7 +11,7 @@ jobs:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
     steps:
-    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/checkout-full"
     - uses: "./.github/actions/pre-steps"
     - name: test
       run: |-
@@ -17,18 +20,6 @@ jobs:
         mkdir /dev/shm/rocksdb
         git config --global --add safe.directory /__w/rocksdb/rocksdb
         tools/check_format_compatible.sh
-    - uses: "./.github/actions/post-steps"
-  build-linux-arm-test-full:
-    runs-on:
-      labels: arm64large
-    container:
-      image: ubuntu-2004:202111-02
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - uses: "./.github/actions/install-gflags"
-    - run: make V=1 J=4 -j4 check
     - uses: "./.github/actions/post-steps"
   build-linux-run-microbench:
     runs-on:
