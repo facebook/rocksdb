@@ -82,10 +82,6 @@ struct BufferInfo {
 
   IOHandleDeleter del_fn_ = nullptr;
 
-  // pos represents the address of this buffer in queue of BufferInfo. It's
-  // required during async callback to know which buffer to filled.
-  BufferInfo* pos_;
-
   // initial_end_offset is used to keep track of the end offset of the buffer
   // that was originally called. It's helpful in case of autotuning of readahead
   // size when callback is made to BlockBasedTableIterator.
@@ -99,15 +95,20 @@ struct BufferInfo {
   uint64_t initial_end_offset_ = 0;
 
   bool IsDataBlockInBuffer(uint64_t offset, size_t length) {
+    assert(async_read_in_progress_ == false);
     return (offset >= offset_ &&
             offset + length <= offset_ + buffer_.CurrentSize());
   }
 
   bool IsOffsetInBuffer(uint64_t offset) {
+    assert(async_read_in_progress_ == false);
     return (offset >= offset_ && offset < offset_ + buffer_.CurrentSize());
   }
 
-  bool DoesBufferContainData() { return buffer_.CurrentSize() > 0; }
+  bool DoesBufferContainData() {
+    assert(async_read_in_progress_ == false);
+    return buffer_.CurrentSize() > 0;
+  }
 
   bool IsBufferOutdated(uint64_t offset) {
     return (!async_read_in_progress_ && DoesBufferContainData() &&
@@ -214,7 +215,6 @@ class FilePrefetchBuffer {
     free_bufs_.resize(num_buffers_);
     for (uint32_t i = 0; i < num_buffers_; i++) {
       free_bufs_[i] = new BufferInfo();
-      free_bufs_[i]->pos_ = free_bufs_[i];
     }
   }
 
@@ -236,9 +236,9 @@ class FilePrefetchBuffer {
       for (auto& buf : bufs_) {
         if (buf->io_handle_ != nullptr) {
           DestroyAndClearIOHandle(buf);
-          buf->async_read_in_progress_ = false;
           buf->ClearBuffer();
         }
+        buf->async_read_in_progress_ = false;
       }
     }
 
@@ -388,9 +388,9 @@ class FilePrefetchBuffer {
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
-  void CalculateOffsetAndLen(BufferInfo* buf, size_t alignment, uint64_t offset,
-                             size_t roundup_len, bool refit_tail,
-                             uint64_t& chunk_len);
+  void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
+                            size_t roundup_len, bool refit_tail,
+                            uint64_t& aligned_useful_len);
 
   void AbortOutdatedIO(uint64_t offset);
 
@@ -407,7 +407,7 @@ class FilePrefetchBuffer {
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
-              uint64_t chunk_len, uint64_t start_offset);
+              uint64_t aligned_useful_len, uint64_t start_offset);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
@@ -487,7 +487,7 @@ class FilePrefetchBuffer {
                            size_t alignment, size_t length,
                            size_t readahead_size, uint64_t& offset,
                            uint64_t& end_offset, size_t& read_len,
-                           uint64_t& chunk_len);
+                           uint64_t& aligned_useful_len);
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {
