@@ -12,7 +12,10 @@ jobs:
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/full-repo"
+      with:
+        fetch-depth: 0 # Need full repo history
+        fetch-tags: true
+    - uses: "./.github/actions/setup-upstream"
     - uses: "./.github/actions/pre-steps"
     - name: test
       run: |-
