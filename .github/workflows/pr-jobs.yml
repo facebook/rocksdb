@@ -6,28 +6,15 @@ jobs:
   # making it easy to overlook something broken. Grouping everything into one
   # workflow minimizes the problem because it will be suspicious if there are
   # no GHA results.
-  # FIXME: temporary
-  tmp-build-format-compatible:
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-      with:
-        fetch-depth: 0 # Need full repo history
-        fetch-tags: true
-    - uses: "./.github/actions/setup-upstream"
-    - uses: "./.github/actions/pre-steps"
-    - name: test
-      run: |-
-        export TEST_TMPDIR=/dev/shm/rocksdb
-        rm -rf /dev/shm/rocksdb
-        mkdir /dev/shm/rocksdb
-        git config --global --add safe.directory /__w/rocksdb/rocksdb
-        tools/check_format_compatible.sh
-    - uses: "./.github/actions/post-steps"
+  #
+  # DEBUGGING WITH SSH: Temporarily add this as a job step, either before the
+  # step of interest without the "if:" line or after the failing step with the
+  # "if:" line. Then use ssh command printed in CI output.
+  #  - name: Setup tmate session # TEMPORARY / NOCOMMIT!
+  #    if: ${{ failure() }}
+  #    uses: mxschmitt/action-tmate@v3
+  #    with:
+  #      limit-access-to-actor: true
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:

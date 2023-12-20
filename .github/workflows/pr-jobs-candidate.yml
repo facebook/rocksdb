@@ -11,6 +11,8 @@ jobs:
       image: evolvedbinary/rocksjava:centos6_x64-be
       options: --shm-size=16gb
     steps:
+    # checkout has a GLIBC compatibility problem with docker image, regardless
+    # of the version of checkout used.
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
