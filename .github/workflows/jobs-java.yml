@@ -30,8 +30,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         yum install -y git
-        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.head_ref }}
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -53,8 +55,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         yum install -y git
-        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.head_ref }}
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -76,8 +80,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         yum install -y git
-        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.head_ref }}
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -99,8 +105,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         yum install -y git
-        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.head_ref }}
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
@@ -122,8 +130,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         yum install -y git
-        git clone https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.head_ref }}
+        git clone --no-checkout https://oath2:$GH_TOKEN@github.com/${{ github.repository }}.git .
+        git -c protocol.version=2 fetch --update-head-ok --no-tags --prune --no-recurse-submodules --depth=1 origin +${{ github.sha }}:${{ github.ref }}
+        git checkout --progress --force ${{ github.ref }}
+        git log -1 --format='%H'
     - uses: "./.github/actions/pre-steps"
     - name: Set Java Environment
       run: |-
