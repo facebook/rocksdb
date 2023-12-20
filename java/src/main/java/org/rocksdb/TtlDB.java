@@ -5,7 +5,10 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.stream.IntStream;
 
 /**
  * Database with TTL support.
@@ -84,7 +87,10 @@ public class TtlDB extends RocksDB {
    */
   public static TtlDB open(final Options options, final String db_path,
       final int ttl, final boolean readOnly) throws RocksDBException {
-    return new TtlDB(open(options.nativeHandle_, db_path, ttl, readOnly));
+    final TtlDB db = new TtlDB(open(options.nativeHandle_, db_path, ttl, readOnly));
+    db.storeOptionsInstance(options);
+    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
+    return db;
   }
 
   /**
@@ -136,6 +142,22 @@ public class TtlDB extends RocksDB {
     for (int i = 1; i < handles.length; i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
     }
+    ttlDB.storeOptionsInstance(options);
+    ttlDB.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+
+    // ColumnFamilyHandle.isDefaultColumnFamily() doesn't work here yet, as we are in process of
+    // opening database
+    OptionalInt defaultCfIndex = IntStream.of(0, columnFamilyDescriptors.size() - 1)
+                                     .filter(x
+                                         -> Arrays.equals(columnFamilyDescriptors.get(x).getName(),
+                                             RocksDB.DEFAULT_COLUMN_FAMILY))
+                                     .findFirst();
+    if (defaultCfIndex.isPresent()) {
+      ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultCfIndex.getAsInt()));
+    } else {
+      throw new RocksDBException("No defaultColumnFamily");
+    }
+
     return ttlDB;
   }
 

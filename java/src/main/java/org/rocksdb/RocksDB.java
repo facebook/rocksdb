@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 import org.rocksdb.util.Environment;
 
 /**
@@ -41,7 +42,7 @@ public class RocksDB extends RocksObject {
   private ColumnFamilyHandle defaultColumnFamilyHandle_;
   private final ReadOptions defaultReadOptions_ = new ReadOptions();
 
-  private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
+  final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
   /**
    * Loads the necessary library files.
@@ -324,7 +325,19 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-    db.storeDefaultColumnFamilyHandle(db.makeDefaultColumnFamilyHandle());
+
+    // ColumnFamilyHandle.isDefaultColumnFamily() doesn't work here yet, as we are in process of
+    // opening database
+    OptionalInt defaultCfIndex = IntStream.of(0, columnFamilyDescriptors.size() - 1)
+                                     .filter(x
+                                         -> Arrays.equals(columnFamilyDescriptors.get(x).getName(),
+                                             RocksDB.DEFAULT_COLUMN_FAMILY))
+                                     .findFirst();
+    if (defaultCfIndex.isPresent()) {
+      db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultCfIndex.getAsInt()));
+    } else {
+      throw new RocksDBException("No default column family");
+    }
 
     return db;
   }
