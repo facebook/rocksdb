@@ -133,6 +133,11 @@ public interface RocksIteratorInterface {
   /**
    * Similar to {@link #refresh()} but the iterator will be reading the latest DB state under the
    * given snapshot.
+   *
+   * @param snapshot the snapshot.
+   *
+   * @throws RocksDBException thrown if the operation is not supported or an error happens in the
+   *     underlying native library
    */
   void refresh(Snapshot snapshot) throws RocksDBException;
 }

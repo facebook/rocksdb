@@ -1647,8 +1647,7 @@ public class Transaction extends RocksObject {
    *    {@link Status.Code#Busy} if there is a write conflict,
    *    {@link Status.Code#TimedOut} if a lock could not be acquired,
    *    {@link Status.Code#TryAgain} if the memtable history size is not large
-   *       enough. See
-   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *       enough.
    *
    * @param columnFamilyHandle The column family to put the key/value into
    * @param key the specified key to be inserted.

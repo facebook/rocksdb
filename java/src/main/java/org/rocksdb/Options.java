@@ -2115,7 +2115,8 @@ public class Options extends RocksObject
    * Set TablePropertiesCollectorFactory in underlying C++ object.
    * This method create its own copy of the list. Caller is responsible for
    * closing all the instances in the list.
-   * @param factories
+   *
+   * @param factories the collector factories.
    */
   public void setTablePropertiesCollectorFactory(List<TablePropertiesCollectorFactory> factories) {
     long[] factoryHandlers = new long[factories.size()];

@@ -1718,7 +1718,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * use "0:00-23:59". To make an entire day have no offpeak period, leave
    * this field blank. Default: Empty string (no offpeak).
    *
-   * @param offpeakTimeUTC String value from which to parse offpeak time range
+   * @param offpeakTimeUTC String value from which to parse offpeak time range.
+   *
+   * @return the instance of the current object.
    */
   T setDailyOffpeakTimeUTC(final String offpeakTimeUTC);
 
