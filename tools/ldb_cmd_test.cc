@@ -1210,7 +1210,7 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
 
 class MyComparator : public Comparator {
  public:
-  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
   }
   void FindShortSuccessor(std::string* /*key*/) const override {}
