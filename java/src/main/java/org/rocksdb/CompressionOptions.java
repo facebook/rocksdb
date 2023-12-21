@@ -13,7 +13,7 @@ public class CompressionOptions extends RocksObject {
    * RocksDB's generic default compression level. Internally it'll be translated
    * to the default compression level specific to the library being used.
    */
-  public static final int DEFAULT_COMPRESSION_LEVEL = 32767;
+  public static final int DEFAULT_COMPRESSION_LEVEL = 32_767;
 
   /**
    * Constructs a new CompressionOptions.
