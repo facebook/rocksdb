@@ -25,7 +25,7 @@ struct ReadOptions;
 class MultiCfIterator : public Iterator {
  public:
   MultiCfIterator() {}
-  virtual ~MultiCfIterator() {}
+  virtual ~MultiCfIterator() override {}
 
   // No copy allowed
   MultiCfIterator(const MultiCfIterator&) = delete;
