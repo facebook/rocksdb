@@ -280,7 +280,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
       write_buffer_manager_, &write_controller_, &block_cache_tracer_,
       io_tracer_, db_id_, db_session_id_, options.daily_offpeak_time_utc,
-      &error_handler_));
+      &error_handler_, read_only));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -657,6 +657,18 @@ Status DBImpl::CloseHelper() {
 
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
+  {
+    Status s = versions_->Close(directories_.GetDbDir(), &mutex_);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Unable to close MANIFEST with error -- %s",
+                      s.ToString().c_str());
+      if (ret.ok()) {
+        ret = s;
+      }
+    }
+  }
+
   versions_.reset();
   mutex_.Unlock();
   if (db_lock_ != nullptr) {
