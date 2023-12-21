@@ -2784,7 +2784,7 @@ Status Version::ProcessBatch(
                             std::get<1>(stat->second),
                             std::get<2>(stat->second));
         // RocksDB-Cloud contribution begin
-        PERF_COUNTER_ADD(multiget_sst_file_read_count, mget_tasks.size());
+        PERF_COUNTER_ADD(multiget_sst_file_read_count, 1);
         // RocksDB-Cloud contribution end
       } else {
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
