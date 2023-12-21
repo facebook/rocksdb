@@ -118,7 +118,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   @Override
   public void refresh(final Snapshot snapshot) throws RocksDBException {
     assert (isOwningHandle());
-    refresh1(nativeHandle_, snapshot.getNativeHandle());
+    refresh1(nativeHandle_, snapshot.nativeHandle_);
   }
 
   @Override
