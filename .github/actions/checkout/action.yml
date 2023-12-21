@@ -1,0 +1,10 @@
+name: checkout with git cli
+runs:
+  using: composite
+  steps:
+  - name: Checkout
+    run: |-
+      sudo sysctl -w kern.maxfiles=1048576
+      sudo sysctl -w kern.maxfilesperproc=1048576
+      sudo launchctl limit maxfiles 1048576
+    shell: bash
