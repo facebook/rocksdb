@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.nio.ByteBuffer;
 import java.util.Objects;
 
 /**
@@ -28,8 +27,8 @@ public class KeyMayExist {
   }
 
   /**
-   * Part of the return type from {@link RocksDB#keyMayExist(ColumnFamilyHandle, ByteBuffer,
-   * ByteBuffer)}.
+   * Part of the return type from {@link RocksDB#keyMayExist(ColumnFamilyHandle,
+   * java.nio.ByteBuffer, java.nio.ByteBuffer)}.
    */
   public enum KeyMayExistEnum {
     /**
