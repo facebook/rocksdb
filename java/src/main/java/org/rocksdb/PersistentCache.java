@@ -10,7 +10,6 @@ package org.rocksdb;
  * cache is specifically designed for persistent read cache.
  */
 public class PersistentCache extends RocksObject {
-
   /**
    * Constructs a persistent cache.
    *

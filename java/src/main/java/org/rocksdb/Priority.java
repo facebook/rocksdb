@@ -9,7 +9,6 @@ package org.rocksdb;
  * The Thread Pool priority.
  */
 public enum Priority {
-
   /**
    * Bottom most priority.
    */

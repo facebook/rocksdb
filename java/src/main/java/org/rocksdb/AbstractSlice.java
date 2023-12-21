@@ -27,7 +27,6 @@ package org.rocksdb;
  * @param <T> the concrete Java type that is wrapped by the subclass of {@link AbstractSlice}.
  */
 public abstract class AbstractSlice<T> extends RocksMutableObject {
-
   /**
    * Constructs an AbstractSlice.
    */
@@ -38,7 +37,8 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
   /**
    * Constructs an AbstractSlice.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ Slice.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ Slice.
    */
   protected AbstractSlice(final long nativeHandle) {
     super(nativeHandle);

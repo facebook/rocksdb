@@ -22,7 +22,6 @@ import java.util.List;
  */
 public abstract class RocksCallbackObject extends
     AbstractImmutableNativeReference {
-
   /**
    * An immutable reference to the value of the C++ pointer pointing to some
    * underlying native RocksDB C++ object that
@@ -33,7 +32,8 @@ public abstract class RocksCallbackObject extends
   /**
    * Constructs a RocksCallbackObject.
    *
-   * @param nativeParameterHandles reference to the value of the C++ pointers pointing to the underlying native RocksDB C++ objects.
+   * @param nativeParameterHandles reference to the value of the C++ pointers pointing to the
+   *     underlying native RocksDB C++ objects.
    */
   protected RocksCallbackObject(final long... nativeParameterHandles) {
     super(true);

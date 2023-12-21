@@ -13,7 +13,6 @@ package org.rocksdb;
  */
 public abstract class AbstractCompactionFilterFactory<T extends AbstractCompactionFilter<?>>
     extends RocksCallbackObject {
-
   /**
    * Constructs a new Compaction Filter Factory which has no underlying C++ object.
    */

@@ -12,7 +12,6 @@ package org.rocksdb;
  * @since 3.10.0
  */
 public class RateLimiter extends RocksObject {
-
   /**
    * The default refill period in microseconds.
    */

@@ -10,7 +10,6 @@ package org.rocksdb;
  */
 public class TransactionOptions extends RocksObject
     implements TransactionalOptions<TransactionOptions> {
-
   /**
    * Constructs a TransactionOptions.
    */

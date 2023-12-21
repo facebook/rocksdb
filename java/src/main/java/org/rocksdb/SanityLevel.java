@@ -10,7 +10,6 @@ package org.rocksdb;
  * The Sanity Level.
  */
 public enum SanityLevel {
-
   /**
    * None.
    */

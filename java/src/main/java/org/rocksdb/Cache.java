@@ -5,16 +5,15 @@
 
 package org.rocksdb;
 
-
 /**
  * Base class for Cache implementations.
  */
 public abstract class Cache extends RocksObject {
-
   /**
    * Construct a Cache.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ cache object.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ cache object.
    */
   protected Cache(final long nativeHandle) {
     super(nativeHandle);

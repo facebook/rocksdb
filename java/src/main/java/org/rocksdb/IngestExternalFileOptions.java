@@ -11,7 +11,6 @@ import java.util.List;
  * {@link RocksDB#ingestExternalFile(ColumnFamilyHandle, List, IngestExternalFileOptions)}.
  */
 public class IngestExternalFileOptions extends RocksObject {
-
   /**
    * Constructs an IngestExternalFileOptions.
    */

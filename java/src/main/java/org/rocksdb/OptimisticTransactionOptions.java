@@ -10,7 +10,6 @@ package org.rocksdb;
  */
 public class OptimisticTransactionOptions extends RocksObject
     implements TransactionalOptions<OptimisticTransactionOptions> {
-
   /**
    * Constructs an OptimisticTransactionOptions.
    */
