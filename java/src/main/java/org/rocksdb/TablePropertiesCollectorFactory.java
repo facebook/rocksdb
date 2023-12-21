@@ -6,18 +6,37 @@
 
 package org.rocksdb;
 
+/**
+ * Table Properties Collector Factory.
+ */
 public abstract class TablePropertiesCollectorFactory extends RocksObject {
   private TablePropertiesCollectorFactory(final long nativeHandle) {
     super(nativeHandle);
   }
 
-  public static TablePropertiesCollectorFactory NewCompactOnDeletionCollectorFactory(
-      final long sliding_window_size, final long deletion_trigger, final double deletion_ratio) {
-    long handle =
-        newCompactOnDeletionCollectorFactory(sliding_window_size, deletion_trigger, deletion_ratio);
+  /**
+   * Creates a factory of a table property collector that marks a SST
+   * file as need-compaction when it observes at least "D" deletion
+   * entries in any "N" consecutive entries, or the ratio of tombstone
+   * entries &gt;= deletion_ratio.
+   *
+   * @param slidingWindowSize "N".Note that this number will be
+   *      round up to the smallest multiple of 128 that is no less
+   *     than the specified size.
+   * @param deletionTrigger "D". Note that even when "N" is changed,
+   *     the specified number for "D" will not be changed.
+   * @param deletionRatio if &lt;= 0 or &gt; 1, disable triggering compaction
+   *     based on deletion ratio. Disabled by default.
+   *
+   * @return the new compact on deletion collector factory.
+   */
+  public static TablePropertiesCollectorFactory createNewCompactOnDeletionCollectorFactory(
+      final long slidingWindowSize, final long deletionTrigger, final double deletionRatio) {
+    final long handle =
+        newCompactOnDeletionCollectorFactory(slidingWindowSize, deletionTrigger, deletionRatio);
     return new TablePropertiesCollectorFactory(handle) {
       @Override
-      protected void disposeInternal(long handle) {
+      protected void disposeInternal(final long handle) {
         TablePropertiesCollectorFactory.deleteCompactOnDeletionCollectorFactory(handle);
       }
     };
@@ -25,8 +44,10 @@ public abstract class TablePropertiesCollectorFactory extends RocksObject {
 
   /**
    * Internal API. Do not use.
-   * @param nativeHandle
-   * @return
+   *
+   * @param nativeHandle the native handle to wrap.
+   *
+   * @return the new TablePropertiesCollectorFactory.
    */
   static TablePropertiesCollectorFactory newWrapper(final long nativeHandle) {
     return new TablePropertiesCollectorFactory(nativeHandle) {
