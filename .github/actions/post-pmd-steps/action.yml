@@ -1,0 +1,10 @@
+name: post-pmd-steps
+runs:
+  using: composite
+  steps:
+  - uses: actions/upload-artifact@v3.1.3
+    with:
+      path: "${{ github.workspace }}/java/target/pmd.xml"
+  - uses: actions/upload-artifact@v3.1.3
+    with:
+      path: "${{ github.workspace }}/java/target/site"

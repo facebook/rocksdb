@@ -4058,7 +4058,7 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
-  if (getenv("CIRCLECI")) {
+  if (getenv("CIRCLECI") || getenv("GITHUB_ACTIONS")) {
     // Looking for backtrace on "Resource temporarily unavailable" exceptions
     ::testing::FLAGS_gtest_catch_exceptions = false;
   }

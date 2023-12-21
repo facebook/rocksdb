@@ -76,11 +76,6 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-if ($ENV{CIRCLECI})
-  message(STATUS "Build for CircieCI env, a few tests may be disabled")
-  add_definitions(-DCIRCLECI)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
