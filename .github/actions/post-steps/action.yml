@@ -2,7 +2,6 @@ name: post-steps
 runs:
   using: composite
   steps:
-  - uses: actions/checkout@v4.1.0
   - uses: actions/upload-artifact@v3.1.3
     with:
       path: "${{ runner.temp }}/test-results"
