@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
 import org.rocksdb.util.Environment;
 
 /**
@@ -306,11 +305,19 @@ public class RocksDB extends RocksObject {
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    int defaultColumnFamilyIndex = -1;
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final long[] handles = open(options.nativeHandle_, path, cfNames,
@@ -325,20 +332,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-
-    // ColumnFamilyHandle.isDefaultColumnFamily() doesn't work here yet, as we are in process of
-    // opening database
-    OptionalInt defaultCfIndex = IntStream.of(0, columnFamilyDescriptors.size() - 1)
-                                     .filter(x
-                                         -> Arrays.equals(columnFamilyDescriptors.get(x).getName(),
-                                             RocksDB.DEFAULT_COLUMN_FAMILY))
-                                     .findFirst();
-    if (defaultCfIndex.isPresent()) {
-      db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultCfIndex.getAsInt()));
-    } else {
-      throw new RocksDBException("No default column family");
-    }
-
+    db.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
     return db;
   }
 

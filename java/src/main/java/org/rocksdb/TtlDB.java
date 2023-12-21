@@ -7,8 +7,6 @@ package org.rocksdb;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.OptionalInt;
-import java.util.stream.IntStream;
 
 /**
  * Database with TTL support.
@@ -122,6 +120,7 @@ public class TtlDB extends RocksDB {
           + " family handle.");
     }
 
+    int defaultColumnFamilyIndex = -1;
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -129,6 +128,13 @@ public class TtlDB extends RocksDB {
           columnFamilyDescriptors.get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+      if (Arrays.equals(cfDescriptor.getName(), RocksDB.DEFAULT_COLUMN_FAMILY)) {
+        defaultColumnFamilyIndex = i;
+      }
+    }
+    if (defaultColumnFamilyIndex < 0) {
+      new IllegalArgumentException(
+          "You must provide the default column family in your columnFamilyDescriptors");
     }
 
     final int[] ttlVals = new int[ttlValues.size()];
@@ -144,19 +150,7 @@ public class TtlDB extends RocksDB {
     }
     ttlDB.storeOptionsInstance(options);
     ttlDB.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
-
-    // ColumnFamilyHandle.isDefaultColumnFamily() doesn't work here yet, as we are in process of
-    // opening database
-    OptionalInt defaultCfIndex = IntStream.of(0, columnFamilyDescriptors.size() - 1)
-                                     .filter(x
-                                         -> Arrays.equals(columnFamilyDescriptors.get(x).getName(),
-                                             RocksDB.DEFAULT_COLUMN_FAMILY))
-                                     .findFirst();
-    if (defaultCfIndex.isPresent()) {
-      ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultCfIndex.getAsInt()));
-    } else {
-      throw new RocksDBException("No defaultColumnFamily");
-    }
+    ttlDB.storeDefaultColumnFamilyHandle(columnFamilyHandles.get(defaultColumnFamilyIndex));
 
     return ttlDB;
   }
