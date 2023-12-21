@@ -1,0 +1,7 @@
+name: build-folly
+runs:
+  using: composite
+  steps:
+  - name: Build folly and dependencies
+    run: make build_folly
+    shell: bash

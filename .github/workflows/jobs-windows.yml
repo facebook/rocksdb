@@ -1,0 +1,22 @@
+name: facebook/rocksdb/jobs-windows
+on: [push, pull_request]
+env:
+  THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
+  CMAKE_HOME: C:/Program Files/CMake
+  CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+  CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
+  JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
+  SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.1.8
+  SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.1.8;${{ github.workspace }}/thirdparty/snappy-1.1.8/build
+  SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+jobs:
+  # NOTE: some windows jobs are in "nightly" to save resources
+  build-windows-vs2019:
+    syntax-error: foo
+    runs-on: windows-2019
+    env:
+      CMAKE_GENERATOR: Visual Studio 16 2019
+      CMAKE_PORTABLE: 1
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/windows-build-steps"

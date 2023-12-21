@@ -1,0 +1,121 @@
+name: facebook/rocksdb/jobs-linux-run-tests
+on: [push, pull_request]
+jobs:
+  build-linux:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: make V=1 J=32 -j32 check
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-mingw:
+    runs-on:
+      labels: 4-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+    - name: Build cmake-mingw
+      run: |-
+        export PATH=$JAVA_HOME/bin:$PATH
+        echo "JAVA_HOME=${JAVA_HOME}"
+        which java && java -version
+        which javac && javac -version
+        mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-with-folly:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - uses: "./.github/actions/build-folly"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-with-folly-lite-no-test:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-7-with-folly:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - uses: "./.github/actions/build-folly"
+    - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+    - uses: "./.github/actions/post-steps"
+  build-linux-gcc-7-with-folly-lite-no-test:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-with-folly-coroutines:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - uses: "./.github/actions/build-folly"
+    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-with-benchmark:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
+    - uses: "./.github/actions/post-steps"
+  build-linux-encrypted_env-no_compression:
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
+    - run: "./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression\n"
+    - uses: "./.github/actions/post-steps"
