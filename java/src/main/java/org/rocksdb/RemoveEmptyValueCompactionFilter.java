@@ -10,7 +10,6 @@ package org.rocksdb;
  */
 public class RemoveEmptyValueCompactionFilter
     extends AbstractCompactionFilter<Slice> {
-
   /**
    * Constructs a RemoveEmptyValueCompactionFilter.
    */

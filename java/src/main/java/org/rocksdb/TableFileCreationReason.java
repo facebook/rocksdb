@@ -9,7 +9,6 @@ package org.rocksdb;
  * Reasons for Table File creation.
  */
 public enum TableFileCreationReason {
-
   /**
    * Flush.
    */

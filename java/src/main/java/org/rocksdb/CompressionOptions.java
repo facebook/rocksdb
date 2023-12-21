@@ -9,7 +9,6 @@ package org.rocksdb;
  * Options for Compression
  */
 public class CompressionOptions extends RocksObject {
-
   /**
    * RocksDB's generic default compression level. Internally it'll be translated
    * to the default compression level specific to the library being used.
@@ -71,7 +70,7 @@ public class CompressionOptions extends RocksObject {
    * Get the Compression "level".
    * <p>
    * See {@link #setLevel(int)}
-   * 
+   *
    * @return the compression level.
    */
   public int level() {

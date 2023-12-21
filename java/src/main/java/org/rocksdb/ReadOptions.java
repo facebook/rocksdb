@@ -12,7 +12,6 @@ package org.rocksdb;
  * become out-of-scope to release the allocated memory in c++.
  */
 public class ReadOptions extends RocksObject {
-
   /**
    * Constructs a ReadOptions.
    */

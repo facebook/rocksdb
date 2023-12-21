@@ -12,7 +12,6 @@ package org.rocksdb;
  * If the target of the fetch is not big enough, this may be bigger than the contents of the target.
  */
 public class GetStatus {
-
   /**
    * The status of the request to fetch into the buffer.
    */

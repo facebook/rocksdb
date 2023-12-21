@@ -18,7 +18,6 @@ package org.rocksdb;
  * system since it involves network traffic and higher latencies.</p>
  */
 public enum PrepopulateBlobCache {
-
   /**
    * Disable pre-populating the blob cache
    */

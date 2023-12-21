@@ -9,7 +9,6 @@ package org.rocksdb;
  * Statistics about a Compaction Job.
  */
 public class CompactionJobStats extends RocksObject {
-
   /**
    * Constructs a new CompactionJobStats.
    */

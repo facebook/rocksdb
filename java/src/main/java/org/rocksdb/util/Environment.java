@@ -258,7 +258,6 @@ public class Environment {
     return "-" + libcName;
   }
 
-
   /**
    * Get the name as that of a JNI library.
    * <p>

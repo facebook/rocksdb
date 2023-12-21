@@ -60,7 +60,6 @@ public interface WalFilter {
    * LogFoundResult.
    */
   class LogRecordFoundResult {
-
     /**
      * Constant for continuing processing unchanged.
      */

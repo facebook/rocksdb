@@ -2860,12 +2860,12 @@ public class Transaction extends RocksObject {
 
     /**
      * Old misspelled variable as alias for {@link #COMMITTED}.
-     * Tip from <a href="https://stackoverflow.com/a/37092410/454544">https://stackoverflow.com/a/37092410/454544</a>
+     * Tip from <a
+     * href="https://stackoverflow.com/a/37092410/454544">https://stackoverflow.com/a/37092410/454544</a>
      *
      * @deprecated use {@link #COMMITTED} instead.
      */
-    @Deprecated
-    public static final TransactionState COMMITED = COMMITTED;
+    @Deprecated public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 

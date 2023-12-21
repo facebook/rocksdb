@@ -16,7 +16,6 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-
   /**
    * Constant for No Direct Slice.
    */

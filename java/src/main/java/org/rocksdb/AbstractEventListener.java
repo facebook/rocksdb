@@ -10,12 +10,10 @@ package org.rocksdb;
  */
 @SuppressWarnings("PMD.AvoidDuplicateLiterals")
 public abstract class AbstractEventListener extends RocksCallbackObject implements EventListener {
-
   /**
    * Callback events that can be enabled.
    */
   public enum EnabledEventCallback {
-
     /**
      * Flush completed.
      */

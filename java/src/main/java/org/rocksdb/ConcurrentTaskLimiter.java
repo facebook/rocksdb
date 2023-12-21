@@ -13,7 +13,8 @@ public abstract class ConcurrentTaskLimiter extends RocksObject {
   /**
    * Constructs a ConcurrentTaskLimiter.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ concurrent task limiter object.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ concurrent task limiter object.
    */
   protected ConcurrentTaskLimiter(final long nativeHandle) {
     super(nativeHandle);

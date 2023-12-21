@@ -12,7 +12,6 @@ package org.rocksdb;
  * such as reading / writing a file or waiting for a mutex.
  */
 public enum StateType {
-
   /**
    * Unknown.
    */

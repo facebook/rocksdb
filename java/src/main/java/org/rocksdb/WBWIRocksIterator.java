@@ -18,7 +18,8 @@ public class WBWIRocksIterator
    * Constructs a WBWIRocksIterator.
    *
    * @param wbwi the write batch with index.
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ WBWIRocksIterator.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ WBWIRocksIterator.
    */
   protected WBWIRocksIterator(final WriteBatchWithIndex wbwi,
       final long nativeHandle) {
@@ -136,7 +137,6 @@ public class WBWIRocksIterator
    * that created the record in the Write Batch
    */
   public enum WriteType {
-
     /**
      * Put.
      */
@@ -184,11 +184,12 @@ public class WBWIRocksIterator
      *
      * @return the WriteType
      *
-     * @throws IllegalArgumentException if the {@code value} parameter does not represent a WriteType.
+     * @throws IllegalArgumentException if the {@code value} parameter does not represent a
+     *     WriteType.
      */
     public static WriteType fromId(final byte value) {
       for(final WriteType wt : WriteType.values()) {
-        if(value == wt.id) {
+        if (value == wt.id) {
           return wt;
         }
       }

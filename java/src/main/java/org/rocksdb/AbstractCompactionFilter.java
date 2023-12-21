@@ -15,7 +15,6 @@ package org.rocksdb;
  */
 public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
     extends RocksObject {
-
   /**
    * Context of the Compaction Filter.
    */
@@ -58,7 +57,8 @@ public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
    * Constructor to be called by subclasses to set the
    * handle to the underlying C++ object.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ Compaction Filter.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ Compaction Filter.
    */
   protected AbstractCompactionFilter(final long nativeHandle) {
     super(nativeHandle);

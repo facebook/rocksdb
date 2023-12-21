@@ -100,7 +100,8 @@ public class Status implements Serializable {
   /**
    * Status Code.
    * <p>
-   * Should stay in sync with /include/rocksdb/status.h:Code and /java/rocksjni/portal.h:toJavaStatusCode
+   * Should stay in sync with /include/rocksdb/status.h:Code and
+   * /java/rocksjni/portal.h:toJavaStatusCode
    */
   public enum Code {
     /**
@@ -216,10 +217,10 @@ public class Status implements Serializable {
   /**
    * Status Sub-code.
    * <p>
-   * should stay in sync with /include/rocksdb/status.h:SubCode and /java/rocksjni/portal.h:toJavaStatusSubCode
+   * should stay in sync with /include/rocksdb/status.h:SubCode and
+   * /java/rocksjni/portal.h:toJavaStatusSubCode
    */
   public enum SubCode {
-
     /**
      * None.
      */
@@ -278,7 +279,8 @@ public class Status implements Serializable {
      *
      * @return the sub-code
      *
-     * @throws IllegalArgumentException if the {@code value} parameter does not represent a sub-code.
+     * @throws IllegalArgumentException if the {@code value} parameter does not represent a
+     *     sub-code.
      */
     public static SubCode getSubCode(final byte value) {
       for (final SubCode subCode : SubCode.values()) {

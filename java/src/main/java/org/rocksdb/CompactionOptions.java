@@ -13,7 +13,6 @@ import java.util.List;
  * calls.
  */
 public class CompactionOptions extends RocksObject {
-
   /**
    * Constructs a new CompactionOptions.
    */

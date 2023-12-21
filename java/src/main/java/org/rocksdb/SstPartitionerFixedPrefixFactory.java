@@ -9,7 +9,6 @@ package org.rocksdb;
  * Fixed prefix factory. It partitions SST files using fixed prefix of the key.
  */
 public class SstPartitionerFixedPrefixFactory extends SstPartitionerFactory {
-
   /**
    * Constructs an SstPartitionerFixedPrefixFactory.
    *

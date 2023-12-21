@@ -22,11 +22,11 @@ import java.nio.ByteBuffer;
  */
 public abstract class AbstractWriteBatch extends RocksObject
     implements WriteBatchInterface {
-
   /**
    * Construct an AbstractWriteBatch.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ Write Batch object.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ Write Batch object.
    */
   protected AbstractWriteBatch(final long nativeHandle) {
     super(nativeHandle);

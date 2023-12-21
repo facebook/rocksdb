@@ -18,11 +18,11 @@ import java.util.List;
  * time you need to do a backup.
  */
 public class BackupEngine extends RocksObject implements AutoCloseable {
-
   /**
    * Construct a BackupEngine.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ backup engine object.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ backup engine object.
    */
   protected BackupEngine(final long nativeHandle) {
     super(nativeHandle);
