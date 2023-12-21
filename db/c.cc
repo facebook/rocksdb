@@ -3049,6 +3049,14 @@ void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
   }
 }
 
+void rocksdb_options_set_ttl(rocksdb_options_t* opt, uint64_t seconds) {
+  opt->rep.ttl = seconds;
+}
+
+uint64_t rocksdb_options_get_ttl(rocksdb_options_t* opt) {
+  return opt->rep.ttl;
+}
+
 void rocksdb_options_set_periodic_compaction_seconds(rocksdb_options_t* opt,
                                                      uint64_t seconds) {
   opt->rep.periodic_compaction_seconds = seconds;
