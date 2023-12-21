@@ -115,12 +115,11 @@ JAVA_TESTS = \
 	org.rocksdb.BuiltinComparatorTest\
 	org.rocksdb.ByteBufferUnsupportedOperationTest\
 	org.rocksdb.BytewiseComparatorRegressionTest\
-	org.rocksdb.util.BytewiseComparatorTest\
-	org.rocksdb.util.BytewiseComparatorIntTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ClockCacheTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
+	org.rocksdb.CompactRangeOptionsTest\
 	org.rocksdb.CompactionFilterFactoryTest\
 	org.rocksdb.CompactionJobInfoTest\
 	org.rocksdb.CompactionJobStatsTest\
@@ -132,21 +131,21 @@ JAVA_TESTS = \
 	org.rocksdb.ComparatorOptionsTest\
 	org.rocksdb.CompressionOptionsTest\
 	org.rocksdb.CompressionTypesTest\
+	org.rocksdb.ConcurrentTaskLimiterTest\
+	org.rocksdb.DefaultEnvTest\
 	org.rocksdb.DBOptionsTest\
 	org.rocksdb.DirectSliceTest\
-	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
 	org.rocksdb.EventListenerTest\
-	org.rocksdb.IngestExternalFileOptionsTest\
-	org.rocksdb.util.IntComparatorTest\
-	org.rocksdb.util.JNIComparatorTest\
 	org.rocksdb.FilterTest\
+	org.rocksdb.FlushOptionsTest\
 	org.rocksdb.FlushTest\
+	org.rocksdb.HyperClockCacheTest\
 	org.rocksdb.ImportColumnFamilyTest\
 	org.rocksdb.InfoLogLevelTest\
+	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.KeyExistsTest \
 	org.rocksdb.KeyMayExistTest\
-	org.rocksdb.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
@@ -154,10 +153,10 @@ JAVA_TESTS = \
 	org.rocksdb.MergeCFVariantsTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MergeVariantsTest\
-	org.rocksdb.MultiColumnRegressionTest \
+	org.rocksdb.MixedOptionsTest\
+	org.rocksdb.MultiColumnRegressionTest\
 	org.rocksdb.MultiGetManyKeysTest\
 	org.rocksdb.MultiGetTest\
-	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
 	org.rocksdb.MutableDBOptionsTest\
 	org.rocksdb.MutableOptionsGetSetTest \
@@ -166,48 +165,53 @@ JAVA_TESTS = \
 	org.rocksdb.OptimisticTransactionTest\
 	org.rocksdb.OptimisticTransactionDBTest\
 	org.rocksdb.OptimisticTransactionOptionsTest\
-	org.rocksdb.OptionsUtilTest\
 	org.rocksdb.OptionsTest\
-	org.rocksdb.PerfLevelTest \
+	org.rocksdb.OptionsUtilTest\
 	org.rocksdb.PerfContextTest \
-	org.rocksdb.PutCFVariantsTest\
-	org.rocksdb.PutVariantsTest\
+	org.rocksdb.PerfLevelTest \
 	org.rocksdb.PlainTableConfigTest\
+	org.rocksdb.PutCFVariantsTest\
+	org.rocksdb.PutMultiplePartsTest\
+	org.rocksdb.PutVariantsTest\
 	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
-	org.rocksdb.util.ReverseBytewiseComparatorIntTest\
-	org.rocksdb.RocksDBTest\
 	org.rocksdb.RocksDBExceptionTest\
-	org.rocksdb.DefaultEnvTest\
+	org.rocksdb.RocksDBTest\
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\
-	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.SecondaryDBTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
-	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstFileReaderTest\
+	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstPartitionerTest\
+	org.rocksdb.StatisticsCollectorTest\
+	org.rocksdb.StatisticsTest\
 	org.rocksdb.TableFilterTest\
 	org.rocksdb.TimedEnvTest\
-	org.rocksdb.TransactionTest\
-	org.rocksdb.TransactionDBTest\
-	org.rocksdb.TransactionOptionsTest\
 	org.rocksdb.TransactionDBOptionsTest\
+	org.rocksdb.TransactionDBTest\
 	org.rocksdb.TransactionLogIteratorTest\
+	org.rocksdb.TransactionOptionsTest\
+	org.rocksdb.TransactionTest\
 	org.rocksdb.TtlDBTest\
-	org.rocksdb.StatisticsTest\
-	org.rocksdb.StatisticsCollectorTest\
 	org.rocksdb.VerifyChecksumsTest\
 	org.rocksdb.WalFilterTest\
 	org.rocksdb.WALRecoveryModeTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
 	org.rocksdb.WriteBatchThreadedTest\
-	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest\
+	org.rocksdb.WriteOptionsTest\
+	org.rocksdb.util.BytewiseComparatorIntTest\
+	org.rocksdb.util.BytewiseComparatorTest\
+	org.rocksdb.util.EnvironmentTest\
+	org.rocksdb.util.IntComparatorTest\
+	org.rocksdb.util.JNIComparatorTest\
+	org.rocksdb.util.ReverseBytewiseComparatorIntTest\
+	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.util.StdErrLoggerTest
 
 MAIN_SRC = src/main/java
