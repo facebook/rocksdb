@@ -2120,7 +2120,7 @@ public class Options extends RocksObject
   public void setTablePropertiesCollectorFactory(List<TablePropertiesCollectorFactory> factories) {
     long[] factoryHandlers = new long[factories.size()];
     for (int i = 0; i < factoryHandlers.length; i++) {
-      factoryHandlers[i] = factories.get(i).getNativeHandle();
+      factoryHandlers[i] = factories.get(i).nativeHandle_;
     }
     setTablePropertiesCollectorFactory(nativeHandle_, factoryHandlers);
   }
