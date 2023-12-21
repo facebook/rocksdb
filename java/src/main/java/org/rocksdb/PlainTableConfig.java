@@ -13,7 +13,6 @@ package org.rocksdb;
  * <p>It also support prefix hash feature.</p>
  */
 public class PlainTableConfig extends TableFormatConfig {
-
   /**
    * Indicates that the key sizew can be variable length.
    */

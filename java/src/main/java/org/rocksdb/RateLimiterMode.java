@@ -9,7 +9,6 @@ package org.rocksdb;
  * Mode for {@link RateLimiter#RateLimiter(long, long, int, RateLimiterMode)}.
  */
 public enum RateLimiterMode {
-
   /**
    * Only rate limit reads.
    */

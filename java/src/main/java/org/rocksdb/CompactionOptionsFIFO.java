@@ -9,7 +9,6 @@ package org.rocksdb;
  * Options for FIFO Compaction
  */
 public class CompactionOptionsFIFO extends RocksObject {
-
   /**
    * Constructs a new CompactionOptionsFIFO.
    */

@@ -5,7 +5,6 @@ package org.rocksdb;
  * Mutable Option keys.
  */
 public interface MutableOptionKey {
-
   /**
    * Types of values used for Mutable Options,
    */

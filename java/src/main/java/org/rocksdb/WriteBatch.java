@@ -657,7 +657,8 @@ public class WriteBatch extends AbstractWriteBatch {
      * Determines if {@link #clear()} was
      * called.
      *
-     * @return true if {@link #clear()} was called and the save point remains empty, false otherwise.
+     * @return true if {@link #clear()} was called and the save point remains empty, false
+     *     otherwise.
      */
     public boolean isCleared() {
       return (size | count | contentFlags) == 0;

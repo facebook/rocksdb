@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
  * {@link BuiltinComparator#REVERSE_BYTEWISE_COMPARATOR}
  */
 public final class ReverseBytewiseComparator extends AbstractComparator {
-
   /**
    * Constructs a ReverseBytewiseComparator.
    *

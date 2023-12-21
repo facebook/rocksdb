@@ -9,7 +9,6 @@ package org.rocksdb;
  * Reasons for compaction.
  */
 public enum CompactionReason {
-
   /**
    * Unknown.
    */

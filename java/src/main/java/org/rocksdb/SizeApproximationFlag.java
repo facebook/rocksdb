@@ -10,7 +10,6 @@ import java.util.List;
  * or file stats approximation or both.
  */
 public enum SizeApproximationFlag {
-
   /**
    * None
    */

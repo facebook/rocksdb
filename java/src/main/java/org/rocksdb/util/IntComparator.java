@@ -24,7 +24,6 @@ import java.nio.ByteBuffer;
  * or testing.
  */
 public final class IntComparator extends AbstractComparator {
-
   /**
    * Constructs an IntComparator.
    *

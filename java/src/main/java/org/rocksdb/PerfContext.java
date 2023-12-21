@@ -9,11 +9,11 @@ package org.rocksdb;
  * Performance Context.
  */
 public class PerfContext extends RocksObject {
-
   /**
    * Constructs a PerfContext.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ PerfContext.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ PerfContext.
    */
   protected PerfContext(final long nativeHandle) {
     super(nativeHandle);
@@ -608,7 +608,8 @@ public class PerfContext extends RocksObject {
   }
 
   /**
-   * Get the time taken in nanoseconds for creating new random access read-write file(s) in the environment.
+   * Get the time taken in nanoseconds for creating new random access read-write file(s) in the
+   * environment.
    *
    * @return the total time
    */
@@ -671,7 +672,8 @@ public class PerfContext extends RocksObject {
   }
 
   /**
-   * Get the time taken in nanoseconds for creating directories(s) (only if not already existing) in the environment.
+   * Get the time taken in nanoseconds for creating directories(s) (only if not already existing) in
+   * the environment.
    *
    * @return the total time
    */

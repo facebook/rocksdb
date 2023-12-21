@@ -13,7 +13,6 @@ import java.util.Map;
  * Information about a Compaction Job.
  */
 public class CompactionJobInfo extends RocksObject {
-
   /**
    * Constructs a new CompactionJobInfo.
    */

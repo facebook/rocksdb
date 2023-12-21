@@ -15,7 +15,6 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashSkipListMemTableConfig extends MemTableConfig {
-
   /**
    * The default number of buckets.
    */

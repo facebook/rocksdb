@@ -10,7 +10,6 @@ package org.rocksdb;
  * Concurrent Task Limiter.
  */
 public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
-
   /**
    * Construct a new Concurrent Task Limiter.
    *

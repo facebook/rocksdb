@@ -14,7 +14,6 @@ package org.rocksdb;
  */
 public class CassandraCompactionFilter
     extends AbstractCompactionFilter<Slice> {
-
   /**
    * Constructs a new CasandraCompactionFilter.
    *

@@ -21,7 +21,6 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-
   /**
    * The name of the default column family.
    */

@@ -28,7 +28,8 @@ public abstract class RocksObject extends AbstractImmutableNativeReference {
    * Constructor to be called by subclasses to set the
    * handle to the underlying C++ object.
    *
-   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native RocksDB C++ object.
+   * @param nativeHandle reference to the value of the C++ pointer pointing to the underlying native
+   *     RocksDB C++ object.
    */
   protected RocksObject(final long nativeHandle) {
     super(true);
@@ -48,7 +49,8 @@ public abstract class RocksObject extends AbstractImmutableNativeReference {
    * All subclasses of {@code RocksObject} must
    * implement this to release their underlying native C++ objects.
    *
-   * @param handle reference to the value of the C++ pointer pointing to some underlying native RocksDB C++ object.
+   * @param handle reference to the value of the C++ pointer pointing to some underlying native
+   *     RocksDB C++ object.
    */
   protected abstract void disposeInternal(final long handle);
 }

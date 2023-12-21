@@ -12,7 +12,6 @@ import java.nio.ByteBuffer;
  * Allocates for creating new buffers.
  */
 public interface ByteBufferAllocator {
-
   /**
    * Allocate a new ByteBuffer.
    *

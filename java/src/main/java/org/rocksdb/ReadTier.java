@@ -9,7 +9,6 @@ package org.rocksdb;
  * RocksDB {@link ReadOptions} read tiers.
  */
 public enum ReadTier {
-
   /**
    * Read all tiers.
    */

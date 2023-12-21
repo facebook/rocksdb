@@ -9,7 +9,6 @@ package org.rocksdb;
  * An SST File Reader.
  */
 public class SstFileReader extends RocksObject {
-
   /**
    * Constructs an SstFileReader.
    *

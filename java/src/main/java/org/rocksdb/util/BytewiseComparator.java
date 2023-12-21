@@ -22,7 +22,6 @@ import static org.rocksdb.util.ByteUtil.memcmp;
  * {@link org.rocksdb.BuiltinComparator#BYTEWISE_COMPARATOR}
  */
 public final class BytewiseComparator extends AbstractComparator {
-
   /**
    * Constructs a new BytewiseComparator.
    *

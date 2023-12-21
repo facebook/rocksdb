@@ -11,7 +11,6 @@ package org.rocksdb;
  */
 // TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
-
   /**
    * Constructs a new BlockBasedTableConfig.
    */

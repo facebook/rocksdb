@@ -12,7 +12,6 @@ package org.rocksdb;
  * values.
  */
 public class CassandraValueMergeOperator extends MergeOperator {
-
   /**
    * Constructs a new CassandraValueMergeOperator.
    *

@@ -28,7 +28,8 @@ public class KeyMayExist {
   }
 
   /**
-   * Part of the return type from {@link RocksDB#keyMayExist(ColumnFamilyHandle, ByteBuffer, ByteBuffer)}.
+   * Part of the return type from {@link RocksDB#keyMayExist(ColumnFamilyHandle, ByteBuffer,
+   * ByteBuffer)}.
    */
   public enum KeyMayExistEnum {
     /**

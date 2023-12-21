@@ -10,7 +10,6 @@ package org.rocksdb.util;
  * Utility functions for working with buffers.
  */
 public class BufferUtil {
-
   /**
    * Check the bounds for an operation on a buffer.
    *

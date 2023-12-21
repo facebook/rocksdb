@@ -17,7 +17,6 @@ import java.util.Map;
  */
 //@ThreadSafe
 public final class SstFileManager extends RocksObject {
-
   /**
    * The default bytes-per-sec rate.
    */
@@ -105,8 +104,7 @@ public final class SstFileManager extends RocksObject {
   public SstFileManager(final Env env, /*@Nullable*/ final Logger logger,
       final long rateBytesPerSec, final double maxTrashDbRatio)
       throws RocksDBException {
-    this(env, logger, rateBytesPerSec, maxTrashDbRatio,
-            DEFAULT_BYTES_MAX_DELETE_CHUNK);
+    this(env, logger, rateBytesPerSec, maxTrashDbRatio, DEFAULT_BYTES_MAX_DELETE_CHUNK);
   }
 
   /**

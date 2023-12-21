@@ -9,7 +9,6 @@ package org.rocksdb;
  * Conditions that caused  Write Stalls.
  */
 public enum WriteStallCondition {
-
   /**
    * Delayed.
    */

@@ -33,7 +33,8 @@ public class ByteUtil {
    * is lexically greater than {@code y}.  Note that lexical order is determined
    * as if comparing unsigned char arrays.
    * <p>
-   * Similar to <a href="https://github.com/gcc-mirror/gcc/blob/master/libiberty/memcmp.c">memcmp.c</a>.
+   * Similar to <a
+   * href="https://github.com/gcc-mirror/gcc/blob/master/libiberty/memcmp.c">memcmp.c</a>.
    *
    * @param x the first value to compare with
    * @param y the second value to compare against

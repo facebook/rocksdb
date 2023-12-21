@@ -11,7 +11,6 @@ package org.rocksdb;
  */
 public abstract class AbstractTransactionNotifier
     extends RocksCallbackObject {
-
   /**
    * Constructs an AbstractTransactionNotifier.
    */

@@ -62,8 +62,8 @@ public class ClockCache extends Cache {
    * @param strictCapacityLimit insert to the cache will fail when cache is full
    */
   @Deprecated
-  public ClockCache(final long capacity, final int numShardBits,
-      final boolean strictCapacityLimit) {
+  public ClockCache(
+      final long capacity, final int numShardBits, final boolean strictCapacityLimit) {
     super(newClockCache(capacity, numShardBits, strictCapacityLimit));
   }
 

@@ -9,7 +9,6 @@ package org.rocksdb.util;
  * Simple factors of byte sizes.
  */
 public interface SizeUnit {
-
   /**
    * 1 Kilobyte.
    */

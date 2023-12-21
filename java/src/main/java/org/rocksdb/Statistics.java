@@ -12,7 +12,6 @@ import java.util.EnumSet;
  * is managed by Options class.
  */
 public class Statistics extends RocksObject {
-
   /**
    * Constructs a Statistics.
    */
