@@ -125,14 +125,14 @@ public class CompactRangeOptionsTest {
   @Test
   public void canceled() {
     CompactRangeOptions opt = new CompactRangeOptions();
-    assertThat(opt.cancelled()).isEqualTo(false);
-    opt.setCancelled(true);
-    assertThat(opt.cancelled()).isEqualTo(true);
-    opt.setCancelled(false);
-    assertThat(opt.cancelled()).isEqualTo(false);
-    opt.setCancelled(true);
-    assertThat(opt.cancelled()).isEqualTo(true);
-    opt.setCancelled(true);
-    assertThat(opt.cancelled()).isEqualTo(true);
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(false);
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
   }
 }
