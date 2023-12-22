@@ -163,6 +163,7 @@ public class SstFileMetaData {
    *
    * @return the file's checksum
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public byte[] fileChecksum() {
     return fileChecksum;
   }
