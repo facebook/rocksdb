@@ -281,7 +281,13 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   }
 
   // Periodic Compaction
-  PickFileToCompact(vstorage_->FilesMarkedForPeriodicCompaction(), false);
+  bool periodic_compact_to_next_level =
+      ioptions_.level_compaction_dynamic_level_bytes &&
+      (mutable_cf_options_.ttl == 0 /* ttl was disabled */ ||
+       mutable_cf_options_.ttl >
+           mutable_cf_options_.periodic_compaction_seconds);
+  PickFileToCompact(vstorage_->FilesMarkedForPeriodicCompaction(),
+                    periodic_compact_to_next_level);
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kPeriodicCompaction;
     return;
