@@ -144,13 +144,13 @@ class LevelCompactionBuilder {
                             const MutableCFOptions& mutable_cf_options,
                             int level);
 
-  static const int kMinFilesForIntraL0Compaction = 4;
+  static const int kMinFilesForIntraL0Compaction = 2;
 };
 
 void LevelCompactionBuilder::PickFileToCompact(
     const autovector<std::pair<int, FileMetaData*>>& level_files,
     bool compact_to_next_level) {
-  for (auto& level_file : level_files) {
+  for (auto& level_file : level_files) { 
     // If it's being compacted it has nothing to do here.
     // If this assert() fails that means that some function marked some
     // files as being_compacted, but didn't call ComputeCompactionScore()
@@ -773,7 +773,17 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
-
+  // if total size of Level-0 is small than target_file_size_base, do not pick file to 
+  // compact with Level-1 to avoid wirte amplification. just return and compact level-0 file by level-0 inner compaction.
+  if (start_level_ == 0) {
+    uint64_t total_l0_size =0;
+    for (const FileMetaData* level_file : level_files) {
+      total_l0_size += level_file->fd.GetFileSize();
+    }
+    if (total_l0_size <  mutable_cf_options_.target_file_size_base) {
+      return false;
+    }
+  }
   // Pick the file with the highest score in this level that is not already
   // being compacted.
   const std::vector<int>& file_scores =
