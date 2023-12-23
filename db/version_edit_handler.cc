@@ -633,6 +633,10 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
       const std::string& new_ts = edit.GetFullHistoryTsLow();
       cfd->SetFullHistoryTsLow(new_ts);
     }
+    if (cfd->ioptions()->resume_compaction &&
+        edit.HasResumableCompactionInfo()) {
+      cfd->AddResumableCompaction(edit.GetResumableCompactionInfo());
+    }
   }
 
   if (s.ok()) {

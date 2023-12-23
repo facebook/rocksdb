@@ -49,6 +49,20 @@ int sstableKeyCompare(const Comparator* user_cmp, const InternalKey* a,
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey* b);
 
+inline uint64_t CalculateCompactionId(uint64_t compaction_job_id,
+                                      uint64_t sub_compaction_job_id) {
+  return compaction_job_id << 32 | sub_compaction_job_id;
+}
+
+inline uint64_t GetCompactionJobIdFromCompactionID(uint64_t compaction_id) {
+  return compaction_id >> 32;
+}
+
+inline uint64_t GetSubCompactionJobIdFromCompactionID(uint64_t compaction_id) {
+  constexpr uint32_t LAST_32_BITS_MASK = 0xffffffffU;
+  return compaction_id & LAST_32_BITS_MASK;
+}
+
 // An AtomicCompactionUnitBoundary represents a range of keys [smallest,
 // largest] that exactly spans one ore more neighbouring SSTs on the same
 // level. Every pair of  SSTs in this range "overlap" (i.e., the largest
@@ -96,7 +110,12 @@ class Compaction {
              CompactionReason compaction_reason = CompactionReason::kUnknown,
              BlobGarbageCollectionPolicy blob_garbage_collection_policy =
                  BlobGarbageCollectionPolicy::kUseDefault,
-             double blob_garbage_collection_age_cutoff = -1);
+             double blob_garbage_collection_age_cutoff = -1,
+             std::tuple<std::string, uint64_t, ResumableCompaction>
+                 resumable_compaction_info =
+                     std::tuple<std::string, uint64_t, ResumableCompaction>(
+                         "", std::numeric_limits<uint64_t>::max(),
+                         ResumableCompaction()));
 
   // The type of the penultimate level output range
   enum class PenultimateOutputRangeType : int {
@@ -432,6 +451,30 @@ class Compaction {
                                       const int start_level,
                                       const int output_level);
 
+  const InternalKey GetPenultimateLevelSmallestKey() const {
+    return penultimate_level_smallest_;
+  }
+
+  const InternalKey GetPenultimateLevelLargestKey() const {
+    return penultimate_level_largest_;
+  }
+
+  bool IsResumableCompaction() const {
+    return !std::get<0>(resumable_compaction_info_).empty();
+  }
+
+  const std::string& GetResumableCompactionDBSessionID() const {
+    return std::get<0>(resumable_compaction_info_);
+  }
+
+  uint64_t GetResumableCompactionJobId() const {
+    return std::get<1>(resumable_compaction_info_);
+  }
+
+  const ResumableCompaction& GetResumableCompaction() const {
+    return std::get<2>(resumable_compaction_info_);
+  }
+
  private:
   void SetInputVersion(Version* input_version);
 
@@ -558,6 +601,9 @@ class Compaction {
   // Blob garbage collection age cutoff.
   double blob_garbage_collection_age_cutoff_;
 
+  const std::tuple<std::string, uint64_t, ResumableCompaction>
+      resumable_compaction_info_;
+
   // only set when per_key_placement feature is enabled, -1 (kInvalidLevel)
   // means not supported.
   const int penultimate_level_;
@@ -596,5 +642,4 @@ struct PerKeyPlacementContext {
 
 // Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
-
 }  // namespace ROCKSDB_NAMESPACE

@@ -418,6 +418,7 @@ struct CompactionServiceJobInfo {
 
   Env::Priority priority;
 
+  CompactionServiceJobInfo() {}
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
                            Env::Priority priority_)
@@ -562,6 +563,18 @@ struct DBOptions {
   //
   // Default: true
   bool verify_sst_unique_id_in_manifest = true;
+
+  // EXPERIMENTAL
+  // If true, DB will resume unfinished compactions left from the last db
+  // session. Right now only unfinished remote compactions due to primary db
+  // restart or failed remote compaction are supported. Unfinished compactions
+  // are only resumed once. If the resume fail, the failure is treated the same
+  // as other compaction failures.
+  //
+  // REQUIRES: `Options::disable_auto_compactions` is set true and
+  // `Options::compaction_service` is set. Otherwise, this option has no effect.
+  // Default: true
+  bool resume_compaction = true;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near

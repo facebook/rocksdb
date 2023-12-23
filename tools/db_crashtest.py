@@ -204,6 +204,7 @@ default_params = {
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
+    "resume_compaction": lambda: random.choice([0, 1]),
     "secondary_cache_uri": lambda: random.choice(
         [
             "",

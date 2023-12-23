@@ -878,6 +878,12 @@ class FlushCounterListener : public EventListener {
   }
 };
 
+class DummyEventListner : public EventListener {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "DummyEventListner"; }
+};
+
 // A test merge operator mimics put but also fails if one of merge operands is
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {

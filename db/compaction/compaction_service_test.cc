@@ -3,10 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "table/unique_id_impl.h"
+#include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -17,7 +20,8 @@ class MyTestCompactionService : public CompactionService {
       std::shared_ptr<Statistics>& statistics,
       std::vector<std::shared_ptr<EventListener>>& listeners,
       std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
-          table_properties_collector_factories)
+          table_properties_collector_factories,
+      bool resumable)
       : db_path_(std::move(db_path)),
         options_(options),
         statistics_(statistics),
@@ -25,7 +29,8 @@ class MyTestCompactionService : public CompactionService {
         wait_info_("na", "na", "na", 0, Env::TOTAL),
         listeners_(listeners),
         table_properties_collector_factories_(
-            std::move(table_properties_collector_factories)) {}
+            std::move(table_properties_collector_factories)),
+        resumable_(resumable) {}
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
@@ -38,6 +43,10 @@ class MyTestCompactionService : public CompactionService {
     start_info_ = info;
     assert(info.db_name == db_path_);
     jobs_.emplace(info.job_id, compaction_service_input);
+    if (resumable_) {
+      resumable_compaction_input_.emplace(info.job_id,
+                                          compaction_service_input);
+    }
     CompactionServiceJobStatus s = CompactionServiceJobStatus::kSuccess;
     if (is_override_start_status_) {
       return override_start_status_;
@@ -54,11 +63,17 @@ class MyTestCompactionService : public CompactionService {
       InstrumentedMutexLock l(&mutex_);
       wait_info_ = info;
       auto i = jobs_.find(info.job_id);
-      if (i == jobs_.end()) {
+      if (i != jobs_.end()) {
+        compaction_input = std::move(i->second);
+        jobs_.erase(i);
+      } else if (resumable_) {
+        assert(resumable_compaction_input_.count(info.job_id) == 1);
+        compaction_input = resumable_compaction_input_[info.job_id];
+        resumable_compaction_input_.erase(info.job_id);
+        resumable_compaction_num_++;
+      } else {
         return CompactionServiceJobStatus::kFailure;
       }
-      compaction_input = std::move(i->second);
-      jobs_.erase(i);
     }
 
     if (is_override_wait_status_) {
@@ -105,6 +120,7 @@ class MyTestCompactionService : public CompactionService {
   }
 
   int GetCompactionNum() { return compaction_num_.load(); }
+  int GetResumableCompactionNum() { return resumable_compaction_num_.load(); }
 
   CompactionServiceJobInfo GetCompactionInfoForStart() { return start_info_; }
   CompactionServiceJobInfo GetCompactionInfoForWait() { return wait_info_; }
@@ -135,6 +151,7 @@ class MyTestCompactionService : public CompactionService {
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
+  std::atomic_int resumable_compaction_num_{0};
   std::map<uint64_t, std::string> jobs_;
   const std::string db_path_;
   Options options_;
@@ -153,6 +170,8 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
   std::atomic_bool canceled_{false};
+  bool resumable_;
+  std::map<uint64_t, std::string> resumable_compaction_input_;
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -161,7 +180,7 @@ class CompactionServiceTest : public DBTestBase {
       : DBTestBase("compaction_service_test", true) {}
 
  protected:
-  void ReopenWithCompactionService(Options* options) {
+  void ReopenWithCompactionService(Options* options, bool resumable = false) {
     options->env = env_;
     primary_statistics_ = CreateDBStatistics();
     options->statistics = primary_statistics_;
@@ -169,7 +188,7 @@ class CompactionServiceTest : public DBTestBase {
 
     compaction_service_ = std::make_shared<MyTestCompactionService>(
         dbname_, *options, compactor_statistics_, remote_listeners,
-        remote_table_properties_collector_factories);
+        remote_table_properties_collector_factories, resumable);
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
   }
@@ -226,6 +245,189 @@ class CompactionServiceTest : public DBTestBase {
   std::shared_ptr<Statistics> primary_statistics_;
   std::shared_ptr<CompactionService> compaction_service_;
 };
+
+class CompactionServiceResumableCompactionTest : public CompactionServiceTest {
+ public:
+  void OpenDBWithCompaction(bool compaction_unfinished = true,
+                            bool compaction_has_subcompaction = false,
+                            bool compaction_has_penultimate_level = false) {
+    options_ = CurrentOptions();
+    compaction_unfinished_ = compaction_unfinished;
+    compaction_has_subcompaction_ = compaction_has_subcompaction;
+    compaction_has_penultimate_level_ = compaction_has_penultimate_level;
+
+    if (compaction_has_subcompaction) {
+      options_.target_file_size_base = 1 << 10;
+    } else {
+      // Needed to force CompactRange to happen for small number of keys
+      options_.target_file_size_base = 1 << 5;
+    }
+
+    if (compaction_has_subcompaction) {
+      options_.max_subcompactions = 10;
+      // To prevent auto compaction from happening on big db designed to trigger
+      // compaction with subcompactions
+      options_.disable_auto_compactions = true;
+    }
+
+    if (compaction_has_penultimate_level) {
+      options_.num_levels = 3;
+    }
+
+    ReopenWithCompactionService(&options_, true /* resumable */);
+    auto my_cs = GetCompactionService();
+
+    if (compaction_has_subcompaction) {
+      GenerateTestData();
+      VerifyTestData();
+    } else if (compaction_has_penultimate_level) {
+      ASSERT_OK(Put("k1", "old"));
+      ASSERT_OK(Flush());
+      MoveFilesToLevel(options_.num_levels - 1 /* level */);
+      ASSERT_OK(Put("k1", "new"));
+      ASSERT_OK(Put("k2", "new"));
+      ASSERT_OK(Flush());
+      MoveFilesToLevel(1 /* level */);
+    } else {
+      ASSERT_OK(Put("k1", "old"));
+      ASSERT_OK(Flush());
+      ASSERT_OK(Put("k1", "new"));
+      ASSERT_OK(Put("k2", "new"));
+      ASSERT_OK(Flush());
+    }
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
+          if (compaction_has_penultimate_level) {
+            auto supports_per_key_placement = static_cast<bool*>(arg);
+            *supports_per_key_placement = true;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    if (compaction_unfinished) {
+      // Mock crash before compaction finishes by compaction failure to create
+      // unfinished compaction
+      my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kFailure);
+    }
+    auto cro = CompactRangeOptions();
+    if (compaction_has_subcompaction) {
+      cro.max_subcompactions = 10;
+    }
+    Status s = db_->CompactRange(cro, nullptr, nullptr);
+    if (compaction_unfinished) {
+      ASSERT_NOK(s);
+      my_cs->ResetOverride();
+    } else {
+      ASSERT_OK(s);
+    }
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+  void ReopenDB(
+      bool resume_compaction = true,
+      bool resume_compaction_concurrent_with_manual_compaction = false) {
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    auto prev_reopen_live_file_num = metadata.size();
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::NotifyOnCompactionBegin::UnlockMutex", [&](void*) {
+          if (resume_compaction_concurrent_with_manual_compaction) {
+            std::vector<std::string> input_files;
+            for (const auto& file : metadata) {
+              input_files.push_back(file.name);
+            }
+            ASSERT_EQ(input_files.size(), 2);
+            Status s = db_->CompactFiles(CompactionOptions(), input_files, 1);
+            ASSERT_TRUE(s.IsAborted());
+          } else if (compaction_has_penultimate_level_) {
+            auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                            db_->DefaultColumnFamily())
+                            ->cfd();
+
+            auto* f = new FileMetaData();
+            std::string key = "k1";
+            f->smallest = InternalKey(Slice(key), 4 /* seqno */, kTypeValue);
+            f->largest = InternalKey(Slice(key), 4 /* seqno */, kTypeValue);
+
+            std::vector<CompactionInputFiles> inputs;
+            inputs.push_back(CompactionInputFiles());
+            inputs[0].level = 0;
+            inputs[0].files.push_back(f);
+
+            // Verify this compaction with output level L1 is overlapped with
+            // the resumable compaction with penultimate output level L1
+            ASSERT_TRUE(
+                cfd->compaction_picker()->FilesRangeOverlapWithCompaction(
+                    inputs, 1 /* output_level */, -1 /* penultimate level*/));
+            delete f;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    options_.resume_compaction = resume_compaction;
+    if (resume_compaction) {
+      options_.disable_auto_compactions = false;
+    }
+    DummyEventListner* listener = new DummyEventListner();
+    options_.listeners.emplace_back(listener);
+
+    Reopen(options_);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+
+    auto my_cs = GetCompactionService();
+
+    metadata.clear();
+    db_->GetLiveFilesMetaData(&metadata);
+    if (compaction_unfinished_ && resume_compaction) {
+      ASSERT_LT(metadata.size(), prev_reopen_live_file_num);
+      if (compaction_has_subcompaction_) {
+        ASSERT_GT(my_cs->GetResumableCompactionNum(), 1);
+      } else {
+        ASSERT_EQ(my_cs->GetResumableCompactionNum(), 1);
+      }
+    } else {
+      ASSERT_EQ(metadata.size(), prev_reopen_live_file_num);
+      ASSERT_EQ(GetCompactionService()->GetResumableCompactionNum(), 0);
+    }
+  }
+
+ private:
+  Options options_;
+  bool compaction_unfinished_ = false;
+  bool compaction_has_subcompaction_ = false;
+  bool compaction_has_penultimate_level_ = false;
+};
+
+TEST_F(CompactionServiceResumableCompactionTest, ResumableCompaction) {
+  OpenDBWithCompaction();
+  ReopenDB();
+
+  OpenDBWithCompaction(false /* compaction_unfinished */);
+  ReopenDB();
+
+  OpenDBWithCompaction();
+  ReopenDB(false /* resume_compaction */);
+
+  OpenDBWithCompaction();
+  ReopenDB(true /* resume_compaction */,
+           true /* resume_compaction_concurrent_with_manual_compaction */);
+
+  OpenDBWithCompaction(true /* compaction_unfinished */,
+                       true /* compaction_has_subcompaction */);
+  ReopenDB();
+
+  OpenDBWithCompaction(true /* compaction_unfinished */,
+                       false /* compaction_has_subcompaction */,
+                       true /* compaction_has_penultimate_level */);
+  ReopenDB();
+}
 
 TEST_F(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();

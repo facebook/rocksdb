@@ -50,6 +50,23 @@ class BlobFileCache;
 class BlobSource;
 
 extern const double kIncSlowdownRatio;
+
+struct ResumableCompaction {
+  std::vector<std::pair<int, std::vector<uint64_t>>> inputs;
+  int output_level;
+  int penultimate_output_level;
+  InternalKey penultimate_output_level_smallest;
+  InternalKey penultimate_output_level_largest;
+  std::map<uint64_t, std::pair<std::string, std::string>>
+      subcompaction_job_id_to_range;
+};
+
+using ResumableCompactionsPerDBSession =
+    std::map<uint64_t /* compaction job id */, ResumableCompaction>;
+
+using ResumableCompactionsOfAllDBSessions =
+    std::map<std::string /* db session id */, ResumableCompactionsPerDBSession>;
+
 // This file contains a list of data structures for managing column family
 // level metadata.
 //
@@ -549,6 +566,8 @@ class ColumnFamilyData {
   // of its files (if missing)
   void RecoverEpochNumbers();
 
+  void AddResumableCompaction(const ResumableCompactionInfo& info);
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -563,6 +582,16 @@ class ColumnFamilyData {
                    const std::string& db_id, const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
+
+  Compaction* PickResumableCompaction(
+      const MutableCFOptions& mutable_options,
+      const MutableDBOptions& mutable_db_options);
+
+  Compaction* GetCompactionFromResumableCompaction(
+      std::string& db_session_id, uint64_t compaction_job_id,
+      ResumableCompaction& resumable_compaction,
+      const MutableCFOptions& mutable_options,
+      const MutableDBOptions& mutable_db_options) const;
 
   uint32_t id_;
   const std::string name_;
@@ -650,6 +679,8 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
+
+  ResumableCompactionsOfAllDBSessions resumable_compactions_of_all_db_sessions_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

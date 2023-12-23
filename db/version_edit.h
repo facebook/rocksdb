@@ -9,6 +9,7 @@
 
 #pragma once
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string>
@@ -23,12 +24,12 @@
 #include "port/malloc.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/status.h"
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed. The number should be forward compatible so
 // users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
@@ -72,6 +73,7 @@ enum Tag : uint32_t {
   kWalAddition2,
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
+  kResumableCompactionInfo,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -101,6 +103,19 @@ enum NewFileCustomTag : uint32_t {
 
   // Forward incompatible (aka unignorable) fields
   kPathId,
+};
+
+enum ResumableCompactionCustomTag : uint32_t {
+  kRCTerminate = 1,  // The end of customized fields
+  kDBSessionId,
+  kCompactionId,
+  kInput,
+  kOutputLevel,
+  kPenultimateOutputLevel,
+  kPenultimateOutputLevelSmallest,
+  kPenultimateOutputLevelLargest,
+  kSubcompactionStart,
+  kSubcompactionEnd,
 };
 
 class VersionSet;
@@ -383,6 +398,23 @@ struct LevelFilesBrief {
   }
 };
 
+class ResumableCompactionInfo {
+ public:
+  Status EncodeTo(std::string* output) const;
+
+  Status DecodeFrom(Slice* input);
+
+  std::string db_session_id = "";
+  uint64_t compaction_id = std::numeric_limits<uint64_t>::max();
+  std::vector<std::pair<int, std::vector<uint64_t>>> inputs = {};
+  int output_level = -1;
+  int penultimate_output_level = -1;
+  InternalKey penultimate_output_level_smallest = {};
+  InternalKey penultimate_output_level_largest = {};
+  std::string subcompaction_start = "";
+  std::string subcompaction_end = "";
+};
+
 // The state of a DB at any given time is referred to as a Version.
 // Any modification to the Version is considered a Version Edit. A Version is
 // constructed by joining a sequence of Version Edits. Version Edits are written
@@ -529,6 +561,40 @@ class VersionEdit {
             std::make_pair(i, compact_cursors_by_level[i]));
       }
     }
+  }
+
+  bool HasResumableCompactionInfo() const {
+    return has_resumable_compaction_info_;
+  }
+
+  void AddResumableCompactionInfo(
+      const std::string& db_session_id, uint64_t compaction_id,
+      const std::vector<std::pair<int, std::vector<uint64_t>>>& inputs,
+      int output_level, int penultimate_output_level,
+      const InternalKey& penultimate_output_level_smallest,
+      const InternalKey& penultimate_output_level_largest,
+      const std::string& subcompaction_start,
+      const std::string& subcompaction_end) {
+    if (has_resumable_compaction_info_) {
+      return;
+    }
+    resumable_compaction_info_.db_session_id = db_session_id;
+    resumable_compaction_info_.compaction_id = compaction_id;
+    resumable_compaction_info_.inputs = inputs;
+    resumable_compaction_info_.output_level = output_level;
+    resumable_compaction_info_.penultimate_output_level =
+        penultimate_output_level;
+    resumable_compaction_info_.penultimate_output_level_smallest =
+        penultimate_output_level_smallest;
+    resumable_compaction_info_.penultimate_output_level_largest =
+        penultimate_output_level_largest;
+    resumable_compaction_info_.subcompaction_start = subcompaction_start;
+    resumable_compaction_info_.subcompaction_end = subcompaction_end;
+    has_resumable_compaction_info_ = true;
+  }
+
+  const ResumableCompactionInfo& GetResumableCompactionInfo() const {
+    return resumable_compaction_info_;
   }
 
   // Add a new blob file.
@@ -764,6 +830,9 @@ class VersionEdit {
   // Since table files and blob files share the same file number space, we just
   // record the file number here.
   autovector<uint64_t> files_to_quarantine_;
+
+  bool has_resumable_compaction_info_ = false;
+  ResumableCompactionInfo resumable_compaction_info_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

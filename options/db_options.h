@@ -28,6 +28,7 @@ struct ImmutableDBOptions {
   bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
   bool verify_sst_unique_id_in_manifest;
+  bool resume_compaction;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
