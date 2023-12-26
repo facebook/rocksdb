@@ -1564,7 +1564,7 @@ Status DBImpl::WriteRecoverableState() {
       cached_recoverable_state_.Clear();
       cached_recoverable_state_empty_ = true;
     } else {
-      assert(false);
+      // FIXME: !ok status is untested
     }
     return status;
   }
