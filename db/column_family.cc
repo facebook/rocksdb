@@ -358,7 +358,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 
   if (result.level_compaction_dynamic_level_bytes) {
     if (result.compaction_style != kCompactionStyleLevel) {
-      ROCKS_LOG_WARN(db_options.info_log.get(),
+      ROCKS_LOG_INFO(db_options.info_log.get(),
                      "level_compaction_dynamic_level_bytes only makes sense"
                      "for level-based compaction");
       result.level_compaction_dynamic_level_bytes = false;
