@@ -1563,6 +1563,8 @@ Status DBImpl::WriteRecoverableState() {
     if (status.ok()) {
       cached_recoverable_state_.Clear();
       cached_recoverable_state_empty_ = true;
+    } else {
+      // FIXME: !ok status is untested
     }
     return status;
   }
@@ -2060,15 +2062,14 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
   }
 
+  TEST_SYNC_POINT_CALLBACK("DBImpl::ScheduleFlushes:PreSwitchMemtable",
+                           nullptr);
   for (auto& cfd : cfds) {
-    if (!cfd->mem()->IsEmpty()) {
+    if (status.ok() && !cfd->mem()->IsEmpty()) {
       status = SwitchMemtable(cfd, context);
     }
     if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
-    }
-    if (!status.ok()) {
-      break;
     }
   }
 
