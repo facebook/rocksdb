@@ -8622,6 +8622,27 @@ void Java_org_rocksdb_ReadOptions_setValueSizeSoftLimit(
   opt->value_size_soft_limit = static_cast<uint64_t>(jvalue_size_soft_limit);
 }
 
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    asyncIO
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_asyncIO(JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  return static_cast<jboolean>(opt->async_io);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setAsyncIO
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setAsyncIO(JNIEnv*, jobject, jlong jhandle,
+                                             jboolean jasync_io) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  opt->async_io = static_cast<bool>(jasync_io);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ComparatorOptions
 
