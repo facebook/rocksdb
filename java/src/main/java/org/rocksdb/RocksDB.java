@@ -4747,6 +4747,11 @@ public class RocksDB extends RocksObject {
     destroyDB(path, options.nativeHandle_);
   }
 
+  public static FileChecksum[] getFileChecksumsFromManifest(
+      final Env env, final String path, final long manifestFileSize) throws RocksDBException {
+    return getFileChecksumsFromManifest(env.nativeHandle_, path, manifestFileSize);
+  }
+
   private /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksObject> objectList) {
     if (objectList == null) {
@@ -5111,6 +5116,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
 
   private static native int version();
+
+  private static native FileChecksum[] getFileChecksumsFromManifest(
+      final long handle, final String path, final long manifestFileSize) throws RocksDBException;
 
   protected DBOptionsInterface<?> options_;
   private static Version version;

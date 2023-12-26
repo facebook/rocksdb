@@ -8966,5 +8966,75 @@ class BlockBasedTableOptionsJni
   }
 };
 
+class FileChecksumJni : public JavaClass {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FileChecksum");
+  }
+
+  static jobject fromCppCreateObj(JNIEnv* env, const uint64_t file_number,
+                                  const std::string checksum,
+                                  const std::string checksum_func_name) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(I[BLjava/lang/String;)V");
+    assert(mid != nullptr);
+
+    jbyteArray jchecksum = JniUtil::copyBytes(env, checksum);
+    jstring jchecksum_func_name =
+        JniUtil::toJavaString(env, &checksum_func_name);
+
+    return env->NewObject(jclazz, mid, static_cast<jint>(file_number),
+                          jchecksum, jchecksum_func_name);
+  }
+
+  static jobjectArray fromCppCreateObjArray(
+      JNIEnv* env, ROCKSDB_NAMESPACE::FileChecksumList* file_checksum_list) {
+    std::vector<uint64_t> file_numbers;
+    std::vector<std::string> checksums;
+    std::vector<std::string> checksum_func_names;
+    file_checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                            &checksum_func_names);
+
+    const jsize jlen = static_cast<jsize>(file_numbers.size());
+    jobjectArray jfile_checksum_list = env->NewObjectArray(
+        jlen, ROCKSDB_NAMESPACE::FileChecksumJni::getJClass(env), nullptr);
+    if (jfile_checksum_list == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    int index = 0;
+    for (size_t i{}; i < file_numbers.size(); i++) {
+      const uint64_t file_number = file_numbers[i];
+      const std::string checksum = checksums[i];
+      const std::string checksum_func_name = checksum_func_names[i];
+
+      jobject jfile_checksum =
+          ROCKSDB_NAMESPACE::FileChecksumJni::fromCppCreateObj(
+              env, file_number, checksum, checksum_func_name);
+      if (jfile_checksum == nullptr) {
+        // exception occurred
+        env->DeleteLocalRef(jfile_checksum_list);
+        return nullptr;
+      }
+
+      env->SetObjectArrayElement(jfile_checksum_list, index++, jfile_checksum);
+      if (env->ExceptionCheck()) {
+        // exception occurred
+        env->DeleteLocalRef(jfile_checksum);
+        env->DeleteLocalRef(jfile_checksum_list);
+        return nullptr;
+      }
+
+      env->DeleteLocalRef(jfile_checksum);
+    }
+
+    return jfile_checksum_list;
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
