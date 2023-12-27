@@ -51,6 +51,8 @@ enum CompactionPri : char {
   // First compact files whose ratio between overlapping size in next level
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
+  // Files marked for compaction will be prioritized over files that are not
+  // marked.
   kMinOverlappingRatio = 0x3,
   // Keeps a cursor(s) of the successor of the file (key range) was/were
   // compacted before, and always picks the next files (key range) in that
