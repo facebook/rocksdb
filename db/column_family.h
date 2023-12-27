@@ -163,8 +163,8 @@ extern const double kIncSlowdownRatio;
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:
   // create while holding the mutex
-  ColumnFamilyHandleImpl(
-      ColumnFamilyData* cfd, DBImpl* db, InstrumentedMutex* mutex);
+  ColumnFamilyHandleImpl(ColumnFamilyData* cfd, DBImpl* db,
+                         InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
@@ -189,7 +189,8 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  public:
   ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), internal_cfd_(nullptr) {}
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+        internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
@@ -210,6 +211,12 @@ struct SuperVersion {
   // Version number of the current SuperVersion
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
+  // Each time `full_history_ts_low` collapses history, a new SuperVersion is
+  // installed. This field tracks the effective `full_history_ts_low` for that
+  // SuperVersion, to be used by read APIs for sanity checks. This field is
+  // immutable once SuperVersion is installed. For column family that doesn't
+  // enable UDT feature, this is an empty string.
+  std::string full_history_ts_low;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -309,10 +316,6 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  void SetFlushReason(FlushReason flush_reason) {
-    flush_reason_ = flush_reason;
-  }
-  FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const FileOptions* soptions() const;
   const ImmutableOptions* ioptions() const { return &ioptions_; }
@@ -338,12 +341,10 @@ class ColumnFamilyData {
   // Validate CF options against DB options
   static Status ValidateOptions(const DBOptions& db_options,
                                 const ColumnFamilyOptions& cf_options);
-#ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
       const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
-#endif  // ROCKSDB_LITE
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 
@@ -357,7 +358,7 @@ class ColumnFamilyData {
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* _current);
-  uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
+  uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
   uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
@@ -467,12 +468,6 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
-  enum class WriteStallCause {
-    kNone,
-    kMemtableLimit,
-    kL0FileCountLimit,
-    kPendingCompactionBytes,
-  };
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,
@@ -517,6 +512,12 @@ class ColumnFamilyData {
     return full_history_ts_low_;
   }
 
+  // REQUIRES: DB mutex held.
+  // Return true if flushing up to MemTables with ID `max_memtable_id`
+  // should be postponed to retain user-defined timestamps according to the
+  // user's setting. Called by background flush job.
+  bool ShouldPostponeFlushToRetainUDT(uint64_t max_memtable_id);
+
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
   std::shared_ptr<CacheReservationManager>
@@ -524,13 +525,29 @@ class ColumnFamilyData {
     return file_metadata_cache_res_mgr_;
   }
 
-  SequenceNumber GetFirstMemtableSequenceNumber() const;
-
   static const uint32_t kDummyColumnFamilyDataId;
 
   // Keep track of whether the mempurge feature was ever used.
   void SetMempurgeUsed() { mempurge_used_ = true; }
   bool GetMempurgeUsed() { return mempurge_used_; }
+
+  // Allocate and return a new epoch number
+  uint64_t NewEpochNumber() { return next_epoch_number_.fetch_add(1); }
+
+  // Get the next epoch number to be assigned
+  uint64_t GetNextEpochNumber() const { return next_epoch_number_.load(); }
+
+  // Set the next epoch number to be assigned
+  void SetNextEpochNumber(uint64_t next_epoch_number) {
+    next_epoch_number_.store(next_epoch_number);
+  }
+
+  // Reset the next epoch number to be assigned
+  void ResetNextEpochNumber() { next_epoch_number_.store(1); }
+
+  // Recover the next epoch number of this CF and epoch number
+  // of its files (if missing)
+  void RecoverEpochNumbers();
 
  private:
   friend class ColumnFamilySet;
@@ -552,7 +569,7 @@ class ColumnFamilyData {
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;         // == dummy_versions->prev_
 
-  std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
+  std::atomic<int> refs_;  // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
   std::atomic<bool> dropped_;  // true if client dropped it
 
@@ -597,8 +614,6 @@ class ColumnFamilyData {
   // recovered from
   uint64_t log_number_;
 
-  std::atomic<FlushReason> flush_reason_;
-
   // An object that keeps all the compaction stats
   // and picks the next compaction
   std::unique_ptr<CompactionPicker> compaction_picker_;
@@ -633,6 +648,8 @@ class ColumnFamilyData {
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
   bool mempurge_used_;
+
+  std::atomic<uint64_t> next_epoch_number_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -656,8 +673,7 @@ class ColumnFamilySet {
   // ColumnFamilySet supports iteration
   class iterator {
    public:
-    explicit iterator(ColumnFamilyData* cfd)
-        : current_(cfd) {}
+    explicit iterator(ColumnFamilyData* cfd) : current_(cfd) {}
     // NOTE: minimum operators for for-loop iteration
     iterator& operator++() {
       current_ = current_->next_;
@@ -699,6 +715,16 @@ class ColumnFamilySet {
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options);
 
+  const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
+      const {
+    return running_ts_sz_;
+  }
+
+  const UnorderedMap<uint32_t, size_t>&
+  GetColumnFamiliesTimestampSizeForRecord() const {
+    return ts_sz_for_record_;
+  }
+
   iterator begin() { return iterator(dummy_cfd_->next_); }
   iterator end() { return iterator(dummy_cfd_); }
 
@@ -723,6 +749,15 @@ class ColumnFamilySet {
   // 2. accessed from a single-threaded write thread
   UnorderedMap<std::string, uint32_t> column_families_;
   UnorderedMap<uint32_t, ColumnFamilyData*> column_family_data_;
+
+  // Mutating / reading `running_ts_sz_` and `ts_sz_for_record_` follow
+  // the same requirements as `column_families_` and `column_family_data_`.
+  // Mapping from column family id to user-defined timestamp size for all
+  // running column families.
+  UnorderedMap<uint32_t, size_t> running_ts_sz_;
+  // Mapping from column family id to user-defined timestamp size for
+  // column families with non-zero user-defined timestamp size.
+  UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
   uint32_t max_column_family_;
   const FileOptions file_options_;
@@ -840,6 +875,9 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 
 extern const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family);
+
+extern const ImmutableOptions& GetImmutableOptions(
     ColumnFamilyHandle* column_family);
 
 }  // namespace ROCKSDB_NAMESPACE

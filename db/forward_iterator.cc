@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
 
 #include <limits>
@@ -37,7 +36,7 @@ class ForwardLevelIterator : public InternalIterator {
       const ColumnFamilyData* const cfd, const ReadOptions& read_options,
       const std::vector<FileMetaData*>& files,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      bool allow_unprepared_value)
+      bool allow_unprepared_value, uint8_t block_protection_bytes_per_key)
       : cfd_(cfd),
         read_options_(read_options),
         files_(files),
@@ -46,7 +45,8 @@ class ForwardLevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
-        allow_unprepared_value_(allow_unprepared_value) {
+        allow_unprepared_value_(allow_unprepared_value),
+        block_protection_bytes_per_key_(block_protection_bytes_per_key) {
     status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
@@ -88,7 +88,8 @@ class ForwardLevelIterator : public InternalIterator {
         /*arena=*/nullptr, /*skip_filters=*/false, /*level=*/-1,
         /*max_file_size_for_l0_meta_pin=*/0,
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        block_protection_bytes_per_key_);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     valid_ = false;
     if (!range_del_agg.IsEmpty()) {
@@ -104,9 +105,7 @@ class ForwardLevelIterator : public InternalIterator {
     status_ = Status::NotSupported("ForwardLevelIterator::Prev()");
     valid_ = false;
   }
-  bool Valid() const override {
-    return valid_;
-  }
+  bool Valid() const override { return valid_; }
   void SeekToFirst() override {
     assert(file_iter_ != nullptr);
     if (!status_.ok()) {
@@ -214,6 +213,7 @@ class ForwardLevelIterator : public InternalIterator {
   // Kept alive by ForwardIterator::sv_->mutable_cf_options
   const std::shared_ptr<const SliceTransform>& prefix_extractor_;
   const bool allow_unprepared_value_;
+  const uint8_t block_protection_bytes_per_key_;
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
@@ -241,7 +241,10 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
-
+  if (!CheckFSFeatureSupport(cfd_->ioptions()->env->GetFileSystem().get(),
+                             FSSupportedOps::kAsyncIO)) {
+    read_options_.async_io = false;
+  }
   // immutable_status_ is a local aggregation of the
   // status of the immutable Iterators.
   // We have to PermitUncheckedError in case it is never
@@ -249,9 +252,7 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   immutable_status_.PermitUncheckedError();
 }
 
-ForwardIterator::~ForwardIterator() {
-  Cleanup(true);
-}
+ForwardIterator::~ForwardIterator() { Cleanup(true); }
 
 void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,
                                 bool background_purge_on_iterator_cleanup) {
@@ -284,13 +285,13 @@ struct SVCleanupParams {
   SuperVersion* sv;
   bool background_purge_on_iterator_cleanup;
 };
-}
+}  // anonymous namespace
 
 // Used in PinnedIteratorsManager to release pinned SuperVersion
 void ForwardIterator::DeferredSVCleanup(void* arg) {
   auto d = reinterpret_cast<SVCleanupParams*>(arg);
-  ForwardIterator::SVCleanup(
-    d->db, d->sv, d->background_purge_on_iterator_cleanup);
+  ForwardIterator::SVCleanup(d->db, d->sv,
+                             d->background_purge_on_iterator_cleanup);
   delete d;
 }
 
@@ -547,8 +548,7 @@ void ForwardIterator::Next() {
   assert(valid_);
   bool update_prev_key = false;
 
-  if (sv_ == nullptr ||
-      sv_->version_number != cfd_->GetSuperVersionNumber()) {
+  if (sv_ == nullptr || sv_->version_number != cfd_->GetSuperVersionNumber()) {
     std::string current_key = key().ToString();
     Slice old_key(current_key.data(), current_key.size());
 
@@ -577,7 +577,6 @@ void ForwardIterator::Next() {
     } else {
       update_prev_key = true;
     }
-
 
     if (update_prev_key) {
       prev_key_.SetInternalKey(current_->key());
@@ -635,7 +634,7 @@ bool ForwardIterator::PrepareValue() {
 
   assert(!current_->Valid());
   assert(!current_->status().ok());
-  assert(current_ != mutable_iter_); // memtable iterator can't fail
+  assert(current_ != mutable_iter_);  // memtable iterator can't fail
   assert(immutable_status_.ok());
 
   valid_ = false;
@@ -742,7 +741,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key));
   }
   BuildLevelIterators(vstorage, sv_);
   current_ = nullptr;
@@ -823,7 +823,8 @@ void ForwardIterator::RenewIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(svnew->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        svnew->mutable_cf_options.block_protection_bytes_per_key));
   }
 
   for (auto* f : l0_iters_) {
@@ -867,7 +868,8 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage,
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
           cfd_, read_options_, level_files,
-          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_));
+          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_,
+          sv->mutable_cf_options.block_protection_bytes_per_key));
     }
   }
 }
@@ -889,7 +891,8 @@ void ForwardIterator::ResetIncompleteIterators() {
         /*skip_filters=*/false, /*level=*/-1,
         MaxFileSizeForL0MetaPin(sv_->mutable_cf_options),
         /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr, allow_unprepared_value_);
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value_,
+        sv_->mutable_cf_options.block_protection_bytes_per_key);
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 
@@ -950,11 +953,11 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
   }
   Slice prev_key = prev_key_.GetInternalKey();
   if (prefix_extractor_ && prefix_extractor_->Transform(target).compare(
-    prefix_extractor_->Transform(prev_key)) != 0) {
+                               prefix_extractor_->Transform(prev_key)) != 0) {
     return true;
   }
   if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-        prev_key, target) >= (is_prev_inclusive_ ? 1 : 0)) {
+          prev_key, target) >= (is_prev_inclusive_ ? 1 : 0)) {
     return true;
   }
 
@@ -963,8 +966,8 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
     return false;
   }
   if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-        target, current_ == mutable_iter_ ? immutable_min_heap_.top()->key()
-                                          : current_->key()) > 0) {
+          target, current_ == mutable_iter_ ? immutable_min_heap_.top()->key()
+                                            : current_->key()) > 0) {
     return true;
   }
   return false;
@@ -1040,11 +1043,11 @@ uint32_t ForwardIterator::FindFileInRange(
     uint32_t left, uint32_t right) {
   auto cmp = [&](const FileMetaData* f, const Slice& k) -> bool {
     return cfd_->internal_comparator().InternalKeyComparator::Compare(
-            f->largest.Encode(), k) < 0;
+               f->largest.Encode(), k) < 0;
   };
-  const auto &b = files.begin();
-  return static_cast<uint32_t>(std::lower_bound(b + left,
-                                 b + right, internal_key, cmp) - b);
+  const auto& b = files.begin();
+  return static_cast<uint32_t>(
+      std::lower_bound(b + left, b + right, internal_key, cmp) - b);
 }
 
 void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
@@ -1064,5 +1067,3 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

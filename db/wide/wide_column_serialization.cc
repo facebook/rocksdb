@@ -9,17 +9,16 @@
 #include <cassert>
 #include <limits>
 
+#include "db/wide/wide_columns_helper.h"
 #include "rocksdb/slice.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-Status WideColumnSerialization::SerializeImpl(const Slice* value_of_default,
-                                              const WideColumns& columns,
-                                              std::string& output) {
-  const size_t num_columns =
-      value_of_default ? columns.size() + 1 : columns.size();
+Status WideColumnSerialization::Serialize(const WideColumns& columns,
+                                          std::string& output) {
+  const size_t num_columns = columns.size();
 
   if (num_columns > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
@@ -30,17 +29,6 @@ Status WideColumnSerialization::SerializeImpl(const Slice* value_of_default,
   PutVarint32(&output, static_cast<uint32_t>(num_columns));
 
   const Slice* prev_name = nullptr;
-  if (value_of_default) {
-    if (value_of_default->size() >
-        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-      return Status::InvalidArgument("Wide column value too long");
-    }
-
-    PutLengthPrefixedSlice(&output, kDefaultWideColumnName);
-    PutVarint32(&output, static_cast<uint32_t>(value_of_default->size()));
-
-    prev_name = &kDefaultWideColumnName;
-  }
 
   for (size_t i = 0; i < columns.size(); ++i) {
     const WideColumn& column = columns[i];
@@ -65,10 +53,6 @@ Status WideColumnSerialization::SerializeImpl(const Slice* value_of_default,
     PutVarint32(&output, static_cast<uint32_t>(value.size()));
 
     prev_name = &name;
-  }
-
-  if (value_of_default) {
-    output.append(value_of_default->data(), value_of_default->size());
   }
 
   for (const auto& column : columns) {
@@ -169,12 +153,12 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
     return s;
   }
 
-  if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
+  if (!WideColumnsHelper::HasDefaultColumn(columns)) {
     value.clear();
     return Status::OK();
   }
 
-  value = columns[0].value();
+  value = WideColumnsHelper::GetDefaultColumn(columns);
 
   return Status::OK();
 }

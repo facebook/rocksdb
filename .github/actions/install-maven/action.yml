@@ -1,0 +1,7 @@
+name: install-maven
+runs:
+  using: composite
+  steps:
+  - name: Install maven
+    run: sudo apt-get update -y && sudo apt-get install -y maven
+    shell: bash

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #ifdef GFLAGS
 #ifdef NUMA
@@ -210,7 +209,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
 AnalyzerOptions::AnalyzerOptions()
     : correlation_map(kTaTypeNum, std::vector<int>(kTaTypeNum, -1)) {}
 
-AnalyzerOptions::~AnalyzerOptions() {}
+AnalyzerOptions::~AnalyzerOptions() = default;
 
 void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
   std::string cur = in_str;
@@ -223,14 +222,14 @@ void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
       exit(1);
     }
     std::string opt1, opt2;
-    std::size_t split = cur.find_first_of(",");
+    std::size_t split = cur.find_first_of(',');
     if (split != std::string::npos) {
       opt1 = cur.substr(1, split - 1);
     } else {
       fprintf(stderr, "Invalid correlation input: %s\n", in_str.c_str());
       exit(1);
     }
-    std::size_t end = cur.find_first_of("]");
+    std::size_t end = cur.find_first_of(']');
     if (end != std::string::npos) {
       opt2 = cur.substr(split + 1, end - split - 1);
     } else {
@@ -241,8 +240,7 @@ void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
 
     if (taOptToIndex.find(opt1) != taOptToIndex.end() &&
         taOptToIndex.find(opt2) != taOptToIndex.end()) {
-      correlation_list.push_back(
-          std::make_pair(taOptToIndex[opt1], taOptToIndex[opt2]));
+      correlation_list.emplace_back(taOptToIndex[opt1], taOptToIndex[opt2]);
     } else {
       fprintf(stderr, "Invalid correlation input: %s\n", in_str.c_str());
       exit(1);
@@ -254,7 +252,6 @@ void AnalyzerOptions::SparseCorrelationInput(const std::string& in_str) {
     correlation_map[it.first][it.second] = sequence;
     sequence++;
   }
-  return;
 }
 
 // The trace statistic struct constructor
@@ -273,7 +270,7 @@ TraceStats::TraceStats() {
   a_ave_qps = 0.0;
 }
 
-TraceStats::~TraceStats() {}
+TraceStats::~TraceStats() = default;
 
 // The trace analyzer constructor
 TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
@@ -363,7 +360,7 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   }
 }
 
-TraceAnalyzer::~TraceAnalyzer() {}
+TraceAnalyzer::~TraceAnalyzer() = default;
 
 // Prepare the processing
 // Initiate the global trace reader and writer here
@@ -1590,6 +1587,12 @@ Status TraceAnalyzer::PutCF(uint32_t column_family_id, const Slice& key,
                               column_family_id, key, value.size());
 }
 
+Status TraceAnalyzer::PutEntityCF(uint32_t column_family_id, const Slice& key,
+                                  const Slice& value) {
+  return OutputAnalysisResult(TraceOperationType::kPutEntity, write_batch_ts_,
+                              column_family_id, key, value.size());
+}
+
 // Handle the Delete request in the write batch of the trace
 Status TraceAnalyzer::DeleteCF(uint32_t column_family_id, const Slice& key) {
   return OutputAnalysisResult(TraceOperationType::kDelete, write_batch_ts_,
@@ -1930,4 +1933,3 @@ int trace_analyzer_tool(int argc, char** argv) {
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // Endif of Gflag
-#endif  // RocksDB LITE

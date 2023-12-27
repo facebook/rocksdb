@@ -1,8 +1,9 @@
-/**
- * A MergeOperator for rocksdb that implements string append.
- * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
- */
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
+// A MergeOperator for rocksdb that implements string append.
 
 #pragma once
 #include "rocksdb/merge_operator.h"
@@ -16,10 +17,8 @@ class StringAppendOperator : public AssociativeMergeOperator {
   explicit StringAppendOperator(char delim_char);
   explicit StringAppendOperator(const std::string& delim);
 
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
+  virtual bool Merge(const Slice& key, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
                      Logger* logger) const override;
 
   static const char* kClassName() { return "StringAppendOperator"; }

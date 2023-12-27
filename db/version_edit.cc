@@ -20,9 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
+namespace {}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -95,12 +93,14 @@ void VersionEdit::Clear() {
   full_history_ts_low_.clear();
 }
 
-bool VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst,
+                           std::optional<size_t> ts_sz) const {
   if (has_db_id_) {
     PutVarint32(dst, kDbId);
     PutLengthPrefixedSlice(dst, db_id_);
   }
   if (has_comparator_) {
+    assert(has_persist_user_defined_timestamps_);
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
   }
@@ -135,16 +135,18 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   bool min_log_num_written = false;
+
+  assert(new_files_.empty() || ts_sz.has_value());
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
+    if (!f.smallest.Valid() || !f.largest.Valid() ||
+        f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
     PutVarint32(dst, kNewFile4);
     PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
     PutVarint64(dst, f.fd.GetFileSize());
-    PutLengthPrefixedSlice(dst, f.smallest.Encode());
-    PutLengthPrefixedSlice(dst, f.largest.Encode());
+    EncodeFileBoundaries(dst, f, ts_sz.value());
     PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
     // Customized fields' format:
     // +-----------------------------+
@@ -186,6 +188,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
+    PutVarint32(dst, NewFileCustomTag::kEpochNumber);
+    std::string varint_epoch_number;
+    PutVarint64(&varint_epoch_number, f.epoch_number);
+    PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
+
     PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
@@ -226,6 +233,27 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint32(dst, NewFileCustomTag::kUniqueId);
       std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
       PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+    }
+    if (f.compensated_range_deletion_size) {
+      PutVarint32(dst, kCompensatedRangeDeletionSize);
+      std::string compensated_range_deletion_size;
+      PutVarint64(&compensated_range_deletion_size,
+                  f.compensated_range_deletion_size);
+      PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
+    }
+    if (f.tail_size) {
+      PutVarint32(dst, NewFileCustomTag::kTailSize);
+      std::string varint_tail_size;
+      PutVarint64(&varint_tail_size, f.tail_size);
+      PutLengthPrefixedSlice(dst, Slice(varint_tail_size));
+    }
+    if (!f.user_defined_timestamps_persisted) {
+      // The default value for the flag is true, it's only explicitly persisted
+      // when it's false. We are putting 0 as the value here to signal false
+      // (i.e. UDTS not persisted).
+      PutVarint32(dst, NewFileCustomTag::kUserDefinedTimestampsPersisted);
+      char p = static_cast<char>(0);
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
@@ -280,6 +308,15 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (HasFullHistoryTsLow()) {
     PutVarint32(dst, kFullHistoryTsLow);
     PutLengthPrefixedSlice(dst, full_history_ts_low_);
+  }
+
+  if (HasPersistUserDefinedTimestamps()) {
+    // persist_user_defined_timestamps flag should be logged in the same
+    // VersionEdit as the user comparator name.
+    assert(has_comparator_);
+    PutVarint32(dst, kPersistUserDefinedTimestamps);
+    char p = static_cast<char>(persist_user_defined_timestamps_);
+    PutLengthPrefixedSlice(dst, Slice(&p, 1));
   }
   return true;
 }
@@ -354,6 +391,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid file creation time";
           }
           break;
+        case kEpochNumber:
+          if (!GetVarint64(&field, &f.epoch_number)) {
+            return "invalid epoch number";
+          }
+          break;
         case kFileChecksum:
           f.file_checksum = field.ToString();
           break;
@@ -395,6 +437,22 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid unique id";
           }
           break;
+        case kCompensatedRangeDeletionSize:
+          if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
+            return "Invalid compensated range deletion size";
+          }
+          break;
+        case kTailSize:
+          if (!GetVarint64(&field, &f.tail_size)) {
+            return "invalid tail start offset";
+          }
+          break;
+        case kUserDefinedTimestampsPersisted:
+          if (field.size() != 1) {
+            return "user-defined timestamps persisted field wrong size";
+          }
+          f.user_defined_timestamps_persisted = (field[0] == 1);
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -411,6 +469,22 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
+
+void VersionEdit::EncodeFileBoundaries(std::string* dst,
+                                       const FileMetaData& meta,
+                                       size_t ts_sz) const {
+  if (ts_sz == 0 || meta.user_defined_timestamps_persisted) {
+    PutLengthPrefixedSlice(dst, meta.smallest.Encode());
+    PutLengthPrefixedSlice(dst, meta.largest.Encode());
+    return;
+  }
+  std::string smallest_buf;
+  std::string largest_buf;
+  StripTimestampFromInternalKey(&smallest_buf, meta.smallest.Encode(), ts_sz);
+  StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
+  PutLengthPrefixedSlice(dst, smallest_buf);
+  PutLengthPrefixedSlice(dst, largest_buf);
+};
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
@@ -501,8 +575,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kCompactCursor:
-        if (GetLevel(&input, &level, &msg) &&
-            GetInternalKey(&input, &key)) {
+        if (GetLevel(&input, &level, &msg) && GetInternalKey(&input, &key)) {
           // Here we re-use the output format of compact pointer in LevelDB
           // to persist compact_cursors_
           compact_cursors_.push_back(std::make_pair(level, key));
@@ -713,6 +786,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kPersistUserDefinedTimestamps:
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "persist_user_defined_timestamps";
+        } else if (str.size() != 1) {
+          msg = "persist_user_defined_timestamps field wrong size";
+        } else {
+          persist_user_defined_timestamps_ = (str[0] == 1);
+          has_persist_user_defined_timestamps_ = true;
+        }
+        break;
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -754,6 +838,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_comparator_) {
     r.append("\n  Comparator: ");
     r.append(comparator_);
+  }
+  if (has_persist_user_defined_timestamps_) {
+    r.append("\n  PersistUserDefinedTimestamps: ");
+    r.append(persist_user_defined_timestamps_ ? "true" : "false");
   }
   if (has_log_number_) {
     r.append("\n  LogNumber: ");
@@ -811,6 +899,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
+    r.append(" epoch_number:");
+    AppendNumberTo(&r, f.epoch_number);
     r.append(" file_checksum:");
     r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
@@ -829,6 +919,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       InternalUniqueIdToExternal(&id);
       r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
     }
+    r.append(" tail size: ");
+    AppendNumberTo(&r, f.tail_size);
+    r.append(" User-defined timestamps persisted: ");
+    r.append(f.user_defined_timestamps_persisted ? "true" : "false");
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -930,6 +1024,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
       jw << "OldestAncesterTime" << f.oldest_ancester_time;
       jw << "FileCreationTime" << f.file_creation_time;
+      jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
       if (f.temperature != Temperature::kUnknown) {
@@ -943,6 +1038,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
         // permanent
         jw << "Temperature" << static_cast<int>(f.temperature);
       }
+      jw << "TailSize" << f.tail_size;
+      jw << "UserDefinedTimestampsPersisted"
+         << f.user_defined_timestamps_persisted;
       jw.EndArrayedObject();
     }
 

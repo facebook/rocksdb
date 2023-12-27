@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "table/block_based/block_type.h"
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,7 +33,11 @@ class ParsedFullFilterBlock {
 
   bool own_bytes() const { return block_contents_.own_bytes(); }
 
-  const Slice GetBlockContentsData() const { return block_contents_.data; }
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return block_contents_.data; }
+  static constexpr CacheEntryRole kCacheEntryRole =
+      CacheEntryRole::kFilterBlock;
+  static constexpr BlockType kBlockType = BlockType::kFilter;
 
  private:
   BlockContents block_contents_;

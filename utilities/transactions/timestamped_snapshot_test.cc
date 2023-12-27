@@ -3,14 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifdef ROCKSDB_LITE
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Transactions are not supported in LITE mode\n");
-  return 0;
-}
-#else  // ROCKSDB_LITE
 #include <cassert>
 
 #include "util/cast_util.h"
@@ -463,4 +455,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#endif  // !ROCKSDB_LITE

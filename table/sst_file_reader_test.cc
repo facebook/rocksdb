@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_file_reader.h"
 
@@ -305,6 +304,7 @@ class SstFileReaderTimestampTest : public testing::Test {
     }
 
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
   }
 
  protected:
@@ -385,39 +385,6 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
   }
 }
 
-TEST_F(SstFileReaderTimestampTest, BasicDeleteRange) {
-  SstFileWriter writer(soptions_, options_);
-  ASSERT_OK(writer.Open(sst_name_));
-  ASSERT_OK(writer.DeleteRange("key1", "key2", EncodeAsUint64(1)));
-  ASSERT_OK(writer.Finish());
-
-  SstFileReader reader(options_);
-  ASSERT_OK(reader.Open(sst_name_));
-  ASSERT_OK(reader.VerifyChecksum());
-
-  ReadOptions read_options;
-  std::string ts = EncodeAsUint64(2);
-  Slice ts_slice = ts;
-  read_options.timestamp = &ts_slice;
-  FragmentedRangeTombstoneIterator* iter =
-      reader.NewRangeTombstoneIterator(read_options);
-  iter->SeekToFirst();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(
-      StripTimestampFromUserKey(iter->start_key(), EncodeAsUint64(1).size()),
-      "key1");
-  ASSERT_EQ(
-      StripTimestampFromUserKey(iter->end_key(), EncodeAsUint64(1).size()),
-      "key2");
-  ASSERT_EQ(iter->timestamp(), EncodeAsUint64(1));
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_OK(iter->status());
-
-  delete iter;
-}
-
 TEST_F(SstFileReaderTimestampTest, TimestampsOutOfOrder) {
   SstFileWriter writer(soptions_, options_);
 
@@ -455,13 +422,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as SstFileReader is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

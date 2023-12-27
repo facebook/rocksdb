@@ -30,9 +30,9 @@ public abstract class AbstractWalFilter
    *     {@link WalFilter.LogRecordFoundResult#walProcessingOption}
    *     {@link WalFilter.LogRecordFoundResult#batchChanged}.
    */
-  private short logRecordFoundProxy(final long logNumber,
-      final String logFileName, final long batchHandle,
-      final long newBatchHandle) {
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
+  private short logRecordFoundProxy(final long logNumber, final String logFileName,
+      final long batchHandle, final long newBatchHandle) {
     final LogRecordFoundResult logRecordFoundResult = logRecordFound(
         logNumber, logFileName, new WriteBatch(batchHandle),
         new WriteBatch(newBatchHandle));
@@ -41,7 +41,7 @@ public abstract class AbstractWalFilter
 
   private static short logRecordFoundResultToShort(
       final LogRecordFoundResult logRecordFoundResult) {
-    short result = (short)(logRecordFoundResult.walProcessingOption.getValue() << 8);
+    final short result = (short) (logRecordFoundResult.walProcessingOption.getValue() << 8);
     return (short)(result | (logRecordFoundResult.batchChanged ? 1 : 0));
   }
 

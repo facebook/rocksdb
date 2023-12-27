@@ -12,7 +12,6 @@
 namespace ROCKSDB_NAMESPACE {
 namespace experimental {
 
-#ifndef ROCKSDB_LITE
 
 Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end) {
@@ -30,19 +29,6 @@ Status PromoteL0(DB* db, ColumnFamilyHandle* column_family, int target_level) {
   return db->PromoteL0(column_family, target_level);
 }
 
-#else  // ROCKSDB_LITE
-
-Status SuggestCompactRange(DB* /*db*/, ColumnFamilyHandle* /*column_family*/,
-                           const Slice* /*begin*/, const Slice* /*end*/) {
-  return Status::NotSupported("Not supported in RocksDB LITE");
-}
-
-Status PromoteL0(DB* /*db*/, ColumnFamilyHandle* /*column_family*/,
-                 int /*target_level*/) {
-  return Status::NotSupported("Not supported in RocksDB LITE");
-}
-
-#endif  // ROCKSDB_LITE
 
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
   return SuggestCompactRange(db, db->DefaultColumnFamily(), begin, end);
@@ -52,6 +38,8 @@ Status UpdateManifestForFilesState(
     const DBOptions& db_opts, const std::string& db_name,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     const UpdateManifestForFilesStateOptions& opts) {
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   OfflineManifestWriter w(db_opts, db_name);
   Status s = w.Recover(column_families);
 
@@ -112,8 +100,10 @@ Status UpdateManifestForFilesState(
                   lf->smallest, lf->largest, lf->fd.smallest_seqno,
                   lf->fd.largest_seqno, lf->marked_for_compaction, temp,
                   lf->oldest_blob_file_number, lf->oldest_ancester_time,
-                  lf->file_creation_time, lf->file_checksum,
-                  lf->file_checksum_func_name, lf->unique_id);
+                  lf->file_creation_time, lf->epoch_number, lf->file_checksum,
+                  lf->file_checksum_func_name, lf->unique_id,
+                  lf->compensated_range_deletion_size, lf->tail_size,
+                  lf->user_defined_timestamps_persisted);
             }
           }
         } else {
@@ -127,7 +117,7 @@ Status UpdateManifestForFilesState(
       std::unique_ptr<FSDirectory> db_dir;
       s = fs->NewDirectory(db_name, IOOptions(), &db_dir, nullptr);
       if (s.ok()) {
-        s = w.LogAndApply(cfd, &edit, db_dir.get());
+        s = w.LogAndApply(read_options, cfd, &edit, db_dir.get());
       }
       if (s.ok()) {
         ++cfs_updated;

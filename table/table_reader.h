@@ -9,16 +9,17 @@
 
 #pragma once
 #include <memory>
+
 #include "db/range_tombstone_fragmenter.h"
 #if USE_COROUTINES
 #include "folly/experimental/coro/Coroutine.h"
 #include "folly/experimental/coro/Task.h"
 #endif
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table_reader_caller.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
-#include "table/table_reader_caller.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -59,8 +60,14 @@ class TableReader {
       size_t compaction_readahead_size = 0,
       bool allow_unprepared_value = false) = 0;
 
+  // read_options.snapshot needs to outlive this call.
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
+    return nullptr;
+  }
+
+  virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber /* read_seqno */, const Slice* /* timestamp */) {
     return nullptr;
   }
 
@@ -75,7 +82,8 @@ class TableReader {
   // function and letting ApproximateSize take optional start and end, so
   // that absolute start and end can be specified and optimized without
   // key / index work.
-  virtual uint64_t ApproximateOffsetOf(const Slice& key,
+  virtual uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                                       const Slice& key,
                                        TableReaderCaller caller) = 0;
 
   // Given start and end keys, return the approximate data size in the file
@@ -83,7 +91,8 @@ class TableReader {
   // includes effects like compression of the underlying data and applicable
   // portions of metadata including filters and indexes. Nullptr for start or
   // end (or both) indicates absolute start or end of the table.
-  virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
+  virtual uint64_t ApproximateSize(const ReadOptions& read_options,
+                                   const Slice& start, const Slice& end,
                                    TableReaderCaller caller) = 0;
 
   struct Anchor {
@@ -159,10 +168,11 @@ class TableReader {
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that
   // persists the data on a non volatile storage medium like disk/SSD
-  virtual Status Prefetch(const Slice* begin = nullptr,
+  virtual Status Prefetch(const ReadOptions& /* read_options */,
+                          const Slice* begin = nullptr,
                           const Slice* end = nullptr) {
-    (void) begin;
-    (void) end;
+    (void)begin;
+    (void)end;
     // Default implementation is NOOP.
     // The child class should implement functionality when applicable
     return Status::OK();

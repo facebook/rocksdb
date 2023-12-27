@@ -12,7 +12,7 @@
 #include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
@@ -26,9 +26,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobFileReader::Create(
-    const ImmutableOptions& immutable_options, const FileOptions& file_options,
-    uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
-    uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
+    const ImmutableOptions& immutable_options, const ReadOptions& read_options,
+    const FileOptions& file_options, uint32_t column_family_id,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -52,15 +53,17 @@ Status BlobFileReader::Create(
   CompressionType compression_type = kNoCompression;
 
   {
-    const Status s = ReadHeader(file_reader.get(), column_family_id, statistics,
-                                &compression_type);
+    const Status s =
+        ReadHeader(file_reader.get(), read_options, column_family_id,
+                   statistics, &compression_type);
     if (!s.ok()) {
       return s;
     }
   }
 
   {
-    const Status s = ReadFooter(file_reader.get(), file_size, statistics);
+    const Status s =
+        ReadFooter(file_reader.get(), read_options, file_size, statistics);
     if (!s.ok()) {
       return s;
     }
@@ -134,6 +137,7 @@ Status BlobFileReader::OpenFile(
 }
 
 Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
+                                  const ReadOptions& read_options,
                                   uint32_t column_family_id,
                                   Statistics* statistics,
                                   CompressionType* compression_type) {
@@ -150,10 +154,9 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
     constexpr uint64_t read_offset = 0;
     constexpr size_t read_size = BlobLogHeader::kSize;
 
-    // TODO: rate limit reading headers from blob files.
-    const Status s = ReadFromFile(file_reader, read_offset, read_size,
-                                  statistics, &header_slice, &buf, &aligned_buf,
-                                  Env::IO_TOTAL /* rate_limiter_priority */);
+    const Status s =
+        ReadFromFile(file_reader, read_options, read_offset, read_size,
+                     statistics, &header_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -187,6 +190,7 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
 }
 
 Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
+                                  const ReadOptions& read_options,
                                   uint64_t file_size, Statistics* statistics) {
   assert(file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize);
   assert(file_reader);
@@ -201,10 +205,9 @@ Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
     const uint64_t read_offset = file_size - BlobLogFooter::kSize;
     constexpr size_t read_size = BlobLogFooter::kSize;
 
-    // TODO: rate limit reading footers from blob files.
-    const Status s = ReadFromFile(file_reader, read_offset, read_size,
-                                  statistics, &footer_slice, &buf, &aligned_buf,
-                                  Env::IO_TOTAL /* rate_limiter_priority */);
+    const Status s =
+        ReadFromFile(file_reader, read_options, read_offset, read_size,
+                     statistics, &footer_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -232,10 +235,10 @@ Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
 }
 
 Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
+                                    const ReadOptions& read_options,
                                     uint64_t read_offset, size_t read_size,
                                     Statistics* statistics, Slice* slice,
-                                    Buffer* buf, AlignedBuf* aligned_buf,
-                                    Env::IOPriority rate_limiter_priority) {
+                                    Buffer* buf, AlignedBuf* aligned_buf) {
   assert(slice);
   assert(buf);
   assert(aligned_buf);
@@ -246,17 +249,23 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
   Status s;
 
+  IOOptions io_options;
+  s = file_reader->PrepareIOOptions(read_options, io_options);
+  if (!s.ok()) {
+    return s;
+  }
+
   if (file_reader->use_direct_io()) {
     constexpr char* scratch = nullptr;
 
-    s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
-                          aligned_buf, rate_limiter_priority);
+    s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
+                          aligned_buf);
   } else {
     buf->reset(new char[read_size]);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
-    s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
-                          buf->get(), aligned_scratch, rate_limiter_priority);
+    s = file_reader->Read(io_options, read_offset, read_size, slice, buf->get(),
+                          aligned_scratch);
   }
 
   if (!s.ok()) {
@@ -324,10 +333,14 @@ Status BlobFileReader::GetBlob(
     Status s;
     constexpr bool for_compaction = true;
 
+    IOOptions io_options;
+    s = file_reader_->PrepareIOOptions(read_options, io_options);
+    if (!s.ok()) {
+      return s;
+    }
     prefetched = prefetch_buffer->TryReadFromCache(
-        IOOptions(), file_reader_.get(), record_offset,
-        static_cast<size_t>(record_size), &record_slice, &s,
-        read_options.rate_limiter_priority, for_compaction);
+        io_options, file_reader_.get(), record_offset,
+        static_cast<size_t>(record_size), &record_slice, &s, for_compaction);
     if (!s.ok()) {
       return s;
     }
@@ -338,10 +351,10 @@ Status BlobFileReader::GetBlob(
     PERF_COUNTER_ADD(blob_read_count, 1);
     PERF_COUNTER_ADD(blob_read_byte, record_size);
     PERF_TIMER_GUARD(blob_read_time);
-    const Status s = ReadFromFile(file_reader_.get(), record_offset,
-                                  static_cast<size_t>(record_size), statistics_,
-                                  &record_slice, &buf, &aligned_buf,
-                                  read_options.rate_limiter_priority);
+    const Status s =
+        ReadFromFile(file_reader_.get(), read_options, record_offset,
+                     static_cast<size_t>(record_size), statistics_,
+                     &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -420,11 +433,11 @@ void BlobFileReader::MultiGetBlob(
     assert(req->offset >= adjustment);
     adjustments.push_back(adjustment);
 
-    FSReadRequest read_req = {};
+    FSReadRequest read_req;
     read_req.offset = req->offset - adjustment;
     read_req.len = req->len + adjustment;
-    read_reqs.emplace_back(read_req);
     total_len += read_req.len;
+    read_reqs.emplace_back(std::move(read_req));
   }
 
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
@@ -449,9 +462,12 @@ void BlobFileReader::MultiGetBlob(
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
   PERF_COUNTER_ADD(blob_read_count, num_blobs);
   PERF_COUNTER_ADD(blob_read_byte, total_len);
-  s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
-                              direct_io ? &aligned_buf : nullptr,
-                              read_options.rate_limiter_priority);
+  IOOptions opts;
+  s = file_reader_->PrepareIOOptions(read_options, opts);
+  if (s.ok()) {
+    s = file_reader_->MultiRead(opts, read_reqs.data(), read_reqs.size(),
+                                direct_io ? &aligned_buf : nullptr);
+  }
   if (!s.ok()) {
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
@@ -569,12 +585,8 @@ Status BlobFileReader::UncompressBlobIfNeeded(
   assert(result);
 
   if (compression_type == kNoCompression) {
-    CacheAllocationPtr allocation =
-        AllocateBlock(value_slice.size(), allocator);
-    memcpy(allocation.get(), value_slice.data(), value_slice.size());
-
-    *result = BlobContents::Create(std::move(allocation), value_slice.size());
-
+    BlobContentsCreator::Create(result, nullptr, value_slice, kNoCompression,
+                                allocator);
     return Status::OK();
   }
 
@@ -602,7 +614,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(
     return Status::Corruption("Unable to uncompress blob");
   }
 
-  *result = BlobContents::Create(std::move(output), uncompressed_size);
+  result->reset(new BlobContents(std::move(output), uncompressed_size));
 
   return Status::OK();
 }

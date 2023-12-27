@@ -18,8 +18,7 @@ public class ClockCacheTest {
     final long capacity = 1000;
     final int numShardBits = 16;
     final boolean strictCapacityLimit = true;
-    try(final Cache clockCache = new ClockCache(capacity,
-        numShardBits, strictCapacityLimit)) {
+    try (final Cache ignored = new ClockCache(capacity, numShardBits, strictCapacityLimit)) {
       //no op
     }
   }

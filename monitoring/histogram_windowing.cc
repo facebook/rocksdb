@@ -23,11 +23,10 @@ HistogramWindowingImpl::HistogramWindowingImpl() {
   Clear();
 }
 
-HistogramWindowingImpl::HistogramWindowingImpl(
-    uint64_t num_windows,
-    uint64_t micros_per_window,
-    uint64_t min_num_per_window) :
-      num_windows_(num_windows),
+HistogramWindowingImpl::HistogramWindowingImpl(uint64_t num_windows,
+                                               uint64_t micros_per_window,
+                                               uint64_t min_num_per_window)
+    : num_windows_(num_windows),
       micros_per_window_(micros_per_window),
       min_num_per_window_(min_num_per_window) {
   clock_ = SystemClock::Default();
@@ -35,8 +34,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(
   Clear();
 }
 
-HistogramWindowingImpl::~HistogramWindowingImpl() {
-}
+HistogramWindowingImpl::~HistogramWindowingImpl() = default;
 
 void HistogramWindowingImpl::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -55,7 +53,7 @@ bool HistogramWindowingImpl::Empty() const { return stats_.Empty(); }
 // of any operation.
 // Each individual value is atomic, it is just that some samples can go
 // in the older bucket which is tolerable.
-void HistogramWindowingImpl::Add(uint64_t value){
+void HistogramWindowingImpl::Add(uint64_t value) {
   TimerTick();
 
   // Parent (global) member update
@@ -83,17 +81,15 @@ void HistogramWindowingImpl::Merge(const HistogramWindowingImpl& other) {
   uint64_t cur_window = current_window();
   uint64_t other_cur_window = other.current_window();
   // going backwards for alignment
-  for (unsigned int i = 0;
-                    i < std::min(num_windows_, other.num_windows_); i++) {
-    uint64_t window_index =
-        (cur_window + num_windows_ - i) % num_windows_;
+  for (unsigned int i = 0; i < std::min(num_windows_, other.num_windows_);
+       i++) {
+    uint64_t window_index = (cur_window + num_windows_ - i) % num_windows_;
     uint64_t other_window_index =
         (other_cur_window + other.num_windows_ - i) % other.num_windows_;
     size_t windex = static_cast<size_t>(window_index);
     size_t other_windex = static_cast<size_t>(other_window_index);
 
-    window_stats_[windex].Merge(
-      other.window_stats_[other_windex]);
+    window_stats_[windex].Merge(other.window_stats_[other_windex]);
   }
 }
 
@@ -101,9 +97,7 @@ std::string HistogramWindowingImpl::ToString() const {
   return stats_.ToString();
 }
 
-double HistogramWindowingImpl::Median() const {
-  return Percentile(50.0);
-}
+double HistogramWindowingImpl::Median() const { return Percentile(50.0); }
 
 double HistogramWindowingImpl::Percentile(double p) const {
   // Retry 3 times in total
@@ -118,15 +112,13 @@ double HistogramWindowingImpl::Percentile(double p) const {
   return 0.0;
 }
 
-double HistogramWindowingImpl::Average() const {
-  return stats_.Average();
-}
+double HistogramWindowingImpl::Average() const { return stats_.Average(); }
 
 double HistogramWindowingImpl::StandardDeviation() const {
   return stats_.StandardDeviation();
 }
 
-void HistogramWindowingImpl::Data(HistogramData * const data) const {
+void HistogramWindowingImpl::Data(HistogramData* const data) const {
   stats_.Data(data);
 }
 
@@ -149,17 +141,17 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
     last_swap_time_.store(clock_->NowMicros(), std::memory_order_relaxed);
 
     uint64_t curr_window = current_window();
-    uint64_t next_window = (curr_window == num_windows_ - 1) ?
-                                                    0 : curr_window + 1;
+    uint64_t next_window =
+        (curr_window == num_windows_ - 1) ? 0 : curr_window + 1;
 
     // subtract next buckets from totals and swap to next buckets
-    HistogramStat& stats_to_drop = 
-      window_stats_[static_cast<size_t>(next_window)];
+    HistogramStat& stats_to_drop =
+        window_stats_[static_cast<size_t>(next_window)];
 
     if (!stats_to_drop.Empty()) {
-      for (size_t b = 0; b < stats_.num_buckets_; b++){
-        stats_.buckets_[b].fetch_sub(
-            stats_to_drop.bucket_at(b), std::memory_order_relaxed);
+      for (size_t b = 0; b < stats_.num_buckets_; b++) {
+        stats_.buckets_[b].fetch_sub(stats_to_drop.bucket_at(b),
+                                     std::memory_order_relaxed);
       }
 
       if (stats_.min() == stats_to_drop.min()) {
@@ -167,7 +159,9 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
         for (unsigned int i = 0; i < num_windows_; i++) {
           if (i != next_window) {
             uint64_t m = window_stats_[i].min();
-            if (m < new_min) new_min = m;
+            if (m < new_min) {
+              new_min = m;
+            }
           }
         }
         stats_.min_.store(new_min, std::memory_order_relaxed);
@@ -178,7 +172,9 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
         for (unsigned int i = 0; i < num_windows_; i++) {
           if (i != next_window) {
             uint64_t m = window_stats_[i].max();
-            if (m > new_max) new_max = m;
+            if (m > new_max) {
+              new_max = m;
+            }
           }
         }
         stats_.max_.store(new_max, std::memory_order_relaxed);
@@ -186,8 +182,8 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
 
       stats_.num_.fetch_sub(stats_to_drop.num(), std::memory_order_relaxed);
       stats_.sum_.fetch_sub(stats_to_drop.sum(), std::memory_order_relaxed);
-      stats_.sum_squares_.fetch_sub(
-                  stats_to_drop.sum_squares(), std::memory_order_relaxed);
+      stats_.sum_squares_.fetch_sub(stats_to_drop.sum_squares(),
+                                    std::memory_order_relaxed);
 
       stats_to_drop.Clear();
     }

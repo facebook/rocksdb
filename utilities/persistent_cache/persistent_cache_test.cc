@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#if !defined ROCKSDB_LITE
 
 #include "utilities/persistent_cache/persistent_cache_test.h"
 
@@ -84,7 +83,8 @@ std::unique_ptr<PersistentCacheTier> NewBlockCache(
     Env* env, const std::string& path,
     const uint64_t max_size = std::numeric_limits<uint64_t>::max(),
     const bool enable_direct_writes = false) {
-  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
+  const uint32_t max_file_size =
+      static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   PersistentCacheConfig opt(env, path, max_size, log);
   opt.cache_file_size = max_file_size;
@@ -101,7 +101,8 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
     Env* env, const std::string& path, const uint64_t max_volatile_cache_size,
     const uint64_t max_block_cache_size =
         std::numeric_limits<uint64_t>::max()) {
-  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
+  const uint32_t max_file_size =
+      static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   auto opt = PersistentCacheConfig(env, path, max_block_cache_size, log);
   opt.cache_file_size = max_file_size;
@@ -126,13 +127,13 @@ PersistentCacheTierTest::PersistentCacheTierTest()
 TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   cache_ = NewBlockCache(Env::Default(), path_,
                          /*size=*/std::numeric_limits<uint64_t>::max(),
-                         /*direct_writes=*/ false);
+                         /*direct_writes=*/false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockCacheTier::NewCacheFile:DeleteDir", OnDeleteDir);
 
-  RunNegativeInsertTest(/*nthreads=*/ 1,
+  RunNegativeInsertTest(/*nthreads=*/1,
                         /*max_keys*/
-                          static_cast<size_t>(10 * 1024 * kStressFactor));
+                        static_cast<size_t>(10 * 1024 * kStressFactor));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
@@ -171,7 +172,8 @@ TEST_F(PersistentCacheTierTest, DISABLED_VolatileCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = std::make_shared<VolatileCacheTier>(
-          /*compressed=*/true, /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+          /*compressed=*/true,
+          /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -197,8 +199,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsert) {
 TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
-      cache_ = NewBlockCache(Env::Default(), path_,
-                             /*max_size=*/static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+      cache_ = NewBlockCache(
+          Env::Default(), path_,
+          /*max_size=*/static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -210,8 +213,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsert) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys :
          {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
-      cache_ = NewTieredCache(Env::Default(), path_,
-                              /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+      cache_ = NewTieredCache(
+          Env::Default(), path_,
+          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTest(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -226,7 +230,8 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsertWithEviction) {
       cache_ = NewTieredCache(
           Env::Default(), path_,
           /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor),
-          /*block_cache_size*/ static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+          /*block_cache_size*/
+          static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -290,15 +295,14 @@ PersistentCacheDBTest::PersistentCacheDBTest()
 // test template
 void PersistentCacheDBTest::RunTest(
     const std::function<std::shared_ptr<PersistentCacheTier>(bool)>& new_pcache,
-    const size_t max_keys = 100 * 1024, const size_t max_usecase = 5) {
-
+    const size_t max_keys = 100 * 1024, const size_t max_usecase = 3) {
   // number of insertion interations
   int num_iter = static_cast<int>(max_keys * kStressFactor);
 
   for (size_t iter = 0; iter < max_usecase; iter++) {
     Options options;
     options.write_buffer_size =
-      static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
+        static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options = CurrentOptions(options);
 
@@ -315,43 +319,21 @@ void PersistentCacheDBTest::RunTest(
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
         table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 1:
-        // page cache, block cache, compressed cache
-        pcache = new_pcache(/*is_compressed=*/true);
-        table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = NewLRUCache(size_max);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        break;
-      case 2:
-        // page cache, block cache, compressed cache + KNoCompression
-        // both block cache and compressed cache, but DB is not compressed
-        // also, make block cache sizes bigger, to trigger block cache hits
-        pcache = new_pcache(/*is_compressed=*/true);
-        table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(size_max);
-        table_options.block_cache_compressed = NewLRUCache(size_max);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        options.compression = kNoCompression;
-        break;
-      case 3:
         // page cache, no block cache, no compressed cache
         pcache = new_pcache(/*is_compressed=*/false);
         table_options.persistent_cache = pcache;
         table_options.block_cache = nullptr;
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
-      case 4:
+      case 2:
         // page cache, no block cache, no compressed cache
         // Page cache caches compressed blocks
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
         table_options.block_cache = nullptr;
-        table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       default:
@@ -367,10 +349,6 @@ void PersistentCacheDBTest::RunTest(
     Verify(num_iter, values);
 
     auto block_miss = TestGetTickerCount(options, BLOCK_CACHE_MISS);
-    auto compressed_block_hit =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-    auto compressed_block_miss =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
     auto page_hit = TestGetTickerCount(options, PERSISTENT_CACHE_HIT);
     auto page_miss = TestGetTickerCount(options, PERSISTENT_CACHE_MISS);
 
@@ -381,31 +359,12 @@ void PersistentCacheDBTest::RunTest(
         ASSERT_GT(page_miss, 0);
         ASSERT_GT(page_hit, 0);
         ASSERT_GT(block_miss, 0);
-        ASSERT_EQ(compressed_block_miss, 0);
-        ASSERT_EQ(compressed_block_hit, 0);
         break;
       case 1:
-        // page cache, block cache, compressed cache
-        ASSERT_GT(page_miss, 0);
-        ASSERT_GT(block_miss, 0);
-        ASSERT_GT(compressed_block_miss, 0);
-        break;
       case 2:
-        // page cache, block cache, compressed cache + KNoCompression
-        ASSERT_GT(page_miss, 0);
-        ASSERT_GT(page_hit, 0);
-        ASSERT_GT(block_miss, 0);
-        ASSERT_GT(compressed_block_miss, 0);
-        // remember kNoCompression
-        ASSERT_EQ(compressed_block_hit, 0);
-        break;
-      case 3:
-      case 4:
         // page cache, no block cache, no compressed cache
         ASSERT_GT(page_miss, 0);
         ASSERT_GT(page_hit, 0);
-        ASSERT_EQ(compressed_block_hit, 0);
-        ASSERT_EQ(compressed_block_miss, 0);
         break;
       default:
         FAIL();
@@ -452,6 +411,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else   // !defined ROCKSDB_LITE
-int main() { return 0; }
-#endif  // !defined ROCKSDB_LITE

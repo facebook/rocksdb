@@ -178,6 +178,7 @@ class Tracer {
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
+  Status trace_write_status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

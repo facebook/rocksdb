@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -40,6 +39,7 @@ class CuckooTableDBTest : public testing::Test {
 
   Options CurrentOptions() {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
     options.table_factory.reset(NewCuckooTableFactory());
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;
@@ -77,9 +77,7 @@ class CuckooTableDBTest : public testing::Test {
     return db_->Put(WriteOptions(), k, v);
   }
 
-  Status Delete(const std::string& k) {
-    return db_->Delete(WriteOptions(), k);
-  }
+  Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
   std::string Get(const std::string& k) {
     ReadOptions options;
@@ -313,23 +311,21 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   // Write some keys using plain table.
   std::shared_ptr<TableFactory> block_based_factory(
       NewBlockBasedTableFactory());
-  std::shared_ptr<TableFactory> plain_table_factory(
-      NewPlainTableFactory());
-  std::shared_ptr<TableFactory> cuckoo_table_factory(
-      NewCuckooTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(NewPlainTableFactory());
+  std::shared_ptr<TableFactory> cuckoo_table_factory(NewCuckooTableFactory());
   options.create_if_missing = false;
-  options.table_factory.reset(NewAdaptiveTableFactory(
-    plain_table_factory, block_based_factory, plain_table_factory,
-    cuckoo_table_factory));
+  options.table_factory.reset(
+      NewAdaptiveTableFactory(plain_table_factory, block_based_factory,
+                              plain_table_factory, cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key4", "v4"));
   ASSERT_OK(Put("key1", "v5"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   // Write some keys using block based table.
-  options.table_factory.reset(NewAdaptiveTableFactory(
-    block_based_factory, block_based_factory, plain_table_factory,
-    cuckoo_table_factory));
+  options.table_factory.reset(
+      NewAdaptiveTableFactory(block_based_factory, block_based_factory,
+                              plain_table_factory, cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key5", "v6"));
   ASSERT_OK(Put("key2", "v7"));
@@ -354,12 +350,3 @@ int main(int argc, char** argv) {
   }
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

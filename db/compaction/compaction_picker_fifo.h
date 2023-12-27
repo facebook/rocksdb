@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "db/compaction/compaction_picker.h"
 
@@ -19,11 +18,11 @@ class FIFOCompactionPicker : public CompactionPicker {
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
 
-  virtual Compaction* PickCompaction(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* version,
-      LogBuffer* log_buffer,
-      SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     const MutableDBOptions& mutable_db_options,
+                                     VersionStorageInfo* version,
+                                     LogBuffer* log_buffer) override;
 
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
@@ -53,11 +52,9 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
 
-  Compaction* PickCompactionToWarm(const std::string& cf_name,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   const MutableDBOptions& mutable_db_options,
-                                   VersionStorageInfo* version,
-                                   LogBuffer* log_buffer);
+  Compaction* PickTemperatureChangeCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer);
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

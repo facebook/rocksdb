@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <cinttypes>
 #include <cmath>
@@ -15,6 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
@@ -284,7 +286,6 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
   return string.compare(0, pattern.size(), pattern) == 0;
 }
 
-#ifndef ROCKSDB_LITE
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
@@ -323,7 +324,6 @@ int32_t ParseInt32(const std::string& value) {
   }
 }
 
-#endif
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;
@@ -433,6 +433,45 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
       *value += ":";
     }
     *value += std::to_string(vec[i]);
+  }
+  return true;
+}
+
+int ParseTimeStringToSeconds(const std::string& value) {
+  int hours, minutes;
+  char colon;
+
+  std::istringstream stream(value);
+  stream >> hours >> colon >> minutes;
+
+  if (stream.fail() || !stream.eof() || colon != ':') {
+    return -1;
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return -1;
+  }
+  return hours * 3600 + minutes * 60;
+}
+
+bool TryParseTimeRangeString(const std::string& value, int& start_time,
+                             int& end_time) {
+  if (value.empty()) {
+    start_time = 0;
+    end_time = 0;
+    return true;
+  }
+  auto split = StringSplit(value, '-');
+  if (split.size() != 2) {
+    return false;
+  }
+  start_time = ParseTimeStringToSeconds(split[0]);
+  if (start_time < 0) {
+    return false;
+  }
+  end_time = ParseTimeStringToSeconds(split[1]);
+  if (end_time < 0) {
+    return false;
   }
   return true;
 }

@@ -92,6 +92,10 @@ DEFINE_int32(
     "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
     "implies `Options::manual_wal_flush = true` is set.");
 
+DEFINE_int32(lock_wal_one_in, 1000000,
+             "If non-zero, then `LockWAL()` + `UnlockWAL()` will be called in "
+             "db_stress once for every N ops on average.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
@@ -131,6 +135,9 @@ DEFINE_bool(progress_reports, true,
 DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");
+
+DEFINE_bool(use_write_buffer_manager, false,
+            "Charge WriteBufferManager memory to the block cache");
 
 DEFINE_int32(
     write_buffer_size,
@@ -194,15 +201,23 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
-DEFINE_int64(compressed_cache_size, 0,
-             "Number of bytes to use as a cache of compressed data."
-             " 0 means use default settings.");
+DEFINE_uint64(compressed_secondary_cache_size, 0,
+              "Number of bytes to use as a cache of compressed data."
+              " 0 means use default settings.");
 
-DEFINE_int32(
-    compressed_cache_numshardbits, -1,
-    "Number of shards for the compressed block cache is 2 ** "
-    "compressed_cache_numshardbits. Negative value means default settings. "
-    "This is applied only if compressed_cache_size is greater than 0.");
+DEFINE_int32(compressed_secondary_cache_numshardbits, -1,
+             "Number of shards for the compressed secondary cache is 2 ** "
+             "compressed_secondary_cache_numshardbits. "
+             "Negative value means default settings. This is applied only "
+             "if compressed_secondary_cache_size is greater than 0.");
+
+DEFINE_double(compressed_secondary_cache_ratio, 0.0,
+              "Fraction of block cache memory budget to use for compressed "
+              "secondary cache");
+
+DEFINE_int32(secondary_cache_update_interval, 30 * 1000 * 1000,
+             "Interval between modification of secondary cache parameters, in "
+             "microseconds");
 
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
@@ -376,6 +391,10 @@ DEFINE_uint64(periodic_compaction_seconds, 1000,
 DEFINE_uint64(compaction_ttl, 1000,
               "Files older than TTL will be compacted to the next level.");
 
+DEFINE_bool(fifo_allow_compaction, false,
+            "If true, set `Options::compaction_options_fifo.allow_compaction = "
+            "true`. It only take effect when FIFO compaction is used.");
+
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
@@ -386,7 +405,6 @@ DEFINE_double(experimental_mempurge_threshold, 0.0,
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
-#ifndef ROCKSDB_LITE
 // Options for StackableDB-based BlobDB
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
@@ -414,7 +432,6 @@ DEFINE_double(
     blob_db_gc_cutoff,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
     "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
-#endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
 DEFINE_bool(allow_setting_blob_options_dynamically, false,
@@ -520,10 +537,11 @@ DEFINE_double(bloom_bits, 10,
               "Negative means use default settings.");
 
 DEFINE_int32(
-    ribbon_starting_level, 999,
+    bloom_before_level, 999,
     "Use Bloom filter on levels below specified and Ribbon beginning on level "
-    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
-    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
+    "specified. Flush is considered level -1. Setting -1 -> always Ribbon. "
+    "0 -> Ribbon except Bloom for flush. INT_MAX (typically 2147483647) -> "
+    "always Bloom.");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -663,13 +681,24 @@ DEFINE_uint64(sst_file_manager_bytes_per_truncate, 0,
               "many bytes. By default whole files will be deleted.");
 
 DEFINE_bool(use_txn, false,
-            "Use TransactionDB. Currently the default write policy is "
-            "TxnDBWritePolicy::WRITE_PREPARED");
+            "Use TransactionDB or OptimisticTransactionDB. When "
+            "use_optimistic_txn == false (by default), "
+            "it's (Pessimistic) TransactionDB");
 
 DEFINE_uint64(txn_write_policy, 0,
               "The transaction write policy. Default is "
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
-              "changed accross crashes.");
+              "changed across crashes.");
+
+DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
+DEFINE_uint64(occ_validation_policy, 1,
+              "Optimistic Concurrency Control Validation Policy for "
+              "OptimisticTransactionDB");
+DEFINE_bool(share_occ_lock_buckets, false,
+            "Share a pool of locks across DB instances for buckets");
+DEFINE_uint32(
+    occ_lock_bucket_count, 500,
+    "Bucket Count for shared Optimistic Concurrency Control (OCC) locks");
 
 DEFINE_bool(unordered_write, false,
             "Turn on the unordered_write feature. This options is currently "
@@ -740,6 +769,11 @@ DEFINE_bool(long_running_snapshots, false,
 
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads");
+
+DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
+
+DEFINE_bool(use_multi_get_entity, false,
+            "If set, use the MultiGetEntity API for reads");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
@@ -822,6 +856,9 @@ DEFINE_bool(
     "zstd's finalizeDictionary() API is used to generate dictionary. "
     "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
     "this flag will have the default value true.");
+
+DEFINE_bool(compression_checksum, false,
+            "Turn on zstd's checksum feature for detecting corruption.");
 
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
@@ -907,6 +944,13 @@ DEFINE_int32(verify_checksum_one_in, 0,
              " checksum verification of all the files in the database once for"
              " every N ops on average. 0 indicates that calls to"
              " VerifyChecksum() are disabled.");
+
+DEFINE_int32(verify_file_checksums_one_in, 0,
+             "If non-zero, then DB::VerifyFileChecksums() will be called to do"
+             " checksum verification of all the files in the database once for"
+             " every N ops on average. 0 indicates that calls to"
+             " VerifyFileChecksums() are disabled.");
+
 DEFINE_int32(verify_db_one_in, 0,
              "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
              "that VerifyDb() will not be called in OperateDb(). Note that "
@@ -964,36 +1008,47 @@ DEFINE_uint32(
     "specified number of bytes per key. Currently the supported "
     "nonzero values are 1, 2, 4 and 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in blocks at the "
+              "specified number of bytes per key. Currently the supported "
+              "nonzero values are 1, 2, 4 and 8.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
 
 DEFINE_int32(write_fault_one_in, 0,
-             "On non-zero, enables fault injection on write");
+             "On non-zero, enables fault injection on write. Currently only"
+             "injects write error when writing to SST files.");
 
 DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
 
+DEFINE_bool(persist_user_defined_timestamps, true,
+            "Flag to indicate whether user-defined timestamps will be persisted"
+            " during Flush");
+
 DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
              "during DB reopen.");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
 DEFINE_int32(secondary_cache_fault_one_in, 0,
              "On non-zero, enables fault injection in secondary cache inserts"
              " and lookups");
-#endif  // ROCKSDB_LITE
+DEFINE_double(tiered_cache_percent_compressed, 0.0,
+              "Percentage of total block cache budget to allocate to the "
+              "compressed cache");
 DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file writes "
              "during DB reopen.");
 DEFINE_int32(open_read_fault_one_in, 0,
              "On non-zero, enables fault injection on file reads "
              "during DB reopen.");
-DEFINE_int32(injest_error_severity, 1,
-             "The severity of the injested IO Error. 1 is soft error (e.g. "
+DEFINE_int32(inject_error_severity, 1,
+             "The severity of the injected IO Error. 1 is soft error (e.g. "
              "retryable error), 2 is fatal error, and the default is "
              "retryable error.");
 DEFINE_int32(prepopulate_block_cache,
@@ -1004,7 +1059,6 @@ DEFINE_int32(prepopulate_block_cache,
 
 DEFINE_bool(two_write_queues, false,
             "Set to true to enable two write queues. Default: false");
-#ifndef ROCKSDB_LITE
 
 DEFINE_bool(use_only_the_last_commit_time_batch_for_recovery, false,
             "If true, the commit-time write batch will not be immediately "
@@ -1018,7 +1072,6 @@ DEFINE_uint64(
 DEFINE_uint64(wp_commit_cache_bits, 23ull,
               "Number of bits to represent write-prepared transaction db's "
               "commit cache. Default: 23 (8M entries)");
-#endif  // !ROCKSDB_LITE
 
 DEFINE_bool(adaptive_readahead, false,
             "Carry forward internal auto readahead size from one file to next "
@@ -1043,6 +1096,11 @@ DEFINE_int32(
 DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
+
+DEFINE_bool(enable_thread_tracking,
+            ROCKSDB_NAMESPACE::Options().enable_thread_tracking,
+            "If true, the status of the threads involved in this DB will be "
+            "tracked and available via GetThreadList() API.");
 
 DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
              "If non-zero, when TestIterate() is to be called, there is a "
@@ -1070,5 +1128,22 @@ DEFINE_bool(
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+
+DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
+
+DEFINE_bool(verification_only, false,
+            "If true, tests will only execute verification step");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
+
+DEFINE_uint32(memtable_max_range_deletions, 0,
+              "If nonzero, RocksDB will try to flush the current memtable"
+              "after the number of range deletions is >= this limit");
+
+DEFINE_uint32(bottommost_file_compaction_delay, 0,
+              "Delay kBottommostFiles compaction by this amount of seconds."
+              "See more in option comment.");
+
+DEFINE_bool(auto_readahead_size, false,
+            "Does auto tuning of readahead_size when enabled during scans.");
 
 #endif  // GFLAGS

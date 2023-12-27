@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
@@ -46,9 +46,7 @@ class InstrumentedMutex {
 
   void Unlock() { mutex_.Unlock(); }
 
-  void AssertHeld() {
-    mutex_.AssertHeld();
-  }
+  void AssertHeld() const { mutex_.AssertHeld(); }
 
  private:
   void LockInternal();
@@ -76,9 +74,7 @@ class InstrumentedMutexLock {
     mutex_->Lock();
   }
 
-  ~InstrumentedMutexLock() {
-    mutex_->Unlock();
-  }
+  ~InstrumentedMutexLock() { mutex_->Unlock(); }
 
  private:
   InstrumentedMutex* const mutex_;
@@ -114,13 +110,9 @@ class InstrumentedCondVar {
 
   bool TimedWait(uint64_t abs_time_us);
 
-  void Signal() {
-    cond_.Signal();
-  }
+  void Signal() { cond_.Signal(); }
 
-  void SignalAll() {
-    cond_.SignalAll();
-  }
+  void SignalAll() { cond_.SignalAll(); }
 
  private:
   void WaitInternal();

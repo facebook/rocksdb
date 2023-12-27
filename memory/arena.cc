@@ -143,9 +143,10 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  auto uniq = std::make_unique<char[]>(block_bytes);
-  char* block = uniq.get();
-  blocks_.push_back(std::move(uniq));
+  // NOTE: std::make_unique zero-initializes the block so is not appropriate
+  // here
+  char* block = new char[block_bytes];
+  blocks_.push_back(std::unique_ptr<char[]>(block));
 
   size_t allocated_size;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

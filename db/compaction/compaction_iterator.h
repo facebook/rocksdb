@@ -38,15 +38,18 @@ class SequenceIterWrapper : public InternalIterator {
   bool Valid() const override { return inner_iter_->Valid(); }
   Status status() const override { return inner_iter_->status(); }
   void Next() override {
-    num_itered_++;
+    if (!inner_iter_->IsDeleteRangeSentinelKey()) {
+      num_itered_++;
+    }
     inner_iter_->Next();
   }
   void Seek(const Slice& target) override {
     if (!need_count_entries_) {
+      has_num_itered_ = false;
       inner_iter_->Seek(target);
     } else {
-      // For flush cases, we need to count total number of entries, so we
-      // do Next() rather than Seek().
+      // Need to count total number of entries,
+      // so we do Next() rather than Seek().
       while (inner_iter_->Valid() &&
              icmp_.Compare(inner_iter_->key(), target) < 0) {
         Next();
@@ -62,13 +65,19 @@ class SequenceIterWrapper : public InternalIterator {
   void SeekForPrev(const Slice& /* target */) override { assert(false); }
   void SeekToLast() override { assert(false); }
 
-  uint64_t num_itered() const { return num_itered_; }
+  uint64_t NumItered() const { return num_itered_; }
+  bool HasNumItered() const { return has_num_itered_; }
+  bool IsDeleteRangeSentinelKey() const override {
+    assert(Valid());
+    return inner_iter_->IsDeleteRangeSentinelKey();
+  }
 
  private:
   InternalKeyComparator icmp_;
   InternalIterator* inner_iter_;  // not owned
   uint64_t num_itered_ = 0;
   bool need_count_entries_;
+  bool has_num_itered_ = true;
 };
 
 class CompactionIterator {
@@ -110,7 +119,8 @@ class CompactionIterator {
     virtual bool SupportsPerKeyPlacement() const = 0;
 
     // `key` includes timestamp if user-defined timestamp is enabled.
-    virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
+    virtual bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey&) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -177,14 +187,19 @@ class CompactionIterator {
     // Check if key is within penultimate level output range, to see if it's
     // safe to output to the penultimate level for per_key_placement feature.
     // `key` includes timestamp if user-defined timestamp is enabled.
-    bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
-      return compaction_->WithinPenultimateLevelOutputRange(key);
+    bool WithinPenultimateLevelOutputRange(
+        const ParsedInternalKey& ikey) const override {
+      return compaction_->WithinPenultimateLevelOutputRange(ikey);
     }
 
    private:
     const Compaction* compaction_;
   };
 
+  // @param must_count_input_entries  if true, `NumInputEntryScanned()` will
+  // return the number of input keys scanned. If false, `NumInputEntryScanned()`
+  // will return this number if no Seek was called on `input`. User should call
+  // `HasNumInputEntryScanned()` first in this case.
   CompactionIterator(
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -195,7 +210,7 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      const Compaction* compaction = nullptr,
+      bool must_count_input_entries, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -215,6 +230,7 @@ class CompactionIterator {
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
       std::unique_ptr<CompactionProxy> compaction,
+      bool must_count_input_entries,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -242,15 +258,23 @@ class CompactionIterator {
   const Status& status() const { return status_; }
   const ParsedInternalKey& ikey() const { return ikey_; }
   inline bool Valid() const { return validity_info_.IsValid(); }
-  const Slice& user_key() const { return current_user_key_; }
+  const Slice& user_key() const {
+    if (UNLIKELY(is_range_del_)) {
+      return ikey_.user_key;
+    }
+    return current_user_key_;
+  }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
-  uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
+  bool HasNumInputEntryScanned() const { return input_.HasNumItered(); }
+  uint64_t NumInputEntryScanned() const { return input_.NumItered(); }
   // If the current key should be placed on penultimate level, only valid if
   // per_key_placement is supported
   bool output_to_penultimate_level() const {
     return output_to_penultimate_level_;
   }
   Status InputStatus() const { return input_.status(); }
+
+  bool IsDeleteRangeSentinelKey() const { return is_range_del_; }
 
  private:
   // Processes the input stream to find the next output
@@ -385,6 +409,7 @@ class CompactionIterator {
     kKeepSD = 8,
     kKeepDel = 9,
     kNewUserKey = 10,
+    kRangeDeletion = 11,
   };
 
   struct ValidityInfo {
@@ -432,6 +457,7 @@ class CompactionIterator {
   bool clear_and_output_next_key_ = false;
 
   MergeOutputIterator merge_out_iter_;
+  Status merge_until_status_;
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
@@ -492,6 +518,10 @@ class CompactionIterator {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return manual_compaction_canceled_.load(std::memory_order_relaxed);
   }
+
+  // Stores whether the current compaction iterator output
+  // is a range tombstone start key.
+  bool is_range_del_{false};
 };
 
 inline bool CompactionIterator::DefinitelyInSnapshot(SequenceNumber seq,

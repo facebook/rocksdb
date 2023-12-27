@@ -14,5 +14,5 @@ public class RemoveEmptyValueCompactionFilter
     super(createNewRemoveEmptyValueCompactionFilter0());
   }
 
-  private native static long createNewRemoveEmptyValueCompactionFilter0();
+  private static native long createNewRemoveEmptyValueCompactionFilter0();
 }

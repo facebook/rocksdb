@@ -29,7 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinEnvs(ObjectLibrary& library,
                                const std::string& /*arg*/) {
   library.AddFactory<Env>(MockEnv::kClassName(), [](const std::string& /*uri*/,
@@ -48,15 +47,12 @@ static int RegisterBuiltinEnvs(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 static void RegisterSystemEnvs() {
-#ifndef ROCKSDB_LITE
   static std::once_flag loaded;
   std::call_once(loaded, [&]() {
     RegisterBuiltinEnvs(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
 }
 
 class LegacySystemClock : public SystemClock {
@@ -97,7 +93,6 @@ class LegacySystemClock : public SystemClock {
     return env_->TimeToString(time);
   }
 
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacySystemClock to appear in the serialized output.
@@ -105,7 +100,6 @@ class LegacySystemClock : public SystemClock {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
-#endif  // ROCKSDB_LITE
 };
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
@@ -165,8 +159,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       req.len = fs_reqs[i].len;
       req.scratch = fs_reqs[i].scratch;
       req.status = Status::OK();
-
-      reqs.emplace_back(req);
+      reqs.emplace_back(std::move(req));
     }
     status = target_->MultiRead(reqs.data(), num_reqs);
     for (size_t i = 0; i < num_reqs; ++i) {
@@ -366,7 +359,7 @@ class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
-  ~LegacyFileSystemWrapper() override {}
+  ~LegacyFileSystemWrapper() override = default;
 
   static const char* kClassName() { return "LegacyFileSystem"; }
   const char* Name() const override { return kClassName(); }
@@ -605,7 +598,6 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacyFileSystem to appear in the serialized output.
@@ -613,7 +605,6 @@ class LegacyFileSystemWrapper : public FileSystem {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
-#endif  // ROCKSDB_LITE
  private:
   Env* target_;
 };
@@ -633,16 +624,11 @@ Env::Env(const std::shared_ptr<FileSystem>& fs,
          const std::shared_ptr<SystemClock>& clock)
     : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
 
-Env::~Env() {
-}
+Env::~Env() = default;
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
   return NewEnvLogger(fname, this, result);
-}
-
-Status Env::LoadEnv(const std::string& value, Env** result) {
-  return CreateFromString(ConfigOptions(), value, result);
 }
 
 Status Env::CreateFromString(const ConfigOptions& config_options,
@@ -654,17 +640,12 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
     Env* env = *result;
-    Status s = LoadStaticObject<Env>(config_options, value, nullptr, &env);
+    Status s = LoadStaticObject<Env>(config_options, value, &env);
     if (s.ok()) {
       *result = env;
     }
     return s;
   }
-}
-
-Status Env::LoadEnv(const std::string& value, Env** result,
-                    std::shared_ptr<Env>* guard) {
-  return CreateFromString(ConfigOptions(), value, result, guard);
 }
 
 Status Env::CreateFromString(const ConfigOptions& config_options,
@@ -689,13 +670,8 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
     status = Status::OK();
   } else {
     RegisterSystemEnvs();
-#ifndef ROCKSDB_LITE
     // First, try to load the Env as a unique object.
     status = config_options.registry->NewObject<Env>(id, &env, &uniq);
-#else
-    status =
-        Status::NotSupported("Cannot load environment in LITE mode", value);
-#endif
   }
   if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
     status = Status::OK();
@@ -821,7 +797,7 @@ std::string Env::GenerateUniqueId() {
 
     // Use 36 character format of RFC 4122
     result.resize(36U);
-    char* buf = &result[0];
+    char* buf = result.data();
     PutBaseChars<16>(&buf, 8, upper >> 32, /*!uppercase*/ false);
     *(buf++) = '-';
     PutBaseChars<16>(&buf, 4, upper >> 16, /*!uppercase*/ false);
@@ -841,18 +817,15 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-SequentialFile::~SequentialFile() {
-}
+SequentialFile::~SequentialFile() = default;
 
-RandomAccessFile::~RandomAccessFile() {
-}
+RandomAccessFile::~RandomAccessFile() = default;
 
-WritableFile::~WritableFile() {
-}
+WritableFile::~WritableFile() = default;
 
-MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
+MemoryMappedFileBuffer::~MemoryMappedFileBuffer() = default;
 
-Logger::~Logger() {}
+Logger::~Logger() = default;
 
 Status Logger::Close() {
   if (!closed_) {
@@ -865,16 +838,15 @@ Status Logger::Close() {
 
 Status Logger::CloseImpl() { return Status::NotSupported(); }
 
-FileLock::~FileLock() {
-}
+FileLock::~FileLock() = default;
 
-void LogFlush(Logger *info_log) {
+void LogFlush(Logger* info_log) {
   if (info_log) {
     info_log->Flush();
   }
 }
 
-static void Logv(Logger *info_log, const char* format, va_list ap) {
+static void Logv(Logger* info_log, const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
     info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
@@ -887,9 +859,10 @@ void Log(Logger* info_log, const char* format, ...) {
   va_end(ap);
 }
 
-void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
-  static const char* kInfoLogLevelNames[5] = { "DEBUG", "INFO", "WARN",
-    "ERROR", "FATAL" };
+void Logger::Logv(const InfoLogLevel log_level, const char* format,
+                  va_list ap) {
+  static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN", "ERROR",
+                                              "FATAL"};
   if (log_level < log_level_) {
     return;
   }
@@ -906,7 +879,7 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
   } else {
     char new_format[500];
     snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
-      kInfoLogLevelNames[log_level], format);
+             kInfoLogLevelNames[log_level], format);
     Logv(new_format, ap);
   }
 
@@ -919,7 +892,8 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
   }
 }
 
-static void Logv(const InfoLogLevel log_level, Logger *info_log, const char *format, va_list ap) {
+static void Logv(const InfoLogLevel log_level, Logger* info_log,
+                 const char* format, va_list ap) {
   if (info_log && info_log->GetInfoLogLevel() <= log_level) {
     if (log_level == InfoLogLevel::HEADER_LEVEL) {
       info_log->LogHeader(format, ap);
@@ -937,7 +911,7 @@ void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
   va_end(ap);
 }
 
-static void Headerv(Logger *info_log, const char *format, va_list ap) {
+static void Headerv(Logger* info_log, const char* format, va_list ap) {
   if (info_log) {
     info_log->LogHeader(format, ap);
   }
@@ -1106,7 +1080,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   options.env->SanitizeEnvOptions(env_options);
 }
 
-}
+}  // namespace
 
 EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
                                     const DBOptions& db_options) const {
@@ -1189,11 +1163,9 @@ const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
 }
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {"target",
      OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace
@@ -1209,7 +1181,6 @@ Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
   return SystemClock::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string SystemClockWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto parent = SystemClock::SerializeOptions(config_options, "");
@@ -1229,9 +1200,7 @@ std::string SystemClockWrapper::SerializeOptions(
     return result;
   }
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
   library.AddFactory<SystemClock>(
@@ -1244,7 +1213,6 @@ static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status SystemClock::CreateFromString(const ConfigOptions& config_options,
                                      const std::string& value,
@@ -1254,14 +1222,16 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     *result = clock;
     return Status::OK();
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag once;
     std::call_once(once, [&]() {
       RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
     });
-#endif  // ROCKSDB_LITE
-    return LoadSharedObject<SystemClock>(config_options, value, nullptr,
-                                         result);
+    return LoadSharedObject<SystemClock>(config_options, value, result);
   }
+}
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
 }
 }  // namespace ROCKSDB_NAMESPACE

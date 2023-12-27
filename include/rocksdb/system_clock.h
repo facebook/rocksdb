@@ -9,9 +9,11 @@
 #pragma once
 #include <stdint.h>
 
+#include <chrono>
 #include <memory>
 
 #include "rocksdb/customizable.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 
@@ -27,7 +29,7 @@ struct ConfigOptions;
 // operating system time-related functionality.
 class SystemClock : public Customizable {
  public:
-  virtual ~SystemClock() {}
+  ~SystemClock() override {}
 
   static const char* Type() { return "SystemClock"; }
   static Status CreateFromString(const ConfigOptions& options,
@@ -68,6 +70,14 @@ class SystemClock : public Customizable {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
+  // For internal use/extension only.
+  //
+  // Issues a wait on `cv` that times out at `deadline`. May wakeup and return
+  // spuriously.
+  //
+  // Returns true if wait timed out, false otherwise
+  virtual bool TimedWait(port::CondVar* cv, std::chrono::microseconds deadline);
+
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
   virtual Status GetCurrentTime(int64_t* unix_time) = 0;
@@ -94,6 +104,11 @@ class SystemClockWrapper : public SystemClock {
     return target_->SleepForMicroseconds(micros);
   }
 
+  virtual bool TimedWait(port::CondVar* cv,
+                         std::chrono::microseconds deadline) override {
+    return target_->TimedWait(cv, deadline);
+  }
+
   Status GetCurrentTime(int64_t* unix_time) override {
     return target_->GetCurrentTime(unix_time);
   }
@@ -103,10 +118,8 @@ class SystemClockWrapper : public SystemClock {
   }
 
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
   const Customizable* Inner() const override { return target_.get(); }
 
  protected:

@@ -60,13 +60,10 @@ class RandomAccessFileReaderTest : public testing::Test {
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
 
-  std::string Path(const std::string& fname) {
-    return test_dir_ + "/" + fname;
-  }
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
-#ifndef ROCKSDB_LITE
 
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
@@ -86,8 +83,9 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   Slice result;
   AlignedBuf buf;
   for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
-    ASSERT_OK(r->Read(IOOptions(), offset, len, &result, nullptr, &buf,
-                      rate_limiter_priority));
+    IOOptions io_opts;
+    io_opts.rate_limiter_priority = rate_limiter_priority;
+    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr, &buf));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
 }
@@ -98,7 +96,18 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
       "RandomAccessFileReader::MultiRead:AlignedReqs", [&](void* reqs) {
         // Copy reqs, since it's allocated on stack inside MultiRead, which will
         // be deallocated after MultiRead returns.
-        aligned_reqs = *reinterpret_cast<std::vector<FSReadRequest>*>(reqs);
+        size_t i = 0;
+        aligned_reqs.resize(
+            (*reinterpret_cast<std::vector<FSReadRequest>*>(reqs)).size());
+        for (auto& req :
+             (*reinterpret_cast<std::vector<FSReadRequest>*>(reqs))) {
+          aligned_reqs[i].offset = req.offset;
+          aligned_reqs[i].len = req.len;
+          aligned_reqs[i].result = req.result;
+          aligned_reqs[i].status = req.status;
+          aligned_reqs[i].scratch = req.scratch;
+          i++;
+        }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -138,8 +147,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           Env::IO_TOTAL /* rate_limiter_priority */));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
 
@@ -183,8 +192,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           Env::IO_TOTAL /* rate_limiter_priority */));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
 
@@ -228,8 +237,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           Env::IO_TOTAL /* rate_limiter_priority */));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
 
@@ -265,8 +274,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           Env::IO_TOTAL /* rate_limiter_priority */));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
 
@@ -285,8 +294,6 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-
-#endif  // ROCKSDB_LITE
 
 TEST(FSReadRequest, Align) {
   FSReadRequest r;
@@ -418,7 +425,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
@@ -441,7 +450,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
@@ -464,7 +475,9 @@ TEST(FSReadRequest, TryMerge) {
       src.scratch = nullptr;
       ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);

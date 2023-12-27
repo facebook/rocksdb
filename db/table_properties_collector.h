@@ -98,8 +98,13 @@ class UserKeyTablePropertiesCollectorFactory
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
     context.level_at_creation = level_at_creation;
-    return new UserKeyTablePropertiesCollector(
-        user_collector_factory_->CreateTablePropertiesCollector(context));
+    TablePropertiesCollector* collector =
+        user_collector_factory_->CreateTablePropertiesCollector(context);
+    if (collector) {
+      return new UserKeyTablePropertiesCollector(collector);
+    } else {
+      return nullptr;
+    }
   }
 
   virtual const char* Name() const override {
@@ -150,8 +155,10 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
   }
 
   Status Finish(UserCollectedProperties* properties) override {
+    // timestamp is empty is table is empty
     assert(timestamp_min_.size() == timestamp_max_.size() &&
-           timestamp_max_.size() == cmp_->timestamp_size());
+           (timestamp_min_.empty() ||
+            timestamp_max_.size() == cmp_->timestamp_size()));
     properties->insert({"rocksdb.timestamp_min", timestamp_min_});
     properties->insert({"rocksdb.timestamp_max", timestamp_max_});
     return Status::OK();

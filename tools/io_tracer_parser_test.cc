@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -181,10 +180,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 #endif  // GFLAGS
-#else
-#include <stdio.h>
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "io_tracer_parser_test is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-#endif  // ROCKSDB_LITE

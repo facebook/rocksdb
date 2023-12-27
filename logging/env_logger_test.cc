@@ -5,6 +5,7 @@
 //
 
 #include "logging/env_logger.h"
+
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -137,7 +138,7 @@ TEST_F(EnvLoggerTest, ConcurrentLogging) {
   const int kNumThreads = 5;
   // Create threads.
   for (int ii = 0; ii < kNumThreads; ++ii) {
-    threads.push_back(port::Thread(cb));
+    threads.emplace_back(cb);
   }
 
   // Wait for them to complete.

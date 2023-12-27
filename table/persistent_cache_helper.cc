@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/persistent_cache_helper.h"
+
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 
