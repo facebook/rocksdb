@@ -209,6 +209,7 @@ class DBIter final : public Iterator {
     if (read_callback_) {
       read_callback_->Refresh(s);
     }
+    iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
 
@@ -312,12 +313,20 @@ class DBIter final : public Iterator {
 
   bool SetValueAndColumnsFromEntity(Slice slice);
 
+  bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
+                                         ValueType result_type);
+
   void ResetValueAndColumns() {
     value_.clear();
     wide_columns_.clear();
   }
 
-  Status Merge(const Slice* val, const Slice& user_key);
+  // The following methods perform the actual merge operation for the
+  // no base value/plain base value/wide-column base value cases.
+  // If user-defined timestamp is enabled, `user_key` includes timestamp.
+  bool MergeWithNoBaseValue(const Slice& user_key);
+  bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
+  bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
@@ -382,25 +391,17 @@ class DBIter final : public Iterator {
   bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
+  const Env::IOActivity io_activity_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   DBImpl* db_impl_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   ColumnFamilyData* cfd_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
-
-  // Used only if timestamp_lb_ is not nullptr.
-  std::string saved_ikey_;
 };
 
 // Return a new iterator that converts internal keys (yielded by

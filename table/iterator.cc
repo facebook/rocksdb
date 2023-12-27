@@ -29,7 +29,7 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
 namespace {
 class EmptyIterator : public Iterator {
  public:
-  explicit EmptyIterator(const Status& s) : status_(s) { }
+  explicit EmptyIterator(const Status& s) : status_(s) {}
   bool Valid() const override { return false; }
   void Seek(const Slice& /*target*/) override {}
   void SeekForPrev(const Slice& /*target*/) override {}

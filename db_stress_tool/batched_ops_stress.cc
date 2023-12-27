@@ -13,13 +13,13 @@
 namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
-  BatchedOpsStressTest() {}
-  virtual ~BatchedOpsStressTest() {}
+  BatchedOpsStressTest() = default;
+  virtual ~BatchedOpsStressTest() = default;
 
   bool IsStateTracked() const override { return false; }
 
-  // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
-  // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
+  // Given a key K and value V, this puts ("0"+K, V+"0"), ("1"+K, V+"1"), ...,
+  // ("9"+K, V+"9") in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
@@ -29,12 +29,11 @@ class BatchedOpsStressTest : public StressTest {
     assert(!rand_column_families.empty());
     assert(!rand_keys.empty());
 
-    const std::string key_suffix = Key(rand_keys[0]);
+    const std::string key_body = Key(rand_keys[0]);
 
-    const uint32_t value_base =
-        thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+    const uint32_t value_base = thread->rand.Next();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
-    const std::string value_suffix = Slice(value, sz).ToString();
+    const std::string value_body = Slice(value, sz).ToString();
 
     WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
                      FLAGS_batch_protection_bytes_per_key,
@@ -44,16 +43,20 @@ class BatchedOpsStressTest : public StressTest {
     assert(cfh);
 
     for (int i = 9; i >= 0; --i) {
-      const std::string prefix = std::to_string(i);
+      const std::string num = std::to_string(i);
 
-      const std::string k = prefix + key_suffix;
-      const std::string v = prefix + value_suffix;
+      // Note: the digit in num is prepended to the key; however, it is appended
+      // to the value because we want the "value base" to be encoded uniformly
+      // at the beginning of the value for all types of stress tests (e.g.
+      // batched, non-batched, CF consistency).
+      const std::string k = num + key_body;
+      const std::string v = value_body + num;
 
-      if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
-      } else if (FLAGS_use_put_entity_one_in > 0 &&
-                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
+        batch.Merge(cfh, k, v);
       } else {
         batch.Put(cfh, k, v);
       }
@@ -72,7 +75,7 @@ class BatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  // Given a key K, this deletes ("0"+K), ("1"+K),... ("9"+K)
+  // Given a key K, this deletes ("0"+K), ("1"+K), ..., ("9"+K)
   // in DB atomically i.e in a single batch. Also refer MultiGet.
   Status TestDelete(ThreadState* thread, WriteOptions& writeoptions,
                     const std::vector<int>& rand_column_families,
@@ -122,9 +125,9 @@ class BatchedOpsStressTest : public StressTest {
     std::terminate();
   }
 
-  // Given a key K, this gets values for "0"+K, "1"+K,..."9"+K
+  // Given a key K, this gets values for "0"+K, "1"+K, ..., "9"+K
   // in the same snapshot, and verifies that all the values are of the form
-  // "0"+V, "1"+V,..."9"+V.
+  // V+"0", V+"1", ..., V+"9".
   // ASSUMES that BatchedOpsStressTest::TestPut was used to put (K, V) into
   // the DB.
   Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
@@ -156,13 +159,19 @@ class BatchedOpsStressTest : public StressTest {
       } else {
         values[i] = from_db;
 
-        char expected_prefix = (keys[i])[0];
-        char actual_prefix = (values[i])[0];
-        if (actual_prefix != expected_prefix) {
-          fprintf(stderr, "error expected prefix = %c actual = %c\n",
-                  expected_prefix, actual_prefix);
+        assert(!keys[i].empty());
+        assert(!values[i].empty());
+
+        const char expected = keys[i].front();
+        const char actual = values[i].back();
+
+        if (expected != actual) {
+          fprintf(stderr, "get error expected = %c actual = %c\n", expected,
+                  actual);
         }
-        (values[i])[0] = ' ';  // blank out the differing character
+
+        values[i].pop_back();  // get rid of the differing character
+
         thread->stats.AddGets(1, 1);
       }
     }
@@ -171,7 +180,7 @@ class BatchedOpsStressTest : public StressTest {
     // Now that we retrieved all values, check that they all match
     for (int i = 1; i < 10; i++) {
       if (values[i] != values[0]) {
-        fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
+        fprintf(stderr, "get error: inconsistent values for key %s: %s, %s\n",
                 key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
                 StringToHex(values[i]).c_str());
         // we continue after error rather than exiting so that we can
@@ -188,8 +197,8 @@ class BatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<Status> ret_status(num_keys);
-    std::array<std::string, 10> keys = {{"0", "1", "2", "3", "4",
-                                         "5", "6", "7", "8", "9"}};
+    std::array<std::string, 10> keys = {
+        {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}};
     size_t num_prefixes = keys.size();
     for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
       std::vector<Slice> key_slices;
@@ -214,7 +223,7 @@ class BatchedOpsStressTest : public StressTest {
       for (size_t i = 0; i < num_prefixes; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {
-          fprintf(stderr, "get error: %s\n", s.ToString().c_str());
+          fprintf(stderr, "multiget error: %s\n", s.ToString().c_str());
           thread->stats.AddErrors(1);
           ret_status[rand_key] = s;
           // we continue after error rather than exiting so that we can
@@ -223,17 +232,19 @@ class BatchedOpsStressTest : public StressTest {
           thread->stats.AddGets(1, 0);
           ret_status[rand_key] = s;
         } else {
-          char expected_prefix = (keys[i])[0];
-          char actual_prefix = (values[i])[0];
-          if (actual_prefix != expected_prefix) {
-            fprintf(stderr, "error expected prefix = %c actual = %c\n",
-                    expected_prefix, actual_prefix);
+          assert(!keys[i].empty());
+          assert(!values[i].empty());
+
+          const char expected = keys[i][0];
+          const char actual = values[i][values[i].size() - 1];
+
+          if (expected != actual) {
+            fprintf(stderr, "multiget error expected = %c actual = %c\n",
+                    expected, actual);
           }
-          std::string str;
-          str.assign(values[i].data(), values[i].size());
-          values[i].Reset();
-          str[0] = ' ';  // blank out the differing character
-          values[i].PinSelf(str);
+
+          values[i].remove_suffix(1);  // get rid of the differing character
+
           thread->stats.AddGets(1, 1);
         }
       }
@@ -242,7 +253,8 @@ class BatchedOpsStressTest : public StressTest {
       // Now that we retrieved all values, check that they all match
       for (size_t i = 1; i < num_prefixes; i++) {
         if (values[i] != values[0]) {
-          fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
+          fprintf(stderr,
+                  "multiget error: inconsistent values for key %s: %s, %s\n",
                   StringToHex(key_str[i]).c_str(),
                   StringToHex(values[0].ToString()).c_str(),
                   StringToHex(values[i].ToString()).c_str());
@@ -255,11 +267,184 @@ class BatchedOpsStressTest : public StressTest {
     return ret_status;
   }
 
-  // Given a key, this does prefix scans for "0"+P, "1"+P,..."9"+P
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    assert(!rand_keys.empty());
+
+    const std::string key_suffix = Key(rand_keys[0]);
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    constexpr size_t num_keys = 10;
+
+    std::array<PinnableWideColumns, num_keys> results;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key = std::to_string(i) + key_suffix;
+
+      const Status s = db_->GetEntity(read_opts_copy, cfh, key, &results[i]);
+
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
+        thread->stats.AddErrors(1);
+      } else if (s.IsNotFound()) {
+        thread->stats.AddGets(1, 0);
+      } else {
+        thread->stats.AddGets(1, 1);
+      }
+    }
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const WideColumns& columns = results[i].columns();
+
+      if (!CompareColumns(results[0].columns(), columns)) {
+        fprintf(stderr,
+                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(results[0].columns()).c_str(),
+                WideColumnsToHex(columns).c_str());
+      }
+
+      if (!columns.empty()) {
+        // The last character of each column value should be 'i' as a decimal
+        // digit
+        const char expected = static_cast<char>('0' + i);
+
+        for (const auto& column : columns) {
+          const Slice& value = column.value();
+
+          if (value.empty() || value[value.size() - 1] != expected) {
+            fprintf(stderr,
+                    "GetEntity error: incorrect column value for key "
+                    "%s, entity %s, column value %s, expected %c\n",
+                    StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(columns).c_str(),
+                    value.ToString(/* hex */ true).c_str(), expected);
+          }
+        }
+
+        if (!VerifyWideColumns(columns)) {
+          fprintf(
+              stderr,
+              "GetEntity error: inconsistent columns for key %s, entity %s\n",
+              StringToHex(key_suffix).c_str(),
+              WideColumnsToHex(columns).c_str());
+        }
+      }
+    }
+  }
+
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    assert(!rand_keys.empty());
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    const size_t num_keys = rand_keys.size();
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key_suffix = Key(rand_keys[i]);
+
+      constexpr size_t num_prefixes = 10;
+
+      std::array<std::string, num_prefixes> keys;
+      std::array<Slice, num_prefixes> key_slices;
+      std::array<PinnableWideColumns, num_prefixes> results;
+      std::array<Status, num_prefixes> statuses;
+
+      for (size_t j = 0; j < num_prefixes; ++j) {
+        keys[j] = std::to_string(j) + key_suffix;
+        key_slices[j] = keys[j];
+      }
+
+      db_->MultiGetEntity(read_opts_copy, cfh, num_prefixes, key_slices.data(),
+                          results.data(), statuses.data());
+
+      for (size_t j = 0; j < num_prefixes; ++j) {
+        const Status& s = statuses[j];
+
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+        } else if (s.IsNotFound()) {
+          thread->stats.AddGets(1, 0);
+        } else {
+          thread->stats.AddGets(1, 1);
+        }
+
+        const WideColumns& cmp_columns = results[0].columns();
+        const WideColumns& columns = results[j].columns();
+
+        if (!CompareColumns(cmp_columns, columns)) {
+          fprintf(stderr,
+                  "MultiGetEntity error: inconsistent entities for key %s: %s, "
+                  "%s\n",
+                  StringToHex(key_suffix).c_str(),
+                  WideColumnsToHex(cmp_columns).c_str(),
+                  WideColumnsToHex(columns).c_str());
+        }
+
+        if (!columns.empty()) {
+          // The last character of each column value should be 'j' as a decimal
+          // digit
+          const char expected = static_cast<char>('0' + j);
+
+          for (const auto& column : columns) {
+            const Slice& value = column.value();
+
+            if (value.empty() || value[value.size() - 1] != expected) {
+              fprintf(stderr,
+                      "MultiGetEntity error: incorrect column value for key "
+                      "%s, entity %s, column value %s, expected %c\n",
+                      StringToHex(key_suffix).c_str(),
+                      WideColumnsToHex(columns).c_str(),
+                      value.ToString(/* hex */ true).c_str(), expected);
+            }
+          }
+
+          if (!VerifyWideColumns(columns)) {
+            fprintf(stderr,
+                    "MultiGetEntity error: inconsistent columns for key %s, "
+                    "entity %s\n",
+                    StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(columns).c_str());
+          }
+        }
+      }
+    }
+  }
+
+  // Given a key, this does prefix scans for "0"+P, "1"+P, ..., "9"+P
   // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
   // of the key. Each of these 10 scans returns a series of values;
   // each series should be the same length, and it is verified for each
-  // index i that all the i'th values are of the form "0"+V, "1"+V,..."9"+V.
+  // index i that all the i'th values are of the form V+"0", V+"1", ..., V+"9".
   // ASSUMES that MultiPut was used to put (K, V)
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
@@ -317,21 +502,24 @@ class BatchedOpsStressTest : public StressTest {
                iters[i]->key().starts_with(prefix_slices[i]));
         values[i] = iters[i]->value().ToString();
 
-        // make sure the first character of the value is the expected digit
-        const char expected_first = prefixes[i][0];
-        const char actual_first = values[i][0];
+        // make sure the last character of the value is the expected digit
+        assert(!prefixes[i].empty());
+        assert(!values[i].empty());
 
-        if (actual_first != expected_first) {
-          fprintf(stderr, "error expected first = %c actual = %c\n",
-                  expected_first, actual_first);
+        const char expected = prefixes[i].front();
+        const char actual = values[i].back();
+
+        if (expected != actual) {
+          fprintf(stderr, "prefix scan error expected = %c actual = %c\n",
+                  expected, actual);
         }
 
-        values[i][0] = ' ';  // blank out the differing character
+        values[i].pop_back();  // get rid of the differing character
 
         // make sure all values are equivalent
         if (values[i] != values[0]) {
           fprintf(stderr,
-                  "error : %" ROCKSDB_PRIszt
+                  "prefix scan error : %" ROCKSDB_PRIszt
                   ", inconsistent values for prefix %s: %s, %s\n",
                   i, prefix_slices[i].ToString(/* hex */ true).c_str(),
                   StringToHex(values[0]).c_str(),
@@ -341,21 +529,14 @@ class BatchedOpsStressTest : public StressTest {
         }
 
         // make sure value() and columns() are consistent
-        // note: in these tests, value base is stored after a single-digit
-        // prefix
-        Slice value_base_slice = iters[i]->value();
-        value_base_slice.remove_prefix(1);
-
-        const WideColumns expected_columns = GenerateExpectedWideColumns(
-            GetValueBase(value_base_slice), iters[i]->value());
-        if (iters[i]->columns() != expected_columns) {
+        if (!VerifyWideColumns(iters[i]->value(), iters[i]->columns())) {
           fprintf(stderr,
-                  "error : %" ROCKSDB_PRIszt
-                  ", value and columns inconsistent for prefix %s: %s\n",
+                  "prefix scan error : %" ROCKSDB_PRIszt
+                  ", value and columns inconsistent for prefix %s: value: %s, "
+                  "columns: %s\n",
                   i, prefix_slices[i].ToString(/* hex */ true).c_str(),
-                  DebugString(iters[i]->value(), iters[i]->columns(),
-                              expected_columns)
-                      .c_str());
+                  iters[i]->value().ToString(/* hex */ true).c_str(),
+                  WideColumnsToHex(iters[i]->columns()).c_str());
         }
 
         iters[i]->Next();
@@ -380,6 +561,30 @@ class BatchedOpsStressTest : public StressTest {
   void VerifyDb(ThreadState* /* thread */) const override {}
 
   void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}
+
+  // Compare columns ignoring the last character of column values
+  bool CompareColumns(const WideColumns& lhs, const WideColumns& rhs) {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); ++i) {
+      if (lhs[i].name() != rhs[i].name()) {
+        return false;
+      }
+
+      if (lhs[i].value().size() != rhs[i].value().size()) {
+        return false;
+      }
+
+      if (lhs[i].value().difference_offset(rhs[i].value()) <
+          lhs[i].value().size() - 1) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }

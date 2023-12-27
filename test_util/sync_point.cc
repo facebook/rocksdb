@@ -21,22 +21,20 @@ SyncPoint* SyncPoint::GetInstance() {
 
 SyncPoint::SyncPoint() : impl_(new Data) {}
 
-SyncPoint:: ~SyncPoint() {
-  delete impl_;
-}
+SyncPoint::~SyncPoint() { delete impl_; }
 
 void SyncPoint::LoadDependency(const std::vector<SyncPointPair>& dependencies) {
   impl_->LoadDependency(dependencies);
 }
 
 void SyncPoint::LoadDependencyAndMarkers(
-  const std::vector<SyncPointPair>& dependencies,
-  const std::vector<SyncPointPair>& markers) {
+    const std::vector<SyncPointPair>& dependencies,
+    const std::vector<SyncPointPair>& markers) {
   impl_->LoadDependencyAndMarkers(dependencies, markers);
 }
 
 void SyncPoint::SetCallBack(const std::string& point,
-  const std::function<void(void*)>& callback) {
+                            const std::function<void(void*)>& callback) {
   impl_->SetCallBack(point, callback);
 }
 
@@ -44,21 +42,13 @@ void SyncPoint::ClearCallBack(const std::string& point) {
   impl_->ClearCallBack(point);
 }
 
-void SyncPoint::ClearAllCallBacks() {
-  impl_->ClearAllCallBacks();
-}
+void SyncPoint::ClearAllCallBacks() { impl_->ClearAllCallBacks(); }
 
-void SyncPoint::EnableProcessing() {
-  impl_->EnableProcessing();
-}
+void SyncPoint::EnableProcessing() { impl_->EnableProcessing(); }
 
-void SyncPoint::DisableProcessing() {
-  impl_->DisableProcessing();
-}
+void SyncPoint::DisableProcessing() { impl_->DisableProcessing(); }
 
-void SyncPoint::ClearTrace() {
-  impl_->ClearTrace();
-}
+void SyncPoint::ClearTrace() { impl_->ClearTrace(); }
 
 void SyncPoint::Process(const Slice& point, void* cb_arg) {
   impl_->Process(point, cb_arg);

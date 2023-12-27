@@ -26,7 +26,7 @@ class JniCallback {
   jobject m_jcallback_obj;
   JNIEnv* getJniEnv(jboolean* attached) const;
   void releaseJniEnv(jboolean& attached) const;
-  };
-  }  // namespace ROCKSDB_NAMESPACE
+};
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_JNICALLBACK_H_

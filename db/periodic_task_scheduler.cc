@@ -8,7 +8,6 @@
 
 #include "rocksdb/system_clock.h"
 
-#ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
 // `timer_mutex` is a global mutex serves 3 purposes currently:
@@ -95,7 +94,7 @@ Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
 }
 
 Timer* PeriodicTaskScheduler::Default() {
-  static Timer timer(SystemClock::Default().get());
+  STATIC_AVOID_DESTRUCTION(Timer, timer)(SystemClock::Default().get());
   return &timer;
 }
 
@@ -109,5 +108,3 @@ void PeriodicTaskScheduler::TEST_OverrideTimer(SystemClock* clock) {
 #endif  // NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

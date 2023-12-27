@@ -8,7 +8,6 @@
 
 #include <cassert>
 
-#include "block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
 
@@ -41,7 +40,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                      const Slice* const const_ikey_ptr, bool* filter_checked,
                      bool need_upper_bound_check, bool no_io,
                      BlockCacheLookupContext* lookup_context,
-                     Env::IOPriority rate_limiter_priority) override;
+                     const ReadOptions& read_options) override;
 
  protected:
   static Status ReadFilterBlock(const BlockBasedTable* table,
@@ -49,8 +48,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                                 const ReadOptions& read_options, bool use_cache,
                                 GetContext* get_context,
                                 BlockCacheLookupContext* lookup_context,
-                                CachableEntry<TBlocklike>* filter_block,
-                                BlockType block_type);
+                                CachableEntry<TBlocklike>* filter_block);
 
   const BlockBasedTable* table() const { return table_; }
   const SliceTransform* table_prefix_extractor() const;
@@ -60,8 +58,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
   Status GetOrReadFilterBlock(bool no_io, GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
                               CachableEntry<TBlocklike>* filter_block,
-                              BlockType block_type,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   size_t ApproximateFilterBlockMemoryUsage() const;
 

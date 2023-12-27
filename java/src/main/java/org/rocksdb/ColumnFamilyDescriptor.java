@@ -33,8 +33,9 @@ public class ColumnFamilyDescriptor {
    *     column family.
    * @since 3.10.0
    */
-  public ColumnFamilyDescriptor(final byte[] columnFamilyName,
-                                final ColumnFamilyOptions columnFamilyOptions) {
+  @SuppressWarnings("PMD.ArrayIsStoredDirectly")
+  public ColumnFamilyDescriptor(
+      final byte[] columnFamilyName, final ColumnFamilyOptions columnFamilyOptions) {
     columnFamilyName_ = columnFamilyName;
     columnFamilyOptions_ = columnFamilyOptions;
   }
@@ -45,6 +46,7 @@ public class ColumnFamilyDescriptor {
    * @return column family name.
    * @since 3.10.0
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public byte[] getName() {
     return columnFamilyName_;
   }

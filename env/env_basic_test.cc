@@ -32,7 +32,6 @@ static Env* GetMockEnv() {
   static std::unique_ptr<Env> mock_env(MockEnv::Create(Env::Default()));
   return mock_env.get();
 }
-#ifndef ROCKSDB_LITE
 static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
   ConfigOptions config_opts;
   config_opts.invoke_prepare_options = false;
@@ -58,10 +57,10 @@ static Env* GetTestEnv() {
   static std::shared_ptr<Env> env_guard;
   static Env* custom_env = nullptr;
   if (custom_env == nullptr) {
-    const char* uri = getenv("TEST_ENV_URI");
-    if (uri != nullptr) {
-      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), uri, "", &custom_env,
-                                   &env_guard));
+    const char* env_uri = getenv("TEST_ENV_URI");
+    if (env_uri != nullptr) {
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), env_uri, /*fs_uri=*/"",
+                                   &custom_env, &env_guard));
     }
   }
   EXPECT_NE(custom_env, nullptr);
@@ -72,16 +71,15 @@ static Env* GetTestFS() {
   static std::shared_ptr<Env> fs_env_guard;
   static Env* fs_env = nullptr;
   if (fs_env == nullptr) {
-    const char* uri = getenv("TEST_FS_URI");
-    if (uri != nullptr) {
-      EXPECT_OK(
-          Env::CreateFromUri(ConfigOptions(), uri, "", &fs_env, &fs_env_guard));
+    const char* fs_uri = getenv("TEST_FS_URI");
+    if (fs_uri != nullptr) {
+      EXPECT_OK(Env::CreateFromUri(ConfigOptions(), /*env_uri=*/"", fs_uri,
+                                   &fs_env, &fs_env_guard));
     }
   }
   EXPECT_NE(fs_env, nullptr);
   return fs_env;
 }
-#endif  // ROCKSDB_LITE
 
 }  // namespace
 class EnvBasicTestWithParam
@@ -111,7 +109,6 @@ INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetMockEnv));
 
-#ifndef ROCKSDB_LITE
 // next statements run env test against default encryption code.
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetCtrEncryptedEnv));
@@ -148,7 +145,6 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
 
 INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
-#endif  // ROCKSDB_LITE
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
@@ -305,7 +301,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete [] scratch;
+  delete[] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {
@@ -346,7 +342,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_OK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
   ASSERT_EQ(3U, children.size());
   ASSERT_EQ(3U, childAttr.size());
-  for (auto each : children) {
+  for (const auto& each : children) {
     env_->DeleteDir(test_dir_ + "/" + each).PermitUncheckedError();
   }  // necessary for default POSIX env
 
@@ -395,6 +391,7 @@ TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
 
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

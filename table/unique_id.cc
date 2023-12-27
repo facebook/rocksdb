@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 std::string EncodeSessionId(uint64_t upper, uint64_t lower) {
   std::string db_session_id(20U, '\0');
-  char *buf = &db_session_id[0];
+  char *buf = db_session_id.data();
   // Preserving `lower` is slightly tricky. 36^12 is slightly more than
   // 62 bits, so we use 12 chars plus the bottom two bits of one more.
   // (A tiny fraction of 20 digit strings go unused.)
@@ -152,7 +152,7 @@ void ExternalUniqueIdToInternal(UniqueIdPtr in_out) {
 
 std::string EncodeUniqueIdBytes(UniqueIdPtr in) {
   std::string ret(in.extended ? 24U : 16U, '\0');
-  EncodeFixed64(&ret[0], in.ptr[0]);
+  EncodeFixed64(ret.data(), in.ptr[0]);
   EncodeFixed64(&ret[8], in.ptr[1]);
   if (in.extended) {
     EncodeFixed64(&ret[16], in.ptr[2]);

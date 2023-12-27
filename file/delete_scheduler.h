@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <map>
 #include <queue>
@@ -14,7 +13,6 @@
 
 #include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -54,7 +52,7 @@ class DeleteScheduler {
   // set, it forces the file to always be deleted in the background thread,
   // except when rate limiting is disabled
   Status DeleteFile(const std::string& fname, const std::string& dir_to_sync,
-      const bool force_bg = false);
+                    const bool force_bg = false);
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
@@ -67,9 +65,7 @@ class DeleteScheduler {
   uint64_t GetTotalTrashSize() { return total_trash_size_.load(); }
 
   // Return trash/DB size ratio where new files will be deleted immediately
-  double GetMaxTrashDBRatio() {
-    return max_trash_db_ratio_.load();
-  }
+  double GetMaxTrashDBRatio() { return max_trash_db_ratio_.load(); }
 
   // Update trash/DB size ratio where new files will be deleted immediately
   void SetMaxTrashDBRatio(double r) {
@@ -149,4 +145,3 @@ class DeleteScheduler {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

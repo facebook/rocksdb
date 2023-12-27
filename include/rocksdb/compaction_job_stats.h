@@ -6,6 +6,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -23,6 +24,9 @@ struct CompactionJobStats {
   // the elapsed CPU time of this compaction in microseconds.
   uint64_t cpu_micros;
 
+  // Used internally indicating whether a subcompaction's
+  // `num_input_records` is accurate.
+  bool has_num_input_records;
   // the number of compaction input records.
   uint64_t num_input_records;
   // the number of blobs read from blob files

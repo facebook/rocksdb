@@ -43,11 +43,11 @@ class CacheSimulatorTest : public testing::Test {
     record.level = 6;
     record.sst_fd_number = 0;
     record.get_id = getid;
-    record.is_cache_hit = Boolean::kFalse;
-    record.no_insert = Boolean::kFalse;
+    record.is_cache_hit = false;
+    record.no_insert = false;
     record.referenced_key =
         kRefKeyPrefix + std::to_string(kGetId) + kRefKeySequenceNumber;
-    record.referenced_key_exist_in_block = Boolean::kTrue;
+    record.referenced_key_exist_in_block = true;
     record.referenced_data_size = 100;
     record.num_keys_in_block = 300;
     return record;
@@ -64,8 +64,8 @@ class CacheSimulatorTest : public testing::Test {
     record.caller = TableReaderCaller::kCompaction;
     record.level = 6;
     record.sst_fd_number = kCompactionBlockId;
-    record.is_cache_hit = Boolean::kFalse;
-    record.no_insert = Boolean::kTrue;
+    record.is_cache_hit = false;
+    record.no_insert = true;
     return record;
   }
 
@@ -200,17 +200,17 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
 TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   uint64_t block_id = 100;
   BlockCacheTraceRecord first_get = GenerateGetRecord(kGetId);
-  first_get.get_from_user_specified_snapshot = Boolean::kTrue;
+  first_get.get_from_user_specified_snapshot = true;
   BlockCacheTraceRecord second_get = GenerateGetRecord(kGetId + 1);
   second_get.referenced_data_size = 0;
-  second_get.referenced_key_exist_in_block = Boolean::kFalse;
-  second_get.get_from_user_specified_snapshot = Boolean::kTrue;
+  second_get.referenced_key_exist_in_block = false;
+  second_get.get_from_user_specified_snapshot = true;
   BlockCacheTraceRecord third_get = GenerateGetRecord(kGetId + 2);
   third_get.referenced_data_size = 0;
-  third_get.referenced_key_exist_in_block = Boolean::kFalse;
+  third_get.referenced_key_exist_in_block = false;
   third_get.referenced_key = kRefKeyPrefix + "third_get";
   // We didn't find the referenced key in the third get.
-  third_get.referenced_key_exist_in_block = Boolean::kFalse;
+  third_get.referenced_key_exist_in_block = false;
   third_get.referenced_data_size = 0;
   std::shared_ptr<Cache> sim_cache =
       NewLRUCache(/*capacity=*/kCacheSize, /*num_shard_bits=*/1,
@@ -308,12 +308,12 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulatorGetTest) {
   get.access_timestamp = 0;
   get.block_key = "1";
   get.get_id = 1;
-  get.get_from_user_specified_snapshot = Boolean::kFalse;
+  get.get_from_user_specified_snapshot = false;
   get.referenced_key =
       kRefKeyPrefix + std::to_string(1) + kRefKeySequenceNumber;
-  get.no_insert = Boolean::kFalse;
+  get.no_insert = false;
   get.sst_fd_number = 0;
-  get.get_from_user_specified_snapshot = Boolean::kFalse;
+  get.get_from_user_specified_snapshot = false;
 
   LRUCacheOptions co;
   co.capacity = 16;
@@ -491,6 +491,7 @@ TEST_F(CacheSimulatorTest, GhostHybridRowBlockCacheSimulator) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

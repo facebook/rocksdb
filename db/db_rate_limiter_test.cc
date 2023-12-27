@@ -96,19 +96,10 @@ std::string GetTestNameSuffix(
   return oss.str();
 }
 
-#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()),
                         GetTestNameSuffix);
-#else   // ROCKSDB_LITE
-// Cannot use direct I/O in lite mode.
-INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
-                        ::testing::Combine(::testing::Values(false),
-                                           ::testing::Bool(),
-                                           ::testing::Bool()),
-                        GetTestNameSuffix);
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBRateLimiterOnReadTest, Get) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -229,12 +220,12 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
       ++expected;
     }
   }
+  ASSERT_OK(iter->status());
   // Reverse scan does not read evenly (one block per iteration) due to
   // descending seqno ordering, so wait until after the loop to check total.
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-#if !defined(ROCKSDB_LITE)
 
 TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -245,8 +236,18 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
-  // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  // In BufferedIO,
+  // there are 7 reads per file, each of which will be rate-limited.
+  // During open:  read footer, meta index block, properties block, index block.
+  // During actual checksum verification: read meta index block, verify checksum
+  // in meta blocks and verify checksum in file blocks.
+  //
+  // In DirectIO, where we support tail prefetching, during table open, we only
+  // do 1 read instead of 4 as described above. Actual checksum verification
+  // reads stay the same.
+  int num_read_per_file = (!use_direct_io_) ? 7 : 4;
+  int expected = kNumFiles * num_read_per_file;
+
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
@@ -264,7 +265,6 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-#endif  // !defined(ROCKSDB_LITE)
 
 class DBRateLimiterOnWriteTest : public DBTestBase {
  public:
@@ -319,10 +319,8 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
 
   // Pre-comaction:
   // level-0 : `kNumFiles` SST files overlapping on [kStartKey, kEndKey]
-#ifndef ROCKSDB_LITE
   std::string files_per_level_pre_compaction = std::to_string(kNumFiles);
   ASSERT_EQ(files_per_level_pre_compaction, FilesPerLevel(0 /* cf */));
-#endif  // !ROCKSDB_LITE
 
   std::int64_t prev_total_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
@@ -337,10 +335,8 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
   // Post-comaction:
   // level-0 : 0 SST file
   // level-1 : 1 SST file
-#ifndef ROCKSDB_LITE
   std::string files_per_level_post_compaction = "0,1";
   ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
-#endif  // !ROCKSDB_LITE
 
   std::int64_t exepcted_compaction_request = 1;
   EXPECT_EQ(actual_compaction_request, exepcted_compaction_request);

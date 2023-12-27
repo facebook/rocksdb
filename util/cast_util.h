@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <initializer_list>
+#include <memory>
 #include <type_traits>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -23,6 +25,19 @@ inline DestClass* static_cast_with_check(SrcClass* x) {
   return ret;
 }
 
+template <class DestClass, class SrcClass>
+inline std::shared_ptr<DestClass> static_cast_with_check(
+    std::shared_ptr<SrcClass>&& x) {
+#if defined(ROCKSDB_USE_RTTI) && !defined(NDEBUG)
+  auto orig_raw = x.get();
+#endif
+  auto ret = std::static_pointer_cast<DestClass>(std::move(x));
+#if defined(ROCKSDB_USE_RTTI) && !defined(NDEBUG)
+  assert(ret.get() == dynamic_cast<DestClass*>(orig_raw));
+#endif
+  return ret;
+}
+
 // A wrapper around static_cast for lossless conversion between integral
 // types, including enum types. For example, this can be used for converting
 // between signed/unsigned or enum type and underlying type without fear of
@@ -37,6 +52,15 @@ inline To lossless_cast(From x) {
                 "Only works on integral types");
   static_assert(sizeof(To) >= sizeof(FromValue), "Must be lossless");
   return static_cast<To>(x);
+}
+
+// For disambiguating a potentially heterogeneous aggregate as a homogeneous
+// initializer list. E.g. might be able to write List({x, y}) in some cases
+// instead of std::vector<const Widget&>({x, y}).
+template <typename T>
+inline const std::initializer_list<T>& List(
+    const std::initializer_list<T>& list) {
+  return list;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

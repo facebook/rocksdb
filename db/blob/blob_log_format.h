@@ -22,6 +22,8 @@ constexpr uint32_t kVersion1 = 1;
 
 using ExpirationRange = std::pair<uint64_t, uint64_t>;
 
+// clang-format off
+
 // Format of blob log file header (30 bytes):
 //
 //    +--------------+---------+---------+-------+-------------+-------------------+
@@ -35,6 +37,9 @@ using ExpirationRange = std::pair<uint64_t, uint64_t>;
 //
 // Expiration range in the header is a rough range based on
 // blob_db_options.ttl_range_secs.
+
+// clang-format on
+
 struct BlobLogHeader {
   static constexpr size_t kSize = 30;
 
@@ -57,6 +62,8 @@ struct BlobLogHeader {
   Status DecodeFrom(Slice slice);
 };
 
+// clang-format off
+
 // Format of blob log file footer (32 bytes):
 //
 //    +--------------+------------+-------------------+------------+
@@ -69,6 +76,9 @@ struct BlobLogHeader {
 //
 // Unlike the same field in file header, expiration range in the footer is the
 // range of smallest and largest expiration of the data in this file.
+
+// clang-format on
+
 struct BlobLogFooter {
   static constexpr size_t kSize = 32;
 
@@ -80,6 +90,8 @@ struct BlobLogFooter {
 
   Status DecodeFrom(Slice slice);
 };
+
+// clang-format off
 
 // Blob record format (32 bytes header + key + value):
 //
@@ -100,6 +112,9 @@ struct BlobLogFooter {
 //
 // We could use variable length encoding (Varint64) to save more space, but it
 // make reader more complicated.
+
+// clang-format on
+
 struct BlobLogRecord {
   // header include fields up to blob CRC
   static constexpr size_t kHeaderSize = 32;

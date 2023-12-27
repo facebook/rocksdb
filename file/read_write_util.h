@@ -9,6 +9,7 @@
 
 #pragma once
 #include <atomic>
+
 #include "file/sequence_file_reader.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"

@@ -228,6 +228,7 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
   assert(w->state == STATE_INIT);
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
+    assert(writers != w);
     // If write stall in effect, and w->no_slowdown is not true,
     // block here until stall is cleared. If its true, then return
     // immediately
@@ -325,6 +326,7 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
 }
 
 void WriteThread::BeginWriteStall() {
+  ++stall_begun_count_;
   LinkOne(&write_stall_dummy_, &newest_writer_);
 
   // Walk writer list until w->write_group != nullptr. The current write group
@@ -360,12 +362,39 @@ void WriteThread::EndWriteStall() {
   // Unlink write_stall_dummy_ from the write queue. This will unblock
   // pending write threads to enqueue themselves
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
-  assert(write_stall_dummy_.link_older != nullptr);
-  write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
+  // write_stall_dummy_.link_older can be nullptr only if LockWAL() has been
+  // called.
+  if (write_stall_dummy_.link_older) {
+    write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
+  }
   newest_writer_.exchange(write_stall_dummy_.link_older);
+
+  ++stall_ended_count_;
 
   // Wake up writers
   stall_cv_.SignalAll();
+}
+
+uint64_t WriteThread::GetBegunCountOfOutstandingStall() {
+  if (stall_begun_count_ > stall_ended_count_) {
+    // Oustanding stall in queue
+    assert(newest_writer_.load(std::memory_order_relaxed) ==
+           &write_stall_dummy_);
+    return stall_begun_count_;
+  } else {
+    // No stall in queue
+    assert(newest_writer_.load(std::memory_order_relaxed) !=
+           &write_stall_dummy_);
+    return 0;
+  }
+}
+
+void WriteThread::WaitForStallEndedCount(uint64_t stall_count) {
+  MutexLock lock(&stall_mu_);
+
+  while (stall_ended_count_ < stall_count) {
+    stall_cv_.Wait();
+  }
 }
 
 static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
@@ -397,8 +426,9 @@ void WriteThread::JoinBatchGroup(Writer* w) {
      *      writes in parallel.
      */
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:BeganWaiting", w);
-    AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
-                      STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
+    AwaitState(w,
+               STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
+                   STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
                &jbg_ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
   }
@@ -595,10 +625,10 @@ void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   }
 }
 
-static WriteThread::AdaptationContext cpmtw_ctx("CompleteParallelMemTableWriter");
+static WriteThread::AdaptationContext cpmtw_ctx(
+    "CompleteParallelMemTableWriter");
 // This method is called by both the leader and parallel followers
 bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
-
   auto* write_group = w->write_group;
   if (!w->status.ok()) {
     std::lock_guard<std::mutex> guard(write_group->leader->StateMutex());
@@ -718,8 +748,9 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       SetState(new_leader, STATE_GROUP_LEADER);
     }
 
-    AwaitState(leader, STATE_MEMTABLE_WRITER_LEADER |
-                           STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
+    AwaitState(leader,
+               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_WRITER |
+                   STATE_COMPLETED,
                &eabgl_ctx);
   } else {
     Writer* head = newest_writer_.load(std::memory_order_acquire);

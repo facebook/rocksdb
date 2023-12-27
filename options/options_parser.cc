@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "options/options_parser.h"
 
@@ -76,6 +75,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   std::unique_ptr<WritableFileWriter> writable;
   writable.reset(new WritableFileWriter(std::move(wf), file_name, EnvOptions(),
                                         nullptr /* statistics */));
+  TEST_SYNC_POINT("PersistRocksDBOptions:create");
 
   std::string options_file_content;
 
@@ -136,6 +136,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   if (s.ok()) {
     s = writable->Close();
   }
+  TEST_SYNC_POINT("PersistRocksDBOptions:written");
   if (s.ok()) {
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         config_options, db_opt, cf_names, cf_opts, file_name, fs);
@@ -178,8 +179,8 @@ Status RocksDBOptionsParser::ParseSection(OptionSection* section,
   *section = kOptionSectionUnknown;
   // A section is of the form [<SectionName> "<SectionArg>"], where
   // "<SectionArg>" is optional.
-  size_t arg_start_pos = line.find("\"");
-  size_t arg_end_pos = line.rfind("\"");
+  size_t arg_start_pos = line.find('\"');
+  size_t arg_end_pos = line.rfind('\"');
   // The following if-then check tries to identify whether the input
   // section has the optional section argument.
   if (arg_start_pos != std::string::npos && arg_start_pos != arg_end_pos) {
@@ -223,7 +224,7 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
                                             std::string* value,
                                             const std::string& line,
                                             const int line_num) {
-  size_t eq_pos = line.find("=");
+  size_t eq_pos = line.find('=');
   if (eq_pos == std::string::npos) {
     return InvalidArgument(line_num, "A valid statement must have a '='.");
   }
@@ -680,6 +681,15 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     Status s = base_config->GetOption(config_options, mismatch, &base_value);
     if (s.ok()) {
       s = file_config->GetOption(config_options, mismatch, &file_value);
+      // In file_opt, certain options like MergeOperator may be nullptr due to
+      //   factor methods not available. So we use opt_map to get
+      //   option value to use in the error message below.
+      if (s.ok() && file_value == kNullptrString && opt_map) {
+        auto const& opt_val_str = (opt_map->find(mismatch));
+        if (opt_val_str != opt_map->end()) {
+          file_value = opt_val_str->second;
+        }
+      }
     }
     int offset = snprintf(buffer, sizeof(buffer),
                           "[RocksDBOptionsParser]: "
@@ -724,4 +734,3 @@ Status RocksDBOptionsParser::VerifyTableFactory(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

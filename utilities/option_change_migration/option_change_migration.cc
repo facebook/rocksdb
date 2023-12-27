@@ -5,7 +5,6 @@
 
 #include "rocksdb/utilities/option_change_migration.h"
 
-#ifndef ROCKSDB_LITE
 #include "rocksdb/db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -175,12 +174,3 @@ Status OptionChangeMigration(std::string dbname, const Options& old_opts,
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
-#else
-namespace ROCKSDB_NAMESPACE {
-Status OptionChangeMigration(std::string /*dbname*/,
-                             const Options& /*old_opts*/,
-                             const Options& /*new_opts*/) {
-  return Status::NotSupported();
-}
-}  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

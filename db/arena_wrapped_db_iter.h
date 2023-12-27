@@ -9,7 +9,9 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/range_del_aggregator.h"
@@ -78,6 +80,7 @@ class ArenaWrappedDBIter : public Iterator {
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
   Status Refresh() override;
+  Status Refresh(const Snapshot*) override;
 
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableOptions& ioptions,

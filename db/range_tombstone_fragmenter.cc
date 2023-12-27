@@ -156,7 +156,6 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
           if (seq <= next_snapshot) {
             // This seqnum is visible by a lower snapshot.
             tombstone_seqs_.push_back(seq);
-            seq_set_.insert(seq);
             auto upper_bound_it =
                 std::lower_bound(snapshots.begin(), snapshots.end(), seq);
             if (upper_bound_it == snapshots.begin()) {
@@ -173,7 +172,6 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
         // The fragmentation is being done for reads, so preserve all seqnums.
         tombstone_seqs_.insert(tombstone_seqs_.end(), seqnums_to_flush.begin(),
                                seqnums_to_flush.end());
-        seq_set_.insert(seqnums_to_flush.begin(), seqnums_to_flush.end());
         if (ts_sz) {
           tombstone_timestamps_.insert(tombstone_timestamps_.end(),
                                        timestamps_to_flush.begin(),
@@ -258,15 +256,20 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
 }
 
 bool FragmentedRangeTombstoneList::ContainsRange(SequenceNumber lower,
-                                                 SequenceNumber upper) const {
+                                                 SequenceNumber upper) {
+  std::call_once(seq_set_init_once_flag_, [this]() {
+    for (auto s : tombstone_seqs_) {
+      seq_set_.insert(s);
+    }
+  });
   auto seq_it = seq_set_.lower_bound(lower);
   return seq_it != seq_set_.end() && *seq_it <= upper;
 }
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
-    const FragmentedRangeTombstoneList* tombstones,
-    const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
-    const Slice* ts_upper_bound, SequenceNumber _lower_bound)
+    FragmentedRangeTombstoneList* tombstones, const InternalKeyComparator& icmp,
+    SequenceNumber _upper_bound, const Slice* ts_upper_bound,
+    SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
       icmp_(&icmp),
@@ -280,7 +283,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
 }
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
-    const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+    const std::shared_ptr<FragmentedRangeTombstoneList>& tombstones,
     const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
     const Slice* ts_upper_bound, SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),

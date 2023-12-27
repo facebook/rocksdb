@@ -1561,7 +1561,7 @@ sub save_stdin_stdout_stderr {
 	::die_bug("Can't dup STDERR: $!");
     open $Global::original_stdin, "<&", "STDIN" or
 	::die_bug("Can't dup STDIN: $!");
-    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'} && !$ENV{'TRAVIS'};
+    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'}&& !$ENV{'GITHUB_ACTIONS'}  && !$ENV{'TRAVIS'};
 }
 
 sub enough_file_handles {
@@ -1916,7 +1916,8 @@ sub drain_job_queue {
                 } elsif (not $ps_reported and (time() - $last_progress_time) >= 60) {
                     # No progress in at least 60 seconds: run ps
                     print $Global::original_stderr "\n";
-                    system("ps", "-wf");
+                    my $script_dir = ::dirname($0);
+                    system("$script_dir/ps_with_stack || ps -wwf");
                     $ps_reported = 1;
                 }
                 $last_left = $Global::left;

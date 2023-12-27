@@ -9,6 +9,11 @@
 
 #include "rocksdb/merge_operator.h"
 
+#include <type_traits>
+
+#include "db/wide/wide_columns_helper.h"
+#include "util/overload.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 bool MergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
@@ -21,6 +26,83 @@ bool MergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
   }
   return FullMerge(merge_in.key, merge_in.existing_value, operand_list_str,
                    &merge_out->new_value, merge_in.logger);
+}
+
+bool MergeOperator::FullMergeV3(const MergeOperationInputV3& merge_in,
+                                MergeOperationOutputV3* merge_out) const {
+  assert(merge_out);
+
+  MergeOperationInput in_v2(merge_in.key, nullptr, merge_in.operand_list,
+                            merge_in.logger);
+
+  std::string new_value;
+  Slice existing_operand(nullptr, 0);
+  MergeOperationOutput out_v2(new_value, existing_operand);
+
+  return std::visit(
+      overload{
+          [&](const auto& existing) -> bool {
+            using T = std::decay_t<decltype(existing)>;
+
+            if constexpr (std::is_same_v<T, Slice>) {
+              in_v2.existing_value = &existing;
+            }
+
+            const bool result = FullMergeV2(in_v2, &out_v2);
+            if (!result) {
+              merge_out->op_failure_scope = out_v2.op_failure_scope;
+              return false;
+            }
+
+            if (existing_operand.data()) {
+              merge_out->new_value = existing_operand;
+            } else {
+              merge_out->new_value = std::move(new_value);
+            }
+
+            return true;
+          },
+          [&](const WideColumns& existing_columns) -> bool {
+            const bool has_default_column =
+                WideColumnsHelper::HasDefaultColumn(existing_columns);
+
+            Slice value_of_default;
+            if (has_default_column) {
+              value_of_default = existing_columns.front().value();
+            }
+
+            in_v2.existing_value = &value_of_default;
+
+            const bool result = FullMergeV2(in_v2, &out_v2);
+            if (!result) {
+              merge_out->op_failure_scope = out_v2.op_failure_scope;
+              return false;
+            }
+
+            merge_out->new_value = MergeOperationOutputV3::NewColumns();
+            auto& new_columns = std::get<MergeOperationOutputV3::NewColumns>(
+                merge_out->new_value);
+            new_columns.reserve(has_default_column
+                                    ? existing_columns.size()
+                                    : (existing_columns.size() + 1));
+
+            if (existing_operand.data()) {
+              new_columns.emplace_back(kDefaultWideColumnName.ToString(),
+                                       existing_operand.ToString());
+            } else {
+              new_columns.emplace_back(kDefaultWideColumnName.ToString(),
+                                       std::move(new_value));
+            }
+
+            for (size_t i = has_default_column ? 1 : 0;
+                 i < existing_columns.size(); ++i) {
+              new_columns.emplace_back(existing_columns[i].name().ToString(),
+                                       existing_columns[i].value().ToString());
+            }
+
+            return true;
+          }},
+      merge_in.existing_value);
 }
 
 // The default implementation of PartialMergeMulti, which invokes
@@ -74,12 +156,11 @@ bool AssociativeMergeOperator::FullMergeV2(
 
 // Call the user defined simple merge on the operands;
 // NOTE: It is assumed that the client's merge-operator will handle any errors.
-bool AssociativeMergeOperator::PartialMerge(
-    const Slice& key,
-    const Slice& left_operand,
-    const Slice& right_operand,
-    std::string* new_value,
-    Logger* logger) const {
+bool AssociativeMergeOperator::PartialMerge(const Slice& key,
+                                            const Slice& left_operand,
+                                            const Slice& right_operand,
+                                            std::string* new_value,
+                                            Logger* logger) const {
   return Merge(key, &left_operand, right_operand, new_value, logger);
 }
 

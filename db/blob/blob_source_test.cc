@@ -76,7 +76,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
     }
   } else {
     CompressionOptions opts;
-    CompressionContext context(compression);
+    CompressionContext context(compression, opts);
     constexpr uint64_t sample_for_compression = 0;
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          compression, sample_for_compression);
@@ -517,7 +517,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                   compression, blob_offsets, blob_sizes);
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
+    ASSERT_OK(blob_source.GetBlobFileReader(read_options, file_number,
+                                            &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
 
     const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
@@ -1139,25 +1140,17 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                          blob_file_cache.get());
 
   CacheHandleGuard<BlobFileReader> file_reader;
-  ASSERT_OK(blob_source.GetBlobFileReader(file_number, &file_reader));
+  ReadOptions read_options;
+  ASSERT_OK(
+      blob_source.GetBlobFileReader(read_options, file_number, &file_reader));
   ASSERT_NE(file_reader.GetValue(), nullptr);
   const uint64_t file_size = file_reader.GetValue()->GetFileSize();
   ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
 
-  ReadOptions read_options;
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
-
-  Cache::CreateCallback create_cb = [](const void* buf, size_t size,
-                                       void** out_obj,
-                                       size_t* charge) -> Status {
-    CacheAllocationPtr allocation(new char[size]);
-
-    return BlobContents::CreateCallback(std::move(allocation), buf, size,
-                                        out_obj, charge);
-  };
 
   {
     // GetBlob
@@ -1219,15 +1212,16 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[0]);
       const Slice key0 = cache_key.AsSlice();
-      auto handle0 = blob_cache->Lookup(key0, statistics);
+      auto handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
       // key0's item should be in the secondary cache.
-      bool is_in_sec_cache = false;
-      auto sec_handle0 =
-          secondary_cache->Lookup(key0, create_cb, true,
-                                  /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+      bool kept_in_sec_cache = false;
+      auto sec_handle0 = secondary_cache->Lookup(
+          key0, BlobSource::SharedCacheInterface::GetFullHelper(),
+          /*context*/ nullptr, true,
+          /*advise_erase=*/true, /*stats=*/nullptr, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
       auto value = static_cast<BlobContents*>(sec_handle0->Value());
@@ -1246,15 +1240,16 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key.AsSlice();
-      auto handle1 = blob_cache->Lookup(key1, statistics);
+      auto handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
 
-      bool is_in_sec_cache = false;
-      auto sec_handle1 =
-          secondary_cache->Lookup(key1, create_cb, true,
-                                  /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+      bool kept_in_sec_cache = false;
+      auto sec_handle1 = secondary_cache->Lookup(
+          key1, BlobSource::SharedCacheInterface::GetFullHelper(),
+          /*context*/ nullptr, true,
+          /*advise_erase=*/true, /*stats=*/nullptr, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -1276,7 +1271,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0 should be in the primary cache.
       CacheKey cache_key0 = base_cache_key.WithOffset(blob_offsets[0]);
       const Slice key0 = cache_key0.AsSlice();
-      auto handle0 = blob_cache->Lookup(key0, statistics);
+      auto handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
       auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
       ASSERT_NE(value, nullptr);
@@ -1286,12 +1281,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 is not in the primary cache and is in the secondary cache.
       CacheKey cache_key1 = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key1.AsSlice();
-      auto handle1 = blob_cache->Lookup(key1, statistics);
+      auto handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_EQ(handle1, nullptr);
 
       // erase key0 from the primary cache.
       blob_cache->Erase(key0);
-      handle0 = blob_cache->Lookup(key0, statistics);
+      handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
       // key1 promotion should succeed due to the primary cache being empty. we
@@ -1307,7 +1302,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // in the secondary cache. So, the primary cache's Lookup() without
       // secondary cache support cannot see it. (NOTE: The dummy handle used
       // to be a leaky abstraction but not anymore.)
-      handle1 = blob_cache->Lookup(key1, statistics);
+      handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_EQ(handle1, nullptr);
 
       // But after another access, it is promoted to primary cache
@@ -1315,7 +1310,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                                blob_offsets[1]));
 
       // And Lookup() can find it (without secondary cache support)
-      handle1 = blob_cache->Lookup(key1, statistics);
+      handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       ASSERT_NE(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);
@@ -1379,7 +1374,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
 
   static constexpr std::size_t kSizeDummyEntry = CacheReservationManagerImpl<
       CacheEntryRole::kBlobCache>::GetDummyEntrySize();
-  static constexpr std::size_t kCacheCapacity = 1 * kSizeDummyEntry;
+  static constexpr std::size_t kCacheCapacity = 2 * kSizeDummyEntry;
   static constexpr int kNumShardBits = 0;  // 2^0 shard
 
   static constexpr uint32_t kColumnFamilyId = 1;
@@ -1398,7 +1393,6 @@ class BlobSourceCacheReservationTest : public DBTestBase {
   std::string db_session_id_;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
@@ -1513,11 +1507,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   }
 }
 
-TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
+TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
-          env_,
-          "BlobSourceCacheReservationTest_IncreaseCacheReservationOnFullCache"),
+          env_, "BlobSourceCacheReservationTest_IncreaseCacheReservation"),
       0);
 
   GenerateKeysAndBlobs();
@@ -1525,7 +1518,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
-  constexpr size_t blob_size = kSizeDummyEntry / (kNumBlobs / 2);
+  constexpr size_t blob_size = 24 << 10;  // 24KB
   for (size_t i = 0; i < kNumBlobs; ++i) {
     blob_file_size_ -= blobs_[i].size();  // old blob size
     blob_strs_[i].resize(blob_size, '@');
@@ -1583,11 +1576,6 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
 
     std::vector<PinnableSlice> values(keys_.size());
 
-    // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
-    // can't fit all the blobs in the cache at the same time, which means we
-    // should observe cache evictions once we reach the cache's capacity.
-    // Due to the overhead of the cache and the BlobContents objects, as well as
-    // jemalloc bin sizes, this happens after inserting seven blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1598,26 +1586,26 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
       // Release cache handle
       values[i].Reset();
 
-      if (i < kNumBlobs / 2 - 1) {
-        size_t charge = 0;
-        ASSERT_TRUE(blob_source.TEST_BlobInCache(
-            kBlobFileNumber, blob_file_size_, blob_offsets[i], &charge));
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
 
-        blob_bytes += charge;
-      }
+      blob_bytes += charge;
 
-      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+                (blob_bytes <= kSizeDummyEntry) ? kSizeDummyEntry
+                                                : (2 * kSizeDummyEntry));
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
     }
   }
 }
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

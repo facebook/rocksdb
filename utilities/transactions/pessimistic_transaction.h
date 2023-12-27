@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -119,6 +118,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
                               const Endpoint& start_key,
                               const Endpoint& end_key) override;
+
+  virtual Status CollapseKey(
+      const ReadOptions& options, const Slice& key,
+      ColumnFamilyHandle* column_family = nullptr) override;
 
  protected:
   // Refer to
@@ -309,5 +312,3 @@ class WriteCommittedTxn : public PessimisticTransaction {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

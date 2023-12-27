@@ -20,7 +20,7 @@ class TimeSetClock : public SystemClockWrapper {
   uint64_t now_micros_ = 6666;
   uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };
-}  // namespace
+}  // anonymous namespace
 class WriteControllerTest : public testing::Test {
  public:
   WriteControllerTest() { clock_ = std::make_shared<TimeSetClock>(); }
@@ -242,6 +242,7 @@ TEST_F(WriteControllerTest, CreditAccumulation) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

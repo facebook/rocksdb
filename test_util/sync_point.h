@@ -85,7 +85,9 @@ class SyncPoint {
   };
 
   // call once at the beginning of a test to setup the dependency between
-  // sync points
+  // sync points. Specifically, execution will not be allowed to proceed past
+  // each successor until execution has reached the corresponding predecessor,
+  // in any thread.
   void LoadDependency(const std::vector<SyncPointPair>& dependencies);
 
   // call once at the beginning of a test to setup the dependency between
@@ -138,9 +140,9 @@ class SyncPoint {
   struct Data;
 
  private:
-   // Singleton
+  // Singleton
   SyncPoint();
-  Data*  impl_;
+  Data* impl_;
 };
 
 // Sets up sync points to mock direct IO instead of actually issuing direct IO

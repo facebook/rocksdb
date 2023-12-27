@@ -14,7 +14,7 @@ import sys
 import time
 
 
-class ColorString(object):
+class ColorString:
     """Generate colorful strings on terminal"""
 
     HEADER = "\033[95m"

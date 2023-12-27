@@ -33,12 +33,11 @@ struct TestOptions {
   bool b = false;
   bool d = true;
   TestEnum e = TestEnum::kTestA;
-  std::string s = "";
-  std::string u = "";
+  std::string s;
+  std::string u;
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
-#ifndef ROCKSDB_LITE
     {"int",
      {offsetof(struct TestOptions, i), OptionType::kInt,
       OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
@@ -48,37 +47,28 @@ static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
     {"string",
      {offsetof(struct TestOptions, s), OptionType::kString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> enum_option_info = {
-#ifndef ROCKSDB_LITE
     {"enum",
      OptionTypeInfo::Enum(offsetof(struct TestOptions, e), &test_enum_map)}
-#endif
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> unique_option_info = {
-#ifndef ROCKSDB_LITE
     {"unique",
      {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
       (OptionTypeFlags::kUnique | OptionTypeFlags::kMutable)}},
-#endif  // ROCKSDB_LITE
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> shared_option_info = {
-#ifndef ROCKSDB_LITE
     {"shared",
      {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
       (OptionTypeFlags::kShared)}},
-#endif  // ROCKSDB_LITE
 };
 static std::unordered_map<std::string, OptionTypeInfo> pointer_option_info = {
-#ifndef ROCKSDB_LITE
     {"pointer",
      {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
       OptionTypeFlags::kRawPointer}},
-#endif  // ROCKSDB_LITE
 };
 
 enum TestConfigMode {

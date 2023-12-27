@@ -59,8 +59,8 @@
     </mailingLists>
 
     <properties>
-        <project.build.source>1.7</project.build.source>
-        <project.build.target>1.7</project.build.target>
+        <project.build.source>1.8</project.build.source>
+        <project.build.target>1.8</project.build.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -140,7 +140,44 @@
                     </execution>
                 </executions>
             </plugin>
-        </plugins>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.7.2.1</version>
+                <configuration>
+                    <excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
+                </configuration>          
+                <dependencies>
+                  <!-- overwrite dependency on spotbugs if you want to specify the version of spotbugs -->
+                  <dependency>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs</artifactId>
+                    <version>4.7.3</version>
+                  </dependency>
+                </dependencies>
+              </plugin>
+              <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>3.20.0</version>
+                <executions>
+                  <execution>
+                    <goals>
+                      <goal>check</goal>
+                      <goal>cpd-check</goal>
+                    </goals>
+                  </execution>
+                </executions>
+                <configuration>
+                    <rulesets>
+                      <!-- A rule set, that comes bundled with PMD -->
+                      <ruleset>/pmd-rules.xml</ruleset>
+                      <!-- A rule set, that comes bundled with PMD -->
+                      <!-- <ruleset>/category/java/errorprone.xml</ruleset> -->
+                    </rulesets>
+                  </configuration>          
+              </plugin>
+      </plugins>
     </build>
 
     <dependencies>
@@ -174,5 +211,15 @@
             <version>1.10.19</version>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+   </dependencies>
+
+   <reporting>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jxr-plugin</artifactId>
+            <version>3.3.0</version>
+        </plugin>
+    </plugins>
+  </reporting>
 </project>
