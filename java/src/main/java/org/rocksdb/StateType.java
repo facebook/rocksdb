@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * The type used to refer to a thread state.
- *
+ * <p>
  * A state describes lower-level action of a thread
  * such as reading / writing a file or waiting for a mutex.
  */

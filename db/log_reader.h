@@ -11,6 +11,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
@@ -18,6 +20,8 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/hash_containers.h"
+#include "util/udt_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -74,6 +78,12 @@ class Reader {
                               WALRecoveryMode::kTolerateCorruptedTailRecords,
                           uint64_t* record_checksum = nullptr);
 
+  // Return the recorded user-defined timestamp size that have been read so
+  // far. This only applies to WAL logs.
+  const UnorderedMap<uint32_t, size_t>& GetRecordedTimestampSize() const {
+    return recorded_cf_to_ts_sz_;
+  }
+
   // Returns the physical offset of the last record returned by ReadRecord.
   //
   // Undefined before the first call to ReadRecord.
@@ -85,9 +95,7 @@ class Reader {
   uint64_t LastRecordEnd();
 
   // returns true if the reader has encountered an eof condition.
-  bool IsEOF() {
-    return eof_;
-  }
+  bool IsEOF() { return eof_; }
 
   // returns true if the reader has encountered read error.
   bool hasReadError() const { return read_error_; }
@@ -122,8 +130,8 @@ class Reader {
 
   // Internal state variables used for reading records
   Slice buffer_;
-  bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
-  bool read_error_;   // Error occurred while reading from file
+  bool eof_;         // Last Read() indicated EOF by returning < kBlockSize
+  bool read_error_;  // Error occurred while reading from file
 
   // Offset of the file position indicator within the last block when an
   // EOF was detected.
@@ -151,8 +159,14 @@ class Reader {
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
-  // Used for stream hashing log record
+  // Used for stream hashing fragment content in ReadRecord()
   XXH3_state_t* hash_state_;
+  // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
+  XXH3_state_t* uncompress_hash_state_;
+
+  // The recorded user-defined timestamp sizes that have been read so far. This
+  // is only for WAL logs.
+  UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
   // Extend record types with the following special values
   enum {
@@ -173,10 +187,14 @@ class Reader {
   };
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+  // If WAL compressioned is enabled, fragment_checksum is the checksum of the
+  // fragment computed from the orginal buffer containinng uncompressed
+  // fragment.
+  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                                  uint64_t* fragment_checksum = nullptr);
 
   // Read some more
-  bool ReadMore(size_t* drop_size, int *error);
+  bool ReadMore(size_t* drop_size, int* error);
 
   void UnmarkEOFInternal();
 
@@ -186,6 +204,9 @@ class Reader {
   void ReportDrop(size_t bytes, const Status& reason);
 
   void InitCompression(const CompressionTypeRecord& compression_record);
+
+  Status UpdateRecordedTimestampSize(
+      const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz);
 };
 
 class FragmentBufferedReader : public Reader {

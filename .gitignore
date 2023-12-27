@@ -56,6 +56,7 @@ io_tracer_parser
 .DS_Store
 .vs
 .vscode
+.clangd
 
 java/out
 java/target
@@ -84,6 +85,7 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+.arcconfig
 
 compile_commands.json
 clang-format-diff.py
@@ -94,3 +96,5 @@ fuzz/crash-*
 
 cmake-build-*
 third-party/folly/
+.cache
+*.sublime-*

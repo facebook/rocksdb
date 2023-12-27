@@ -1,8 +1,9 @@
-/**
- * A MergeOperator for rocksdb that implements string append.
- * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
- */
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
+// A MergeOperator for rocksdb that implements string append.
 
 #include "stringappend.h"
 
@@ -19,11 +20,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo>
     stringappend_merge_type_info = {
-#ifndef ROCKSDB_LITE
         {"delimiter",
          {0, OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 // Constructor: also specify the delimiter character.
@@ -48,7 +47,7 @@ bool StringAppendOperator::Merge(const Slice& /*key*/,
 
   if (!existing_value) {
     // No existing_value. Set *new_value = value
-    new_value->assign(value.data(),value.size());
+    new_value->assign(value.data(), value.size());
   } else {
     // Generic append (existing_value != null).
     // Reserve *new_value to correct size, and apply concatenation.
@@ -61,12 +60,12 @@ bool StringAppendOperator::Merge(const Slice& /*key*/,
   return true;
 }
 
-
 std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator() {
   return std::make_shared<StringAppendOperator>(',');
 }
 
-std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator(char delim_char) {
+std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator(
+    char delim_char) {
   return std::make_shared<StringAppendOperator>(delim_char);
 }
 

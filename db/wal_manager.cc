@@ -34,7 +34,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
@@ -154,10 +153,11 @@ void WalManager::PurgeObsoleteWALFiles() {
     return;
   }
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
-  uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled)
-                                     ? db_options_.WAL_ttl_seconds / 2
-                                     : kDefaultIntervalToDeleteObsoleteWAL;
-
+  uint64_t const time_to_check =
+      ttl_enabled
+          ? std::min(kDefaultIntervalToDeleteObsoleteWAL,
+                     std::max(uint64_t{1}, db_options_.WAL_ttl_seconds / 2))
+          : kDefaultIntervalToDeleteObsoleteWAL;
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
     return;
   }
@@ -334,8 +334,8 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
         return s;
       }
 
-      log_files.push_back(std::unique_ptr<LogFile>(
-          new LogFileImpl(number, log_type, sequence, size_bytes)));
+      log_files.emplace_back(
+          new LogFileImpl(number, log_type, sequence, size_bytes));
     }
   }
   std::sort(
@@ -355,7 +355,8 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
   // Binary Search. avoid opening all files.
   while (end >= start) {
     int64_t mid = start + (end - start) / 2;  // Avoid overflow.
-    SequenceNumber current_seq_num = all_logs.at(static_cast<size_t>(mid))->StartSequence();
+    SequenceNumber current_seq_num =
+        all_logs.at(static_cast<size_t>(mid))->StartSequence();
     if (current_seq_num == target) {
       end = mid;
       break;
@@ -366,7 +367,8 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
     }
   }
   // end could be -ve.
-  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
+  size_t start_index =
+      static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
@@ -468,9 +470,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<FSSequentialFile> file;
-  Status status = fs_->NewSequentialFile(fname,
-                                         fs_->OptimizeForLogRead(file_options_),
-                                         &file, nullptr);
+  Status status = fs_->NewSequentialFile(
+      fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
       new SequentialFileReader(std::move(file), fname, io_tracer_));
 
@@ -524,5 +525,4 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   return status;
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

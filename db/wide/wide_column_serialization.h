@@ -44,10 +44,12 @@ class Slice;
 class WideColumnSerialization {
  public:
   static Status Serialize(const WideColumns& columns, std::string& output);
+
   static Status Deserialize(Slice& input, WideColumns& columns);
 
   static WideColumns::const_iterator Find(const WideColumns& columns,
                                           const Slice& column_name);
+  static Status GetValueOfDefaultColumn(Slice& input, Slice& value);
 
   static constexpr uint32_t kCurrentVersion = 1;
 };

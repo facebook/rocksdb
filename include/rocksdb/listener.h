@@ -140,7 +140,10 @@ enum class CompactionReason : int {
   // According to the comments in flush_job.cc, RocksDB treats flush as
   // a level 0 compaction in internal stats.
   kFlush,
-  // Compaction caused by external sst file ingestion
+  // [InternalOnly] External sst file ingestion treated as a compaction
+  // with placeholder input level L0 as file ingestion
+  // technically does not have an input level like other compactions.
+  // Used only for internal stats and conflict checking with other compactions
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
@@ -148,10 +151,19 @@ enum class CompactionReason : int {
   kChangeTemperature,
   // Compaction scheduled to force garbage collection of blob files
   kForcedBlobGC,
+  // A special TTL compaction for RoundRobin policy, which basically the same as
+  // kLevelMaxLevelSize, but the goal is to compact TTLed files.
+  kRoundRobinTtl,
+  // [InternalOnly] DBImpl::ReFitLevel treated as a compaction,
+  // Used only for internal conflict checking with other compactions
+  kRefitLevel,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
 
+const char* GetCompactionReasonString(CompactionReason compaction_reason);
+
+// When adding flush reason, make sure to also update `GetFlushReasonString()`.
 enum class FlushReason : int {
   kOthers = 0x00,
   kGetLiveFiles = 0x01,
@@ -169,7 +181,11 @@ enum class FlushReason : int {
   // will not be called to avoid many small immutable memtables.
   kErrorRecoveryRetryFlush = 0xc,
   kWalFull = 0xd,
+  // SwitchMemtable will not be called for this flush reason.
+  kCatchUpAfterErrorRecovery = 0xe,
 };
+
+const char* GetFlushReasonString(FlushReason flush_reason);
 
 // TODO: In the future, BackgroundErrorReason will only be used to indicate
 // why the BG Error is happening (e.g., flush, compaction). We may introduce
@@ -185,12 +201,6 @@ enum class BackgroundErrorReason {
   kManifestWriteNoWAL,
 };
 
-enum class WriteStallCondition {
-  kNormal,
-  kDelayed,
-  kStopped,
-};
-
 struct WriteStallInfo {
   // the name of the column family
   std::string cf_name;
@@ -201,7 +211,6 @@ struct WriteStallInfo {
   } condition;
 };
 
-#ifndef ROCKSDB_LITE
 
 struct FileDeletionInfo {
   FileDeletionInfo() = default;
@@ -834,11 +843,5 @@ class EventListener : public Customizable {
   ~EventListener() override {}
 };
 
-#else
-
-class EventListener {};
-struct FlushJobInfo {};
-
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

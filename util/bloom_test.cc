@@ -23,6 +23,7 @@ int main() {
 #include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
@@ -110,9 +111,7 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
 
   void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
 
-  void Add(const Slice& s) {
-    bits_builder_->AddKey(s);
-  }
+  void Add(const Slice& s) { bits_builder_->AddKey(s); }
 
   void OpenRaw(const Slice& s) {
     bits_reader_.reset(policy_->GetFilterBitsReader(s));
@@ -124,9 +123,7 @@ class FullBloomTest : public testing::TestWithParam<std::string> {
     filter_size_ = filter.size();
   }
 
-  size_t FilterSize() const {
-    return filter_size_;
-  }
+  size_t FilterSize() const { return filter_size_; }
 
   Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
@@ -319,7 +316,7 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     double rate = FalsePositiveRate();
     if (kVerbose >= 1) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
+              rate * 100.0, length, static_cast<int>(FilterSize()));
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(rate, 0.02);  // Must not be over 2%
@@ -331,8 +328,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
   }
   if (kVerbose >= 1) {
-    fprintf(stderr, "Filters: %d good, %d mediocre\n",
-            good_filters, mediocre_filters);
+    fprintf(stderr, "Filters: %d good, %d mediocre\n", good_filters,
+            mediocre_filters);
   }
   EXPECT_LE(mediocre_filters, good_filters / 5);
 }
@@ -810,14 +807,14 @@ TEST_P(FullBloomTest, Schema) {
 struct RawFilterTester {
   // Buffer, from which we always return a tail Slice, so the
   // last five bytes are always the metadata bytes.
-  std::array<char, 3000> data_;
+  std::array<char, 3000> data_{};
   // Points five bytes from the end
   char* metadata_ptr_;
 
   RawFilterTester() : metadata_ptr_(&*(data_.end() - 5)) {}
 
   Slice ResetNoFill(uint32_t len_without_metadata, uint32_t num_lines,
-                     uint32_t num_probes) {
+                    uint32_t num_probes) {
     metadata_ptr_[0] = static_cast<char>(num_probes);
     EncodeFixed32(metadata_ptr_ + 1, num_lines);
     uint32_t len = len_without_metadata + /*metadata*/ 5;
@@ -826,13 +823,13 @@ struct RawFilterTester {
   }
 
   Slice Reset(uint32_t len_without_metadata, uint32_t num_lines,
-               uint32_t num_probes, bool fill_ones) {
+              uint32_t num_probes, bool fill_ones) {
     data_.fill(fill_ones ? 0xff : 0);
     return ResetNoFill(len_without_metadata, num_lines, num_probes);
   }
 
   Slice ResetWeirdFill(uint32_t len_without_metadata, uint32_t num_lines,
-                        uint32_t num_probes) {
+                       uint32_t num_probes) {
     for (uint32_t i = 0; i < data_.size(); ++i) {
       data_[i] = static_cast<char>(0x7b7b >> (i % 7));
     }
@@ -1113,12 +1110,16 @@ static void SetTestingLevel(int levelish, FilterBuildingContext* ctx) {
 TEST(RibbonTest, RibbonTestLevelThreshold) {
   BlockBasedTableOptions opts;
   FilterBuildingContext ctx(opts);
+
+  std::shared_ptr<FilterPolicy> reused{NewRibbonFilterPolicy(10)};
+
   // A few settings
   for (CompactionStyle cs : {kCompactionStyleLevel, kCompactionStyleUniversal,
                              kCompactionStyleFIFO, kCompactionStyleNone}) {
     ctx.compaction_style = cs;
-    for (int bloom_before_level : {-1, 0, 1, 10}) {
-      std::vector<std::unique_ptr<const FilterPolicy> > policies;
+    for (int bloom_before_level : {-1, 0, 1, 10, INT_MAX - 1, INT_MAX}) {
+      SCOPED_TRACE("bloom_before_level=" + std::to_string(bloom_before_level));
+      std::vector<std::shared_ptr<FilterPolicy> > policies;
       policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
 
       if (bloom_before_level == 0) {
@@ -1126,16 +1127,22 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
         policies.emplace_back(NewRibbonFilterPolicy(10));
       }
 
-      for (std::unique_ptr<const FilterPolicy>& policy : policies) {
-        // Claim to be generating filter for this level
-        SetTestingLevel(bloom_before_level, &ctx);
+      ASSERT_OK(reused->ConfigureOption({}, "bloom_before_level",
+                                        std::to_string(bloom_before_level)));
 
-        std::unique_ptr<FilterBitsBuilder> builder{
-            policy->GetBuilderWithContext(ctx)};
+      policies.push_back(reused);
 
-        // Must be Ribbon (more space efficient than 10 bits per key)
-        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+      for (auto& policy : policies) {
+        std::unique_ptr<FilterBitsBuilder> builder;
+        if (bloom_before_level < INT_MAX) {
+          // Claim to be generating filter for this level
+          SetTestingLevel(bloom_before_level, &ctx);
 
+          builder.reset(policy->GetBuilderWithContext(ctx));
+
+          // Must be Ribbon (more space efficient than 10 bits per key)
+          ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        }
         if (bloom_before_level >= 0) {
           // Claim to be generating filter for previous level
           SetTestingLevel(bloom_before_level - 1, &ctx);
@@ -1144,6 +1151,10 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 
           if (cs == kCompactionStyleLevel || cs == kCompactionStyleUniversal) {
             // Level is considered.
+            // Must be Bloom (~ 10 bits per key)
+            ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+          } else if (bloom_before_level == INT_MAX) {
+            // Force bloom option
             // Must be Bloom (~ 10 bits per key)
             ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
           } else {
@@ -1159,8 +1170,14 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 
         builder.reset(policy->GetBuilderWithContext(ctx));
 
-        // Must be Ribbon (more space efficient than 10 bits per key)
-        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        if (bloom_before_level < INT_MAX) {
+          // Must be Ribbon (more space efficient than 10 bits per key)
+          ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+        } else {
+          // Force bloom option
+          // Must be Bloom (~ 10 bits per key)
+          ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+        }
       }
     }
   }
@@ -1169,6 +1186,7 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
 

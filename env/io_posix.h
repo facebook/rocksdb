@@ -29,12 +29,19 @@
 
 // For non linux platform, the following macros are used only as place
 // holder.
-#if !(defined OS_LINUX) && !(defined CYGWIN) && !(defined OS_AIX)
+#if !(defined OS_LINUX) && !(defined OS_FREEBSD) && !(defined CYGWIN) && \
+    !(defined OS_AIX)
 #define POSIX_FADV_NORMAL 0     /* [MC1] no further special treatment */
 #define POSIX_FADV_RANDOM 1     /* [MC1] expect random page refs */
 #define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
 #define POSIX_FADV_WILLNEED 3   /* [MC1] will need these pages */
 #define POSIX_FADV_DONTNEED 4   /* [MC1] don't need these pages */
+
+#define POSIX_MADV_NORMAL 0     /* [MC1] no further special treatment */
+#define POSIX_MADV_RANDOM 1     /* [MC1] expect random page refs */
+#define POSIX_MADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
+#define POSIX_MADV_WILLNEED 3   /* [MC1] will need these pages */
+#define POSIX_MADV_DONTNEED 4   /* [MC1] don't need these pages */
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -284,8 +291,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        size_t logical_block_size,
-                        const EnvOptions& options
+                        size_t logical_block_size, const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
                         ThreadLocalPtr* thread_local_io_urings

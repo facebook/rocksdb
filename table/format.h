@@ -15,7 +15,7 @@
 
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "options/cf_options.h"
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept
@@ -29,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 class RandomAccessFile;
 struct ReadOptions;
 
-extern bool ShouldReportDetailedTime(Env* env, Statistics* stats);
+bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 
 // the length of the magic number in bytes.
 constexpr uint32_t kMagicNumberLengthByte = 8;
@@ -111,6 +111,40 @@ struct IndexValue {
   std::string ToString(bool hex, bool have_first_key) const;
 };
 
+// Given a file's base_context_checksum and an offset of a block within that
+// file, choose a 32-bit value that is as unique as possible. This value will
+// be added to the standard checksum to get a checksum "with context," or can
+// be subtracted to "remove" context. Returns zero (no modifier) if feature is
+// disabled with base_context_checksum == 0.
+inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
+                                           uint64_t offset) {
+  // To disable on base_context_checksum == 0, we could write
+  // `if (base_context_checksum == 0) return 0;` but benchmarking shows
+  // measurable performance penalty vs. this: compute the modifier
+  // unconditionally and use an "all or nothing" bit mask to enable
+  // or disable.
+  uint32_t all_or_nothing = uint32_t{0} - (base_context_checksum != 0);
+
+  // Desired properties:
+  // (call this function f(b, o) where b = base and o = offset)
+  // 1. Fast
+  // 2. f(b1, o) == f(b2, o) iff b1 == b2
+  //    (Perfectly preserve base entropy)
+  // 3. f(b, o1) == f(b, o2) only if o1 == o2 or |o1-o2| >= 4 billion
+  //    (Guaranteed uniqueness for nearby offsets)
+  // 3. f(b, o + j * 2**32) == f(b, o + k * 2**32) only if j == k
+  //    (Upper bits matter, and *aligned* misplacement fails check)
+  // 4. f(b1, o) == f(b2, o + x) then preferably not
+  //    f(b1, o + y) == f(b2, o + x + y)
+  //    (Avoid linearly correlated matches)
+  // 5. f(b, o) == 0 depends on both b and o
+  //    (No predictable overlap with non-context checksums)
+  uint32_t modifier =
+      base_context_checksum ^ (Lower32of64(offset) + Upper32of64(offset));
+
+  return modifier & all_or_nothing;
+}
+
 inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   // As of format_version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
@@ -118,18 +152,27 @@ inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   return format_version >= 2 ? 2 : 1;
 }
 
-constexpr uint32_t kLatestFormatVersion = 5;
+constexpr uint32_t kLatestFormatVersion = 6;
 
 inline bool IsSupportedFormatVersion(uint32_t version) {
   return version <= kLatestFormatVersion;
+}
+
+// Same as having a unique id in footer.
+inline bool FormatVersionUsesContextChecksum(uint32_t version) {
+  return version >= 6;
+}
+
+inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
+  return version < 6;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every
 // SST file. In general, it should only include things that cannot go
 // elsewhere under the metaindex block. For example, checksum_type is
 // required for verifying metaindex block checksum (when applicable), but
-// index block handle can easily go in metaindex block (possible future).
-// See also FooterBuilder below.
+// index block handle can easily go in metaindex block. See also FooterBuilder
+// below.
 class Footer {
  public:
   // Create empty. Populate using DecodeFrom.
@@ -137,8 +180,11 @@ class Footer {
 
   // Deserialize a footer (populate fields) from `input` and check for various
   // corruptions. `input_offset` is the offset within the target file of
-  // `input` buffer (future use).
-  Status DecodeFrom(Slice input, uint64_t input_offset);
+  // `input` buffer, which is needed for verifying format_version >= 6 footer.
+  // If enforce_table_magic_number != 0, will return corruption if table magic
+  // number is not equal to enforce_table_magic_number.
+  Status DecodeFrom(Slice input, uint64_t input_offset,
+                    uint64_t enforce_table_magic_number = 0);
 
   // Table magic number identifies file as RocksDB SST file and which kind of
   // SST format is use.
@@ -149,13 +195,17 @@ class Footer {
   // BBTO::format_version.)
   uint32_t format_version() const { return format_version_; }
 
+  // See ChecksumModifierForContext()
+  uint32_t base_context_checksum() const { return base_context_checksum_; }
+
   // Block handle for metaindex block.
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
 
   // Block handle for (top-level) index block.
+  // TODO? remove from this struct and only read on decode for legacy cases
   const BlockHandle& index_handle() const { return index_handle_; }
 
-  // Checksum type used in the file.
+  // Checksum type used in the file, including footer for format version >= 6.
   ChecksumType checksum_type() const {
     return static_cast<ChecksumType>(checksum_type_);
   }
@@ -195,6 +245,7 @@ class Footer {
 
   uint64_t table_magic_number_ = kNullTableMagicNumber;
   uint32_t format_version_ = kInvalidFormatVersion;
+  uint32_t base_context_checksum_ = 0;
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   int checksum_type_ = kInvalidChecksumType;
@@ -216,11 +267,16 @@ class FooterBuilder {
   // * footer_offset is the file offset where the footer will be written
   // (for future use).
   // * checksum_type is for formats using block checksums.
-  // * index_handle is optional for some kinds of SST files.
-  void Build(uint64_t table_magic_number, uint32_t format_version,
-             uint64_t footer_offset, ChecksumType checksum_type,
-             const BlockHandle& metaindex_handle,
-             const BlockHandle& index_handle = BlockHandle::NullBlockHandle());
+  // * index_handle is optional for some SST kinds and (for caller convenience)
+  // ignored when format_version >= 6. (Must be added to metaindex in that
+  // case.)
+  // * unique_id must be specified if format_vesion >= 6 and SST uses block
+  // checksums with context. Otherwise, auto-generated if format_vesion >= 6.
+  Status Build(uint64_t table_magic_number, uint32_t format_version,
+               uint64_t footer_offset, ChecksumType checksum_type,
+               const BlockHandle& metaindex_handle,
+               const BlockHandle& index_handle = BlockHandle::NullBlockHandle(),
+               uint32_t base_context_checksum = 0);
 
   // After Builder, get a Slice for the serialized Footer, backed by this
   // FooterBuilder.
@@ -238,7 +294,7 @@ class FooterBuilder {
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
-                          FilePrefetchBuffer* prefetch_buffer,
+                          FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
@@ -256,7 +312,26 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 // Represents the contents of a block read from an SST file. Depending on how
 // it's created, it may or may not own the actual block bytes. As an example,
 // BlockContents objects representing data read from mmapped files only point
-// into the mmapped region.
+// into the mmapped region. Depending on context, it might be a serialized
+// (potentially compressed) block, including a trailer beyond `size`, or an
+// uncompressed block.
+//
+// Please try to use this terminology when dealing with blocks:
+// * "Serialized block" - bytes that go into storage. For block-based table
+// (usually the case) this includes the block trailer. Here the `size` does
+// not include the trailer, but other places in code might include the trailer
+// in the size.
+// * "Maybe compressed block" - like a serialized block, but without the
+// trailer (or no promise of including a trailer). Must be accompanied by a
+// CompressionType in some other variable or field.
+// * "Uncompressed block" - "payload" bytes that are either stored with no
+// compression, used as input to compression function, or result of
+// decompression function.
+// * "Parsed block" - an in-memory form of a block in block cache, as it is
+// used by the table reader. Different C++ types are used depending on the
+// block type (see block_cache.h). Only trivially parsable block types
+// use BlockContents as the parsed form.
+//
 struct BlockContents {
   // Points to block payload (without trailer)
   Slice data;
@@ -265,7 +340,7 @@ struct BlockContents {
 #ifndef NDEBUG
   // Whether there is a known trailer after what is pointed to by `data`.
   // See BlockBasedTable::GetCompressionType.
-  bool is_raw_block = false;
+  bool has_trailer = false;
 #endif  // NDEBUG
 
   BlockContents() {}
@@ -313,36 +388,35 @@ struct BlockContents {
     data = std::move(other.data);
     allocation = std::move(other.allocation);
 #ifndef NDEBUG
-    is_raw_block = other.is_raw_block;
+    has_trailer = other.has_trailer;
 #endif  // NDEBUG
     return *this;
   }
 };
 
-// The 'data' points to the raw block contents read in from file.
-// This method allocates a new heap buffer and the raw block
-// contents are uncompresed into this buffer. This buffer is
-// returned via 'result' and it is upto the caller to
-// free this buffer.
-// For description of compress_format_version and possible values, see
-// util/compression.h
-extern Status UncompressBlockContents(const UncompressionInfo& info,
-                                      const char* data, size_t n,
-                                      BlockContents* contents,
-                                      uint32_t compress_format_version,
-                                      const ImmutableOptions& ioptions,
-                                      MemoryAllocator* allocator = nullptr);
+// The `data` points to serialized block contents read in from file, which
+// must be compressed and include a trailer beyond `size`. A new buffer is
+// allocated with the given allocator (or default) and the uncompressed
+// contents are returned in `out_contents`.
+// format_version is as defined in include/rocksdb/table.h, which is
+// used to determine compression format version.
+Status UncompressSerializedBlock(const UncompressionInfo& info,
+                                 const char* data, size_t size,
+                                 BlockContents* out_contents,
+                                 uint32_t format_version,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator = nullptr);
 
-// This is an extension to UncompressBlockContents that accepts
-// a specific compression type. This is used by un-wrapped blocks
-// with no compression header.
-extern Status UncompressBlockContentsForCompressionType(
-    const UncompressionInfo& info, const char* data, size_t n,
-    BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr);
+// This is a variant of UncompressSerializedBlock that does not expect a
+// block trailer beyond `size`. (CompressionType is taken from `info`.)
+Status UncompressBlockData(const UncompressionInfo& info, const char* data,
+                           size_t size, BlockContents* out_contents,
+                           uint32_t format_version,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
-extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
+Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 
 // Implementation details follow.  Clients should ignore,
 

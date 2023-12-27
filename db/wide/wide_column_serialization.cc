@@ -9,6 +9,7 @@
 #include <cassert>
 #include <limits>
 
+#include "db/wide/wide_columns_helper.h"
 #include "rocksdb/slice.h"
 #include "util/autovector.h"
 #include "util/coding.h"
@@ -17,14 +18,17 @@ namespace ROCKSDB_NAMESPACE {
 
 Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
-  if (columns.size() >
-      static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+  const size_t num_columns = columns.size();
+
+  if (num_columns > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
   }
 
   PutVarint32(&output, kCurrentVersion);
 
-  PutVarint32(&output, static_cast<uint32_t>(columns.size()));
+  PutVarint32(&output, static_cast<uint32_t>(num_columns));
+
+  const Slice* prev_name = nullptr;
 
   for (size_t i = 0; i < columns.size(); ++i) {
     const WideColumn& column = columns[i];
@@ -34,7 +38,8 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
       return Status::InvalidArgument("Wide column name too long");
     }
-    if (i > 0 && columns[i - 1].name().compare(name) >= 0) {
+
+    if (prev_name && prev_name->compare(name) >= 0) {
       return Status::Corruption("Wide columns out of order");
     }
 
@@ -46,6 +51,8 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
 
     PutLengthPrefixedSlice(&output, name);
     PutVarint32(&output, static_cast<uint32_t>(value.size()));
+
+    prev_name = &name;
   }
 
   for (const auto& column : columns) {
@@ -135,6 +142,25 @@ WideColumns::const_iterator WideColumnSerialization::Find(
   }
 
   return it;
+}
+
+Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
+                                                        Slice& value) {
+  WideColumns columns;
+
+  const Status s = Deserialize(input, columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!WideColumnsHelper::HasDefaultColumn(columns)) {
+    value.clear();
+    return Status::OK();
+  }
+
+  value = WideColumnsHelper::GetDefaultColumn(columns);
+
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

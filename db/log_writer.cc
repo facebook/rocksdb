@@ -9,12 +9,14 @@
 
 #include "db/log_writer.h"
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
@@ -44,7 +46,12 @@ Writer::~Writer() {
   }
 }
 
-IOStatus Writer::WriteBuffer() { return dest_->Flush(); }
+IOStatus Writer::WriteBuffer() {
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  }
+  return dest_->Flush();
+}
 
 IOStatus Writer::Close() {
   IOStatus s;
@@ -67,7 +74,6 @@ IOStatus Writer::AddRecord(const Slice& slice,
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
   // zero-length record
-  IOStatus s;
   bool begin = true;
   int compress_remaining = 0;
   bool compress_start = false;
@@ -75,6 +81,8 @@ IOStatus Writer::AddRecord(const Slice& slice,
     compress_->Reset();
     compress_start = true;
   }
+
+  IOStatus s;
   do {
     const int64_t leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
@@ -188,7 +196,34 @@ IOStatus Writer::AddCompressionTypeRecord() {
   return s;
 }
 
-bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
+IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
+    const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz,
+    Env::IOPriority rate_limiter_priority) {
+  std::vector<std::pair<uint32_t, size_t>> ts_sz_to_record;
+  for (const auto& [cf_id, ts_sz] : cf_to_ts_sz) {
+    if (recorded_cf_to_ts_sz_.count(cf_id) != 0) {
+      // A column family's user-defined timestamp size should not be
+      // updated while DB is running.
+      assert(recorded_cf_to_ts_sz_[cf_id] == ts_sz);
+    } else if (ts_sz != 0) {
+      ts_sz_to_record.emplace_back(cf_id, ts_sz);
+      recorded_cf_to_ts_sz_.insert(std::make_pair(cf_id, ts_sz));
+    }
+  }
+  if (ts_sz_to_record.empty()) {
+    return IOStatus::OK();
+  }
+
+  UserDefinedTimestampSizeRecord record(std::move(ts_sz_to_record));
+  std::string encoded;
+  record.EncodeTo(&encoded);
+  RecordType type = recycle_log_files_ ? kRecyclableUserDefinedTimestampSizeType
+                                       : kUserDefinedTimestampSizeType;
+  return EmitPhysicalRecord(type, encoded.data(), encoded.size(),
+                            rate_limiter_priority);
+}
+
+bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
 
 IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
                                     Env::IOPriority rate_limiter_priority) {
@@ -203,7 +238,8 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
   buf[6] = static_cast<char>(t);
 
   uint32_t crc = type_crc_[t];
-  if (t < kRecyclableFullType || t == kSetCompressionType) {
+  if (t < kRecyclableFullType || t == kSetCompressionType ||
+      t == kUserDefinedTimestampSizeType) {
     // Legacy record format
     assert(block_offset_ + kHeaderSize + n <= kBlockSize);
     header_size = kHeaderSize;

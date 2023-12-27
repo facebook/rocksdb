@@ -162,7 +162,9 @@ class PinnableSlice : public Slice, public Cleanable {
     pinned_ = true;
     data_ = s.data();
     size_ = s.size();
-    cleanable->DelegateCleanupsTo(this);
+    if (cleanable != nullptr) {
+      cleanable->DelegateCleanupsTo(this);
+    }
     assert(pinned_);
   }
 

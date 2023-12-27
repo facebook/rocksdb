@@ -107,7 +107,7 @@ class MergerTest : public testing::Test {
     }
 
     merging_iterator_.reset(
-        NewMergingIterator(&icomp_, &small_iterators[0],
+        NewMergingIterator(&icomp_, small_iterators.data(),
                            static_cast<int>(small_iterators.size())));
     single_iterator_.reset(new VectorIterator(all_keys_, all_keys_, &icomp_));
   }
@@ -176,6 +176,7 @@ TEST_F(MergerTest, SeekToLastTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

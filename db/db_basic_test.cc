@@ -20,9 +20,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -31,6 +29,9 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+static bool enable_io_uring = true;
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
 
 class DBBasicTest : public DBTestBase {
  public:
@@ -95,7 +96,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   EXPECT_MATCHES_REGEX(sid2, expected);
   EXPECT_MATCHES_REGEX(sid3, expected);
 
-#ifndef ROCKSDB_LITE
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -110,7 +110,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid2);
 
   ASSERT_EQ(sid2, sid3);
-#endif  // ROCKSDB_LITE
 
   CreateAndReopenWithCF({"goku"}, options);
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -127,7 +126,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid4);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
@@ -140,6 +138,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
       ASSERT_OK(iter->status());
       ++count;
     }
+    ASSERT_OK(iter->status());
     // Always expect two keys: "foo" and "bar"
     ASSERT_EQ(count, 2);
   };
@@ -253,6 +252,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Flush());
+  ASSERT_OK(Put("something_not_flushed", "x"));
   Close();
 
   ASSERT_OK(ReadOnlyReopen(options));
@@ -260,6 +260,20 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
+
+  // TODO: validate that other write ops return NotImplemented
+  // (DBImplReadOnly is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  // (Old deadlock bug depends on something_not_flushed above.)
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;  // always
+  std::vector<LiveFileStorageInfo> files2;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
+
   Close();
 
   // Full compaction
@@ -289,6 +303,13 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  // TODO: validate that other write ops return NotImplemented
+  // (CompactedDB is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
 
   // MultiGet
   std::vector<std::string> values;
@@ -342,7 +363,6 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, PutDeleteGet) {
   do {
@@ -404,7 +424,6 @@ TEST_F(DBBasicTest, GetFromVersions) {
   } while (ChangeOptions());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetSnapshot) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
@@ -425,7 +444,6 @@ TEST_F(DBBasicTest, GetSnapshot) {
     }
   } while (ChangeOptions());
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
@@ -657,7 +675,27 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTest, LockFileRecovery) {
+  Options options = CurrentOptions();
+  // Regardless of best_efforts_recovery
+  for (bool ber : {false, true}) {
+    options.best_efforts_recovery = ber;
+    DestroyAndReopen(options);
+    std::string id1, id2;
+    ASSERT_OK(db_->GetDbIdentity(id1));
+    Close();
+
+    // Should be OK to re-open DB after lock file deleted
+    std::string lockfilename = LockFileName(dbname_);
+    ASSERT_OK(env_->DeleteFile(lockfilename));
+    Reopen(options);
+
+    // Should be same DB as before
+    ASSERT_OK(db_->GetDbIdentity(id2));
+    ASSERT_EQ(id1, id2);
+  }
+}
+
 TEST_F(DBBasicTest, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
@@ -729,7 +767,6 @@ TEST_F(DBBasicTest, Snapshot) {
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 class DBBasicMultiConfigs : public DBBasicTest,
                             public ::testing::WithParamInterface<int> {
@@ -1168,9 +1205,23 @@ TEST_F(DBBasicTest, DBClose) {
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 2);
 
+  // close by WaitForCompact() with close_db option
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
+  wait_for_compact_options.close_db = true;
+  s = db->WaitForCompact(wait_for_compact_options);
+  ASSERT_EQ(env->GetCloseCount(), 3);
+  // see TestLogger::CloseHelper()
+  ASSERT_EQ(s, Status::IOError());
+
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
   // Provide our own logger and ensure DB::Close() does not close it
   options.info_log.reset(new TestEnv::TestLogger(env));
-  options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
@@ -1178,9 +1229,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
-  options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 4);
 }
 
 TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
@@ -1209,9 +1260,9 @@ TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
   s = db->Close();
   auto* counted_fs =
       options.env->GetFileSystem()->CheckedCast<CountedFileSystem>();
-  assert(counted_fs);
-  ASSERT_TRUE(counted_fs->counters()->dir_opens ==
-              counted_fs->counters()->dir_closes);
+  ASSERT_TRUE(counted_fs != nullptr);
+  ASSERT_EQ(counted_fs->counters()->dir_opens,
+            counted_fs->counters()->dir_closes);
   ASSERT_OK(s);
   delete db;
 }
@@ -1377,10 +1428,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int retries = 0;
   bool last_try = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
-        last_try = true;
-        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-      });
+      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) { last_try = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
@@ -1397,7 +1445,27 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
           }
         }
       });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::MultiGet::AfterLastTryRefSV",
+       "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV"},
+      {"DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV",
+       "DBImpl::MultiGet::BeforeLastTryUnRefSV"},
+  });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread create_sv_thread([this]() {
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV");
+    // Create a new SuperVersion for each column family after last_try
+    // of MultiGet ref SuperVersion and before unref it.
+    for (int i = 0; i < 8; ++i) {
+      ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                    "cf" + std::to_string(i) + "_val_after_last_try"));
+      ASSERT_OK(Flush(i));
+    }
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV");
+  });
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1410,6 +1478,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
 
   values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
                     std::get<1>(GetParam()));
+  create_sv_thread.join();
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1423,6 +1492,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
             ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
@@ -2013,12 +2083,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
-#ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    ROCKSDB_GTEST_BYPASS("This test needs to be fixed for async IO");
     return;
   }
-#endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
     ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
@@ -2131,22 +2199,24 @@ INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 #if USE_COROUTINES
-class DBMultiGetAsyncIOTest : public DBBasicTest {
+class DBMultiGetAsyncIOTest : public DBBasicTest,
+                              public ::testing::WithParamInterface<bool> {
  public:
   DBMultiGetAsyncIOTest()
       : DBBasicTest(), statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10));
-    Options options = CurrentOptions();
-    options.disable_auto_compactions = true;
-    options.statistics = statistics_;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    Reopen(options);
+    options_ = CurrentOptions();
+    options_.disable_auto_compactions = true;
+    options_.statistics = statistics_;
+    options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options_.env = Env::Default();
+    Reopen(options_);
     int num_keys = 0;
 
     // Put all keys in the bottommost level, and overwrite some keys
     // in L0 and L1
-    for (int i = 0; i < 128; ++i) {
+    for (int i = 0; i < 256; ++i) {
       EXPECT_OK(Put(Key(i), "val_l2_" + std::to_string(i)));
       num_keys++;
       if (num_keys == 8) {
@@ -2172,6 +2242,21 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
       EXPECT_OK(Flush());
       num_keys = 0;
     }
+    // Put some range deletes in L1
+    for (int i = 128; i < 256; i += 32) {
+      std::string range_begin = Key(i);
+      std::string range_end = Key(i + 16);
+      EXPECT_OK(dbfull()->DeleteRange(WriteOptions(),
+                                      dbfull()->DefaultColumnFamily(),
+                                      range_begin, range_end));
+      // Also do some Puts to force creation of bloom filter
+      for (int j = i + 16; j < i + 32; ++j) {
+        if (j % 3 == 0) {
+          EXPECT_OK(Put(Key(j), "val_l1_" + std::to_string(j)));
+        }
+      }
+      EXPECT_OK(Flush());
+    }
     MoveFilesToLevel(1);
 
     for (int i = 0; i < 128; i += 5) {
@@ -2191,19 +2276,40 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
 
   const std::shared_ptr<Statistics>& statistics() { return statistics_; }
 
+ protected:
+  void PrepareDBForTest() {
+#ifdef ROCKSDB_IOURING_PRESENT
+    Reopen(options_);
+#else   // ROCKSDB_IOURING_PRESENT
+    // Warm up the block cache so we don't need to use the IO uring
+    Iterator* iter = dbfull()->NewIterator(ReadOptions());
+    for (iter->SeekToFirst(); iter->Valid() && iter->status().ok();
+         iter->Next())
+      ;
+    EXPECT_OK(iter->status());
+    delete iter;
+#endif  // ROCKSDB_IOURING_PRESENT
+  }
+
+  void ReopenDB() { Reopen(options_); }
+
  private:
   std::shared_ptr<Statistics> statistics_;
+  Options options_;
 };
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   // All 3 keys in L0. The L0 files should be read serially.
   std::vector<std::string> key_strs{Key(0), Key(40), Key(80)};
   std::vector<Slice> keys{key_strs[0], key_strs[1], key_strs[2]};
   std::vector<PinnableSlice> values(key_strs.size());
   std::vector<Status> statuses(key_strs.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2218,13 +2324,23 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // No async IO in this case since we don't do parallel lookup in L0
-  ASSERT_EQ(multiget_io_batch_size.count, 0);
-  ASSERT_EQ(multiget_io_batch_size.max, 0);
+  // With async IO, lookups will happen in parallel for each key
+#ifdef ROCKSDB_IOURING_PRESENT
+  if (GetParam()) {
+    ASSERT_EQ(multiget_io_batch_size.count, 1);
+    ASSERT_EQ(multiget_io_batch_size.max, 3);
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  } else {
+    // Without Async IO, MultiGet will call MultiRead 3 times, once for each
+    // L0 file
+    ASSERT_EQ(multiget_io_batch_size.count, 3);
+  }
+#else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2239,8 +2355,11 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2255,13 +2374,82 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
-TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
+#ifdef ROCKSDB_IOURING_PRESENT
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  key_strs.push_back(Key(33));
+  key_strs.push_back(Key(54));
+  key_strs.push_back(Key(102));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  int count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::GetTableReader:BeforeOpenFile", [&](void* status) {
+        count++;
+        // Fail the last table reader open, which is the 6th SST file
+        // since 3 overlapping L0 files + 3 L1 files containing the keys
+        if (count == 6) {
+          Status* s = static_cast<Status*>(status);
+          *s = Status::IOError();
+        }
+      });
+  // DB open will create table readers unless we reduce the table cache
+  // capacity.
+  // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+  // is allocated with max_open_files - 10 as capacity. So override
+  // max_open_files to 11 so table cache capacity will become 1. This will
+  // prevent file open during DB open and force the file to be opened
+  // during MultiGet
+  SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = (int*)arg;
+        *max_open_files = 11;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PrepareDBForTest();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(statuses[2], Status::IOError());
+
+  HistogramData multiget_io_batch_size;
+
+  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
+
+  // A batch of 3 async IOs is expected, one for each overlapping file in L1
+  ASSERT_EQ(multiget_io_batch_size.count, 1);
+  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
+#endif  // ROCKSDB_IOURING_PRESENT
+
+TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2277,8 +2465,11 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2289,6 +2480,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
@@ -2299,9 +2491,10 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   // will lookup 2 files in parallel and issue 2 async reads
   ASSERT_EQ(multiget_io_batch_size.count, 2);
   ASSERT_EQ(multiget_io_batch_size.max, 2);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2317,8 +2510,11 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2329,15 +2525,157 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(56));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // There is only one MultiGet key in the bottommost level - 56. Thus
-  // the bottommost level will not use async IO.
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  // There are 2 keys in L1 in twp separate files, and 1 in L2. With
+  // optimize_multiget_for_io, all three lookups will happen in parallel.
+  // Otherwise, the L2 lookup will happen after L1.
+  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
+  ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
+
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 19 and 26 are in L2, but overlap with L0 and L1 file ranges
+  key_strs.push_back(Key(19));
+  key_strs.push_back(Key(26));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  PrepareDBForTest();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
+  ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
+
+#ifdef ROCKSDB_IOURING_PRESENT
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
+}
+
+#ifdef ROCKSDB_IOURING_PRESENT
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  PrepareDBForTest();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::NotFound());
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
+
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(144));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  PrepareDBForTest();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(144));
+  ASSERT_EQ(statuses[2], Status::NotFound());
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+}
+#endif  // ROCKSDB_IOURING_PRESENT
+
+TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  key_strs.push_back(Key(33));
+  key_strs.push_back(Key(54));
+  key_strs.push_back(Key(102));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  enable_io_uring = false;
+  ReopenDB();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(statuses[2], Status::OK());
+
+  HistogramData async_read_bytes;
+
+  statistics()->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+
+  // A batch of 3 async IOs is expected, one for each overlapping file in L1
+  ASSERT_EQ(async_read_bytes.count, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+}
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
+                        testing::Bool());
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {
@@ -2504,7 +2842,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
 INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,
                                public ::testing::WithParamInterface<bool> {};
 
@@ -2618,13 +2955,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
+    if (i % 3 == 0) {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeDeletion");
+    } else {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
+    }
+  }
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -2637,12 +2981,21 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 }
-#endif  // !ROCKSDB_LITE
+
+TEST_F(DBBasicTest, ValueTypeString) {
+  KeyVersion key_version;
+  // when adding new type, please also update `value_type_string_map`
+  for (unsigned char i = ValueType::kTypeDeletion; i < ValueType::kTypeMaxValid;
+       i++) {
+    key_version.type = i;
+    ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
+  }
+}
 
 TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   Options options = CurrentOptions();
@@ -2651,7 +3004,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.block_size = 16 * 1024;
   ASSERT_TRUE(table_options.block_size >
-            BlockBasedTable::kMultiGetReadStackBufSize);
+              BlockBasedTable::kMultiGetReadStackBufSize);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
@@ -2743,7 +3096,6 @@ TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 class TableFileListener : public EventListener {
  public:
@@ -2760,7 +3112,7 @@ class TableFileListener : public EventListener {
   InstrumentedMutex mutex_;
   std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBasicTest, LastSstFileNotInManifest) {
   // If the last sst file is not tracked in MANIFEST,
@@ -3018,7 +3370,6 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   ASSERT_TRUE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   Options options = CurrentOptions();
@@ -3062,7 +3413,6 @@ TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
@@ -3118,21 +3468,16 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
 
 INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
                         testing::Bool());
-#endif  // ROCKSDB_LITE
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
-  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
+  DBBasicTestMultiGet(std::string test_dir, int num_cfs,
                       bool uncompressed_cache, bool _compression_enabled,
                       bool _fill_cache, uint32_t compression_parallel_threads)
       : DBTestBase(test_dir, /*env_do_fsync=*/false) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;
 
-    if (compressed_cache) {
-      std::shared_ptr<Cache> cache = NewLRUCache(1048576);
-      compressed_cache_ = std::make_shared<MyBlockCache>(cache);
-    }
     if (uncompressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
       uncompressed_cache_ = std::make_shared<MyBlockCache>(cache);
@@ -3144,7 +3489,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     Random rnd(301);
     BlockBasedTableOptions table_options;
 
-#ifndef ROCKSDB_LITE
     if (compression_enabled_) {
       std::vector<CompressionType> compression_types;
       compression_types = GetSupportedCompressions();
@@ -3163,12 +3507,6 @@ class DBBasicTestMultiGet : public DBTestBase {
         compression_enabled_ = false;
       }
     }
-#else
-    // GetSupportedCompressions() is not available in LITE build
-    if (!Snappy_Supported()) {
-      compression_enabled_ = false;
-    }
-#endif  // ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
@@ -3176,7 +3514,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     } else {
       table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     }
-    table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -3316,24 +3653,29 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     const char* Name() const override { return "MyBlockCache"; }
 
-    using Cache::Insert;
-    Status Insert(const Slice& key, void* value, size_t charge,
-                  void (*deleter)(const Slice& key, void* value),
-                  Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
+    Status Insert(const Slice& key, Cache::ObjectPtr value,
+                  const CacheItemHelper* helper, size_t charge,
+                  Handle** handle = nullptr, Priority priority = Priority::LOW,
+                  const Slice& compressed = Slice(),
+                  CompressionType type = kNoCompression) override {
       num_inserts_++;
-      return target_->Insert(key, value, charge, deleter, handle, priority);
+      return target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
     }
 
-    using Cache::Lookup;
-    Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
+    Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                   CreateContext* create_context,
+                   Priority priority = Priority::LOW,
+                   Statistics* stats = nullptr) override {
       num_lookups_++;
-      Handle* handle = target_->Lookup(key, stats);
+      Handle* handle =
+          target_->Lookup(key, helper, create_context, priority, stats);
       if (handle != nullptr) {
         num_found_++;
       }
       return handle;
     }
+
     int num_lookups() { return num_lookups_; }
 
     int num_found() { return num_found_; }
@@ -3356,16 +3698,14 @@ class DBBasicTestMultiGet : public DBTestBase {
   std::vector<std::string> cf_names_;
 };
 
-class DBBasicTestWithParallelIO
-    : public DBBasicTestMultiGet,
-      public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, bool, uint32_t>> {
+class DBBasicTestWithParallelIO : public DBBasicTestMultiGet,
+                                  public testing::WithParamInterface<
+                                      std::tuple<bool, bool, bool, uint32_t>> {
  public:
   DBBasicTestWithParallelIO()
       : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,
                             std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam()),
-                            std::get<4>(GetParam())) {}
+                            std::get<2>(GetParam()), std::get<3>(GetParam())) {}
 };
 
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
@@ -3491,7 +3831,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOEnv : public EnvWrapper {
     class FakeDirectIOSequentialFile;
@@ -3608,7 +3947,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   }
   Close();
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   std::vector<std::string> key_data(10);
@@ -3696,13 +4034,12 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
 
 INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                         // Params are as follows -
-                        // Param 0 - Compressed cache enabled
-                        // Param 1 - Uncompressed cache enabled
-                        // Param 2 - Data compression enabled
-                        // Param 3 - ReadOptions::fill_cache
-                        // Param 4 - CompressionOptions::parallel_threads
+                        // Param 0 - Uncompressed cache enabled
+                        // Param 1 - Data compression enabled
+                        // Param 2 - ReadOptions::fill_cache
+                        // Param 3 - CompressionOptions::parallel_threads
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
                                            ::testing::Values(1, 4)));
 
 // Forward declaration
@@ -3913,9 +4250,8 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet,
   DBBasicTestMultiGetDeadline()
       : DBBasicTestMultiGet(
             "db_basic_test_multiget_deadline" /*Test dir*/,
-            10 /*# of column families*/, false /*compressed cache enabled*/,
-            true /*uncompressed cache enabled*/, true /*compression enabled*/,
-            true /*ReadOptions.fill_cache*/,
+            10 /*# of column families*/, true /*uncompressed cache enabled*/,
+            true /*compression enabled*/, true /*ReadOptions.fill_cache*/,
             1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
@@ -4079,6 +4415,8 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.env = env_;
+  options.enable_blob_files = true;
+  options.blob_file_size = 0;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
@@ -4099,6 +4437,11 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+  // The IO error was a mocked one from the `AfterSyncManifest` callback. The
+  // Flush's VersionEdit actually made it into the Manifest. So these keys can
+  // be read back. Read them to check all live sst files and blob files.
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ("value", Get("key"));
 }
 
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
@@ -4151,7 +4494,6 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
@@ -4195,7 +4537,66 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
-TEST_F(DBBasicTest, ManualWalSync) {
+TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int alignment = 256 * 1024;
+  for (int i = 0; i < 16; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(alignment)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> filenames;
+  int sst_cnt = 0;
+  std::string sst_name;
+  uint64_t sst_size;
+  uint64_t number;
+  FileType type;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (auto name : filenames) {
+    if (ParseFileName(name, &number, &type)) {
+      if (type == kTableFile) {
+        sst_cnt++;
+        sst_name = name;
+      }
+    }
+  }
+  ASSERT_EQ(sst_cnt, 1);
+  ASSERT_OK(env_->GetFileSize(dbname_ + '/' + sst_name, &sst_size));
+
+  bool last_read = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenerateOneFileChecksum::Chunk:0", [&](void* /*arg*/) {
+        if (env_->random_read_bytes_counter_.load() == sst_size) {
+          EXPECT_FALSE(last_read);
+          last_read = true;
+        } else {
+          ASSERT_EQ(env_->random_read_bytes_counter_.load() & (alignment - 1),
+                    0);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  env_->count_random_reads_ = true;
+  env_->random_read_bytes_counter_ = 0;
+  env_->random_read_counter_.Reset();
+
+  ReadOptions ro;
+  ro.readahead_size = alignment;
+  ASSERT_OK(db_->VerifyFileChecksums(ro));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(last_read);
+  ASSERT_EQ(env_->random_read_counter_.Read(),
+            (sst_size + alignment - 1) / (alignment));
+}
+
+// TODO: re-enable after we provide finer-grained control for WAL tracking to
+// meet the needs of different use cases, durability levels and recovery modes.
+TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = true;
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -4215,7 +4616,6 @@ TEST_F(DBBasicTest, ManualWalSync) {
 
   ASSERT_TRUE(TryReopen(options).IsCorruption());
 }
-#endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature

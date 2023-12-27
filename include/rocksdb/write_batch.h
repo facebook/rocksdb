@@ -43,13 +43,13 @@ struct SavePoints;
 struct SliceParts;
 
 struct SavePoint {
-  size_t size;  // size of rep_
-  int count;    // count of elements in rep_
+  size_t size;     // size of rep_
+  uint32_t count;  // count of elements in rep_
   uint32_t content_flags;
 
   SavePoint() : size(0), count(0), content_flags(0) {}
 
-  SavePoint(size_t _size, int _count, uint32_t _flags)
+  SavePoint(size_t _size, uint32_t _count, uint32_t _flags)
       : size(_size), count(_count), content_flags(_flags) {}
 
   void clear() {
@@ -100,10 +100,27 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
-  // UNDER CONSTRUCTION -- DO NOT USE
+  using WriteBatchBase::TimedPut;
+  // DO NOT USE, UNDER CONSTRUCTION
+  // Stores the mapping "key->value" in the database with the specified write
+  // time in the column family.
+  Status TimedPut(ColumnFamilyHandle* /* column_family */,
+                  const Slice& /* key */, const Slice& /* value */,
+                  uint64_t /* write_unix_time */) override {
+    // TODO(yuzhangyu): implement take in the write time.
+    return Status::NotSupported("TimedPut is under construction");
+  }
+
+  // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
+  // column family specified by "column_family".
   using WriteBatchBase::PutEntity;
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
+
+  // Split and store wide column entities in multiple column families (a.k.a.
+  // AttributeGroups)
+  Status PutEntity(const Slice& key,
+                   const AttributeGroups& attribute_groups) override;
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
@@ -149,12 +166,9 @@ class WriteBatch : public WriteBatchBase {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
   }
-  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
-                     const Slice& /*ts*/) override {
-    return Status::NotSupported(
-        "DeleteRange does not support user-defined timestamp");
-  }
+  // begin_key and end_key should be user keys without timestamp.
+  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   // variant that takes SliceParts
   Status DeleteRange(ColumnFamilyHandle* column_family,
@@ -174,10 +188,7 @@ class WriteBatch : public WriteBatchBase {
     return Merge(nullptr, key, value);
   }
   Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
-               const Slice& /*ts*/, const Slice& /*value*/) override {
-    return Status::NotSupported(
-        "Merge does not support user-defined timestamp");
-  }
+               const Slice& /*ts*/, const Slice& /*value*/) override;
 
   // variant that takes SliceParts
   Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
@@ -221,6 +232,7 @@ class WriteBatch : public WriteBatchBase {
   Status PopSavePoint() override;
 
   // Support for iterating over the contents of a batch.
+  // Objects of subclasses of Handler will be used by WriteBatch::Iterate().
   class Handler {
    public:
     virtual ~Handler();
@@ -231,6 +243,7 @@ class WriteBatch : public WriteBatchBase {
     // default implementation will just call Put without column family for
     // backwards compatibility. If the column family is not default,
     // the function is noop
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) {
       if (column_family_id == 0) {
@@ -243,14 +256,17 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and PutCF not implemented");
     }
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status PutEntityCF(uint32_t /* column_family_id */,
                                const Slice& /* key */,
                                const Slice& /* entity */) {
       return Status::NotSupported("PutEntityCF not implemented");
     }
 
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         Delete(key);
@@ -259,8 +275,10 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and DeleteCF not implemented");
     }
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual void Delete(const Slice& /*key*/) {}
 
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         SingleDelete(key);
@@ -269,14 +287,18 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and SingleDeleteCF not implemented");
     }
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual void SingleDelete(const Slice& /*key*/) {}
 
+    // If user-defined timestamp is enabled, then `begin_key` and `end_key`
+    // both include timestamp.
     virtual Status DeleteRangeCF(uint32_t /*column_family_id*/,
                                  const Slice& /*begin_key*/,
                                  const Slice& /*end_key*/) {
       return Status::InvalidArgument("DeleteRangeCF not implemented");
     }
 
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) {
       if (column_family_id == 0) {
@@ -286,8 +308,10 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and MergeCF not implemented");
     }
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual void Merge(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    // If user-defined timestamp is enabled, then `key` includes timestamp.
     virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
                                   const Slice& /*key*/,
                                   const Slice& /*value*/) {
@@ -348,6 +372,9 @@ class WriteBatch : public WriteBatchBase {
   // Retrieve the serialized version of this batch.
   const std::string& Data() const { return rep_; }
 
+  // Release the serialized data and clear this batch.
+  std::string Release();
+
   // Retrieve data size of the batch.
   size_t GetDataSize() const { return rep_.size(); }
 
@@ -384,8 +411,6 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Experimental.
-  //
   // Update timestamps of existing entries in the write batch if
   // applicable. If a key is intended for a column family that disables
   // timestamp, then this API won't set the timestamp for this key.

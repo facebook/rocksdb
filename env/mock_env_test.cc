@@ -37,28 +37,28 @@ TEST_F(MockEnvTest, Corrupt) {
   Slice result;
   std::unique_ptr<RandomAccessFile> rand_file;
   ASSERT_OK(env_->NewRandomAccessFile(kFileName, &rand_file, soptions_));
-  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, &(scratch[0])));
+  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, scratch.data()));
   ASSERT_EQ(result.compare(kGood), 0);
 
   // Sync + corrupt => no change
   ASSERT_OK(writable_file->Fsync());
   ASSERT_OK(dynamic_cast<MockEnv*>(env_)->CorruptBuffer(kFileName));
   result.clear();
-  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, &(scratch[0])));
+  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, scratch.data()));
   ASSERT_EQ(result.compare(kGood), 0);
 
   // Add new data and corrupt it
   ASSERT_OK(writable_file->Append(kCorrupted));
   ASSERT_TRUE(writable_file->GetFileSize() == kGood.size() + kCorrupted.size());
   result.clear();
-  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
-            &result, &(scratch[0])));
+  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(), &result,
+                            scratch.data()));
   ASSERT_EQ(result.compare(kCorrupted), 0);
   // Corrupted
   ASSERT_OK(dynamic_cast<MockEnv*>(env_)->CorruptBuffer(kFileName));
   result.clear();
-  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
-            &result, &(scratch[0])));
+  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(), &result,
+                            scratch.data()));
   ASSERT_NE(result.compare(kCorrupted), 0);
 }
 
@@ -78,6 +78,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

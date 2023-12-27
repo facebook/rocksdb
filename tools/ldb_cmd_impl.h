@@ -5,12 +5,12 @@
 
 #pragma once
 
-#include "rocksdb/utilities/ldb_cmd.h"
-
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "rocksdb/utilities/ldb_cmd.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -85,7 +85,7 @@ class DBDumperCommand : public LDBCommand {
   /**
    * Extract file name from the full path. We handle both the forward slash (/)
    * and backslash (\) to make sure that different OS-s are supported.
-  */
+   */
   static std::string GetFileNameFromPath(const std::string& s) {
     std::size_t n = s.find_last_of("/\\");
 
@@ -403,6 +403,22 @@ class GetCommand : public LDBCommand {
   std::string key_;
 };
 
+class GetEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "get_entity"; }
+
+  GetEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string key_;
+};
+
 class ApproxSizeCommand : public LDBCommand {
  public:
   static std::string Name() { return "approxsize"; }
@@ -530,6 +546,26 @@ class PutCommand : public LDBCommand {
   std::string value_;
 };
 
+class PutEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "put_entity"; }
+
+  PutEntityCommand(const std::vector<std::string>& params,
+                   const std::map<std::string, std::string>& options,
+                   const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+  void OverrideBaseOptions() override;
+
+ private:
+  std::string key_;
+  std::vector<std::string> column_names_;
+  std::vector<std::string> column_values_;
+};
+
 /**
  * Command that starts up a REPL shell that allows
  * get/put/delete.
@@ -573,14 +609,15 @@ class CheckPointCommand : public LDBCommand {
   static std::string Name() { return "checkpoint"; }
 
   CheckPointCommand(const std::vector<std::string>& params,
-                const std::map<std::string, std::string>& options,
-                const std::vector<std::string>& flags);
+                    const std::map<std::string, std::string>& options,
+                    const std::vector<std::string>& flags);
 
   void DoCommand() override;
 
   static void Help(std::string& ret);
 
   std::string checkpoint_dir_;
+
  private:
   static const std::string ARG_CHECKPOINT_DIR;
 };

@@ -23,6 +23,8 @@ std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "FilterConstruction",
     "BlockBasedTableReader",
     "FileMetadata",
+    "BlobValue",
+    "BlobCache",
     "Misc",
 }};
 
@@ -38,6 +40,8 @@ std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "filter-construction",
     "block-based-table-reader",
     "file-metadata",
+    "blob-value",
+    "blob-cache",
     "misc",
 }};
 
@@ -95,36 +99,6 @@ std::string BlockCacheEntryStatsMapKeys::UsedBytes(CacheEntryRole role) {
 std::string BlockCacheEntryStatsMapKeys::UsedPercent(CacheEntryRole role) {
   const static std::string kPrefix = "percent.";
   return GetPrefixedCacheEntryRoleName(kPrefix, role);
-}
-
-namespace {
-
-struct Registry {
-  std::mutex mutex;
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map;
-  void Register(Cache::DeleterFn fn, CacheEntryRole role) {
-    std::lock_guard<std::mutex> lock(mutex);
-    role_map[fn] = role;
-  }
-  UnorderedMap<Cache::DeleterFn, CacheEntryRole> Copy() {
-    std::lock_guard<std::mutex> lock(mutex);
-    return role_map;
-  }
-};
-
-Registry& GetRegistry() {
-  STATIC_AVOID_DESTRUCTION(Registry, registry);
-  return registry;
-}
-
-}  // namespace
-
-void RegisterCacheDeleterRole(Cache::DeleterFn fn, CacheEntryRole role) {
-  GetRegistry().Register(fn, role);
-}
-
-UnorderedMap<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap() {
-  return GetRegistry().Copy();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -76,8 +76,9 @@ ParsedInternalKey UncutEndpoint(const Slice& s) {
   return ParsedInternalKey(s, kMaxSequenceNumber, kTypeRangeDeletion);
 }
 
-ParsedInternalKey InternalValue(const Slice& key, SequenceNumber seq) {
-  return ParsedInternalKey(key, seq, kTypeValue);
+ParsedInternalKey InternalValue(const Slice& key, SequenceNumber seq,
+                                ValueType type = kTypeValue) {
+  return ParsedInternalKey(key, seq, type);
 }
 
 void VerifyIterator(
@@ -191,7 +192,7 @@ void VerifyFragmentedRangeDels(
   EXPECT_FALSE(iter->Valid());
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(RangeDelAggregatorTest, EmptyTruncatedIter) {
   auto range_del_iter = MakeRangeDelIter({});
@@ -223,26 +224,32 @@ TEST_F(RangeDelAggregatorTest, UntruncatedIter) {
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp, nullptr,
                                  nullptr);
 
-  VerifyIterator(&iter, bytewise_icmp,
-                 {{UncutEndpoint("a"), UncutEndpoint("e"), 10},
-                  {UncutEndpoint("e"), UncutEndpoint("g"), 8},
-                  {UncutEndpoint("j"), UncutEndpoint("n"), 4}});
+  VerifyIterator(
+      &iter, bytewise_icmp,
+      {{InternalValue("a", 10, kTypeRangeDeletion), UncutEndpoint("e"), 10},
+       {InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4}});
 
   VerifySeek(
       &iter, bytewise_icmp,
-      {{"d", UncutEndpoint("a"), UncutEndpoint("e"), 10},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("j"), UncutEndpoint("n"), 4},
-       {"n", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
-       {"", UncutEndpoint("a"), UncutEndpoint("e"), 10}});
+      {{"d", InternalValue("a", 10, kTypeRangeDeletion), UncutEndpoint("e"),
+        10},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4},
+       {"n", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */},
+       {"", InternalValue("a", 10, kTypeRangeDeletion), UncutEndpoint("e"),
+        10}});
 
   VerifySeekForPrev(
       &iter, bytewise_icmp,
-      {{"d", UncutEndpoint("a"), UncutEndpoint("e"), 10},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"n", UncutEndpoint("j"), UncutEndpoint("n"), 4},
-       {"", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
+      {{"d", InternalValue("a", 10, kTypeRangeDeletion), UncutEndpoint("e"),
+        10},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"n", InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4},
+       {"", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */}});
 }
 
 TEST_F(RangeDelAggregatorTest, UntruncatedIterWithSnapshot) {
@@ -257,25 +264,29 @@ TEST_F(RangeDelAggregatorTest, UntruncatedIterWithSnapshot) {
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp, nullptr,
                                  nullptr);
 
-  VerifyIterator(&iter, bytewise_icmp,
-                 {{UncutEndpoint("e"), UncutEndpoint("g"), 8},
-                  {UncutEndpoint("j"), UncutEndpoint("n"), 4}});
+  VerifyIterator(
+      &iter, bytewise_icmp,
+      {{InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4}});
 
   VerifySeek(
       &iter, bytewise_icmp,
-      {{"d", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("j"), UncutEndpoint("n"), 4},
-       {"n", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
-       {"", UncutEndpoint("e"), UncutEndpoint("g"), 8}});
+      {{"d", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4},
+       {"n", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */},
+       {"", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8}});
 
   VerifySeekForPrev(
       &iter, bytewise_icmp,
-      {{"d", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"n", UncutEndpoint("j"), UncutEndpoint("n"), 4},
-       {"", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
+      {{"d", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"n", InternalValue("j", 4, kTypeRangeDeletion), UncutEndpoint("n"), 4},
+       {"", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */}});
 }
 
 TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
@@ -292,26 +303,32 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp,
                                  &smallest, &largest);
 
-  VerifyIterator(&iter, bytewise_icmp,
-                 {{InternalValue("d", 7), UncutEndpoint("e"), 10},
-                  {UncutEndpoint("e"), UncutEndpoint("g"), 8},
-                  {UncutEndpoint("j"), InternalValue("m", 8), 4}});
+  VerifyIterator(
+      &iter, bytewise_icmp,
+      {{InternalValue("d", 7, kTypeMaxValid), UncutEndpoint("e"), 10},
+       {InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {InternalValue("j", 4, kTypeRangeDeletion),
+        InternalValue("m", 8, kTypeMaxValid), 4}});
 
   VerifySeek(
       &iter, bytewise_icmp,
-      {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("j"), InternalValue("m", 8), 4},
-       {"n", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
-       {"", InternalValue("d", 7), UncutEndpoint("e"), 10}});
+      {{"d", InternalValue("d", 7, kTypeMaxValid), UncutEndpoint("e"), 10},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("j", 4, kTypeRangeDeletion),
+        InternalValue("m", 8, kTypeMaxValid), 4, false /* invalid */},
+       {"n", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */},
+       {"", InternalValue("d", 7, kTypeMaxValid), UncutEndpoint("e"), 10}});
 
   VerifySeekForPrev(
       &iter, bytewise_icmp,
-      {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
-       {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"n", UncutEndpoint("j"), InternalValue("m", 8), 4},
-       {"", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
+      {{"d", InternalValue("d", 7, kTypeMaxValid), UncutEndpoint("e"), 10},
+       {"e", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"ia", InternalValue("e", 8, kTypeRangeDeletion), UncutEndpoint("g"), 8},
+       {"n", InternalValue("j", 4, kTypeRangeDeletion),
+        InternalValue("m", 8, kTypeMaxValid), 4, false /* invalid */},
+       {"", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */}});
 }
 
 TEST_F(RangeDelAggregatorTest, TruncatedIterFullyCutTombstones) {
@@ -328,20 +345,23 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterFullyCutTombstones) {
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp,
                                  &smallest, &largest);
 
-  VerifyIterator(&iter, bytewise_icmp,
-                 {{InternalValue("f", 7), UncutEndpoint("g"), 8}});
+  VerifyIterator(
+      &iter, bytewise_icmp,
+      {{InternalValue("f", 7, kTypeMaxValid), UncutEndpoint("g"), 8}});
 
   VerifySeek(
       &iter, bytewise_icmp,
-      {{"d", InternalValue("f", 7), UncutEndpoint("g"), 8},
-       {"f", InternalValue("f", 7), UncutEndpoint("g"), 8},
-       {"j", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
+      {{"d", InternalValue("f", 7, kTypeMaxValid), UncutEndpoint("g"), 8},
+       {"f", InternalValue("f", 7, kTypeMaxValid), UncutEndpoint("g"), 8},
+       {"j", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */}});
 
   VerifySeekForPrev(
       &iter, bytewise_icmp,
-      {{"d", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
-       {"f", InternalValue("f", 7), UncutEndpoint("g"), 8},
-       {"j", InternalValue("f", 7), UncutEndpoint("g"), 8}});
+      {{"d", InternalValue("", 0, kTypeRangeDeletion), UncutEndpoint(""), 0,
+        true /* invalid */},
+       {"f", InternalValue("f", 7, kTypeMaxValid), UncutEndpoint("g"), 8},
+       {"j", InternalValue("f", 7, kTypeMaxValid), UncutEndpoint("g"), 8}});
 }
 
 TEST_F(RangeDelAggregatorTest, SingleIterInAggregator) {
@@ -623,15 +643,12 @@ TEST_F(RangeDelAggregatorTest, CompactionAggregatorEmptyIteratorRight) {
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("p");
-  Slice end("q");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(), {});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter2.get(), {});
+  InternalKey start_buf("p", 0, kTypeRangeDeletion);
+  InternalKey end_buf("q", 0, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(), {});
 }
 
 TEST_F(RangeDelAggregatorTest, CompactionAggregatorBoundedIterator) {
@@ -648,18 +665,13 @@ TEST_F(RangeDelAggregatorTest, CompactionAggregatorBoundedIterator) {
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("bb");
-  Slice end("e");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(),
+  InternalKey start_buf("bb", 0, kTypeRangeDeletion);
+  InternalKey end_buf("e", 9, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(),
                             {{"a", "c", 10}, {"c", "e", 10}, {"c", "e", 8}});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(
-      range_del_compaction_iter2.get(),
-      {{"a", "c", 10}, {"c", "e", 10}, {"c", "e", 8}, {"e", "g", 8}});
 }
 
 TEST_F(RangeDelAggregatorTest,
@@ -677,34 +689,25 @@ TEST_F(RangeDelAggregatorTest,
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("bb");
-  Slice end("e");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(), {{"a", "b", 10},
-                                                               {"b", "c", 20},
-                                                               {"b", "c", 10},
-                                                               {"c", "d", 10},
-                                                               {"c", "d", 8},
-                                                               {"d", "f", 30},
-                                                               {"d", "f", 8},
-                                                               {"f", "g", 8}});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter2.get(), {{"a", "b", 10},
-                                                               {"b", "c", 20},
-                                                               {"b", "c", 10},
-                                                               {"c", "d", 10},
-                                                               {"c", "d", 8},
-                                                               {"d", "f", 30},
-                                                               {"d", "f", 8},
-                                                               {"f", "g", 8}});
+  InternalKey start_buf("bb", 0, kTypeRangeDeletion);
+  InternalKey end_buf("e", 0, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(), {{"a", "b", 10},
+                                                              {"b", "c", 20},
+                                                              {"b", "c", 10},
+                                                              {"c", "d", 10},
+                                                              {"c", "d", 8},
+                                                              {"d", "f", 30},
+                                                              {"d", "f", 8},
+                                                              {"f", "g", 8}});
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

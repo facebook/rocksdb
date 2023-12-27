@@ -58,8 +58,8 @@ Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
   std::vector<std::string> s_vec;
   int begin = 0, end;
   for (int i = 0; i < 3; i++) {
-    assert(header.payload.find("\t", begin) != std::string::npos);
-    end = static_cast<int>(header.payload.find("\t", begin));
+    assert(header.payload.find('\t', begin) != std::string::npos);
+    end = static_cast<int>(header.payload.find('\t', begin));
     s_vec.push_back(header.payload.substr(begin, end - begin));
     begin = end + 1;
   }
@@ -317,7 +317,7 @@ Status TracerHelper::DecodeTraceRecord(Trace* trace, int trace_file_version,
       cf_ids.reserve(multiget_size);
       multiget_keys.reserve(multiget_size);
       for (uint32_t i = 0; i < multiget_size; i++) {
-        uint32_t tmp_cfid;
+        uint32_t tmp_cfid = 0;
         Slice tmp_key;
         GetFixed32(&cfids_payload, &tmp_cfid);
         GetLengthPrefixedSlice(&keys_payload, &tmp_key);
@@ -345,7 +345,8 @@ Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
     : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_(0) {
+      trace_request_count_(0),
+      trace_write_status_(Status::OK()) {
   // TODO: What if this fails?
   WriteHeader().PermitUncheckedError();
 }
@@ -612,9 +613,18 @@ Status Tracer::WriteFooter() {
 }
 
 Status Tracer::WriteTrace(const Trace& trace) {
+  if (!trace_write_status_.ok()) {
+    return Status::Incomplete("Tracing has seen error: %s",
+                              trace_write_status_.ToString());
+  }
+  assert(trace_write_status_.ok());
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
-  return trace_writer_->Write(Slice(encoded_trace));
+  Status s = trace_writer_->Write(Slice(encoded_trace));
+  if (!s.ok()) {
+    trace_write_status_ = s;
+  }
+  return s;
 }
 
 Status Tracer::Close() { return WriteFooter(); }

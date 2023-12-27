@@ -16,6 +16,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/configurable.h"
@@ -36,7 +37,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 static Status ParseCompressionOptions(const std::string& value,
                                       const std::string& name,
                                       CompressionOptions& compression_opts) {
@@ -147,6 +147,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"strategy",
          {offsetof(struct CompressionOptions, strategy), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"max_compressed_bytes_per_kb",
+         {offsetof(struct CompressionOptions, max_compressed_bytes_per_kb),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"max_dict_bytes",
          {offsetof(struct CompressionOptions, max_dict_bytes), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
@@ -169,6 +173,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"checksum",
+         {offsetof(struct CompressionOptions, checksum), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    file_temperature_age_type_info = {
+        {"temperature",
+         {offsetof(struct FileTemperatureAge, temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"age",
+         {offsetof(struct FileTemperatureAge, age), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -188,7 +206,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionOptionsFIFO, allow_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-};
+        {"file_temperature_age_thresholds",
+         OptionTypeInfo::Vector<struct FileTemperatureAge>(
+             offsetof(struct CompactionOptionsFIFO,
+                      file_temperature_age_thresholds),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             OptionTypeInfo::Struct("file_temperature_age_thresholds",
+                                    &file_temperature_age_type_info, 0,
+                                    OptionVerificationType::kNormal,
+                                    OptionTypeFlags::kMutable))}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {
@@ -269,6 +295,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_compaction_bytes",
          {offsetof(struct MutableCFOptions, max_compaction_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"ignore_max_compaction_bytes_for_input",
+         {offsetof(struct MutableCFOptions,
+                   ignore_max_compaction_bytes_for_input),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"expanded_compaction_factor",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -386,7 +417,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // value, say, like "23", which would be assigned to
                // max_table_files_size.
                if (name == "compaction_options_fifo" &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  // Old format. Parse just a single uint64_t value.
                  auto options = static_cast<CompactionOptionsFIFO*>(addr);
                  options->max_table_files_size = ParseUint64(value);
@@ -411,7 +442,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"bottommost_temperature",
-         {offsetof(struct MutableCFOptions, bottommost_temperature),
+         {0, OptionType::kTemperature, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable}},
+        {"last_level_temperature",
+         {offsetof(struct MutableCFOptions, last_level_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"enable_blob_files",
@@ -451,6 +485,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_file_starting_level),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"prepopulate_blob_cache",
+         OptionTypeInfo::Enum<PrepopulateBlobCache>(
+             offsetof(struct MutableCFOptions, prepopulate_blob_cache),
+             &prepopulate_blob_cache_string_map, OptionTypeFlags::kMutable)},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -468,6 +506,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, experimental_mempurge_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"memtable_protection_bytes_per_key",
+         {offsetof(struct MutableCFOptions, memtable_protection_bytes_per_key),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"bottommost_file_compaction_delay",
+         {offsetof(struct MutableCFOptions, bottommost_file_compaction_delay),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"block_protection_bytes_per_key",
+         {offsetof(struct MutableCFOptions, block_protection_bytes_per_key),
+          OptionType::kUInt8T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
@@ -479,7 +529,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -499,7 +549,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                // This is to handle backward compatibility, where
                // compression_options was a ":" separated list.
                if (name == kOptNameBMCompOpts &&
-                   value.find("=") == std::string::npos) {
+                   value.find('=') == std::string::npos) {
                  auto* compression = static_cast<CompressionOptions*>(addr);
                  return ParseCompressionOptions(value, name, *compression);
                } else {
@@ -509,6 +559,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                }
              })},
         // End special case properties
+        {"memtable_max_range_deletions",
+         {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -539,6 +594,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    level_compaction_dynamic_level_bytes),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"level_compaction_dynamic_file_size",
+         {offsetof(struct ImmutableCFOptions,
+                   level_compaction_dynamic_file_size),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"optimize_filters_for_hits",
          {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -546,6 +606,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"force_consistency_checks",
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"default_temperature",
+         {offsetof(struct ImmutableCFOptions, default_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever}},
+        {"preclude_last_level_data_seconds",
+         {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"preserve_internal_time_seconds",
+         {offsetof(struct ImmutableCFOptions, preserve_internal_time_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
@@ -555,7 +627,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_size_to_maintain),
@@ -564,7 +636,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"min_write_buffer_number_to_merge",
          {offsetof(struct ImmutableCFOptions, min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kNone, nullptr}},
         {"num_levels",
          {offsetof(struct ImmutableCFOptions, num_levels), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -586,19 +658,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    // it's a const pointer of const Comparator*
                    const auto* ptr =
                        static_cast<const Comparator* const*>(addr);
-                   // Since the user-specified comparator will be wrapped by
-                   // InternalKeyComparator, we should persist the
-                   // user-specified one instead of InternalKeyComparator.
                    if (*ptr == nullptr) {
                      *value = kNullptrString;
                    } else if (opts.mutable_options_only) {
                      *value = "";
                    } else {
-                     const Comparator* root_comp = (*ptr)->GetRootComparator();
-                     if (root_comp == nullptr) {
-                       root_comp = (*ptr);
-                     }
-                     *value = root_comp->ToString(opts);
+                     *value = (*ptr)->ToString(opts);
                    }
                    return Status::OK();
                  })},
@@ -746,6 +811,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"persist_user_defined_timestamps",
+         {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareLoose}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -850,7 +919,6 @@ std::unique_ptr<Configurable> CFOptionsAsConfigurable(
   std::unique_ptr<Configurable> ptr(new ConfigurableCFOptions(opts, opt_map));
   return ptr;
 }
-#endif  // ROCKSDB_LITE
 
 ImmutableCFOptions::ImmutableCFOptions() : ImmutableCFOptions(Options()) {}
 
@@ -877,15 +945,23 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       bloom_locality(cf_options.bloom_locality),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
+      level_compaction_dynamic_file_size(
+          cf_options.level_compaction_dynamic_file_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      default_temperature(cf_options.default_temperature),
+      preclude_last_level_data_seconds(
+          cf_options.preclude_last_level_data_seconds),
+      preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
-      blob_cache(cf_options.blob_cache) {}
+      blob_cache(cf_options.blob_cache),
+      persist_user_defined_timestamps(
+          cf_options.persist_user_defined_timestamps) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 
@@ -1005,6 +1081,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  level0_stop_writes_trigger);
   ROCKS_LOG_INFO(log, "                     max_compaction_bytes: %" PRIu64,
                  max_compaction_bytes);
+  ROCKS_LOG_INFO(log, "    ignore_max_compaction_bytes_for_input: %s",
+                 ignore_max_compaction_bytes_for_input ? "true" : "false");
   ROCKS_LOG_INFO(log, "                    target_file_size_base: %" PRIu64,
                  target_file_size_base);
   ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
@@ -1044,6 +1122,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                       experimental_mempurge_threshold: %f",
                  experimental_mempurge_threshold);
+  ROCKS_LOG_INFO(log, "         bottommost_file_compaction_delay: %" PRIu32,
+                 bottommost_file_compaction_delay);
 
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
@@ -1091,15 +1171,17 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_compaction_readahead_size);
   ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",
                  blob_file_starting_level);
-
-  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
-                 static_cast<int>(bottommost_temperature));
+  ROCKS_LOG_INFO(log, "                   prepopulate_blob_cache: %s",
+                 prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+                     ? "flush only"
+                     : "disable");
+  ROCKS_LOG_INFO(log, "                   last_level_temperature: %d",
+                 static_cast<int>(last_level_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
     : MutableCFOptions(ColumnFamilyOptions(options)) {}
 
-#ifndef ROCKSDB_LITE
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -1123,5 +1205,4 @@ Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, cf_mutable_options_type_info, &mutable_opts, opt_string);
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

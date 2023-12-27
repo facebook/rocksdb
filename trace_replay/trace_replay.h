@@ -56,7 +56,7 @@ struct Trace {
   // example, if bit at position 0 is set in write payload, then the write batch
   // will be addedd.
   uint64_t payload_map = 0;
-  // Each trace type has its own payload_struct, which will be serilized in the
+  // Each trace type has its own payload_struct, which will be serialized in the
   // payload.
   std::string payload;
 
@@ -178,6 +178,7 @@ class Tracer {
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
+  Status trace_write_status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

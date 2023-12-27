@@ -8,36 +8,29 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include "rocksdb/statistics.h"
-
 #include <cassert>
-#include <string>
-#include <vector>
 #include <map>
 #include <mutex>
+#include <string>
+#include <vector>
+
+#include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class HistogramBucketMapper {
  public:
-
   HistogramBucketMapper();
 
   // converts a value to the bucket index.
   size_t IndexForValue(uint64_t value) const;
   // number of buckets required.
 
-  size_t BucketCount() const {
-    return bucketValues_.size();
-  }
+  size_t BucketCount() const { return bucketValues_.size(); }
 
-  uint64_t LastValue() const {
-    return maxBucketValue_;
-  }
+  uint64_t LastValue() const { return maxBucketValue_; }
 
-  uint64_t FirstValue() const {
-    return minBucketValue_;
-  }
+  uint64_t FirstValue() const { return minBucketValue_; }
 
   uint64_t BucketLimit(const size_t bucketNumber) const {
     assert(bucketNumber < BucketCount());
@@ -88,14 +81,14 @@ struct HistogramStat {
   std::atomic_uint_fast64_t num_;
   std::atomic_uint_fast64_t sum_;
   std::atomic_uint_fast64_t sum_squares_;
-  std::atomic_uint_fast64_t buckets_[109]; // 109==BucketMapper::BucketCount()
+  std::atomic_uint_fast64_t buckets_[109];  // 109==BucketMapper::BucketCount()
   const uint64_t num_buckets_;
 };
 
 class Histogram {
-public:
+ public:
   Histogram() {}
-  virtual ~Histogram() {};
+  virtual ~Histogram(){};
 
   virtual void Clear() = 0;
   virtual bool Empty() const = 0;
@@ -139,6 +132,8 @@ class HistogramImpl : public Histogram {
   virtual void Data(HistogramData* const data) const override;
 
   virtual ~HistogramImpl() {}
+
+  inline HistogramStat& TEST_GetStats() { return stats_; }
 
  private:
   HistogramStat stats_;

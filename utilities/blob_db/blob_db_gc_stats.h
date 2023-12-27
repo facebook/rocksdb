@@ -9,7 +9,6 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -53,4 +52,3 @@ class BlobDBGarbageCollectionStats {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

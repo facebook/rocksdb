@@ -5,7 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,6 +69,7 @@ class LDBCommand {
   static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
   static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
   static const std::string ARG_BLOB_FILE_STARTING_LEVEL;
+  static const std::string ARG_PREPOPULATE_BLOB_CACHE;
   static const std::string ARG_DECODE_BLOB_INDEX;
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
 
@@ -226,6 +226,12 @@ class LDBCommand {
   static std::string PrintKeyValue(const std::string& key,
                                    const std::string& value, bool is_hex);
 
+  static std::string PrintKeyValueOrWideColumns(const Slice& key,
+                                                const Slice& value,
+                                                const WideColumns& wide_columns,
+                                                bool is_key_hex,
+                                                bool is_value_hex);
+
   /**
    * Return true if the specified flag is present in the specified flags vector
    */
@@ -313,5 +319,3 @@ class LDBCommandRunner {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

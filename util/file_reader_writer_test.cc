@@ -31,7 +31,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF() : size_(0), last_synced_(0) {}
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     using FSWritableFile::Append;
     IOStatus Append(const Slice& data, const IOOptions& /*options*/,
@@ -134,7 +134,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         : file_data_(_file_data),
           use_direct_io_(_use_direct_io),
           no_flush_(_no_flush) {}
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     using FSWritableFile::Append;
     IOStatus Append(const Slice& data, const IOOptions& /*options*/,
@@ -206,11 +206,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
     std::unique_ptr<FakeWF> wf(new FakeWF(&actual,
-#ifndef ROCKSDB_LITE
                                           attempt % 2 == 1,
-#else
-                                          false,
-#endif
                                           no_flush));
     std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
         std::move(wf), "" /* don't care */, env_options));
@@ -421,7 +417,6 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   Destroy(options);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public FSWritableFile {
    public:
@@ -477,7 +472,6 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   fwf->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
-#endif
 
 class ReadaheadRandomAccessFileTest
     : public testing::Test,
@@ -594,7 +588,7 @@ class ReadaheadSequentialFileTest : public testing::Test,
     scratch_.reset(new char[2 * readahead_size_]);
     ResetSourceStr();
   }
-  ReadaheadSequentialFileTest() {}
+  ReadaheadSequentialFileTest() = default;
   std::string Read(size_t n) {
     Slice result;
     Status s = test_read_holder_->Read(
@@ -792,7 +786,6 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class IOErrorEventListener : public EventListener {
  public:
   IOErrorEventListener() { notify_error_.store(0); }
@@ -895,18 +888,19 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   fwf->CheckCounters(1, 0);
   ASSERT_EQ(listener->NotifyErrorCount(), 1);
 
+  file_writer->reset_seen_error();
   fwf->SetIOError(true);
   ASSERT_NOK(file_writer->Flush());
   fwf->CheckCounters(1, 1);
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
 
   /* No error generation */
+  file_writer->reset_seen_error();
   fwf->SetIOError(false);
   ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
   fwf->CheckCounters(1, 1);
 }
-#endif  // ROCKSDB_LITE
 
 class WritableFileWriterIOPriorityTest : public testing::Test {
  protected:
@@ -925,7 +919,7 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
   class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF(Env::IOPriority io_priority) { SetIOPriority(io_priority); }
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     IOStatus Append(const Slice& /*data*/, const IOOptions& options,
                     IODebugContext* /*dbg*/) override {
@@ -1058,6 +1052,7 @@ TEST_F(WritableFileWriterIOPriorityTest, BasicOp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

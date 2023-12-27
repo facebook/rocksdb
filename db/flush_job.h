@@ -25,6 +25,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
@@ -66,12 +67,13 @@ class FlushJob {
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
-           LogBuffer* log_buffer, FSDirectory* db_directory,
-           FSDirectory* output_file_directory,
+           FlushReason flush_reason, LogBuffer* log_buffer,
+           FSDirectory* db_directory, FSDirectory* output_file_directory,
            CompressionType output_compression, Statistics* stats,
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+           const SeqnoToTimeMapping& seq_time_mapping,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
@@ -81,17 +83,20 @@ class FlushJob {
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
+  // @param skip_since_bg_error If not nullptr and if atomic_flush=false,
+  // then it is set to true if flush installation is skipped and memtable
+  // is rolled back due to existing background error.
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
-             bool* switched_to_mempurge = nullptr);
+             bool* switched_to_mempurge = nullptr,
+             bool* skipped_since_bg_error = nullptr,
+             ErrorHandler* error_handler = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
-#ifndef ROCKSDB_LITE
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
@@ -125,9 +130,21 @@ class FlushJob {
   bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriorityForWrite();
-#ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
-#endif  // !ROCKSDB_LITE
+
+  // Require db_mutex held.
+  // Called only when UDT feature is enabled and
+  // `persist_user_defined_timestamps` flag is false. Because we will refrain
+  // from flushing as long as there are still UDTs in a memtable that hasn't
+  // expired w.r.t `full_history_ts_low`. However, flush is continued if there
+  // is risk of entering write stall mode. In that case, we need
+  // to track the effective cutoff timestamp below which all the udts are
+  // removed because of flush, and use it to increase `full_history_ts_low` if
+  // the effective cutoff timestamp is newer. See
+  // `MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT` for details.
+  void GetEffectiveCutoffUDTForPickedMemTables();
+
+  Status MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
 
   const std::string& dbname_;
   const std::string db_id_;
@@ -148,6 +165,7 @@ class FlushJob {
   SequenceNumber earliest_write_conflict_snapshot_;
   SnapshotChecker* snapshot_checker_;
   JobContext* job_context_;
+  FlushReason flush_reason_;
   LogBuffer* log_buffer_;
   FSDirectory* db_directory_;
   FSDirectory* output_file_directory_;
@@ -191,6 +209,15 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  // reference to the seqno_to_time_mapping_ in db_impl.h, not safe to read
+  // without db mutex
+  const SeqnoToTimeMapping& db_impl_seqno_to_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
+
+  // Keeps track of the newest user-defined timestamp for this flush job if
+  // `persist_user_defined_timestamps` flag is false.
+  std::string cutoff_udt_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

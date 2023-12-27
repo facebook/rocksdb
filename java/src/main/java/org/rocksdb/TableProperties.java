@@ -46,6 +46,7 @@ public class TableProperties {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
+  @SuppressWarnings("PMD.ArrayIsStoredDirectly")
   TableProperties(final long dataSize, final long indexSize, final long indexPartitions,
       final long topLevelIndexSize, final long indexKeyIsUserKey,
       final long indexValueIsDeltaEncoded, final long filterSize, final long rawKeySize,
@@ -116,6 +117,7 @@ public class TableProperties {
    *
    * @return the total number of index partitions.
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   public long getIndexPartitions() {
     return indexPartitions;
   }
@@ -299,6 +301,7 @@ public class TableProperties {
    * @return the name of the column family, or null if the
    *     column family is unknown.
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   /*@Nullable*/ public byte[] getColumnFamilyName() {
     return columnFamilyName;
   }
@@ -380,12 +383,12 @@ public class TableProperties {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableProperties that = (TableProperties) o;
+    final TableProperties that = (TableProperties) o;
     return dataSize == that.dataSize && indexSize == that.indexSize
         && indexPartitions == that.indexPartitions && topLevelIndexSize == that.topLevelIndexSize
         && indexKeyIsUserKey == that.indexKeyIsUserKey

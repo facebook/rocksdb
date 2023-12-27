@@ -21,7 +21,6 @@ static const std::string rocksdb_build_date = "rocksdb_build_date:@GIT_DATE@";
 static const std::string rocksdb_build_date = "rocksdb_build_date:@BUILD_DATE@";
 #endif
 
-#ifndef ROCKSDB_LITE
 extern "C" {
 @ROCKSDB_PLUGIN_EXTERNS@
 } // extern "C"
@@ -29,7 +28,6 @@ extern "C" {
 std::unordered_map<std::string, ROCKSDB_NAMESPACE::RegistrarFunc> ROCKSDB_NAMESPACE::ObjectRegistry::builtins_ = {
   @ROCKSDB_PLUGIN_BUILTINS@
 };
-#endif //ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 static void AddProperty(std::unordered_map<std::string, std::string> *props, const std::string& name) {

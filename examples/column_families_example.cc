@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "rocksdb/db.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 
 #if defined(OS_WIN)
 std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_column_families_example";
@@ -52,8 +52,8 @@ int main() {
   column_families.push_back(ColumnFamilyDescriptor(
       ROCKSDB_NAMESPACE::kDefaultColumnFamilyName, ColumnFamilyOptions()));
   // open the new one, too
-  column_families.push_back(ColumnFamilyDescriptor(
-      "new_cf", ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("new_cf", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
   s = DB::Open(DBOptions(), kDBPath, column_families, &handles, &db);
   assert(s.ok());

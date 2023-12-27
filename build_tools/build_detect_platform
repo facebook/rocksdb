@@ -63,13 +63,7 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     if [ "$LIB_MODE" == "shared" ]; then
       PIC_BUILD=1
     fi
-    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM010" ]; then
-      source "$PWD/build_tools/fbcode_config_platform010.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
-      source "$PWD/build_tools/fbcode_config_platform009.sh"
-    else
-      source "$PWD/build_tools/fbcode_config_platform009.sh"
-    fi
+    source "$PWD/build_tools/fbcode_config_platform010.sh"
 fi
 
 # Delete existing output, if it exists
@@ -154,7 +148,7 @@ case "$TARGET_OS" in
         ;;
     IOS)
         PLATFORM=IOS
-        COMMON_FLAGS="$COMMON_FLAGS -DOS_MACOSX -DIOS_CROSS_COMPILE -DROCKSDB_LITE"
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_MACOSX -DIOS_CROSS_COMPILE "
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
         CROSS_COMPILE=true
@@ -277,6 +271,7 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     if [ "$FBCODE_BUILD" = "true" ]; then
       # Enable backtrace on fbcode since the necessary libraries are present
       COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+      FOLLY_DIR="third-party/folly"
     fi
     true
 else
@@ -424,7 +419,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_JEMALLOC; then
         # Test whether jemalloc is available
-        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -ljemalloc \
+        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -ljemalloc \
           2>/dev/null; then
             # This will enable some preprocessor identifiers in the Makefile
             JEMALLOC=1
@@ -433,12 +428,19 @@ EOF
             WITH_JEMALLOC_FLAG=1
             # check for JEMALLOC installed with HomeBrew
             if [ "$PLATFORM" == "OS_MACOSX" ]; then
+                if [ "$TARGET_ARCHITECTURE" = "arm64" ]; then
+                    # on M1 Macs, homebrew installs here instead of /usr/local
+                    JEMALLOC_PREFIX="/opt/homebrew"
+                else
+                    JEMALLOC_PREFIX="/usr/local"
+                fi
                 if hash brew 2>/dev/null && brew ls --versions jemalloc > /dev/null; then
                     JEMALLOC_VER=$(brew ls --versions jemalloc | tail -n 1 | cut -f 2 -d ' ')
-                    JEMALLOC_INCLUDE="-I/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/include"
-                    JEMALLOC_LIB="/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
-                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $JEMALLOC_LIB"
-                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS $JEMALLOC_LIB"
+                    JEMALLOC_INCLUDE="-I${JEMALLOC_PREFIX}/Cellar/jemalloc/${JEMALLOC_VER}/include"
+                    JEMALLOC_LIB="${JEMALLOC_PREFIX}/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
+                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
+                    JAVA_LDFLAGS="$JAVA_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
+                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS -L${JEMALLOC_PREFIX}/lib $JEMALLOC_LIB"
                 fi
             fi
         fi
@@ -601,6 +603,17 @@ EOF
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
         fi
     fi
+    if test $USE_FOLLY; then
+        # Test whether libfolly library is installed
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <folly/synchronization/DistributedMutex.h>
+          int main() {}
+EOF
+        if [ "$?" != 0 ]; then
+          FOLLY_DIR="./third-party/folly"
+        fi
+    fi
+
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -615,7 +628,7 @@ EOF
   fi
 fi
 
-if test "0$PORTABLE" -eq 0; then
+if [ "$PORTABLE" == "" ] || [ "$PORTABLE" == 0 ]; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
@@ -634,41 +647,41 @@ if test "0$PORTABLE" -eq 0; then
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    RISC_ISA=$(cat /proc/cpuinfo | grep -E '^isa\s*:' | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    if [ -n "${RISCV_ISA}" ]; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+    fi
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
-  elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
-    # TODO: Not sure why we don't use -march=native on these OSes
-    if test "$USE_SSE"; then
-      TRY_SSE_ETC="1"
-    fi
   else
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   fi
 else
-  # PORTABLE=1
-  if test "$USE_SSE"; then
-    TRY_SSE_ETC="1"
-  fi
-
-  if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
-    COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
-  fi
-
-  if test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
-    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
-    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+  # PORTABLE specified
+  if [ "$PORTABLE" == 1 ]; then
+    if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+    elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=rv64gc"
+    elif test "$USE_SSE"; then
+      # USE_SSE is DEPRECATED
+      # This is a rough approximation of the old USE_SSE behavior
+      COMMON_FLAGS="$COMMON_FLAGS -march=haswell"
+    fi
+    # Other than those cases, not setting -march= here.
+  else
+    # Assume PORTABLE is a minimum assumed cpu type, e.g. PORTABLE=haswell
+    COMMON_FLAGS="$COMMON_FLAGS -march=${PORTABLE}"
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
-    # For portability compile for macOS 10.13 (2017) or newer
-    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.13"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.13"
+    # For portability compile for macOS 10.14 (2018) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.14"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.14"
     # -mmacosx-version-min must come first here.
-    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.13 $PLATFORM_SHARED_LDFLAGS"
-    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13"
-    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.13"
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.14 $PLATFORM_SHARED_LDFLAGS"
+    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.14"
+    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.14"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CCFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CXXFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
@@ -690,101 +703,6 @@ EOF
   if [ "$?" != 0 ]; then
       PPC_LIBC_IS_GNU=0
   fi
-fi
-
-if test "$TRY_SSE_ETC"; then
-  # The USE_SSE flag now means "attempt to compile with widely-available
-  # Intel architecture extensions utilized by specific optimizations in the
-  # source code." It's a qualifier on PORTABLE=1 that means "mostly portable."
-  # It doesn't even really check that your current CPU is compatible.
-  #
-  # SSE4.2 available since nehalem, ca. 2008-2010
-  # Includes POPCNT for BitsSetToOne, BitParity
-  TRY_SSE42="-msse4.2"
-  # PCLMUL available since westmere, ca. 2010-2011
-  TRY_PCLMUL="-mpclmul"
-  # AVX2 available since haswell, ca. 2013-2015
-  TRY_AVX2="-mavx2"
-  # BMI available since haswell, ca. 2013-2015
-  # Primarily for TZCNT for CountTrailingZeroBits
-  TRY_BMI="-mbmi"
-  # LZCNT available since haswell, ca. 2013-2015
-  # For FloorLog2
-  TRY_LZCNT="-mlzcnt"
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <nmmintrin.h>
-  int main() {
-    volatile uint32_t x = _mm_crc32_u32(0, 0);
-    (void)x;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_SSE42 -DHAVE_SSE42"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_PCLMUL -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <wmmintrin.h>
-  int main() {
-    const auto a = _mm_set_epi64x(0, 0);
-    const auto b = _mm_set_epi64x(0, 0);
-    const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-    auto d = _mm_cvtsi128_si64(c);
-    (void)d;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_PCLMUL -DHAVE_PCLMUL"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_AVX2 -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main() {
-    const auto a = _mm256_setr_epi32(0, 1, 2, 3, 4, 7, 6, 5);
-    const auto b = _mm256_permutevar8x32_epi32(a, a);
-    (void)b;
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_AVX2 -DHAVE_AVX2"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main(int argc, char *argv[]) {
-    (void)argv;
-    return (int)_tzcnt_u64((uint64_t)argc);
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_BMI -DHAVE_BMI"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
-fi
-
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o test.o 2>/dev/null <<EOF
-  #include <cstdint>
-  #include <immintrin.h>
-  int main(int argc, char *argv[]) {
-    (void)argv;
-    return (int)_lzcnt_u64((uint64_t)argc);
-  }
-EOF
-if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_LZCNT -DHAVE_LZCNT"
-elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null <<EOF
@@ -827,6 +745,13 @@ fi
 
 rm -f test.o test_dl.o
 
+# Get the path for the folly installation dir
+if [ "$USE_FOLLY" ]; then
+  if [ "$FOLLY_DIR" ]; then
+    FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
+  fi
+fi
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
@@ -866,6 +791,8 @@ echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
+echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
+
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"

@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "utilities/agg_merge/agg_merge.h"
+#include "rocksdb/utilities/agg_merge.h"
 
 #include <assert.h>
 
@@ -17,9 +17,9 @@
 #include "port/likely.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/utilities/agg_merge.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/coding.h"
+#include "utilities/agg_merge/agg_merge_impl.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {

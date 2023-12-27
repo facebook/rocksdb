@@ -23,7 +23,7 @@ public class SstPartitionerTest {
 
   @Test
   public void sstFixedPrefix() throws RocksDBException {
-    try (SstPartitionerFixedPrefixFactory factory = new SstPartitionerFixedPrefixFactory(4);
+    try (final SstPartitionerFixedPrefixFactory factory = new SstPartitionerFixedPrefixFactory(4);
          final Options opt =
              new Options().setCreateIfMissing(true).setSstPartitionerFactory(factory);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
@@ -38,7 +38,7 @@ public class SstPartitionerTest {
 
       db.compactRange();
 
-      List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
+      final List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
       assertThat(metadata.size()).isEqualTo(2);
     }
   }
@@ -65,7 +65,7 @@ public class SstPartitionerTest {
 
       db.compactRange(columnFamilyHandle);
 
-      List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
+      final List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
       assertThat(metadata.size()).isEqualTo(2);
     }
   }

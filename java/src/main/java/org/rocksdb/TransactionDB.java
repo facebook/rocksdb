@@ -14,8 +14,8 @@ import java.util.Map;
  */
 public class TransactionDB extends RocksDB
     implements TransactionalDB<TransactionOptions> {
-
-  private TransactionDBOptions transactionDbOptions_;
+  // Field is "used" to prevent GC of the
+  @SuppressWarnings("PMD.UnusedPrivateField") private TransactionDBOptions transactionDbOptions_;
 
   /**
    * Private constructor.
@@ -50,6 +50,7 @@ public class TransactionDB extends RocksDB
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(options);
     tdb.storeTransactionDbOptions(transactionDbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
 
     return tdb;
   }
@@ -94,6 +95,7 @@ public class TransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(dbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {
@@ -106,16 +108,17 @@ public class TransactionDB extends RocksDB
   /**
    * This is similar to {@link #close()} except that it
    * throws an exception if any error occurs.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    *
    * @throws RocksDBException if an error occurs whilst closing.
    */
+  @Override
   public void closeE() throws RocksDBException {
     if (owningHandle_.compareAndSet(true, false)) {
       try {
@@ -129,14 +132,15 @@ public class TransactionDB extends RocksDB
   /**
    * This is similar to {@link #closeE()} except that it
    * silently ignores any errors.
-   *
+   * <p>
    * This will not fsync the WAL files.
    * If syncing is required, the caller must first call {@link #syncWal()}
    * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
    * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
+   * <p>
    * See also {@link #close()}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
     if (owningHandle_.compareAndSet(true, false)) {
@@ -218,7 +222,7 @@ public class TransactionDB extends RocksDB
 
     final List<Transaction> txns = new ArrayList<>();
     for(final long jtxnHandle : jtxnHandles) {
-      final Transaction txn = new Transaction(this, jtxnHandle);
+      final Transaction txn = new Transaction(this, jtxnHandle); // NOPMD - CloseResource
 
       // this instance doesn't own the underlying C++ object
       txn.disOwnNativeHandle();
@@ -233,8 +237,8 @@ public class TransactionDB extends RocksDB
     private final long[] transactionIDs;
     private final boolean exclusive;
 
-    public KeyLockInfo(final String key, final long transactionIDs[],
-        final boolean exclusive) {
+    @SuppressWarnings("PMD.ArrayIsStoredDirectly")
+    public KeyLockInfo(final String key, final long[] transactionIDs, final boolean exclusive) {
       this.key = key;
       this.transactionIDs = transactionIDs;
       this.exclusive = exclusive;
@@ -254,6 +258,7 @@ public class TransactionDB extends RocksDB
      *
      * @return the Transaction IDs.
      */
+    @SuppressWarnings("PMD.MethodReturnsInternalArray")
     public long[] getTransactionIDs() {
       return transactionIDs;
     }
@@ -288,8 +293,8 @@ public class TransactionDB extends RocksDB
    *
    * @return The waiting transactions
    */
-  private DeadlockInfo newDeadlockInfo(
-      final long transactionID, final long columnFamilyId,
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
+  private DeadlockInfo newDeadlockInfo(final long transactionID, final long columnFamilyId,
       final String waitingKey, final boolean exclusive) {
     return new DeadlockInfo(transactionID, columnFamilyId,
         waitingKey, exclusive);
@@ -350,6 +355,7 @@ public class TransactionDB extends RocksDB
     final DeadlockInfo[] path;
     final boolean limitExceeded;
 
+    @SuppressWarnings("PMD.ArrayIsStoredDirectly")
     public DeadlockPath(final DeadlockInfo[] path, final boolean limitExceeded) {
       this.path = path;
       this.limitExceeded = limitExceeded;
@@ -381,8 +387,7 @@ public class TransactionDB extends RocksDB
   private static native long[] open(final long dbOptionsHandle,
       final long transactionDbOptionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private static native void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

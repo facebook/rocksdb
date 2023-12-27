@@ -9,19 +9,47 @@
 #ifdef _MSC_VER
 #include <intrin.h>
 #endif
+#ifdef __BMI2__
+#include <immintrin.h>
+#endif
 
 #include <cstdint>
 #include <type_traits>
 
+#include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
 
+ASSERT_FEATURE_COMPAT_HEADER();
+
 namespace ROCKSDB_NAMESPACE {
+
+// Fast implementation of extracting the bottom n bits of an integer.
+// To ensure fast implementation, undefined if n bits is full width or more.
+template <typename T>
+inline T BottomNBits(T v, int nbits) {
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+  assert(nbits >= 0);
+  assert(nbits < int{8 * sizeof(T)});
+#ifdef __BMI2__
+  if constexpr (sizeof(T) <= 4) {
+    return static_cast<T>(_bzhi_u32(static_cast<uint32_t>(v), nbits));
+  }
+  if constexpr (sizeof(T) <= 8) {
+    return static_cast<T>(_bzhi_u64(static_cast<uint64_t>(v), nbits));
+  }
+#endif
+  // Newer compilers compile this down to bzhi on x86, but some older
+  // ones don't, thus the need for the intrinsic above.
+  return static_cast<T>(v & ((T{1} << nbits) - 1));
+}
 
 // Fast implementation of floor(log2(v)). Undefined for 0 or negative
 // numbers (in case of signed type).
 template <typename T>
 inline int FloorLog2(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
   assert(v > 0);
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
@@ -60,6 +88,8 @@ inline int FloorLog2(T v) {
 // Constexpr version of FloorLog2
 template <typename T>
 constexpr int ConstexprFloorLog2(T v) {
+  // NOTE: not checking is_integral so that this works with Unsigned128
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
   int rv = 0;
   while (v > T{1}) {
     ++rv;
@@ -71,7 +101,8 @@ constexpr int ConstexprFloorLog2(T v) {
 // Number of low-order zero bits before the first 1 bit. Undefined for 0.
 template <typename T>
 inline int CountTrailingZeroBits(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
   assert(v != 0);
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
@@ -112,6 +143,9 @@ namespace detail {
 
 template <typename T>
 int BitsSetToOneFallback(T v) {
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+
   const int kBits = static_cast<int>(sizeof(T)) * 8;
   static_assert((kBits & (kBits - 1)) == 0, "must be power of two bits");
   // we static_cast these bit patterns in order to truncate them to the correct
@@ -137,7 +171,9 @@ int BitsSetToOneFallback(T v) {
 // Number of bits set to 1. Also known as "population count".
 template <typename T>
 inline int BitsSetToOne(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
   if (sizeof(T) < sizeof(uint32_t)) {
@@ -145,27 +181,29 @@ inline int BitsSetToOne(T v) {
     constexpr auto mm = 8 * sizeof(uint32_t) - 1;
     // The bit mask is to neutralize sign extension on small signed types
     constexpr uint32_t m = (uint32_t{1} << ((8 * sizeof(T)) & mm)) - 1;
-#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
+#if __POPCNT__
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v) & m));
 #else
     return static_cast<int>(detail::BitsSetToOneFallback(v) & m);
-#endif
+#endif  // __POPCNT__
   } else if (sizeof(T) == sizeof(uint32_t)) {
-#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
+#if __POPCNT__
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v)));
 #else
     return detail::BitsSetToOneFallback(static_cast<uint32_t>(v));
-#endif
+#endif  // __POPCNT__
   } else {
-#if defined(HAVE_SSE42) && defined(_M_X64)
+#if __POPCNT__
+#ifdef _M_X64
     return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)));
-#elif defined(HAVE_SSE42) && defined(_M_IX86)
+#else
     return static_cast<int>(
         __popcnt(static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32) +
                  __popcnt(static_cast<uint32_t>(v))));
+#endif  // _M_X64
 #else
     return detail::BitsSetToOneFallback(static_cast<uint64_t>(v));
-#endif
+#endif  // __POPCNT__
   }
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");
@@ -187,7 +225,9 @@ inline int BitsSetToOne(T v) {
 
 template <typename T>
 inline int BitParity(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+
 #ifdef _MSC_VER
   // bit parity == oddness of popcount
   return BitsSetToOne(v) & 1;
@@ -209,7 +249,8 @@ inline int BitParity(T v) {
 // encode/decode big endian.
 template <typename T>
 inline T EndianSwapValue(T v) {
-  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
 
 #ifdef _MSC_VER
   if (sizeof(T) == 2) {
@@ -239,6 +280,9 @@ inline T EndianSwapValue(T v) {
 // Reverses the order of bits in an integral value
 template <typename T>
 inline T ReverseBits(T v) {
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+
   T r = EndianSwapValue(v);
   const T kHighestByte = T{1} << ((sizeof(T) - 1) * 8);
   const T kEveryByte = kHighestByte | (kHighestByte / 255);
@@ -248,6 +292,60 @@ inline T ReverseBits(T v) {
   r = ((r & (kEveryByte * 0x55)) << 1) | ((r >> 1) & (kEveryByte * 0x55));
 
   return r;
+}
+
+// Every output bit depends on many input bits in the same and higher
+// positions, but not lower positions. Specifically, this function
+// * Output highest bit set to 1 is same as input (same FloorLog2, or
+//   equivalently, same number of leading zeros)
+// * Is its own inverse (an involution)
+// * Guarantees that b bottom bits of v and c bottom bits of
+//   DownwardInvolution(v) uniquely identify b + c bottom bits of v
+//   (which is all of v if v < 2**(b + c)).
+// ** A notable special case is that modifying c adjacent bits at
+//    some chosen position in the input is bijective with the bottom c
+//    output bits.
+// * Distributes over xor, as in DI(a ^ b) == DI(a) ^ DI(b)
+//
+// This transformation is equivalent to a matrix*vector multiplication in
+// GF(2) where the matrix is recursively defined by the pattern matrix
+// P = | 1 1 |
+//     | 0 1 |
+// and replacing 1's with P and 0's with 2x2 zero matices to some depth,
+// e.g. depth of 6 for 64-bit T. An essential feature of this matrix
+// is that all square sub-matrices that include the top row are invertible.
+template <typename T>
+inline T DownwardInvolution(T v) {
+  static_assert(std::is_integral_v<T>, "non-integral type");
+  static_assert(!std::is_reference_v<T>, "use std::remove_reference_t");
+  static_assert(sizeof(T) <= 8, "only supported up to 64 bits");
+
+  uint64_t r = static_cast<uint64_t>(v);
+  if constexpr (sizeof(T) > 4) {
+    r ^= r >> 32;
+  }
+  if constexpr (sizeof(T) > 2) {
+    r ^= (r & 0xffff0000ffff0000U) >> 16;
+  }
+  if constexpr (sizeof(T) > 1) {
+    r ^= (r & 0xff00ff00ff00ff00U) >> 8;
+  }
+  r ^= (r & 0xf0f0f0f0f0f0f0f0U) >> 4;
+  r ^= (r & 0xccccccccccccccccU) >> 2;
+  r ^= (r & 0xaaaaaaaaaaaaaaaaU) >> 1;
+  return static_cast<T>(r);
+}
+
+// Bitwise-And with typing that allows you to avoid writing an explicit cast
+// to the smaller type, or the type of the right parameter if same size.
+template <typename A, typename B>
+inline std::conditional_t<sizeof(A) < sizeof(B), A, B> BitwiseAnd(A a, B b) {
+  static_assert(std::is_integral_v<A>, "non-integral type");
+  static_assert(std::is_integral_v<B>, "non-integral type");
+  static_assert(!std::is_reference_v<A>, "use std::remove_reference_t");
+  static_assert(!std::is_reference_v<B>, "use std::remove_reference_t");
+  using Smaller = std::conditional_t<sizeof(A) < sizeof(B), A, B>;
+  return static_cast<Smaller>(a & b);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

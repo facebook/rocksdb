@@ -11,6 +11,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/types.h"
@@ -52,6 +53,7 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
                            const std::string& path_to_sync, const bool force_bg,
                            const bool force_fg);
 
+// TODO(hx235): pass the whole DBOptions intead of its individual fields
 extern IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory,
@@ -59,7 +61,7 @@ extern IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    Env::IOPriority rate_limiter_priority);
+    const ReadOptions& read_options, Statistics* stats, SystemClock* clock);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts) {
@@ -80,10 +82,22 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
   }
 
   opts.rate_limiter_priority = ro.rate_limiter_priority;
+  opts.io_activity = ro.io_activity;
+
   return IOStatus::OK();
 }
 
 // Test method to delete the input directory and all of its contents.
 // This method is destructive and is meant for use only in tests!!!
 Status DestroyDir(Env* env, const std::string& dir);
+
+inline bool CheckFSFeatureSupport(FileSystem* fs, FSSupportedOps feat) {
+  int64_t supported_ops = 0;
+  fs->SupportedOps(supported_ops);
+  if (supported_ops & (1ULL << feat)) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

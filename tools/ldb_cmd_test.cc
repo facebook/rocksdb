@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
@@ -15,6 +14,7 @@
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_checksum.h"
@@ -26,9 +26,9 @@
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 
+using std::map;
 using std::string;
 using std::vector;
-using std::map;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -70,7 +70,7 @@ TEST_F(LdbCmdTest, HexToString) {
     auto actual = ROCKSDB_NAMESPACE::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
-      EXPECT_EQ(expected[i], static_cast<int>((signed char) actual[i]));
+      EXPECT_EQ(expected[i], static_cast<int>((signed char)actual[i]));
     }
     auto reverse = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(actual);
     EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
@@ -186,7 +186,7 @@ class FileChecksumTestHelper {
  public:
   FileChecksumTestHelper(Options& options, DB* db, std::string db_name)
       : options_(options), db_(db), dbname_(db_name) {}
-  ~FileChecksumTestHelper() {}
+  ~FileChecksumTestHelper() = default;
 
   // Verify the checksum information in Manifest.
   Status VerifyChecksumInManifest(
@@ -208,7 +208,8 @@ class FileChecksumTestHelper {
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc, nullptr, nullptr, "", "");
+                        &wc, nullptr, nullptr, "", "",
+                        options_.daily_offpeak_time_utc, nullptr);
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
@@ -233,8 +234,8 @@ class FileChecksumTestHelper {
       return Status::Corruption("The number of files does not match!");
     }
     for (size_t i = 0; i < live_files.size(); i++) {
-      std::string stored_checksum = "";
-      std::string stored_func_name = "";
+      std::string stored_checksum;
+      std::string stored_func_name;
       s = checksum_list->SearchOneFileChecksum(
           live_files[i].file_number, &stored_checksum, &stored_func_name);
       if (s.IsNotFound()) {
@@ -269,7 +270,7 @@ class FileChecksumTestHelper {
         break;
       }
     }
-    EXPECT_OK(db_->EnableFileDeletions());
+    EXPECT_OK(db_->EnableFileDeletions(/*force=*/false));
     return cs;
   }
 };
@@ -634,9 +635,9 @@ TEST_F(LdbCmdTest, OptionParsing) {
   opts.env = TryLoadCustomOrDefaultEnv();
   {
     std::vector<std::string> args;
-    args.push_back("scan");
-    args.push_back("--ttl");
-    args.push_back("--timestamp");
+    args.emplace_back("scan");
+    args.emplace_back("--ttl");
+    args.emplace_back("--timestamp");
     LDBCommand* command = ROCKSDB_NAMESPACE::LDBCommand::InitFromCmdLineArgs(
         args, opts, LDBOptions(), nullptr);
     const std::vector<std::string> flags = command->TEST_GetFlags();
@@ -648,9 +649,9 @@ TEST_F(LdbCmdTest, OptionParsing) {
   // test parsing options which contains equal sign in the option value
   {
     std::vector<std::string> args;
-    args.push_back("scan");
-    args.push_back("--db=/dev/shm/ldbtest/");
-    args.push_back(
+    args.emplace_back("scan");
+    args.emplace_back("--db=/dev/shm/ldbtest/");
+    args.emplace_back(
         "--from='abcd/efg/hijk/lmn/"
         "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
         "ef=gh.ijk'");
@@ -889,7 +890,7 @@ TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   ColumnFamilyHandle* cf_handle;
@@ -932,7 +933,7 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(Env::Default(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   // Create three SST files
@@ -1024,6 +1025,42 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
   ASSERT_OK(db->Get(ReadOptions(), handles[0], "0", &val));
   ASSERT_EQ(val, "0");
 
+  // Determine which is the "first" one (most likely to be opened in recovery)
+  sst_files.clear();
+  db->GetLiveFilesMetaData(&sst_files);
+
+  numbers.clear();
+  for (auto& f : sst_files) {
+    numbers.push_back(f.file_number);
+  }
+  ASSERT_EQ(numbers.size(), 3);
+  std::sort(numbers.begin(), numbers.end());
+  to_remove = numbers.front();
+
+  // This time physically delete the file before unsafe_remove
+  {
+    std::string f = dbname + "/" + MakeTableFileName(to_remove);
+    ASSERT_OK(Env::Default()->DeleteFile(f));
+  }
+
+  // Close for unsafe_remove_sst_file
+  for (auto& h : handles) {
+    delete h;
+  }
+  delete db;
+  db = nullptr;
+
+  snprintf(arg4, sizeof(arg4), "%" PRIu64, to_remove);
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+
+  ASSERT_OK(db->Get(ReadOptions(), handles[1], "3", &val));
+  ASSERT_EQ(val, "3");
+
+  ASSERT_TRUE(db->Get(ReadOptions(), handles[0], "0", &val).IsNotFound());
+
   for (auto& h : handles) {
     delete h;
   }
@@ -1041,7 +1078,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   std::array<Temperature, 5> kTestTemps = {
@@ -1123,8 +1160,8 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
 
   std::string old_dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
   std::string new_dbname = old_dbname + "_2";
-  DestroyDB(old_dbname, opts);
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(old_dbname, opts));
+  ASSERT_OK(DestroyDB(new_dbname, opts));
 
   char old_arg[1024];
   snprintf(old_arg, sizeof(old_arg), "--db=%s", old_dbname.c_str());
@@ -1168,7 +1205,51 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
       0, LDBCommandRunner::RunCommand(5, argv4, opts, LDBOptions(), nullptr));
   ASSERT_EQ(
       0, LDBCommandRunner::RunCommand(5, argv5, opts, LDBOptions(), nullptr));
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(new_dbname, opts));
+}
+
+class MyComparator : public Comparator {
+ public:
+  int Compare(const Slice& a, const Slice& b) const override {
+    return a.compare(b);
+  }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+  const char* Name() const override { return "my_comparator"; }
+};
+
+TEST_F(LdbCmdTest, CustomComparator) {
+  Env* env = TryLoadCustomOrDefaultEnv();
+  MyComparator my_comparator;
+  Options opts;
+  opts.env = env;
+  opts.create_if_missing = true;
+  opts.create_missing_column_families = true;
+  opts.comparator = &my_comparator;
+
+  std::string dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
+  DB* db = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cfds = {{kDefaultColumnFamilyName, opts}};
+  std::vector<ColumnFamilyHandle*> handles;
+  ASSERT_OK(DestroyDB(dbname, opts));
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "k1", "v1"));
+
+  for (auto& h : handles) {
+    ASSERT_OK(db->DestroyColumnFamilyHandle(h));
+  }
+  delete db;
+
+  char arg1[] = "./ldb";
+  std::string arg2 = "--db=" + dbname;
+  char arg3[] = "get";
+  char arg4[] = "k1";
+  char* argv[] = {arg1, const_cast<char*>(arg2.c_str()), arg3, arg4};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
@@ -1179,12 +1260,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

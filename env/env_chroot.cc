@@ -3,13 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 
 #include "env/env_chroot.h"
 
-#include <errno.h>   // errno
-#include <stdlib.h>  // realpath, free
 #include <unistd.h>  // geteuid
+
+#include <cerrno>   // errno
+#include <cstdlib>  // realpath, free
 
 #include "env/composite_env_wrapper.h"
 #include "env/fs_remap.h"
@@ -66,9 +67,9 @@ IOStatus ChrootFileSystem::GetTestDirectory(const IOOptions& options,
   return CreateDirIfMissing(*path, options, dbg);
 }
 
-  // Returns status and expanded absolute path including the chroot directory.
-  // Checks whether the provided path breaks out of the chroot. If it returns
-  // non-OK status, the returned path should not be used.
+// Returns status and expanded absolute path including the chroot directory.
+// Checks whether the provided path breaks out of the chroot. If it returns
+// non-OK status, the returned path should not be used.
 std::pair<IOStatus, std::string> ChrootFileSystem::EncodePath(
     const std::string& path) {
   if (path.empty() || path[0] != '/') {
@@ -77,29 +78,29 @@ std::pair<IOStatus, std::string> ChrootFileSystem::EncodePath(
   std::pair<IOStatus, std::string> res;
   res.second = chroot_dir_ + path;
 #if defined(OS_AIX)
-    char resolvedName[PATH_MAX];
-    char* normalized_path = realpath(res.second.c_str(), resolvedName);
+  char resolvedName[PATH_MAX];
+  char* normalized_path = realpath(res.second.c_str(), resolvedName);
 #else
-    char* normalized_path = realpath(res.second.c_str(), nullptr);
+  char* normalized_path = realpath(res.second.c_str(), nullptr);
 #endif
-    if (normalized_path == nullptr) {
-      res.first = IOStatus::NotFound(res.second, errnoStr(errno).c_str());
-    } else if (strlen(normalized_path) < chroot_dir_.size() ||
-               strncmp(normalized_path, chroot_dir_.c_str(),
-                       chroot_dir_.size()) != 0) {
-      res.first = IOStatus::IOError(res.second,
-                                    "Attempted to access path outside chroot");
-    } else {
-      res.first = IOStatus::OK();
-    }
+  if (normalized_path == nullptr) {
+    res.first = IOStatus::NotFound(res.second, errnoStr(errno).c_str());
+  } else if (strlen(normalized_path) < chroot_dir_.size() ||
+             strncmp(normalized_path, chroot_dir_.c_str(),
+                     chroot_dir_.size()) != 0) {
+    res.first = IOStatus::IOError(res.second,
+                                  "Attempted to access path outside chroot");
+  } else {
+    res.first = IOStatus::OK();
+  }
 #if !defined(OS_AIX)
-    free(normalized_path);
+  free(normalized_path);
 #endif
-    return res;
+  return res;
 }
 
-  // Similar to EncodePath() except assumes the basename in the path hasn't been
-  // created yet.
+// Similar to EncodePath() except assumes the basename in the path hasn't been
+// created yet.
 std::pair<IOStatus, std::string> ChrootFileSystem::EncodePathWithNewBasename(
     const std::string& path) {
   if (path.empty() || path[0] != '/') {
@@ -145,4 +146,4 @@ Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  //  !defined(OS_WIN)

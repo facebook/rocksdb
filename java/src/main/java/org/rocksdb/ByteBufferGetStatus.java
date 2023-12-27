@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import java.nio.ByteBuffer;
@@ -6,7 +12,7 @@ import java.util.List;
 /**
  * A ByteBuffer containing fetched data, together with a result for the fetch
  * and the total size of the object fetched.
- *
+ * <p>
  * Used for the individual results of
  * {@link RocksDB#multiGetByteBuffers(List, List)}
  * {@link RocksDB#multiGetByteBuffers(List, List, List)}
@@ -36,6 +42,7 @@ public class ByteBufferGetStatus {
    *
    * @param status the status of the request to fetch into the buffer
    */
+  @SuppressWarnings("PMD.NullAssignment")
   ByteBufferGetStatus(final Status status) {
     this.status = status;
     this.requiredSize = 0;

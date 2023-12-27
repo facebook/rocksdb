@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/pessimistic_transaction.h"
 
@@ -100,6 +99,9 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   use_only_the_last_commit_time_batch_for_recovery_ =
       txn_options.use_only_the_last_commit_time_batch_for_recovery;
   skip_prepare_ = txn_options.skip_prepare;
+
+  read_timestamp_ = kMaxTxnTimestamp;
+  commit_timestamp_ = kMaxTxnTimestamp;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -164,6 +166,11 @@ template <typename TValue>
 inline Status WriteCommittedTxn::GetForUpdateImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, TValue* value, bool exclusive, const bool do_validate) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetForUpdate with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   column_family =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
   assert(column_family);
@@ -176,8 +183,8 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
                                                value, exclusive, do_validate);
     }
   } else {
-    Status s = db_impl_->FailIfTsMismatchCf(
-        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
+    Status s =
+        db_impl_->FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -881,14 +888,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
     Handler() {}
 
     void RecordKey(uint32_t column_family_id, const Slice& key) {
-      std::string key_str = key.ToString();
-
       auto& cfh_keys = keys_[column_family_id];
-      auto iter = cfh_keys.find(key_str);
-      if (iter == cfh_keys.end()) {
-        // key not yet seen, store it.
-        cfh_keys.insert({std::move(key_str)});
-      }
+      cfh_keys.insert(key.ToString());
     }
 
     Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -1167,6 +1168,16 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
   return s;
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+Status PessimisticTransaction::CollapseKey(const ReadOptions& options,
+                                           const Slice& key,
+                                           ColumnFamilyHandle* column_family) {
+  auto* cfh = column_family ? column_family : db_impl_->DefaultColumnFamily();
+  std::string value;
+  const auto status = GetForUpdate(options, cfh, key, &value, true, true);
+  if (!status.ok()) {
+    return status;
+  }
+  return Put(column_family, key, value);
+}
 
-#endif  // ROCKSDB_LITE
+}  // namespace ROCKSDB_NAMESPACE

@@ -4,7 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include <assert.h>
+#include <cassert>
+
 #include "monitoring/perf_level_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -17,8 +18,6 @@ void SetPerfLevel(PerfLevel level) {
   perf_level = level;
 }
 
-PerfLevel GetPerfLevel() {
-  return perf_level;
-}
+PerfLevel GetPerfLevel() { return perf_level; }
 
 }  // namespace ROCKSDB_NAMESPACE

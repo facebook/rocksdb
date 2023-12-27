@@ -59,7 +59,7 @@ class CompactionOptionsUniversal {
   //    A1...An B1...Bm C1...Ct
   // where A1 is the newest and Ct is the oldest, and we are going to compact
   // B1...Bm, we calculate the total size of all the files as total_size, as
-  // well as  the total size of C1...Ct as total_C, the compaction output file
+  // well as the total size of C1...Ct as total_C, the compaction output file
   // will be compressed iff
   //   total_C / total_size < this percentage
   // Default: -1

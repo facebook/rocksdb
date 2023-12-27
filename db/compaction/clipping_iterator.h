@@ -7,6 +7,7 @@
 
 #include <cassert>
 
+#include "rocksdb/comparator.h"
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class ClippingIterator : public InternalIterator {
  public:
   ClippingIterator(InternalIterator* iter, const Slice* start, const Slice* end,
-                   const Comparator* cmp)
+                   const CompareInterface* cmp)
       : iter_(iter), start_(start), end_(end), cmp_(cmp), valid_(false) {
     assert(iter_);
     assert(cmp_);
@@ -187,6 +188,11 @@ class ClippingIterator : public InternalIterator {
     return iter_->GetProperty(prop_name, prop);
   }
 
+  bool IsDeleteRangeSentinelKey() const override {
+    assert(valid_);
+    return iter_->IsDeleteRangeSentinelKey();
+  }
+
  private:
   void UpdateValid() {
     assert(!iter_->Valid() || iter_->status().ok());
@@ -268,7 +274,7 @@ class ClippingIterator : public InternalIterator {
   InternalIterator* iter_;
   const Slice* start_;
   const Slice* end_;
-  const Comparator* cmp_;
+  const CompareInterface* cmp_;
   bool valid_;
 };
 

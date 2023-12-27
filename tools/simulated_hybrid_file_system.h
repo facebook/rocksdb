@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <utility>
 
@@ -123,4 +122,3 @@ class SimulatedWritableFile : public FSWritableFileWrapper {
 };
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

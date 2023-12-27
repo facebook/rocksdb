@@ -5,19 +5,19 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <vector>
 #include <memory>
+#include <vector>
 
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/env.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/table.h"
-#include "rocksdb/slice_transform.h"
-#include "rocksdb/filter_policy.h"
 #include "port/port.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -37,9 +37,12 @@ class SanityTest {
     Options options = GetOptions();
     options.create_if_missing = true;
     std::string dbname = path_ + Name();
-    DestroyDB(dbname, options);
+    Status s = DestroyDB(dbname, options);
+    if (!s.ok()) {
+      return s;
+    }
     DB* db = nullptr;
-    Status s = DB::Open(options, dbname, &db);
+    s = DB::Open(options, dbname, &db);
     std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
       return s;
@@ -195,7 +198,6 @@ class SanityTestZSTDCompression : public SanityTest {
   Options options_;
 };
 
-#ifndef ROCKSDB_LITE
 class SanityTestPlainTableFactory : public SanityTest {
  public:
   explicit SanityTestPlainTableFactory(const std::string& path)
@@ -211,7 +213,6 @@ class SanityTestPlainTableFactory : public SanityTest {
  private:
   Options options_;
 };
-#endif  // ROCKSDB_LITE
 
 class SanityTestBloomFilter : public SanityTest {
  public:
@@ -241,9 +242,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
       new SanityTestLZ4Compression(path),
       new SanityTestLZ4HCCompression(path),
       new SanityTestZSTDCompression(path),
-#ifndef ROCKSDB_LITE
       new SanityTestPlainTableFactory(path),
-#endif  // ROCKSDB_LITE
       new SanityTestBloomFilter(path)};
 
   if (command == "create") {

@@ -9,22 +9,25 @@
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
-#include <errno.h>
+
 #include <fcntl.h>
+
 #include <algorithm>
+#include <cerrno>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #ifndef FALLOC_FL_KEEP_SIZE
 #include <linux/falloc.h>
 #endif
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
@@ -435,7 +438,7 @@ void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
 
 size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
                                                   int fd) {
-  std::string dir = fname.substr(0, fname.find_last_of("/"));
+  std::string dir = fname.substr(0, fname.find_last_of('/'));
   if (dir.empty()) {
     dir = "/";
   }
@@ -601,8 +604,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
-                                          size_t num_reqs,
+IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
   if (use_direct_io()) {
@@ -653,7 +655,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
-    if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
+    if (this_reqs > kIoUringDepth) {
+      this_reqs = kIoUringDepth;
+    }
 
     assert(incomplete_rq_list.size() <= this_reqs);
     for (size_t i = 0; i < this_reqs; i++) {
@@ -750,14 +754,17 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                    bytes_read, read_again);
       int32_t res = cqe->res;
       if (res >= 0) {
-        if (bytes_read == 0 && read_again) {
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+        if (bytes_read == 0) {
+          if (read_again) {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
+          // else It means EOF so no need to do anything.
         } else if (bytes_read < req_wrap->iov.iov_len) {
           incomplete_rq_list.push_back(req_wrap);
         }
@@ -896,8 +903,10 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   struct io_uring_sqe* sqe;
   sqe = io_uring_get_sqe(iu);
 
-  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1, posix_handle->offset);
+  io_uring_prep_readv(sqe, fd_, /*sqe->addr=*/&posix_handle->iov,
+                      /*sqe->len=*/1, /*sqe->offset=*/posix_handle->offset);
 
+  // Sets sqe->user_data to posix_handle.
   io_uring_sqe_set_data(sqe, posix_handle);
 
   // Step 4: io_uring_submit
@@ -1351,8 +1360,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     // but it will be nice to log these errors.
     int dummy __attribute__((__unused__));
     dummy = ftruncate(fd_, filesize_);
-#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE) && \
-    !defined(TRAVIS)
+#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
@@ -1364,11 +1372,6 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     //   tmpfs (since Linux 3.5)
     // We ignore error since failure of this operation does not affect
     // correctness.
-    // TRAVIS - this code does not work on TRAVIS filesystems.
-    // the FALLOC_FL_KEEP_SIZE option is expected to not change the size
-    // of the file, but it does. Simple strace report will show that.
-    // While we work with Travis-CI team to figure out if this is a
-    // quirk of Docker/AUFS, we will comment this out.
     struct stat file_stats;
     int result = fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
@@ -1681,6 +1684,7 @@ IOStatus PosixDirectory::Close(const IOOptions& /*opts*/,
 IOStatus PosixDirectory::FsyncWithDirOptions(
     const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
     const DirFsyncOptions& dir_fsync_options) {
+  assert(fd_ >= 0);  // Check use after close
   IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
   if (is_btrfs_) {

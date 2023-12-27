@@ -1,4 +1,5 @@
-//  Copyright (c) Meta Platforms, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -13,9 +14,10 @@ namespace ROCKSDB_NAMESPACE {
 // Lookup a batch of keys in a single SST file
 DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 (const ReadOptions& read_options, MultiGetRange file_range, int hit_file_level,
- bool is_hit_file_last_in_level, FdWithKeyRange* f,
+ bool skip_filters, bool skip_range_deletions, FdWithKeyRange* f,
  std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
- uint64_t& num_filter_read, uint64_t& num_index_read, uint64_t& num_sst_read) {
+ TableCache::TypedHandle* table_handle, uint64_t& num_filter_read,
+ uint64_t& num_index_read, uint64_t& num_sst_read) {
   bool timer_enabled = GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
                        get_perf_context()->per_level_perf_context_enabled;
 
@@ -23,11 +25,10 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
   StopWatchNano timer(clock_, timer_enabled /* auto_start */);
   s = CO_AWAIT(table_cache_->MultiGet)(
       read_options, *internal_comparator(), *f->file_metadata, &file_range,
+      mutable_cf_options_.block_protection_bytes_per_key,
       mutable_cf_options_.prefix_extractor,
-      cfd_->internal_stats()->GetFileReadHist(hit_file_level),
-      IsFilterSkipped(static_cast<int>(hit_file_level),
-                      is_hit_file_last_in_level),
-      hit_file_level);
+      cfd_->internal_stats()->GetFileReadHist(hit_file_level), skip_filters,
+      skip_range_deletions, hit_file_level, table_handle);
   // TODO: examine the behavior for corrupted key
   if (timer_enabled) {
     PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
@@ -101,23 +102,36 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         file_range.MarkKeyDone(iter);
 
         if (iter->is_blob_index) {
+          BlobIndex blob_index;
+          Status tmp_s;
+
           if (iter->value) {
             TEST_SYNC_POINT_CALLBACK("Version::MultiGet::TamperWithBlobIndex",
                                      &(*iter));
 
-            const Slice& blob_index_slice = *(iter->value);
-            BlobIndex blob_index;
-            Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
-            if (tmp_s.ok()) {
-              const uint64_t blob_file_num = blob_index.file_number();
-              blob_ctxs[blob_file_num].emplace_back(
-                  std::make_pair(blob_index, std::cref(*iter)));
-            } else {
-              *(iter->s) = tmp_s;
-            }
+            tmp_s = blob_index.DecodeFrom(*(iter->value));
+
+          } else {
+            assert(iter->columns);
+
+            tmp_s = blob_index.DecodeFrom(
+                WideColumnsHelper::GetDefaultColumn(iter->columns->columns()));
+          }
+
+          if (tmp_s.ok()) {
+            const uint64_t blob_file_num = blob_index.file_number();
+            blob_ctxs[blob_file_num].emplace_back(blob_index, &*iter);
+          } else {
+            *(iter->s) = tmp_s;
           }
         } else {
-          file_range.AddValueSize(iter->value->size());
+          if (iter->value) {
+            file_range.AddValueSize(iter->value->size());
+          } else {
+            assert(iter->columns);
+            file_range.AddValueSize(iter->columns->serialized_size());
+          }
+
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
             break;
@@ -141,9 +155,8 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         file_range.MarkKeyDone(iter);
         continue;
-      case GetContext::kUnexpectedWideColumnEntity:
-        *status =
-            Status::NotSupported("Encountered unexpected wide-column entity");
+      case GetContext::kMergeOperatorFailed:
+        *status = Status::Corruption(Status::SubCode::kMergeOperatorFailed);
         file_range.MarkKeyDone(iter);
         continue;
     }

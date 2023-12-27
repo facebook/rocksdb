@@ -27,6 +27,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -68,13 +69,6 @@ class SystemClock;
 struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
-};
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -178,17 +172,6 @@ class Env : public Customizable {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return ""; }
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
 
   // Loads the environment specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
@@ -297,7 +280,7 @@ class Env : public Customizable {
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
@@ -451,6 +434,21 @@ class Env : public Customizable {
     IO_HIGH = 2,
     IO_USER = 3,
     IO_TOTAL = 4
+  };
+
+  // EXPERIMENTAL
+  enum class IOActivity : uint8_t {
+    kFlush = 0,
+    kCompaction = 1,
+    kDBOpen = 2,
+    kGet = 3,
+    kMultiGet = 4,
+    kDBIterator = 5,
+    kVerifyDBChecksum = 6,
+    kVerifyFileChecksums = 7,
+    kGetEntity = 8,
+    kMultiGetEntity = 9,
+    kUnknown,  // Keep last for easy array of non-unknowns
   };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
@@ -884,6 +882,9 @@ class WritableFile {
   WritableFile(const WritableFile&) = delete;
   void operator=(const WritableFile&) = delete;
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // WritableFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~WritableFile();
 
   // Append data to the end of the file
@@ -947,6 +948,12 @@ class WritableFile {
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
   virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
+
+  // The caller should call Close() before destroying the WritableFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0;  // sync data
@@ -1093,6 +1100,9 @@ class RandomRWFile {
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;
 
+  // For cases when Close() hasn't been called, many derived classes of
+  // RandomRWFile will need to call Close() non-virtually in their destructor,
+  // and ignore the result, to ensure resources are released.
   virtual ~RandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -1124,6 +1134,11 @@ class RandomRWFile {
 
   virtual Status Fsync() { return Sync(); }
 
+  // The caller should call Close() before destroying the RandomRWFile to
+  // surface any errors associated with finishing writes to the file.
+  // The file is considered closed regardless of return status.
+  // (However, implementations must also clean up properly in the destructor
+  // even if Close() is not called.)
   virtual Status Close() = 0;
 
   // If you're adding methods here, remember to add them to
@@ -1156,10 +1171,14 @@ class MemoryMappedFileBuffer {
 // filesystem operations that can be executed on directories.
 class Directory {
  public:
+  // Many derived classes of Directory will need to call Close() in their
+  // destructor, when not called already, to ensure resources are released.
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
-  // Close directory.
+  // Calling Close() before destroying a Directory is recommended to surface
+  // any errors associated with finishing writes (in case of future features).
+  // The directory is considered closed regardless of return status.
   virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
@@ -1197,9 +1216,11 @@ class Logger {
 
   virtual ~Logger();
 
-  // Close the log file. Must be called before destructor. If the return
-  // status is NotSupported(), it means the implementation does cleanup in
-  // the destructor
+  // Because Logger is typically a shared object, Close() may or may not be
+  // called before the object is destroyed, but is recommended to reveal any
+  // final errors in finishing outstanding writes. No other functions are
+  // supported after calling Close(), and the Logger is considered closed
+  // regardless of return status.
   virtual Status Close();
 
   // Write a header to the log file with the specified format
@@ -1660,10 +1681,8 @@ class EnvWrapper : public Env {
     target_.env->SanitizeEnvOptions(env_opts);
   }
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
  private:
   Target target_;

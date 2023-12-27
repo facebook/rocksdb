@@ -35,7 +35,6 @@ class SystemClock;
 // - Update IO stats.
 class WritableFileWriter {
  private:
-#ifndef ROCKSDB_LITE
   void NotifyOnFileWriteFinish(
       uint64_t offset, size_t length,
       const FileOperationInfo::StartTimePoint& start_ts,
@@ -128,7 +127,6 @@ class WritableFileWriter {
     }
     io_error_info.io_status.PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
@@ -144,13 +142,19 @@ class WritableFileWriter {
   // not counting padding data
   std::atomic<uint64_t> filesize_;
   std::atomic<uint64_t> flushed_size_;
-#ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
   // so we need to go back and write that page again
   uint64_t next_write_offset_;
-#endif  // ROCKSDB_LITE
   bool pending_sync_;
+  std::atomic<bool> seen_error_;
+#ifndef NDEBUG
+  // SyncWithoutFlush() is the function that is allowed to be called
+  // concurrently with other function. One of the concurrent call
+  // could set seen_error_, and the other one would hit assertion
+  // in debug mode.
+  std::atomic<bool> sync_without_flush_called_ = false;
+#endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -161,9 +165,7 @@ class WritableFileWriter {
   bool perform_data_verification_;
   uint32_t buffered_data_crc32c_checksum_;
   bool buffered_data_with_checksum_;
-#ifndef ROCKSDB_LITE
   Temperature temperature_;
-#endif  // ROCKSDB_LITE
 
  public:
   WritableFileWriter(
@@ -182,10 +184,9 @@ class WritableFileWriter {
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
         flushed_size_(0),
-#ifndef ROCKSDB_LITE
         next_write_offset_(0),
-#endif  // ROCKSDB_LITE
         pending_sync_(false),
+        seen_error_(false),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
@@ -196,24 +197,18 @@ class WritableFileWriter {
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
         buffered_data_with_checksum_(buffered_data_with_checksum) {
-#ifndef ROCKSDB_LITE
     temperature_ = options.temperature;
-#endif  // ROCKSDB_LITE
     assert(!use_direct_io() || max_buffer_size_ > 0);
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
     buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
-#ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
                     if (e->ShouldBeNotifiedOnFileIO()) {
                       listeners_.emplace_back(e);
                     }
                   });
-#else  // !ROCKSDB_LITE
-    (void)listeners;
-#endif
     if (file_checksum_gen_factory != nullptr) {
       FileChecksumGenContext checksum_gen_context;
       checksum_gen_context.file_name = _file_name;
@@ -277,7 +272,7 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {
@@ -288,6 +283,22 @@ class WritableFileWriter {
 
   const char* GetFileChecksumFuncName() const;
 
+  bool seen_error() const {
+    return seen_error_.load(std::memory_order_relaxed);
+  }
+  // For options of relaxed consistency, users might hope to continue
+  // operating on the file after an error happens.
+  void reset_seen_error() {
+    seen_error_.store(false, std::memory_order_relaxed);
+  }
+  void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
+
+  IOStatus AssertFalseAndGetStatusForPrevError() {
+    // This should only happen if SyncWithoutFlush() was called.
+    assert(sync_without_flush_called_);
+    return IOStatus::IOError("Writer has previous error.");
+  }
+
  private:
   // Decide the Rate Limiter priority.
   static Env::IOPriority DecideRateLimiterPriority(
@@ -296,10 +307,8 @@ class WritableFileWriter {
 
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
-#ifndef ROCKSDB_LITE
   IOStatus WriteDirect(Env::IOPriority op_rate_limiter_priority);
   IOStatus WriteDirectWithChecksum(Env::IOPriority op_rate_limiter_priority);
-#endif  // !ROCKSDB_LITE
   // Normal write.
   IOStatus WriteBuffered(const char* data, size_t size,
                          Env::IOPriority op_rate_limiter_priority);

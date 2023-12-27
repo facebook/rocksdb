@@ -41,13 +41,13 @@ struct Unsigned128 {
     hi = upper;
   }
 
-  explicit operator uint64_t() { return lo; }
-
-  explicit operator uint32_t() { return static_cast<uint32_t>(lo); }
-
-  explicit operator uint16_t() { return static_cast<uint16_t>(lo); }
-
-  explicit operator uint8_t() { return static_cast<uint8_t>(lo); }
+  // Convert to any integer 64 bits or less.
+  template <typename T,
+            typename = std::enable_if_t<std::is_integral_v<T> &&
+                                        sizeof(T) <= sizeof(uint64_t)> >
+  explicit operator T() {
+    return static_cast<T>(lo);
+  }
 };
 
 inline Unsigned128 operator<<(const Unsigned128& lhs, unsigned shift) {
@@ -191,6 +191,16 @@ inline Unsigned128 Multiply64to128(uint64_t a, uint64_t b) {
 }
 
 template <>
+inline Unsigned128 BottomNBits(Unsigned128 v, int nbits) {
+  if (nbits < 64) {
+    return BottomNBits(Lower64of128(v), nbits);
+  } else {
+    return (Unsigned128{BottomNBits(Upper64of128(v), nbits - 64)} << 64) |
+           Lower64of128(v);
+  }
+}
+
+template <>
 inline int FloorLog2(Unsigned128 v) {
   if (Upper64of128(v) == 0) {
     return FloorLog2(Lower64of128(v));
@@ -228,6 +238,24 @@ template <>
 inline Unsigned128 ReverseBits(Unsigned128 v) {
   return (Unsigned128{ReverseBits(Lower64of128(v))} << 64) |
          ReverseBits(Upper64of128(v));
+}
+
+template <>
+inline Unsigned128 DownwardInvolution(Unsigned128 v) {
+  return (Unsigned128{DownwardInvolution(Upper64of128(v))} << 64) |
+         DownwardInvolution(Upper64of128(v) ^ Lower64of128(v));
+}
+
+template <typename A>
+inline std::remove_reference_t<A> BitwiseAnd(A a, Unsigned128 b) {
+  static_assert(sizeof(A) <= sizeof(Unsigned128));
+  return static_cast<A>(a & b);
+}
+
+template <typename B>
+inline std::remove_reference_t<B> BitwiseAnd(Unsigned128 a, B b) {
+  static_assert(sizeof(B) <= sizeof(Unsigned128));
+  return static_cast<B>(a & b);
 }
 
 template <typename T>

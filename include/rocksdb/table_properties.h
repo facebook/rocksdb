@@ -69,6 +69,9 @@ struct TablePropertiesNames {
   static const std::string kFileCreationTime;
   static const std::string kSlowCompressionEstimatedDataSize;
   static const std::string kFastCompressionEstimatedDataSize;
+  static const std::string kSequenceNumberTimeMapping;
+  static const std::string kTailStartOffset;
+  static const std::string kUserDefinedTimestampsPersisted;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -110,7 +113,7 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+  virtual void BlockAdd(uint64_t /* block_uncomp_bytes */,
                         uint64_t /* block_compressed_bytes_fast */,
                         uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
@@ -119,12 +122,15 @@ class TablePropertiesCollector {
 
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
+  // It will be called only once by RocksDB internal.
+  //
   // @params properties  User will add their collected statistics to
   // `properties`.
   virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
+  // It will only be called after Finish() has been called by RocksDB internal.
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
   // The name of the properties collector can be used for debugging purpose.
@@ -134,8 +140,7 @@ class TablePropertiesCollector {
   virtual bool NeedCompact() const { return false; }
 };
 
-// Constructs TablePropertiesCollector. Internals create a new
-// TablePropertiesCollector for each new table
+// Constructs TablePropertiesCollector instances for each table file creation.
 //
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
@@ -157,7 +162,12 @@ class TablePropertiesCollectorFactory : public Customizable {
       const ConfigOptions& options, const std::string& value,
       std::shared_ptr<TablePropertiesCollectorFactory>* result);
 
-  // has to be thread-safe
+  // To collect properties of a table with the given context, returns
+  // a new object inheriting from TablePropertiesCollector. The caller
+  // is responsible for deleting the object returned. Alternatively,
+  // nullptr may be returned to decline collecting properties for the
+  // file (and reduce callback overheads).
+  // MUST be thread-safe.
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
 
@@ -192,9 +202,9 @@ struct TableProperties {
   uint64_t index_value_is_delta_encoded = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
-  // total raw key size
+  // total raw (uncompressed, undelineated) key size
   uint64_t raw_key_size = 0;
-  // total raw value size
+  // total raw (uncompressed, undelineated) value size
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
@@ -216,10 +226,22 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id = ROCKSDB_NAMESPACE::
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
-  // Timestamp of the latest key. 0 means unknown.
-  // TODO(sagar0): Should be changed to latest_key_time ... but don't know the
-  // full implications of backward compatibility. Hence retaining for now.
+
+  // Oldest ancester time. 0 means unknown.
+  //
+  // For flush output file, oldest ancestor time is the oldest key time in the
+  // file.  If the oldest key time is not available, flush time is used.
+  //
+  // For compaction output file, oldest ancestor time is the oldest
+  // among all the oldest key time of its input files, since the file could be
+  // the compaction output from other SST files, which could in turn be outputs
+  // for compact older SST files. If that's not available, creation time of this
+  // compaction output file is used.
+  //
+  // TODO(sagar0): Should be changed to oldest_ancester_time ... but don't know
+  // the full implications of backward compatibility. Hence retaining for now.
   uint64_t creation_time = 0;
+
   // Timestamp of the earliest key. 0 means unknown.
   uint64_t oldest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
@@ -236,6 +258,15 @@ struct TableProperties {
   // file if the property exists.
   // 0 means not exists.
   uint64_t external_sst_file_global_seqno_offset = 0;
+
+  // Offset where the "tail" part of SST file starts
+  // "Tail" refers to all blocks after data blocks till the end of the SST file
+  uint64_t tail_start_offset = 0;
+
+  // Value of the `AdvancedColumnFamilyOptions.persist_user_defined_timestamps`
+  // when the file is created. Default to be true, only when this flag is false,
+  // it's explicitly written to meta properties block.
+  uint64_t user_defined_timestamps_persisted = 1;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -283,6 +314,9 @@ struct TableProperties {
 
   // Compression options used to compress the SST files.
   std::string compression_options;
+
+  // Sequence number to time mapping, delta encoded.
+  std::string seqno_to_time_mapping;
 
   // user collected properties
   UserCollectedProperties user_collected_properties;

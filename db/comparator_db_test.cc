@@ -17,7 +17,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 namespace {
 
@@ -78,7 +77,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
 
   for (int i = 0; i < num_writes; i++) {
     if (num_trigger_flush > 0 && i != 0 && i % num_trigger_flush == 0) {
-      db->Flush(FlushOptions());
+      ASSERT_OK(db->Flush(FlushOptions()));
     }
 
     int type = rnd->Uniform(2);
@@ -157,6 +156,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
         if (map.find(key) == map.end()) {
           ASSERT_TRUE(status.IsNotFound());
         } else {
+          ASSERT_OK(status);
           ASSERT_EQ(map[key], result);
         }
         break;
@@ -165,6 +165,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
     AssertItersEqual(iter.get(), result_iter.get());
     is_valid = iter->Valid();
   }
+  ASSERT_OK(iter->status());
 }
 
 class DoubleComparator : public Comparator {
@@ -249,7 +250,7 @@ class TwoStrComparator : public Comparator {
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
 };
-}  // namespace
+}  // anonymous namespace
 
 class ComparatorDBTest
     : public testing::Test,
@@ -470,7 +471,7 @@ void VerifySuccessor(const Slice& s, const Slice& t) {
   ASSERT_FALSE(rbc->IsSameLengthImmediateSuccessor(t, s));
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(ComparatorDBTest, IsSameLengthImmediateSuccessor) {
   {
@@ -673,6 +674,7 @@ TEST_P(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

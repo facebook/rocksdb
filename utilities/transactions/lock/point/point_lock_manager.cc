@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/lock/point/point_lock_manager.h"
 
@@ -247,14 +246,14 @@ Status PointLockManager::TryLock(PessimisticTransaction* txn,
   int64_t timeout = txn->GetLockTimeout();
 
   return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
-                            timeout, std::move(lock_info));
+                            timeout, lock_info);
 }
 
 // Helper function for TryLock().
 Status PointLockManager::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     ColumnFamilyId column_family_id, const std::string& key, Env* env,
-    int64_t timeout, LockInfo&& lock_info) {
+    int64_t timeout, const LockInfo& lock_info) {
   Status result;
   uint64_t end_time = 0;
 
@@ -278,7 +277,7 @@ Status PointLockManager::AcquireWithTimeout(
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
-  result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
+  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                          &expire_time_hint, &wait_ids);
 
   if (!result.ok() && timeout != 0) {
@@ -334,14 +333,14 @@ Status PointLockManager::AcquireWithTimeout(
       }
 
       if (result.IsTimedOut()) {
-          timed_out = true;
-          // Even though we timed out, we will still make one more attempt to
-          // acquire lock below (it is possible the lock expired and we
-          // were never signaled).
+        timed_out = true;
+        // Even though we timed out, we will still make one more attempt to
+        // acquire lock below (it is possible the lock expired and we
+        // were never signaled).
       }
 
       if (result.ok() || result.IsTimedOut()) {
-        result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
+        result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                                &expire_time_hint, &wait_ids);
       }
     } while (!result.ok() && !timed_out);
@@ -379,8 +378,10 @@ bool PointLockManager::IncrementWaiters(
     const autovector<TransactionID>& wait_ids, const std::string& key,
     const uint32_t& cf_id, const bool& exclusive, Env* const env) {
   auto id = txn->GetID();
-  std::vector<int> queue_parents(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
-  std::vector<TransactionID> queue_values(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
+  std::vector<int> queue_parents(
+      static_cast<size_t>(txn->GetDeadlockDetectDepth()));
+  std::vector<TransactionID> queue_values(
+      static_cast<size_t>(txn->GetDeadlockDetectDepth()));
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   assert(!wait_txn_map_.Contains(id));
 
@@ -473,7 +474,7 @@ bool PointLockManager::IncrementWaiters(
 // REQUIRED:  Stripe mutex must be held.
 Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                                        const std::string& key, Env* env,
-                                       LockInfo&& txn_lock_info,
+                                       const LockInfo& txn_lock_info,
                                        uint64_t* expire_time,
                                        autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
@@ -525,7 +526,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
       result = Status::Busy(Status::SubCode::kLockLimit);
     } else {
       // acquire lock
-      stripe->keys.emplace(key, std::move(txn_lock_info));
+      stripe->keys.emplace(key, txn_lock_info);
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -716,4 +717,3 @@ void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

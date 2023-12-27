@@ -25,6 +25,11 @@ class PinnedIteratorsManager : public Cleanable {
     }
   }
 
+  // Move constructor and move assignment is allowed.
+  PinnedIteratorsManager(PinnedIteratorsManager&& other) noexcept = default;
+  PinnedIteratorsManager& operator=(PinnedIteratorsManager&& other) noexcept =
+      default;
+
   // Enable Iterators pinning
   void StartPinning() {
     assert(pinning_enabled == false);

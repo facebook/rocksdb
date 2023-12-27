@@ -9,6 +9,8 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
@@ -23,9 +25,8 @@ const std::string ExternalSstFilePropertyNames::kVersion =
 const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
     "rocksdb.external_sst_file.global_seqno";
 
-#ifndef ROCKSDB_LITE
 
-const size_t kFadviseTrigger = 1024 * 1024; // 1MB
+const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
@@ -82,7 +83,8 @@ struct SstFileWriter::Rep {
 
     assert(value_type == kTypeValue || value_type == kTypeMerge ||
            value_type == kTypeDeletion ||
-           value_type == kTypeDeletionWithTimestamp);
+           value_type == kTypeDeletionWithTimestamp ||
+           value_type == kTypeWideColumnEntity);
 
     constexpr SequenceNumber sequence_number = 0;
 
@@ -100,7 +102,7 @@ struct SstFileWriter::Rep {
   }
 
   Status Add(const Slice& user_key, const Slice& value, ValueType value_type) {
-    if (internal_comparator.timestamp_size() != 0) {
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
@@ -111,7 +113,8 @@ struct SstFileWriter::Rep {
              ValueType value_type) {
     const size_t timestamp_size = timestamp.size();
 
-    if (internal_comparator.timestamp_size() != timestamp_size) {
+    if (internal_comparator.user_comparator()->timestamp_size() !=
+        timestamp_size) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
@@ -130,13 +133,34 @@ struct SstFileWriter::Rep {
     return AddImpl(user_key_with_ts, value, value_type);
   }
 
-  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
-    if (internal_comparator.timestamp_size() != 0) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
+  Status AddEntity(const Slice& user_key, const WideColumns& columns) {
+    WideColumns sorted_columns(columns);
+    WideColumnsHelper::SortColumns(sorted_columns);
 
+    std::string entity;
+    const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
+    if (!s.ok()) {
+      return s;
+    }
+    if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("wide column entity is too large");
+    }
+    return Add(user_key, entity, kTypeWideColumnEntity);
+  }
+
+  Status DeleteRangeImpl(const Slice& begin_key, const Slice& end_key) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
+    }
+    int cmp = internal_comparator.user_comparator()->CompareWithoutTimestamp(
+        begin_key, end_key);
+    if (cmp > 0) {
+      // It's an empty range where endpoints appear mistaken. Don't bother
+      // applying it to the DB, and return an error to the user.
+      return Status::InvalidArgument("end key comes before start key");
+    } else if (cmp == 0) {
+      // It's an empty range. Don't bother applying it to the DB.
+      return Status::OK();
     }
 
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
@@ -169,14 +193,52 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+    return DeleteRangeImpl(begin_key, end_key);
+  }
+
+  // begin_key and end_key should be users keys without timestamp.
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key,
+                     const Slice& timestamp) {
+    const size_t timestamp_size = timestamp.size();
+
+    if (internal_comparator.user_comparator()->timestamp_size() !=
+        timestamp_size) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    const size_t begin_key_size = begin_key.size();
+    const size_t end_key_size = end_key.size();
+    if (begin_key.data() + begin_key_size == timestamp.data() ||
+        end_key.data() + begin_key_size == timestamp.data()) {
+      assert(memcmp(begin_key.data() + begin_key_size,
+                    end_key.data() + end_key_size, timestamp_size) == 0);
+      Slice begin_key_with_ts(begin_key.data(),
+                              begin_key_size + timestamp_size);
+      Slice end_key_with_ts(end_key.data(), end_key.size() + timestamp_size);
+      return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+    }
+    std::string begin_key_with_ts;
+    begin_key_with_ts.reserve(begin_key_size + timestamp_size);
+    begin_key_with_ts.append(begin_key.data(), begin_key_size);
+    begin_key_with_ts.append(timestamp.data(), timestamp_size);
+    std::string end_key_with_ts;
+    end_key_with_ts.reserve(end_key_size + timestamp_size);
+    end_key_with_ts.append(end_key.data(), end_key_size);
+    end_key_with_ts.append(timestamp.data(), timestamp_size);
+    return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+  }
+
   Status InvalidatePageCache(bool closing) {
     Status s = Status::OK();
     if (invalidate_page_cache == false) {
       // Fadvise disabled
       return s;
     }
-    uint64_t bytes_since_last_fadvise =
-      builder->FileSize() - last_fadvise_size;
+    uint64_t bytes_since_last_fadvise = builder->FileSize() - last_fadvise_size;
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
@@ -278,14 +340,16 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
+
+  // TODO: it would be better to set oldest_key_time to be used for getting the
+  //  approximate time of ingested keys.
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
       cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* file_creation_time */,
-      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
-      r->next_file_number);
+      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
+      0 /* target_file_size */, r->next_file_number);
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep
@@ -325,6 +389,11 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
   return rep_->Add(user_key, timestamp, value, ValueType::kTypeValue);
 }
 
+Status SstFileWriter::PutEntity(const Slice& user_key,
+                                const WideColumns& columns) {
+  return rep_->AddEntity(user_key, columns);
+}
+
 Status SstFileWriter::Merge(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeMerge);
 }
@@ -341,6 +410,11 @@ Status SstFileWriter::Delete(const Slice& user_key, const Slice& timestamp) {
 Status SstFileWriter::DeleteRange(const Slice& begin_key,
                                   const Slice& end_key) {
   return rep_->DeleteRange(begin_key, end_key);
+}
+
+Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
+                                  const Slice& timestamp) {
+  return rep_->DeleteRange(begin_key, end_key, timestamp);
 }
 
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
@@ -380,9 +454,6 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   return s;
 }
 
-uint64_t SstFileWriter::FileSize() {
-  return rep_->file_info.file_size;
-}
-#endif  // !ROCKSDB_LITE
+uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,0 +1,7 @@
+name: install-gflags
+runs:
+  using: composite
+  steps:
+  - name: Install gflags
+    run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+    shell: bash
