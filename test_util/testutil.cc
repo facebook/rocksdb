@@ -39,7 +39,10 @@ namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
+    // Non-legacy, before big footer changes
     5U,
+    // After big footer changes
+    6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestFormatVersion,
@@ -72,11 +75,29 @@ std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   return result;
 }
 
+const std::vector<UserDefinedTimestampTestMode>& GetUDTTestModes() {
+  static std::vector<UserDefinedTimestampTestMode> udt_test_modes = {
+      UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+      UserDefinedTimestampTestMode::kNormal,
+      UserDefinedTimestampTestMode::kNone};
+  return udt_test_modes;
+}
+
+bool IsUDTEnabled(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kNone;
+}
+
+bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
+  return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
+}
+
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
-  if (raw < 1) raw = 1;
-  std::string raw_data = rnd->RandomString(raw);
+  if (raw < 1) {
+    raw = 1;
+  }
+  std::string raw_data = rnd->RandomBinaryString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -90,7 +111,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 namespace {
 class Uint64ComparatorImpl : public Comparator {
  public:
-  Uint64ComparatorImpl() {}
+  Uint64ComparatorImpl() = default;
 
   const char* Name() const override { return "rocksdb.Uint64Comparator"; }
 
@@ -112,11 +133,9 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const override {
-    return;
-  }
+                             const Slice& /*limit*/) const override {}
 
-  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 }  // namespace
 
@@ -130,6 +149,16 @@ const Comparator* BytewiseComparatorWithU64TsWrapper() {
   const Comparator* user_comparator = nullptr;
   Status s = Comparator::CreateFromString(
       config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
+}
+
+const Comparator* ReverseBytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "rocksdb.ReverseBytewiseComparator.u64ts",
+      &user_comparator);
   s.PermitUncheckedError();
   return user_comparator;
 }
@@ -603,7 +632,7 @@ class SpecialMemTableRep : public MemTableRep {
     return memtable_->GetIterator(arena);
   }
 
-  virtual ~SpecialMemTableRep() override {}
+  virtual ~SpecialMemTableRep() override = default;
 
  private:
   std::unique_ptr<MemTableRep> memtable_;
@@ -618,7 +647,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
            std::string* /* errmsg */) {
-          auto colon = uri.find(":");
+          auto colon = uri.find(':');
           if (colon != std::string::npos) {
             auto count = ParseInt(uri.substr(colon + 1));
             guard->reset(new SpecialSkipListFactory(count));
@@ -629,7 +658,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // After number of inserts >= `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}

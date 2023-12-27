@@ -35,7 +35,7 @@ DECLARE_int32(open_metadata_write_fault_one_in);
 DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
-DECLARE_int32(injest_error_severity);
+DECLARE_int32(inject_error_severity);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -43,12 +43,6 @@ class StressTest;
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  // indicates a key may have any value (or not be present) as an operation on
-  // it is incomplete.
-  static constexpr uint32_t UNKNOWN_SENTINEL = 0xfffffffe;
-  // indicates a key should definitely be deleted
-  static constexpr uint32_t DELETION_SENTINEL = 0xffffffff;
-
   // Errors when reading filter blocks are ignored, so we use a thread
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
@@ -254,52 +248,68 @@ class SharedState {
     return expected_state_manager_->ClearColumnFamily(cf);
   }
 
-  // @param pending True if the update may have started but is not yet
-  //    guaranteed finished. This is useful for crash-recovery testing when the
-  //    process may crash before updating the expected values array.
+  // Prepare a Put that will be started but not finish yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
-    return expected_state_manager_->Put(cf, key, value_base, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PreparePut(int cf, int64_t key) {
+    return expected_state_manager_->PreparePut(cf, key);
   }
 
-  // Requires external locking covering `key` in `cf`.
-  uint32_t Get(int cf, int64_t key) const {
+  // Does not requires external locking.
+  ExpectedValue Get(int cf, int64_t key) {
     return expected_state_manager_->Get(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
+  // Prepare a Delete that will be started but not finish yet
+  // This is useful for crash-recovery testing when the process may crash
+  // before updating the corresponding expected value
   //
-  // Requires external locking covering `key` in `cf`.
-  bool Delete(int cf, int64_t key, bool pending) {
-    return expected_state_manager_->Delete(cf, key, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns true if the key was not yet deleted.
-  //
-  // Requires external locking covering `key` in `cf`.
-  bool SingleDelete(int cf, int64_t key, bool pending) {
-    return expected_state_manager_->Delete(cf, key, pending);
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
+  PendingExpectedValue PrepareSingleDelete(int cf, int64_t key) {
+    return expected_state_manager_->PrepareSingleDelete(cf, key);
   }
 
-  // @param pending See comment above Put()
-  // Returns number of keys deleted by the call.
-  //
-  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
-  int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
-    return expected_state_manager_->DeleteRange(cf, begin_key, end_key,
-                                                pending);
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
+  // to prevent concurrent write or delete to the same `key`.
+  std::vector<PendingExpectedValue> PrepareDeleteRange(int cf,
+                                                       int64_t begin_key,
+                                                       int64_t end_key) {
+    return expected_state_manager_->PrepareDeleteRange(cf, begin_key, end_key);
   }
 
   bool AllowsOverwrite(int64_t key) const {
     return no_overwrite_ids_.find(key) == no_overwrite_ids_.end();
   }
 
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // delete to the same `key`.
   bool Exists(int cf, int64_t key) {
     return expected_state_manager_->Exists(cf, key);
+  }
+
+  // Sync the `value_base` to the corresponding expected value
+  void SyncPut(int cf, int64_t key, uint32_t value_base) {
+    return expected_state_manager_->SyncPut(cf, key, value_base);
+  }
+
+  // Sync the corresponding expected value to be pending Put
+  void SyncPendingPut(int cf, int64_t key) {
+    return expected_state_manager_->SyncPendingPut(cf, key);
+  }
+
+  // Sync the corresponding expected value to be deleted
+  void SyncDelete(int cf, int64_t key) {
+    return expected_state_manager_->SyncDelete(cf, key);
   }
 
   uint32_t GetSeed() const { return seed_; }
@@ -331,6 +341,13 @@ class SharedState {
   }
 
   uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
+  void SafeTerminate() {
+    // Grab mutex so that we don't call terminate while another thread is
+    // attempting to print a stack trace due to the first one
+    MutexLock l(&mu_);
+    std::terminate();
+  }
 
  private:
   static void IgnoreReadErrorCallback(void*) { ignore_read_error = true; }

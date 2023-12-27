@@ -1345,7 +1345,7 @@ TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
   // Check that the new max has not advanced the last seq
   ASSERT_LT(wp_db->max_evicted_seq_.load(), last_seq);
   for (auto txn : txns) {
-    txn->Rollback();
+    ASSERT_OK(txn->Rollback());
     delete txn;
   }
 }
@@ -4058,10 +4058,9 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
-  if (getenv("CIRCLECI")) {
+  if (getenv("CIRCLECI") || getenv("GITHUB_ACTIONS")) {
     // Looking for backtrace on "Resource temporarily unavailable" exceptions
     ::testing::FLAGS_gtest_catch_exceptions = false;
   }
   return RUN_ALL_TESTS();
 }
-

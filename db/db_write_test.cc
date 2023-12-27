@@ -495,7 +495,7 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
   // DB WAL.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -536,7 +536,7 @@ TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
 
   // Simulate full loss of unsynced data. This should drop nothing since we did
   // `FlushWAL(true /* sync */)` before `Close()`.
-  fault_env->DropUnsyncedFileData();
+  ASSERT_OK(fault_env->DropUnsyncedFileData());
 
   Reopen(options);
 
@@ -635,6 +635,11 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   ASSERT_OK(db_->LockWAL());
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   ASSERT_OK(db_->UnlockWAL());
+
+  // The above `TEST_SwitchWAL()` triggered a flush. That flush needs to finish
+  // before we make the filesystem inactive, otherwise the flush might hit an
+  // unrecoverable error (e.g., failed MANIFEST update).
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
 
   // Fail the WAL flush if applicable
   fault_fs->SetFilesystemActive(false);

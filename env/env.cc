@@ -159,8 +159,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       req.len = fs_reqs[i].len;
       req.scratch = fs_reqs[i].scratch;
       req.status = Status::OK();
-
-      reqs.emplace_back(req);
+      reqs.emplace_back(std::move(req));
     }
     status = target_->MultiRead(reqs.data(), num_reqs);
     for (size_t i = 0; i < num_reqs; ++i) {
@@ -360,7 +359,7 @@ class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
-  ~LegacyFileSystemWrapper() override {}
+  ~LegacyFileSystemWrapper() override = default;
 
   static const char* kClassName() { return "LegacyFileSystem"; }
   const char* Name() const override { return kClassName(); }
@@ -625,7 +624,7 @@ Env::Env(const std::shared_ptr<FileSystem>& fs,
          const std::shared_ptr<SystemClock>& clock)
     : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
 
-Env::~Env() {}
+Env::~Env() = default;
 
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
@@ -798,7 +797,7 @@ std::string Env::GenerateUniqueId() {
 
     // Use 36 character format of RFC 4122
     result.resize(36U);
-    char* buf = &result[0];
+    char* buf = result.data();
     PutBaseChars<16>(&buf, 8, upper >> 32, /*!uppercase*/ false);
     *(buf++) = '-';
     PutBaseChars<16>(&buf, 4, upper >> 16, /*!uppercase*/ false);
@@ -818,15 +817,15 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-SequentialFile::~SequentialFile() {}
+SequentialFile::~SequentialFile() = default;
 
-RandomAccessFile::~RandomAccessFile() {}
+RandomAccessFile::~RandomAccessFile() = default;
 
-WritableFile::~WritableFile() {}
+WritableFile::~WritableFile() = default;
 
-MemoryMappedFileBuffer::~MemoryMappedFileBuffer() {}
+MemoryMappedFileBuffer::~MemoryMappedFileBuffer() = default;
 
-Logger::~Logger() {}
+Logger::~Logger() = default;
 
 Status Logger::Close() {
   if (!closed_) {
@@ -839,7 +838,7 @@ Status Logger::Close() {
 
 Status Logger::CloseImpl() { return Status::NotSupported(); }
 
-FileLock::~FileLock() {}
+FileLock::~FileLock() = default;
 
 void LogFlush(Logger* info_log) {
   if (info_log) {
@@ -1229,5 +1228,10 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     });
     return LoadSharedObject<SystemClock>(config_options, value, result);
   }
+}
+
+bool SystemClock::TimedWait(port::CondVar* cv,
+                            std::chrono::microseconds deadline) {
+  return cv->TimedWait(deadline.count());
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -13,8 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
-  BatchedOpsStressTest() {}
-  virtual ~BatchedOpsStressTest() {}
+  BatchedOpsStressTest() = default;
+  virtual ~BatchedOpsStressTest() = default;
 
   bool IsStateTracked() const override { return false; }
 
@@ -31,8 +31,7 @@ class BatchedOpsStressTest : public StressTest {
 
     const std::string key_body = Key(rand_keys[0]);
 
-    const uint32_t value_base =
-        thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+    const uint32_t value_base = thread->rand.Next();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const std::string value_body = Slice(value, sz).ToString();
 
@@ -53,11 +52,11 @@ class BatchedOpsStressTest : public StressTest {
       const std::string k = num + key_body;
       const std::string v = value_body + num;
 
-      if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
-      } else if (FLAGS_use_put_entity_one_in > 0 &&
-                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
+        batch.Merge(cfh, k, v);
       } else {
         batch.Put(cfh, k, v);
       }

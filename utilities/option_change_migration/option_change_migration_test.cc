@@ -87,6 +87,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
     for (; it->Valid(); it->Next()) {
       keys.insert(it->key().ToString());
     }
+    ASSERT_OK(it->status());
   }
   Close();
 
@@ -124,6 +125,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
       it->Next();
     }
     ASSERT_TRUE(!it->Valid());
+    ASSERT_OK(it->status());
   }
 }
 
@@ -165,6 +167,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
     for (; it->Valid(); it->Next()) {
       keys.insert(it->key().ToString());
     }
+    ASSERT_OK(it->status());
   }
 
   Close();
@@ -202,6 +205,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
       it->Next();
     }
     ASSERT_TRUE(!it->Valid());
+    ASSERT_OK(it->status());
   }
 }
 
@@ -229,7 +233,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
     for (int i = 0; i < 50; i++) {
       ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     if (num == 9) {
       // Issue a full compaction to generate some zero-out files
@@ -249,6 +253,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
     for (; it->Valid(); it->Next()) {
       keys.insert(it->key().ToString());
     }
+    ASSERT_OK(it->status());
   }
   Close();
 
@@ -286,6 +291,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
       it->Next();
     }
     ASSERT_TRUE(!it->Valid());
+    ASSERT_OK(it->status());
   }
 }
 
@@ -313,7 +319,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
     for (int i = 0; i < 50; i++) {
       ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     if (num == 9) {
       // Issue a full compaction to generate some zero-out files
@@ -333,6 +339,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
     for (; it->Valid(); it->Next()) {
       keys.insert(it->key().ToString());
     }
+    ASSERT_OK(it->status());
   }
 
   Close();
@@ -370,6 +377,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
       it->Next();
     }
     ASSERT_TRUE(!it->Valid());
+    ASSERT_OK(it->status());
   }
 }
 
@@ -496,7 +504,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
       ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
@@ -509,6 +517,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
     for (; it->Valid(); it->Next()) {
       keys.insert(it->key().ToString());
     }
+    ASSERT_OK(it->status());
   }
 
   Close();

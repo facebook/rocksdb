@@ -149,6 +149,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
+    ASSERT_OK(iter->status());
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
       std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
@@ -187,7 +188,8 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0,
+                  Histograms::HISTOGRAM_ENUM_MAX, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -261,7 +263,7 @@ void ProfileQueries(bool enabled_time = false) {
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
-      db->Flush(fo);
+      ASSERT_OK(db->Flush(fo));
       continue;
     }
 
@@ -1048,7 +1050,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                     &key_slices[0], &results[0], &statuses[0]);
+                     key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);
@@ -1066,7 +1068,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         std::vector<Status> statuses(num_keys);
 
         db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                           &key_slices[0], &results[0], &statuses[0]);
+                           key_slices.data(), results.data(), statuses.data());
 
         for (size_t i = 0; i < num_keys; ++i) {
           ASSERT_OK(statuses[i]);
@@ -1091,6 +1093,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
 
     // Backward iteration
@@ -1103,6 +1106,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 
         get_perf_context()->Reset();
       }
+      ASSERT_OK(it->status());
     }
   };
 
@@ -1110,7 +1114,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
   verify();
 
   // Verify counters when reading from table files
-  db->Flush(FlushOptions());
+  ASSERT_OK(db->Flush(FlushOptions()));
 
   verify();
 }

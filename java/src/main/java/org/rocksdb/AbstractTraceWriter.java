@@ -25,6 +25,7 @@ public abstract class AbstractTraceWriter
    *     {@link Status.Code#getValue()} and the second byte is the
    *     {@link Status.SubCode#getValue()}.
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private short writeProxy(final long sliceHandle) {
     try {
       write(new Slice(sliceHandle));
@@ -41,6 +42,7 @@ public abstract class AbstractTraceWriter
    *     {@link Status.Code#getValue()} and the second byte is the
    *     {@link Status.SubCode#getValue()}.
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private short closeWriterProxy() {
     try {
       closeWriter();
@@ -62,7 +64,7 @@ public abstract class AbstractTraceWriter
 
   private static short statusToShort(final Status.Code code,
       final Status.SubCode subCode) {
-    short result = (short)(code.getValue() << 8);
+    final short result = (short) (code.getValue() << 8);
     return (short)(result | subCode.getValue());
   }
 

@@ -31,7 +31,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF() : size_(0), last_synced_(0) {}
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     using FSWritableFile::Append;
     IOStatus Append(const Slice& data, const IOOptions& /*options*/,
@@ -134,7 +134,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         : file_data_(_file_data),
           use_direct_io_(_use_direct_io),
           no_flush_(_no_flush) {}
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     using FSWritableFile::Append;
     IOStatus Append(const Slice& data, const IOOptions& /*options*/,
@@ -588,7 +588,7 @@ class ReadaheadSequentialFileTest : public testing::Test,
     scratch_.reset(new char[2 * readahead_size_]);
     ResetSourceStr();
   }
-  ReadaheadSequentialFileTest() {}
+  ReadaheadSequentialFileTest() = default;
   std::string Read(size_t n) {
     Slice result;
     Status s = test_read_holder_->Read(
@@ -919,7 +919,7 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
   class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF(Env::IOPriority io_priority) { SetIOPriority(io_priority); }
-    ~FakeWF() override {}
+    ~FakeWF() override = default;
 
     IOStatus Append(const Slice& /*data*/, const IOOptions& options,
                     IODebugContext* /*dbg*/) override {

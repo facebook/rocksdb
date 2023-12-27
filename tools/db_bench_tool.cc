@@ -15,9 +15,10 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
+
+#include <cstdio>
+#include <cstdlib>
 #ifdef __APPLE__
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
@@ -33,6 +34,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 #include <unordered_map>
@@ -41,7 +43,7 @@
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "monitoring/histogram.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -287,7 +289,7 @@ DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 DEFINE_int64(seed, 0,
              "Seed base for random number generators. "
              "When 0 it is derived from the current time.");
-static int64_t seed_base;
+static std::optional<int64_t> seed_base;
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
@@ -548,7 +550,7 @@ DEFINE_bool(universal_allow_trivial_move, false,
 DEFINE_bool(universal_incremental, false,
             "Enable incremental compactions in universal compaction.");
 
-DEFINE_int64(cache_size, 8 << 20,  // 8MB
+DEFINE_int64(cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of uncompressed data");
 
 DEFINE_int32(cache_numshardbits, -1,
@@ -569,7 +571,7 @@ DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
 
-DEFINE_int64(compressed_secondary_cache_size, 8 << 20,  // 8MB
+DEFINE_int64(compressed_secondary_cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of data");
 
 DEFINE_int32(compressed_secondary_cache_numshardbits, 6,
@@ -600,6 +602,17 @@ DEFINE_uint32(
     " in the block header."
     "compress_format_version == 2 -- decompressed size is included"
     " in the block header in varint32 format.");
+
+DEFINE_bool(use_tiered_cache, false,
+            "If use_compressed_secondary_cache is true and "
+            "use_tiered_volatile_cache is true, then allocate a tiered cache "
+            "that distributes cache reservations proportionally over both "
+            "the caches.");
+
+DEFINE_string(
+    tiered_adm_policy, "auto",
+    "Admission policy to use for the secondary cache(s) in the tiered cache. "
+    "Allowed values are auto, placeholder, allow_cache_hits, and three_queue.");
 
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
@@ -711,7 +724,9 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+DEFINE_uint64(compaction_readahead_size,
+              ROCKSDB_NAMESPACE::Options().compaction_readahead_size,
+              "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
@@ -1236,28 +1251,50 @@ DEFINE_uint64(
     "num_file_reads_for_auto_readahead indicates after how many sequential "
     "reads into that file internal auto prefetching should be start.");
 
+DEFINE_bool(
+    auto_readahead_size, false,
+    "When set true, RocksDB does auto tuning of readahead size during Scans");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "none"))
+  if (!strcasecmp(ctype, "none")) {
     return ROCKSDB_NAMESPACE::kNoCompression;
-  else if (!strcasecmp(ctype, "snappy"))
+  } else if (!strcasecmp(ctype, "snappy")) {
     return ROCKSDB_NAMESPACE::kSnappyCompression;
-  else if (!strcasecmp(ctype, "zlib"))
+  } else if (!strcasecmp(ctype, "zlib")) {
     return ROCKSDB_NAMESPACE::kZlibCompression;
-  else if (!strcasecmp(ctype, "bzip2"))
+  } else if (!strcasecmp(ctype, "bzip2")) {
     return ROCKSDB_NAMESPACE::kBZip2Compression;
-  else if (!strcasecmp(ctype, "lz4"))
+  } else if (!strcasecmp(ctype, "lz4")) {
     return ROCKSDB_NAMESPACE::kLZ4Compression;
-  else if (!strcasecmp(ctype, "lz4hc"))
+  } else if (!strcasecmp(ctype, "lz4hc")) {
     return ROCKSDB_NAMESPACE::kLZ4HCCompression;
-  else if (!strcasecmp(ctype, "xpress"))
+  } else if (!strcasecmp(ctype, "xpress")) {
     return ROCKSDB_NAMESPACE::kXpressCompression;
-  else if (!strcasecmp(ctype, "zstd"))
+  } else if (!strcasecmp(ctype, "zstd")) {
     return ROCKSDB_NAMESPACE::kZSTD;
-  else {
+  } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    exit(1);
+  }
+}
+
+static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
+    const char* policy) {
+  assert(policy);
+
+  if (!strcasecmp(policy, "auto")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyAuto;
+  } else if (!strcasecmp(policy, "placeholder")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyPlaceholder;
+  } else if (!strcasecmp(policy, "allow_cache_hits")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyAllowCacheHits;
+  } else if (!strcasecmp(policy, "three_queue")) {
+    return ROCKSDB_NAMESPACE::kAdmPolicyThreeQueue;
+  } else {
+    fprintf(stderr, "Cannot parse admission policy %s\n", policy);
     exit(1);
   }
 }
@@ -1725,6 +1762,10 @@ DEFINE_uint32(
     "This options determines the size of such checksums. "
     "Supported values: 0, 1, 2, 4, 8.");
 
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "Enable block per key-value checksum protection. "
+              "Supported values: 0, 1, 2, 4, 8.");
+
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
 
@@ -1766,12 +1807,13 @@ static enum DistributionType FLAGS_value_size_distribution_type_e = kFixed;
 static enum DistributionType StringToDistributionType(const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "fixed"))
+  if (!strcasecmp(ctype, "fixed")) {
     return kFixed;
-  else if (!strcasecmp(ctype, "uniform"))
+  } else if (!strcasecmp(ctype, "uniform")) {
     return kUniform;
-  else if (!strcasecmp(ctype, "normal"))
+  } else if (!strcasecmp(ctype, "normal")) {
     return kNormal;
+  }
 
   fprintf(stdout, "Cannot parse distribution type '%s'\n", ctype);
   exit(1);
@@ -1781,7 +1823,7 @@ class BaseDistribution {
  public:
   BaseDistribution(unsigned int _min, unsigned int _max)
       : min_value_size_(_min), max_value_size_(_max) {}
-  virtual ~BaseDistribution() {}
+  virtual ~BaseDistribution() = default;
 
   unsigned int Generate() {
     auto val = Get();
@@ -1898,7 +1940,9 @@ class RandomGenerator {
 };
 
 static void AppendWithSpace(std::string* str, Slice msg) {
-  if (msg.empty()) return;
+  if (msg.empty()) {
+    return;
+  }
   if (!str->empty()) {
     str->push_back(' ');
   }
@@ -2152,7 +2196,9 @@ class Stats {
   }
 
   void Merge(const Stats& other) {
-    if (other.exclude_from_merge_) return;
+    if (other.exclude_from_merge_) {
+      return;
+    }
 
     for (auto it = other.hist_.begin(); it != other.hist_.end(); ++it) {
       auto this_it = hist_.find(it->first);
@@ -2166,11 +2212,17 @@ class Stats {
     done_ += other.done_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
-    if (other.start_ < start_) start_ = other.start_;
-    if (other.finish_ > finish_) finish_ = other.finish_;
+    if (other.start_ < start_) {
+      start_ = other.start_;
+    }
+    if (other.finish_ > finish_) {
+      finish_ = other.finish_;
+    }
 
     // Just keep the messages from one thread.
-    if (message_.empty()) message_ = other.message_;
+    if (message_.empty()) {
+      message_ = other.message_;
+    }
   }
 
   void Stop() {
@@ -2249,20 +2301,21 @@ class Stats {
     done_ += num_ops;
     if (done_ >= next_report_ && FLAGS_progress_reports) {
       if (!FLAGS_stats_interval) {
-        if (next_report_ < 1000)
+        if (next_report_ < 1000) {
           next_report_ += 100;
-        else if (next_report_ < 5000)
+        } else if (next_report_ < 5000) {
           next_report_ += 500;
-        else if (next_report_ < 10000)
+        } else if (next_report_ < 10000) {
           next_report_ += 1000;
-        else if (next_report_ < 50000)
+        } else if (next_report_ < 50000) {
           next_report_ += 5000;
-        else if (next_report_ < 100000)
+        } else if (next_report_ < 100000) {
           next_report_ += 10000;
-        else if (next_report_ < 500000)
+        } else if (next_report_ < 500000) {
           next_report_ += 50000;
-        else
+        } else {
           next_report_ += 100000;
+        }
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
         uint64_t now = clock_->NowMicros();
@@ -2294,8 +2347,9 @@ class Stats {
             if (db_with_cfh && db_with_cfh->num_created.load()) {
               for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
                 if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
-                                    &stats))
+                                    &stats)) {
                   fprintf(stderr, "%s\n", stats.c_str());
+                }
                 if (FLAGS_show_table_properties) {
                   for (int level = 0; level < FLAGS_num_levels; ++level) {
                     if (db->GetProperty(
@@ -2353,7 +2407,9 @@ class Stats {
   void Report(const Slice& name) {
     // Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedOps().
-    if (done_ < 1) done_ = 1;
+    if (done_ < 1) {
+      done_ = 1;
+    }
 
     std::string extra;
     double elapsed = (finish_ - start_) * 1e-6;
@@ -2602,7 +2658,7 @@ struct ThreadState {
   SharedState* shared;
 
   explicit ThreadState(int index, int my_seed)
-      : tid(index), rand(seed_base + my_seed) {}
+      : tid(index), rand(*seed_base + my_seed) {}
 };
 
 class Duration {
@@ -2618,7 +2674,9 @@ class Duration {
   int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
 
   bool Done(int64_t increment) {
-    if (increment <= 0) increment = 1;  // avoid Done(0) and infinite loops
+    if (increment <= 0) {
+      increment = 1;  // avoid Done(0) and infinite loops
+    }
     ops_ += increment;
 
     if (max_seconds_) {
@@ -2685,7 +2743,7 @@ class Benchmark {
           no_auto_recovery_(false),
           recovery_complete_(false) {}
 
-    ~ErrorHandlerListener() override {}
+    ~ErrorHandlerListener() override = default;
 
     const char* Name() const override { return kClassName(); }
     static const char* kClassName() { return "ErrorHandlerListener"; }
@@ -2823,7 +2881,7 @@ class Benchmark {
       std::string input_str(len, 'y');
       std::string compressed;
       CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e);
+      CompressionContext context(FLAGS_compression_type_e, opts);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                            FLAGS_compression_type_e,
                            FLAGS_sample_for_compression);
@@ -2998,60 +3056,130 @@ class Benchmark {
     return allocator;
   }
 
+  static int32_t GetCacheHashSeed() {
+    // For a fixed Cache seed, need a non-negative int32
+    return static_cast<int32_t>(*seed_base) & 0x7fffffff;
+  }
+
   static std::shared_ptr<Cache> NewCache(int64_t capacity) {
+    CompressedSecondaryCacheOptions secondary_cache_opts;
+    TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;
+    bool use_tiered_cache = false;
     if (capacity <= 0) {
       return nullptr;
     }
+    if (FLAGS_use_compressed_secondary_cache) {
+      secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
+      secondary_cache_opts.num_shard_bits =
+          FLAGS_compressed_secondary_cache_numshardbits;
+      secondary_cache_opts.high_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
+      secondary_cache_opts.low_pri_pool_ratio =
+          FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
+      secondary_cache_opts.compression_type =
+          FLAGS_compressed_secondary_cache_compression_type_e;
+      secondary_cache_opts.compress_format_version =
+          FLAGS_compressed_secondary_cache_compress_format_version;
+      if (FLAGS_use_tiered_cache) {
+        use_tiered_cache = true;
+        adm_policy = StringToAdmissionPolicy(FLAGS_tiered_adm_policy.c_str());
+      }
+    }
+    if (!FLAGS_secondary_cache_uri.empty()) {
+      if (!use_tiered_cache && FLAGS_use_compressed_secondary_cache) {
+        fprintf(
+            stderr,
+            "Cannot specify both --secondary_cache_uri and "
+            "--use_compressed_secondary_cache when using a non-tiered cache\n");
+        exit(1);
+      }
+      Status s = SecondaryCache::CreateFromString(
+          ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
+      if (secondary_cache == nullptr) {
+        fprintf(stderr,
+                "No secondary cache registered matching string: %s status=%s\n",
+                FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+    }
+
+    std::shared_ptr<Cache> block_cache;
     if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
-    } else if (FLAGS_cache_type == "hyper_clock_cache") {
-      return HyperClockCacheOptions(static_cast<size_t>(capacity),
-                                    FLAGS_block_size /*estimated_entry_charge*/,
-                                    FLAGS_cache_numshardbits)
-          .MakeSharedCache();
+    } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
+      size_t estimated_entry_charge;
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
+          FLAGS_cache_type == "hyper_clock_cache") {
+        estimated_entry_charge = FLAGS_block_size;
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+        estimated_entry_charge = 0;
+      } else {
+        fprintf(stderr, "Cache type not supported.");
+        exit(1);
+      }
+      HyperClockCacheOptions opts(FLAGS_cache_size, estimated_entry_charge,
+                                  FLAGS_cache_numshardbits);
+      opts.hash_seed = GetCacheHashSeed();
+      if (use_tiered_cache) {
+        TieredCacheOptions tiered_opts;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.total_capacity =
+            opts.capacity + secondary_cache_opts.capacity;
+        tiered_opts.compressed_secondary_ratio =
+            secondary_cache_opts.capacity * 1.0 / tiered_opts.total_capacity;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        tiered_opts.nvm_sec_cache = secondary_cache;
+        tiered_opts.adm_policy = adm_policy;
+        block_cache = NewTieredCache(tiered_opts);
+      } else {
+        if (!FLAGS_secondary_cache_uri.empty()) {
+          opts.secondary_cache = secondary_cache;
+        } else if (FLAGS_use_compressed_secondary_cache) {
+          opts.secondary_cache =
+              NewCompressedSecondaryCache(secondary_cache_opts);
+        }
+        block_cache = opts.MakeSharedCache();
+      }
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
           GetCacheAllocator(), kDefaultToAdaptiveMutex,
           kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
-
-      if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s = SecondaryCache::CreateFromString(
-            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
-        if (secondary_cache == nullptr) {
-          fprintf(
-              stderr,
-              "No secondary cache registered matching string: %s status=%s\n",
-              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
-          exit(1);
+      opts.hash_seed = GetCacheHashSeed();
+      if (use_tiered_cache) {
+        TieredCacheOptions tiered_opts;
+        tiered_opts.cache_type = PrimaryCacheType::kCacheTypeLRU;
+        tiered_opts.cache_opts = &opts;
+        tiered_opts.total_capacity =
+            opts.capacity + secondary_cache_opts.capacity;
+        tiered_opts.compressed_secondary_ratio =
+            secondary_cache_opts.capacity * 1.0 / tiered_opts.total_capacity;
+        tiered_opts.comp_cache_opts = secondary_cache_opts;
+        tiered_opts.nvm_sec_cache = secondary_cache;
+        tiered_opts.adm_policy = adm_policy;
+        block_cache = NewTieredCache(tiered_opts);
+      } else {
+        if (!FLAGS_secondary_cache_uri.empty()) {
+          opts.secondary_cache = secondary_cache;
+        } else if (FLAGS_use_compressed_secondary_cache) {
+          opts.secondary_cache =
+              NewCompressedSecondaryCache(secondary_cache_opts);
         }
-        opts.secondary_cache = secondary_cache;
+        block_cache = opts.MakeSharedCache();
       }
-
-      if (FLAGS_use_compressed_secondary_cache) {
-        CompressedSecondaryCacheOptions secondary_cache_opts;
-        secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
-        secondary_cache_opts.num_shard_bits =
-            FLAGS_compressed_secondary_cache_numshardbits;
-        secondary_cache_opts.high_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
-        secondary_cache_opts.low_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
-        secondary_cache_opts.compression_type =
-            FLAGS_compressed_secondary_cache_compression_type_e;
-        secondary_cache_opts.compress_format_version =
-            FLAGS_compressed_secondary_cache_compress_format_version;
-        opts.secondary_cache =
-            NewCompressedSecondaryCache(secondary_cache_opts);
-      }
-
-      return NewLRUCache(opts);
     } else {
       fprintf(stderr, "Cache type not supported.");
       exit(1);
     }
+
+    if (!block_cache) {
+      fprintf(stderr, "Unable to allocate block cache\n");
+      exit(1);
+    }
+    return block_cache;
   }
 
  public:
@@ -3320,6 +3448,7 @@ class Benchmark {
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
       read_options_.async_io = FLAGS_async_io;
       read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
+      read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -3553,6 +3682,8 @@ class Benchmark {
       } else if (name == "block_cache_entry_stats") {
         // DB::Properties::kBlockCacheEntryStats
         PrintStats("rocksdb.block-cache-entry-stats");
+      } else if (name == "cache_report_problems") {
+        CacheReportProblems();
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "resetstats") {
@@ -3943,7 +4074,9 @@ class Benchmark {
       count++;
       thread->stats.FinishedOps(nullptr, nullptr, 1, kOthers);
     }
-    if (ptr == nullptr) exit(1);  // Disable unused variable warning.
+    if (ptr == nullptr) {
+      exit(1);  // Disable unused variable warning.
+    }
   }
 
   void Compress(ThreadState* thread) {
@@ -3954,7 +4087,8 @@ class Benchmark {
     bool ok = true;
     std::string compressed;
     CompressionOptions opts;
-    CompressionContext context(FLAGS_compression_type_e);
+    opts.level = FLAGS_compression_level;
+    CompressionContext context(FLAGS_compression_type_e, opts);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          FLAGS_compression_type_e,
                          FLAGS_sample_for_compression);
@@ -3983,8 +4117,10 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
-    CompressionContext compression_ctx(FLAGS_compression_type_e);
     CompressionOptions compression_opts;
+    compression_opts.level = FLAGS_compression_level;
+    CompressionContext compression_ctx(FLAGS_compression_type_e,
+                                       compression_opts);
     CompressionInfo compression_info(
         compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
         FLAGS_compression_type_e, FLAGS_sample_for_compression);
@@ -4112,7 +4248,7 @@ class Benchmark {
       }
     }
     if (FLAGS_use_stderr_info_logger) {
-      options.info_log.reset(new StderrLogger());
+      options.info_log = std::make_shared<StderrLogger>();
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
@@ -4565,6 +4701,8 @@ class Benchmark {
     }
     options.memtable_protection_bytes_per_key =
         FLAGS_memtable_protection_bytes_per_key;
+    options.block_protection_bytes_per_key =
+        FLAGS_block_protection_bytes_per_key;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -4590,7 +4728,7 @@ class Benchmark {
       if (FLAGS_cache_size > 0) {
         // This violates this function's rules on when to set options. But we
         // have to do it because the case of unconfigured block cache in OPTIONS
-        // file is indistinguishable (it is sanitized to 8MB by this point, not
+        // file is indistinguishable (it is sanitized to 32MB by this point, not
         // nullptr), and our regression tests assume this will be the shared
         // block cache, even with OPTIONS file provided.
         table_options->block_cache = cache_;
@@ -4718,8 +4856,8 @@ class Benchmark {
       }
       std::vector<ColumnFamilyDescriptor> column_families;
       for (size_t i = 0; i < num_hot; i++) {
-        column_families.push_back(ColumnFamilyDescriptor(
-            ColumnFamilyName(i), ColumnFamilyOptions(options)));
+        column_families.emplace_back(ColumnFamilyName(i),
+                                     ColumnFamilyOptions(options));
       }
       std::vector<int> cfh_idx_to_prob;
       if (!FLAGS_column_family_distribution.empty()) {
@@ -4885,7 +5023,7 @@ class Benchmark {
           values_[i] = i;
         }
         RandomShuffle(values_.begin(), values_.end(),
-                      static_cast<uint32_t>(seed_base));
+                      static_cast<uint32_t>(*seed_base));
       }
     }
 
@@ -4997,7 +5135,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<unsigned int>(seed_base)};
+        static_cast<unsigned int>(*seed_base)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
@@ -5007,7 +5145,7 @@ class Benchmark {
     // - random access is O(1)
     // - insertion/removal at beginning/end is also O(1).
     std::deque<int64_t> inserted_key_window;
-    Random64 reservoir_id_gen(seed_base);
+    Random64 reservoir_id_gen(*seed_base);
 
     // --- Variables used in disposable/persistent keys simulation:
     // The following variables are used when
@@ -5044,7 +5182,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    Random rnd_disposable_entry(static_cast<uint32_t>(seed_base));
+    Random rnd_disposable_entry(static_cast<uint32_t>(*seed_base));
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
@@ -5542,7 +5680,7 @@ class Benchmark {
         auto total_size = meta.levels[0].size;
         if (total_size >=
             db->GetOptions().compaction_options_fifo.max_table_files_size) {
-          for (auto file_meta : meta.levels[0].files) {
+          for (const auto& file_meta : meta.levels[0].files) {
             file_names.emplace_back(file_meta.name);
           }
           break;
@@ -5593,7 +5731,7 @@ class Benchmark {
         SequenceNumber sorted_run_largest_seqno = 0;
         std::string sorted_run_smallest_key, sorted_run_largest_key;
         bool first_key = true;
-        for (auto fileMeta : sorted_runs[k][i]) {
+        for (const auto& fileMeta : sorted_runs[k][i]) {
           sorted_run_smallest_seqno =
               std::min(sorted_run_smallest_seqno, fileMeta.smallest_seqno);
           sorted_run_largest_seqno =
@@ -5614,7 +5752,7 @@ class Benchmark {
             (compaction_style == kCompactionStyleUniversal && level > 0)) {
           SequenceNumber level_smallest_seqno = kMaxSequenceNumber;
           SequenceNumber level_largest_seqno = 0;
-          for (auto fileMeta : meta.levels[level].files) {
+          for (const auto& fileMeta : meta.levels[level].files) {
             level_smallest_seqno =
                 std::min(level_smallest_seqno, fileMeta.smallest_seqno);
             level_largest_seqno =
@@ -5701,6 +5839,7 @@ class Benchmark {
 
     options.adaptive_readahead = FLAGS_adaptive_readahead;
     options.async_io = FLAGS_async_io;
+    options.auto_readahead_size = FLAGS_auto_readahead_size;
 
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
@@ -6135,8 +6274,8 @@ class Benchmark {
         GenerateKeyFromInt(lkey, FLAGS_num, &lkeys[i]);
         GenerateKeyFromInt(rkey, FLAGS_num, &rkeys[i]);
       }
-      db->GetApproximateSizes(&ranges[0], static_cast<int>(entries_per_batch_),
-                              &sizes[0]);
+      db->GetApproximateSizes(
+          ranges.data(), static_cast<int>(entries_per_batch_), sizes.data());
       num_sizes += entries_per_batch_;
       for (int64_t size : sizes) {
         size_sum += size;
@@ -6189,8 +6328,8 @@ class Benchmark {
     std::vector<double> ratio_;
     int range_;
 
-    QueryDecider() {}
-    ~QueryDecider() {}
+    QueryDecider() = default;
+    ~QueryDecider() = default;
 
     Status Initiate(std::vector<double> ratio_input) {
       int range_max = 1000;
@@ -6978,6 +7117,8 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
+    (void)num_seek_to_first;
+    (void)num_next;
     delete iter;
   }
 
@@ -7531,7 +7672,9 @@ class Benchmark {
         thread->stats.FinishedOps(nullptr, db, 1, kMerge);
       } else {
         Status s = db->Get(read_options_, key, &value);
-        if (value.length() > max_length) max_length = value.length();
+        if (value.length() > max_length) {
+          max_length = value.length();
+        }
 
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
@@ -7596,10 +7739,16 @@ class Benchmark {
   }
 
   bool binary_search(std::vector<int>& data, int start, int end, int key) {
-    if (data.empty()) return false;
-    if (start > end) return false;
+    if (data.empty()) {
+      return false;
+    }
+    if (start > end) {
+      return false;
+    }
     int mid = start + (end - start) / 2;
-    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (mid > static_cast<int>(data.size()) - 1) {
+      return false;
+    }
     if (data[mid] == key) {
       return true;
     } else if (data[mid] > key) {
@@ -7672,7 +7821,9 @@ class Benchmark {
       found =
           binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
       data.clear();
-      if (found) break;
+      if (found) {
+        break;
+      }
     }
     std::cout << "Found key? " << std::to_string(found) << "\n";
     sp = FLAGS_env->NowNanos();
@@ -7682,7 +7833,9 @@ class Benchmark {
     std::cout << "Sample data from GetMergeOperands API call: ";
     for (PinnableSlice& psl : a_slice) {
       std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
-      if (to_print++ > 2) break;
+      if (to_print++ > 2) {
+        break;
+      }
     }
   }
 
@@ -7694,6 +7847,7 @@ class Benchmark {
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
+    ro.auto_readahead_size = FLAGS_auto_readahead_size;
     Status s = db->VerifyChecksum(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
@@ -7709,6 +7863,7 @@ class Benchmark {
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
+    ro.auto_readahead_size = FLAGS_auto_readahead_size;
     Status s = db->VerifyFileChecksums(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
@@ -8059,57 +8214,23 @@ class Benchmark {
   }
 
   void WaitForCompactionHelper(DBWithColumnFamilies& db) {
-    // This is an imperfect way of waiting for compaction. The loop and sleep
-    // is done because a thread that finishes a compaction job should get a
-    // chance to pickup a new compaction job.
-
-    std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
-                                     DB::Properties::kNumRunningFlushes,
-                                     DB::Properties::kCompactionPending,
-                                     DB::Properties::kNumRunningCompactions};
-
     fprintf(stdout, "waitforcompaction(%s): started\n",
             db.db->GetName().c_str());
 
-    while (true) {
-      bool retry = false;
+    Status s = db.db->WaitForCompact(WaitForCompactOptions());
 
-      for (const auto& k : keys) {
-        uint64_t v;
-        if (!db.db->GetIntProperty(k, &v)) {
-          fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
-                  db.db->GetName().c_str(), k.c_str());
-          exit(1);
-        } else if (v > 0) {
-          fprintf(stdout,
-                  "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
-                  db.db->GetName().c_str(), k.c_str());
-          FLAGS_env->SleepForMicroseconds(10 * 1000000);
-          retry = true;
-          break;
-        }
-      }
-
-      if (!retry) {
-        fprintf(stdout, "waitforcompaction(%s): finished\n",
-                db.db->GetName().c_str());
-        return;
-      }
-    }
+    fprintf(stdout, "waitforcompaction(%s): finished with status (%s)\n",
+            db.db->GetName().c_str(), s.ToString().c_str());
   }
 
   void WaitForCompaction() {
     // Give background threads a chance to wake
     FLAGS_env->SleepForMicroseconds(5 * 1000000);
 
-    // I am skeptical that this check race free. I hope that checking twice
-    // reduces the chance.
     if (db_.db != nullptr) {
-      WaitForCompactionHelper(db_);
       WaitForCompactionHelper(db_);
     } else {
       for (auto& db_with_cfh : multi_dbs_) {
-        WaitForCompactionHelper(db_with_cfh);
         WaitForCompactionHelper(db_with_cfh);
       }
     }
@@ -8128,7 +8249,9 @@ class Benchmark {
       real_from_level = std::numeric_limits<int>::max();
 
       for (auto& f : files) {
-        if (f.level > 0 && f.level < real_from_level) real_from_level = f.level;
+        if (f.level > 0 && f.level < real_from_level) {
+          real_from_level = f.level;
+        }
       }
 
       if (real_from_level == std::numeric_limits<int>::max()) {
@@ -8144,10 +8267,11 @@ class Benchmark {
 
     std::vector<std::string> files_to_compact;
     for (auto& f : files) {
-      if (f.level == real_from_level)
+      if (f.level == real_from_level) {
         files_to_compact.push_back(f.name);
-      else if (f.level > real_from_level && f.level < next_level)
+      } else if (f.level > real_from_level && f.level < next_level) {
         next_level = f.level;
+      }
     }
 
     if (files_to_compact.empty()) {
@@ -8188,10 +8312,14 @@ class Benchmark {
 
   void CompactLevel(int from_level) {
     if (db_.db != nullptr) {
-      while (!CompactLevelHelper(db_, from_level)) WaitForCompaction();
+      while (!CompactLevelHelper(db_, from_level)) {
+        WaitForCompaction();
+      }
     }
     for (auto& db_with_cfh : multi_dbs_) {
-      while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
+      while (!CompactLevelHelper(db_with_cfh, from_level)) {
+        WaitForCompaction();
+      }
     }
   }
 
@@ -8271,6 +8399,11 @@ class Benchmark {
       }
       shi->Next();
     }
+  }
+
+  void CacheReportProblems() {
+    auto debug_logger = std::make_shared<StderrLogger>(DEBUG_LEVEL);
+    cache_->ReportProblems(debug_logger);
   }
 
   void PrintStats(const char* key) {
@@ -8508,7 +8641,7 @@ int db_bench_tool(int argc, char** argv) {
     uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();
     seed_base = static_cast<int64_t>(now);
     fprintf(stdout, "Set seed to %" PRIu64 " because --seed was 0\n",
-            seed_base);
+            *seed_base);
   } else {
     seed_base = FLAGS_seed;
   }
@@ -8520,15 +8653,15 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))
+  if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NONE;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NORMAL"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NORMAL")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::NORMAL;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "SEQUENTIAL"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "SEQUENTIAL")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::SEQUENTIAL;
-  else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "WILLNEED"))
+  } else if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "WILLNEED")) {
     FLAGS_compaction_fadvice_e = ROCKSDB_NAMESPACE::Options::WILLNEED;
-  else {
+  } else {
     fprintf(stdout, "Unknown compaction fadvice:%s\n",
             FLAGS_compaction_fadvice.c_str());
     exit(1);

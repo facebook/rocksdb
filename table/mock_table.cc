@@ -41,12 +41,14 @@ class MockTableReader : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
+  uint64_t ApproximateOffsetOf(const ReadOptions& /*read_options*/,
+                               const Slice& /*key*/,
                                TableReaderCaller /*caller*/) override {
     return 0;
   }
 
-  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
+  uint64_t ApproximateSize(const ReadOptions& /*read_options*/,
+                           const Slice& /*start*/, const Slice& /*end*/,
                            TableReaderCaller /*caller*/) override {
     return 0;
   }
@@ -57,7 +59,7 @@ class MockTableReader : public TableReader {
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
-  ~MockTableReader() {}
+  ~MockTableReader() = default;
 
  private:
   const KVVector& table_;
@@ -132,7 +134,7 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~MockTableBuilder() {}
+  ~MockTableBuilder() = default;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -228,7 +230,13 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
 
 std::shared_ptr<const TableProperties> MockTableReader::GetTableProperties()
     const {
-  return std::shared_ptr<const TableProperties>(new TableProperties());
+  TableProperties* tp = new TableProperties();
+  tp->num_entries = table_.size();
+  tp->num_range_deletions = 0;
+  tp->raw_key_size = 1;
+  tp->raw_value_size = 1;
+
+  return std::shared_ptr<const TableProperties>(tp);
 }
 
 MockTableFactory::MockTableFactory()
@@ -297,8 +305,7 @@ Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
                                        uint32_t* id) const {
   char buf[4];
   Slice result;
-  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr,
-                        Env::IO_TOTAL /* rate_limiter_priority */);
+  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
   assert(result.size() == 4);
   *id = DecodeFixed32(buf);
   return s;

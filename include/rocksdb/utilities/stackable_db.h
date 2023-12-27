@@ -92,6 +92,10 @@ class StackableDB : public DB {
                    const WideColumns& columns) override {
     return db_->PutEntity(options, column_family, key, columns);
   }
+  Status PutEntity(const WriteOptions& options, const Slice& key,
+                   const AttributeGroups& attribute_groups) override {
+    return db_->PutEntity(options, key, attribute_groups);
+  }
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -176,6 +180,22 @@ class StackableDB : public DB {
       ColumnFamilyHandle** handle) override {
     return db_->CreateColumnFamilyWithImport(options, column_family_name,
                                              import_options, metadata, handle);
+  }
+
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const std::vector<const ExportImportFilesMetaData*>& metadatas,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadatas, handle);
+  }
+
+  using DB::ClipColumnFamily;
+  virtual Status ClipColumnFamily(ColumnFamilyHandle* column_family,
+                                  const Slice& begin_key,
+                                  const Slice& end_key) override {
+    return db_->ClipColumnFamily(column_family, begin_key, end_key);
   }
 
   using DB::VerifyFileChecksums;
@@ -338,6 +358,11 @@ class StackableDB : public DB {
   }
   virtual void DisableManualCompaction() override {
     return db_->DisableManualCompaction();
+  }
+
+  virtual Status WaitForCompact(
+      const WaitForCompactOptions& wait_for_compact_options) override {
+    return db_->WaitForCompact(wait_for_compact_options);
   }
 
   using DB::NumberLevels;
@@ -571,6 +596,8 @@ class StackableDB : public DB {
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
   }
+
+  virtual Status Resume() override { return db_->Resume(); }
 
  protected:
   DB* db_;

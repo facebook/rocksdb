@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+class OptimisticTransactionDB;
 struct TransactionDBOptions;
 
 class StressTest {
@@ -63,11 +64,14 @@ class StressTest {
   virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
                                                   SharedState* shared);
 
-  Status NewTxn(WriteOptions& write_opts, Transaction** txn);
+  // ExecuteTransaction is recommended instead
+  Status NewTxn(WriteOptions& write_opts,
+                std::unique_ptr<Transaction>* out_txn);
+  Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
 
-  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
-
-  Status RollbackTxn(Transaction* txn);
+  // Creates a transaction, executes `ops`, and tries to commit
+  Status ExecuteTransaction(WriteOptions& write_opts, ThreadState* thread,
+                            std::function<Status(Transaction&)>&& ops);
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
@@ -190,6 +194,8 @@ class StressTest {
                                    const std::vector<int>& rand_column_families,
                                    const std::vector<int64_t>& rand_keys);
 
+  virtual Status PrepareOptionsForRestoredDB(Options* options);
+
   virtual Status TestCheckpoint(ThreadState* thread,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
@@ -220,7 +226,9 @@ class StressTest {
     return Status::NotSupported("TestCustomOperations() must be overridden");
   }
 
-  void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
+  void ProcessStatus(SharedState* shared, std::string msg, Status s) const;
+
+  void VerificationAbort(SharedState* shared, std::string msg) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;
@@ -237,7 +245,7 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open(SharedState* shared);
+  void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
 
@@ -261,6 +269,7 @@ class StressTest {
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   TransactionDB* txn_db_;
+  OptimisticTransactionDB* optimistic_txn_db_;
 
   // Currently only used in MultiOpsTxnsStressTest
   std::atomic<DB*> db_aptr_;

@@ -123,6 +123,7 @@ class PlainTableDBTest : public testing::Test,
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
+    options.level_compaction_dynamic_level_bytes = false;
 
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 0;
@@ -291,7 +292,7 @@ class TestPlainTableReader : public PlainTableReader {
     table_properties_ = std::move(props);
   }
 
-  ~TestPlainTableReader() override {}
+  ~TestPlainTableReader() override = default;
 
  private:
   bool MatchBloom(uint32_t hash) const override {
@@ -329,21 +330,23 @@ class TestPlainTableFactory : public PlainTableFactory {
       std::unique_ptr<TableReader>* table,
       bool /*prefetch_index_and_filter_in_cache*/) const override {
     std::unique_ptr<TableProperties> props;
+    const ReadOptions read_options;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                                 table_reader_options.ioptions, &props);
+                                 table_reader_options.ioptions, read_options,
+                                 &props);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlockInFile(file.get(), file_size, kPlainTableMagicNumber,
-                              table_reader_options.ioptions,
+                              table_reader_options.ioptions, read_options,
                               BloomBlockBuilder::kBloomBlock,
                               &bloom_block_handle);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlockInFile(file.get(), file_size, kPlainTableMagicNumber,
-                              table_reader_options.ioptions,
+                              table_reader_options.ioptions, read_options,
                               PlainTableIndexBuilder::kPlainTableIndexBlock,
                               &index_block_handle);
       EXPECT_TRUE(s.ok());
@@ -894,6 +897,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }
@@ -942,6 +946,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   }
 
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   delete iter;
 }
@@ -1344,4 +1349,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

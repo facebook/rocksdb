@@ -138,6 +138,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
       ASSERT_OK(iter->status());
       ++count;
     }
+    ASSERT_OK(iter->status());
     // Always expect two keys: "foo" and "bar"
     ASSERT_EQ(count, 2);
   };
@@ -1204,9 +1205,23 @@ TEST_F(DBBasicTest, DBClose) {
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 2);
 
+  // close by WaitForCompact() with close_db option
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  WaitForCompactOptions wait_for_compact_options = WaitForCompactOptions();
+  wait_for_compact_options.close_db = true;
+  s = db->WaitForCompact(wait_for_compact_options);
+  ASSERT_EQ(env->GetCloseCount(), 3);
+  // see TestLogger::CloseHelper()
+  ASSERT_EQ(s, Status::IOError());
+
+  delete db;
+  ASSERT_EQ(env->GetCloseCount(), 3);
+
   // Provide our own logger and ensure DB::Close() does not close it
   options.info_log.reset(new TestEnv::TestLogger(env));
-  options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
@@ -1214,9 +1229,9 @@ TEST_F(DBBasicTest, DBClose) {
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
   delete db;
-  ASSERT_EQ(env->GetCloseCount(), 2);
-  options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+  options.info_log.reset();
+  ASSERT_EQ(env->GetCloseCount(), 4);
 }
 
 TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
@@ -1413,10 +1428,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int retries = 0;
   bool last_try = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
-        last_try = true;
-        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-      });
+      "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) { last_try = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
@@ -1433,7 +1445,27 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
           }
         }
       });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::MultiGet::AfterLastTryRefSV",
+       "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV"},
+      {"DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV",
+       "DBImpl::MultiGet::BeforeLastTryUnRefSV"},
+  });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread create_sv_thread([this]() {
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:BeforeCreateSV");
+    // Create a new SuperVersion for each column family after last_try
+    // of MultiGet ref SuperVersion and before unref it.
+    for (int i = 0; i < 8; ++i) {
+      ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
+                    "cf" + std::to_string(i) + "_val_after_last_try"));
+      ASSERT_OK(Flush(i));
+    }
+    TEST_SYNC_POINT(
+        "DBMultiGetTestWithParam::MultiGetMultiCFMutex:AfterCreateSV");
+  });
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1446,6 +1478,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
 
   values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
                     std::get<1>(GetParam()));
+  create_sv_thread.join();
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1459,6 +1492,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
             ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
@@ -3621,10 +3655,12 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     Status Insert(const Slice& key, Cache::ObjectPtr value,
                   const CacheItemHelper* helper, size_t charge,
-                  Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
+                  Handle** handle = nullptr, Priority priority = Priority::LOW,
+                  const Slice& compressed = Slice(),
+                  CompressionType type = kNoCompression) override {
       num_inserts_++;
-      return target_->Insert(key, value, helper, charge, handle, priority);
+      return target_->Insert(key, value, helper, charge, handle, priority,
+                             compressed, type);
     }
 
     Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
@@ -4379,6 +4415,8 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.env = env_;
+  options.enable_blob_files = true;
+  options.blob_file_size = 0;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
@@ -4399,6 +4437,11 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+  // The IO error was a mocked one from the `AfterSyncManifest` callback. The
+  // Flush's VersionEdit actually made it into the Manifest. So these keys can
+  // be read back. Read them to check all live sst files and blob files.
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ("value", Get("key"));
 }
 
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
@@ -4492,6 +4535,63 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   options.file_checksum_gen_factory.reset(new MisnamedFileChecksumGenFactory());
   Reopen(options);
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
+}
+
+TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int alignment = 256 * 1024;
+  for (int i = 0; i < 16; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(alignment)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> filenames;
+  int sst_cnt = 0;
+  std::string sst_name;
+  uint64_t sst_size;
+  uint64_t number;
+  FileType type;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (auto name : filenames) {
+    if (ParseFileName(name, &number, &type)) {
+      if (type == kTableFile) {
+        sst_cnt++;
+        sst_name = name;
+      }
+    }
+  }
+  ASSERT_EQ(sst_cnt, 1);
+  ASSERT_OK(env_->GetFileSize(dbname_ + '/' + sst_name, &sst_size));
+
+  bool last_read = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenerateOneFileChecksum::Chunk:0", [&](void* /*arg*/) {
+        if (env_->random_read_bytes_counter_.load() == sst_size) {
+          EXPECT_FALSE(last_read);
+          last_read = true;
+        } else {
+          ASSERT_EQ(env_->random_read_bytes_counter_.load() & (alignment - 1),
+                    0);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  env_->count_random_reads_ = true;
+  env_->random_read_bytes_counter_ = 0;
+  env_->random_read_counter_.Reset();
+
+  ReadOptions ro;
+  ro.readahead_size = alignment;
+  ASSERT_OK(db_->VerifyFileChecksums(ro));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(last_read);
+  ASSERT_EQ(env_->random_read_counter_.Read(),
+            (sst_size + alignment - 1) / (alignment));
 }
 
 // TODO: re-enable after we provide finer-grained control for WAL tracking to

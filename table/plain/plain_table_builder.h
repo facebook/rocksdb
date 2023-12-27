@@ -149,4 +149,3 @@ class PlainTableBuilder : public TableBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

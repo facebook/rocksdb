@@ -9,9 +9,8 @@
 
 #include "rocksdb/comparator.h"
 
-#include <stdint.h>
-
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -23,13 +22,14 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
-  BytewiseComparatorImpl() {}
+  BytewiseComparatorImpl() = default;
   static const char* kClassName() { return "leveldb.BytewiseComparator"; }
   const char* Name() const override { return kClassName(); }
 
@@ -111,7 +111,9 @@ class BytewiseComparatorImpl : public Comparator {
     }
     size_t diff_ind = s.difference_offset(t);
     // same slice
-    if (diff_ind >= s.size()) return false;
+    if (diff_ind >= s.size()) {
+      return false;
+    }
     uint8_t byte_s = static_cast<uint8_t>(s[diff_ind]);
     uint8_t byte_t = static_cast<uint8_t>(t[diff_ind]);
     // first different byte must be consecutive, and remaining bytes must be
@@ -147,7 +149,7 @@ class BytewiseComparatorImpl : public Comparator {
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
-  ReverseBytewiseComparatorImpl() {}
+  ReverseBytewiseComparatorImpl() = default;
 
   static const char* kClassName() {
     return "rocksdb.ReverseBytewiseComparator";
@@ -230,7 +232,6 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   }
 };
 
-// EXPERIMENTAL
 // Comparator with 64-bit integer timestamp.
 // We did not performance test this yet.
 template <typename TComparator>
@@ -249,6 +250,12 @@ class ComparatorWithU64TsImpl : public Comparator {
   }
 
   const char* Name() const override { return kClassName(); }
+
+  // The comparator that compares the user key without timestamp part is treated
+  // as the root comparator.
+  const Comparator* GetRootComparator() const override {
+    return &cmp_without_ts_;
+  }
 
   void FindShortSuccessor(std::string*) const override {}
   void FindShortestSeparator(std::string*, const Slice&) const override {}
@@ -316,24 +323,62 @@ const Comparator* BytewiseComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
+const Comparator* ReverseBytewiseComparatorWithU64Ts() {
+  STATIC_AVOID_DESTRUCTION(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>, comp_with_u64_ts);
+  return &comp_with_u64_ts;
+}
+
+Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts) {
+  if (ts.size() != sizeof(uint64_t)) {
+    return Status::InvalidArgument("U64Ts timestamp size mismatch.");
+  }
+  *int_ts = DecodeFixed64(ts.data());
+  return Status::OK();
+}
+
+Slice EncodeU64Ts(uint64_t ts, std::string* ts_buf) {
+  char buf[sizeof(ts)];
+  EncodeFixed64(buf, ts);
+  ts_buf->assign(buf, sizeof(buf));
+  return Slice(*ts_buf);
+}
+
+Slice MaxU64Ts() {
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff";
+  return Slice(kTsMax, sizeof(uint64_t));
+}
+
+Slice MinU64Ts() {
+  static constexpr char kTsMin[] = "\x00\x00\x00\x00\x00\x00\x00\x00";
+  return Slice(kTsMin, sizeof(uint64_t));
+}
+
 static int RegisterBuiltinComparators(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
   library.AddFactory<const Comparator>(
       BytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ReverseBytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return ReverseBytewiseComparator(); });
   library.AddFactory<const Comparator>(
       ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return BytewiseComparatorWithU64Ts(); });
-  return 3;
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) { return BytewiseComparatorWithU64Ts(); });
+  library.AddFactory<const Comparator>(
+      ComparatorWithU64TsImpl<ReverseBytewiseComparatorImpl>::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /*errmsg*/) {
+        return ReverseBytewiseComparatorWithU64Ts();
+      });
+  return 4;
 }
 
 Status Comparator::CreateFromString(const ConfigOptions& config_options,
@@ -357,6 +402,9 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   } else if (id ==
              ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName()) {
     *result = BytewiseComparatorWithU64Ts();
+  } else if (id == ComparatorWithU64TsImpl<
+                       ReverseBytewiseComparatorImpl>::kClassName()) {
+    *result = ReverseBytewiseComparatorWithU64Ts();
   } else if (value.empty()) {
     // No Id and no options.  Clear the object
     *result = nullptr;

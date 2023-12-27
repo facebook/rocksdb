@@ -538,6 +538,113 @@ TEST_F(ExternalSSTFileTest, Basic) {
                          kRangeDelSkipConfigs));
 }
 
+TEST_F(ExternalSSTFileTest, BasicWideColumn) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    std::string file = sst_files_dir_ + "wide_column_file.sst";
+    ASSERT_OK(sst_file_writer.Open(file));
+    for (int k = 0; k < 10; k++) {
+      std::string val1 = Key(k) + "_attr_1_val";
+      std::string val2 = Key(k) + "_attr_2_val";
+      WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
+      ASSERT_OK(sst_file_writer.PutEntity(Key(k), columns));
+    }
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file_info.file_path, file);
+    ASSERT_EQ(file_info.num_entries, 10);
+    ASSERT_EQ(file_info.smallest_key, Key(0));
+    ASSERT_EQ(file_info.largest_key, Key(9));
+    ASSERT_EQ(file_info.num_range_del_entries, 0);
+    ASSERT_EQ(file_info.smallest_range_del_key, "");
+    ASSERT_EQ(file_info.largest_range_del_key, "");
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    ASSERT_OK(DeprecatedAddFile({file}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 10; k++) {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               Key(k), &result));
+      std::string val1 = Key(k) + "_attr_1_val";
+      std::string val2 = Key(k) + "_attr_2_val";
+      WideColumns expected_columns{{"attr_1", val1}, {"attr_2", val2}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
+TEST_F(ExternalSSTFileTest, BasicMixed) {
+  do {
+    Options options = CurrentOptions();
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+    std::string file = sst_files_dir_ + "mixed_file.sst";
+    ASSERT_OK(sst_file_writer.Open(file));
+    for (int k = 0; k < 100; k++) {
+      if (k % 5 == 0) {
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_OK(sst_file_writer.PutEntity(Key(k), columns));
+      } else {
+        ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+      }
+    }
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    // Current file size should be non-zero after success write.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+    ASSERT_EQ(file_info.file_path, file);
+    ASSERT_EQ(file_info.num_entries, 100);
+    ASSERT_EQ(file_info.smallest_key, Key(0));
+    ASSERT_EQ(file_info.largest_key, Key(99));
+    ASSERT_EQ(file_info.num_range_del_entries, 0);
+    ASSERT_EQ(file_info.smallest_range_del_key, "");
+    ASSERT_EQ(file_info.largest_range_del_key, "");
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    ASSERT_OK(DeprecatedAddFile({file}));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 10; k++) {
+      if (k % 5 == 0) {
+        PinnableWideColumns result;
+        ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 Key(k), &result));
+        std::string val1 = Key(k) + "_attr_1_val";
+        std::string val2 = Key(k) + "_attr_2_val";
+        WideColumns expected_columns{{"attr_1", val1}, {"attr_2", val2}};
+        ASSERT_EQ(result.columns(), expected_columns);
+      } else {
+        ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+      }
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction |
+                         kRangeDelSkipConfigs));
+}
+
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
   explicit SstFileWriterCollector(const std::string prefix) : prefix_(prefix) {
@@ -1289,7 +1396,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // After full compaction, there should be only 1 file.
   std::vector<std::string> files;
@@ -2160,13 +2267,13 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
   }
 
   // Insert 100 -> 200 using IngestExternalFile
   file_data.clear();
   for (int i = 0; i <= 20; i++) {
     file_data.emplace_back(Key(i), "ingest_behind");
+    true_data[Key(i)] = "ingest_behind";
   }
 
   bool allow_global_seqno = true;
@@ -2188,6 +2295,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
 
   options.num_levels = 3;
   DestroyAndReopen(options);
+  true_data.clear();
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));
@@ -2207,11 +2315,42 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
       verify_checksums_before_ingest, true /*ingest_behind*/,
       false /*sort_data*/, &true_data));
   ASSERT_EQ("0,1,1", FilesPerLevel());
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  uint64_t ingested_file_number = level_to_files[2][0].fd.GetNumber();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // bottom level should be empty
-  ASSERT_EQ("0,1", FilesPerLevel());
-
+  // Last level should not be compacted
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+
+  // Auto-compaction should not include the last level.
+  // Trigger compaction if size amplification exceeds 110%.
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  options.level0_file_num_compaction_trigger = 4;
+  ASSERT_OK(TryReopen(options));
+  Random rnd(301);
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 10; j++) {
+      true_data[Key(j)] = rnd.RandomString(1000);
+      ASSERT_OK(Put(Key(j), true_data[Key(j)]));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
+
+  // Turning off the option allows DB to compact ingested files.
+  options.allow_ingest_behind = false;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
+  ASSERT_EQ(1, level_to_files[2].size());
+  ASSERT_NE(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 
@@ -2484,6 +2623,7 @@ TEST_P(ExternalSSTFileTest,
       "AfterRead");
   ingest_thread.join();
   for (auto* iter : iters) {
+    ASSERT_OK(iter->status());
     delete iter;
   }
   iters.clear();
@@ -2857,4 +2997,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

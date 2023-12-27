@@ -10,9 +10,9 @@ import java.util.Map;
 /**
  * SstFileManager is used to track SST files in the DB and control their
  * deletion rate.
- *
+ * <p>
  * All SstFileManager public functions are thread-safe.
- *
+ * <p>
  * SstFileManager is not extensible.
  */
 //@ThreadSafe
@@ -55,7 +55,7 @@ public final class SstFileManager extends RocksObject {
    *
    * @param env the environment.
    * @param logger if not null, the logger will be used to log errors.
-   *
+   * <p>
    * == Deletion rate limiting specific arguments ==
    * @param rateBytesPerSec how many bytes should be deleted per second, If
    *     this value is set to 1024 (1 Kb / sec) and we deleted a file of size
@@ -75,7 +75,7 @@ public final class SstFileManager extends RocksObject {
    *
    * @param env the environment.
    * @param logger if not null, the logger will be used to log errors.
-   *
+   * <p>
    * == Deletion rate limiting specific arguments ==
    * @param rateBytesPerSec how many bytes should be deleted per second, If
    *     this value is set to 1024 (1 Kb / sec) and we deleted a file of size
@@ -100,7 +100,7 @@ public final class SstFileManager extends RocksObject {
    *
    * @param env the environment.
    * @param logger if not null, the logger will be used to log errors.
-   *
+   * <p>
    * == Deletion rate limiting specific arguments ==
    * @param rateBytesPerSec how many bytes should be deleted per second, If
    *     this value is set to 1024 (1 Kb / sec) and we deleted a file of size
@@ -123,12 +123,11 @@ public final class SstFileManager extends RocksObject {
         rateBytesPerSec, maxTrashDbRatio, bytesMaxDeleteChunk));
   }
 
-
   /**
    * Update the maximum allowed space that should be used by RocksDB, if
    * the total size of the SST files exceeds {@code maxAllowedSpace}, writes to
    * RocksDB will fail.
-   *
+   * <p>
    * Setting {@code maxAllowedSpace} to 0 will disable this feature;
    * maximum allowed space will be infinite (Default value).
    *
@@ -202,7 +201,7 @@ public final class SstFileManager extends RocksObject {
 
   /**
    * Set the delete rate limit.
-   *
+   * <p>
    * Zero means disable delete rate limiting and delete files immediately.
    *
    * @param deleteRate the delete rate limit (in bytes per second).
@@ -229,9 +228,8 @@ public final class SstFileManager extends RocksObject {
     setMaxTrashDBRatio(nativeHandle_, ratio);
   }
 
-  private native static long newSstFileManager(final long handle,
-      final long logger_handle, final long rateBytesPerSec,
-      final double maxTrashDbRatio, final long bytesMaxDeleteChunk)
+  private static native long newSstFileManager(final long handle, final long logger_handle,
+      final long rateBytesPerSec, final double maxTrashDbRatio, final long bytesMaxDeleteChunk)
       throws RocksDBException;
   private native void setMaxAllowedSpaceUsage(final long handle,
       final long maxAllowedSpace);
@@ -247,5 +245,5 @@ public final class SstFileManager extends RocksObject {
         final long deleteRate);
   private native double getMaxTrashDBRatio(final long handle);
   private native void setMaxTrashDBRatio(final long handle, final double ratio);
-  @Override protected final native void disposeInternal(final long handle);
+  @Override protected native void disposeInternal(final long handle);
 }

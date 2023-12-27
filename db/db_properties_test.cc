@@ -107,12 +107,12 @@ TEST_F(DBPropertiesTest, Empty) {
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions(false));
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("0", num);
 
-    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_OK(db_->EnableFileDeletions(/*force=*/true));
     ASSERT_TRUE(
         dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
     ASSERT_EQ("1", num);
@@ -188,40 +188,6 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
 }
 
 namespace {
-void ResetTableProperties(TableProperties* tp) {
-  tp->data_size = 0;
-  tp->index_size = 0;
-  tp->filter_size = 0;
-  tp->raw_key_size = 0;
-  tp->raw_value_size = 0;
-  tp->num_data_blocks = 0;
-  tp->num_entries = 0;
-  tp->num_deletions = 0;
-  tp->num_merge_operands = 0;
-  tp->num_range_deletions = 0;
-}
-
-void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
-  double dummy_double;
-  std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
-  std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
-  ResetTableProperties(tp);
-  sscanf(tp_string.c_str(),
-         "# data blocks %" SCNu64 " # entries %" SCNu64 " # deletions %" SCNu64
-         " # merge operands %" SCNu64 " # range deletions %" SCNu64
-         " raw key size %" SCNu64
-         " raw average key size %lf "
-         " raw value size %" SCNu64
-         " raw average value size %lf "
-         " data block size %" SCNu64 " index block size (user-key? %" SCNu64
-         ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
-         &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
-         &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
-         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-         &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
-         &tp->index_size, &tp->filter_size);
-}
-
 void VerifySimilar(uint64_t a, uint64_t b, double bias) {
   ASSERT_EQ(a == 0U, b == 0U);
   if (a == 0) {
@@ -1118,12 +1084,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   const char* Name() const override { return "CountingUserTblPropCollector"; }
 
   Status Finish(UserCollectedProperties* properties) override {
+    assert(!finish_called_);
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
         {"CountingUserTblPropCollector", message_},
         {"Count", encoded},
     };
+    finish_called_ = true;
     return Status::OK();
   }
 
@@ -1135,12 +1103,14 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
+    assert(finish_called_);
     return UserCollectedProperties{};
   }
 
  private:
   std::string message_ = "Rocksdb";
   uint32_t count_ = 0;
+  bool finish_called_ = false;
 };
 
 class CountingUserTblPropCollectorFactory
@@ -1749,14 +1719,35 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
     ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
+
   uint64_t sst_size;
-  bool ok = db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size);
-  ASSERT_TRUE(ok);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTotalSstFilesSize, &sst_size));
   ASSERT_GT(sst_size, 0);
   listener->size_before_compaction = sst_size;
+
+  uint64_t obsolete_sst_size;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
+
+  // Hold files from being deleted so we can test property for size of obsolete
+  // SST files.
+  ASSERT_OK(db_->DisableFileDeletions());
+
   // Compact to clean all keys and trigger listener.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_TRUE(listener->callback_triggered);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, sst_size);
+
+  // Let the obsolete files be deleted.
+  ASSERT_OK(db_->EnableFileDeletions(/*force=*/false));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kObsoleteSstFilesSize,
+                                  &obsolete_sst_size));
+  ASSERT_EQ(obsolete_sst_size, 0);
 }
 
 TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
@@ -2109,25 +2100,26 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
 
 TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
-    std::string str = kWriteStallCauseToHyphenString[i];
+    WriteStallCause cause = static_cast<WriteStallCause>(i);
+    const std::string& str = WriteStallCauseToHyphenString(cause);
     ASSERT_TRUE(!str.empty())
         << "Please ensure mapping from `WriteStallCause` to "
-           "`kWriteStallCauseToHyphenString` is complete";
-    WriteStallCause cause = static_cast<WriteStallCause>(i);
+           "`WriteStallCauseToHyphenString` is complete";
     if (cause == WriteStallCause::kCFScopeWriteStallCauseEnumMax ||
         cause == WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
-      ASSERT_EQ(str, kInvalidWriteStallCauseHyphenString)
-          << "Please ensure order in `kWriteStallCauseToHyphenString` is "
+      ASSERT_EQ(str, InvalidWriteStallHyphenString())
+          << "Please ensure order in `WriteStallCauseToHyphenString` is "
              "consistent with `WriteStallCause`";
     }
   }
 
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCondition::kNormal);
        ++i) {
-    std::string str = kWriteStallConditionToHyphenString[i];
+    WriteStallCondition condition = static_cast<WriteStallCondition>(i);
+    const std::string& str = WriteStallConditionToHyphenString(condition);
     ASSERT_TRUE(!str.empty())
         << "Please ensure mapping from `WriteStallCondition` to "
-           "`kWriteStallConditionToHyphenString` is complete";
+           "`WriteStallConditionToHyphenString` is complete";
   }
 
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
@@ -2332,8 +2324,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
 
     // Read metaindex
     BlockContents bc;
-    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
-                                       ImmutableOptions(options), &bc));
+    const ReadOptions read_options;
+    ASSERT_OK(ReadMetaIndexBlockInFile(
+        r.get(), file_size, 0U, ImmutableOptions(options), read_options, &bc));
     Block metaindex_block(std::move(bc));
     std::unique_ptr<InternalIterator> meta_iter;
     meta_iter.reset(metaindex_block.NewMetaIterator());
@@ -2358,6 +2351,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
                   PopMetaIndexKey(meta_iter.get()));
         EXPECT_EQ("rocksdb.hashindex.prefixes",
                   PopMetaIndexKey(meta_iter.get()));
+      }
+      if (bbto->format_version >= 6) {
+        EXPECT_EQ("rocksdb.index", PopMetaIndexKey(meta_iter.get()));
       }
     }
     EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));

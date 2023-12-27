@@ -12,7 +12,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -29,7 +29,7 @@
 #include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
+#include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -132,8 +132,8 @@ class TestCompactionListener : public EventListener {
     ASSERT_EQ(db->GetEnv()->GetThreadID(), ci.thread_id);
     ASSERT_GT(ci.thread_id, 0U);
 
-    for (auto fl : {ci.input_files, ci.output_files}) {
-      for (auto fn : fl) {
+    for (const auto& fl : {ci.input_files, ci.output_files}) {
+      for (const auto& fn : fl) {
         auto it = ci.table_properties.find(fn);
         ASSERT_NE(it, ci.table_properties.end());
         auto tp = it->second;
@@ -237,7 +237,7 @@ class TestFlushListener : public EventListener {
     std::vector<ThreadStatus> thread_list;
     ASSERT_OK(env_->GetThreadList(&thread_list));
     bool found_match = false;
-    for (auto thread_status : thread_list) {
+    for (const auto& thread_status : thread_list) {
       if (thread_status.operation_type == ThreadStatus::OP_FLUSH ||
           thread_status.operation_type == ThreadStatus::OP_COMPACTION) {
         if (thread_id == thread_status.thread_id) {
@@ -551,6 +551,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.level_compaction_dynamic_level_bytes = false;
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(
@@ -581,7 +582,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   for (int k = 1; k <= 30; k++) {
     ASSERT_OK(Put(Key(k), Key(k)));
     if (k % 10 == 0) {
-      Flush();
+      ASSERT_OK(Flush());
     }
   }
 
@@ -892,7 +893,7 @@ class MemTableSealedListener : public EventListener {
   SequenceNumber latest_seq_number_;
 
  public:
-  MemTableSealedListener() {}
+  MemTableSealedListener() = default;
   void OnMemTableSealed(const MemTableInfo& info) override {
     latest_seq_number_ = info.first_seqno;
   }

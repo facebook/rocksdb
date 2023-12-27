@@ -1561,7 +1561,7 @@ sub save_stdin_stdout_stderr {
 	::die_bug("Can't dup STDERR: $!");
     open $Global::original_stdin, "<&", "STDIN" or
 	::die_bug("Can't dup STDIN: $!");
-    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'} && !$ENV{'TRAVIS'};
+    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'}&& !$ENV{'GITHUB_ACTIONS'}  && !$ENV{'TRAVIS'};
 }
 
 sub enough_file_handles {

@@ -23,7 +23,7 @@ def pretty_list(lst, indent=8):
     return res
 
 
-class TARGETSBuilder(object):
+class TARGETSBuilder:
     def __init__(self, path, extra_argv):
         self.path = path
         header = targets_cfg.rocksdb_target_header_template.format(
@@ -148,3 +148,9 @@ add_c_test_wrapper()
                 ).encode("utf-8")
             )
         self.total_test = self.total_test + 1
+
+    def export_file(self, name):
+        with open(self.path, "a") as targets_file:
+            targets_file.write(
+                targets_cfg.export_file_template.format(name=name)
+            )

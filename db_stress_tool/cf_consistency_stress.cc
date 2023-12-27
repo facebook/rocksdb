@@ -16,7 +16,7 @@ class CfConsistencyStressTest : public StressTest {
  public:
   CfConsistencyStressTest() : batch_id_(0) {}
 
-  ~CfConsistencyStressTest() override {}
+  ~CfConsistencyStressTest() override = default;
 
   bool IsStateTracked() const override { return false; }
 
@@ -36,18 +36,15 @@ class CfConsistencyStressTest : public StressTest {
 
     WriteBatch batch;
 
-    const bool use_put_entity = !FLAGS_use_merge &&
-                                FLAGS_use_put_entity_one_in > 0 &&
-                                (value_base % FLAGS_use_put_entity_one_in) == 0;
-
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* const cfh = column_families_[cf];
       assert(cfh);
 
-      if (FLAGS_use_merge) {
-        batch.Merge(cfh, k, v);
-      } else if (use_put_entity) {
+      if (FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0) {
         batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else if (FLAGS_use_merge) {
+        batch.Merge(cfh, k, v);
       } else {
         batch.Put(cfh, k, v);
       }
@@ -235,7 +232,7 @@ class CfConsistencyStressTest : public StressTest {
     }
     db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
-    for (auto s : statuses) {
+    for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);

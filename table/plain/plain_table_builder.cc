@@ -5,8 +5,7 @@
 
 #include "table/plain/plain_table_builder.h"
 
-#include <assert.h>
-
+#include <cassert>
 #include <limits>
 #include <map>
 #include <string>
@@ -119,9 +118,12 @@ PlainTableBuilder::PlainTableBuilder(
   for (auto& factory : *int_tbl_prop_collector_factories) {
     assert(factory);
 
-    table_properties_collectors_.emplace_back(
+    std::unique_ptr<IntTblPropCollector> collector{
         factory->CreateIntTblPropCollector(column_family_id,
-                                           level_at_creation));
+                                           level_at_creation)};
+    if (collector) {
+      table_properties_collectors_.emplace_back(std::move(collector));
+    }
   }
 }
 
@@ -265,19 +267,24 @@ Status PlainTableBuilder::Finish() {
   PropertyBlockBuilder property_block_builder;
   // -- Add basic properties
   property_block_builder.AddTableProperty(properties_);
-
+  // -- Add eixsting user collected properties
   property_block_builder.Add(properties_.user_collected_properties);
-
-  // -- Add user collected properties
+  // -- Add more user collected properties
+  UserCollectedProperties more_user_collected_properties;
   NotifyCollectTableCollectorsOnFinish(
-      table_properties_collectors_, ioptions_.logger, &property_block_builder);
+      table_properties_collectors_, ioptions_.logger, &property_block_builder,
+      more_user_collected_properties, properties_.readable_properties);
+  properties_.user_collected_properties.insert(
+      more_user_collected_properties.begin(),
+      more_user_collected_properties.end());
 
   // -- Write property block
   BlockHandle property_block_handle;
-  IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
+  io_status_ = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
-  if (!s.ok()) {
-    return static_cast<Status>(s);
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
   meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
@@ -293,8 +300,12 @@ Status PlainTableBuilder::Finish() {
   // Write Footer
   // no need to write out new footer if we're using default checksum
   FooterBuilder footer;
-  footer.Build(kPlainTableMagicNumber, /* format_version */ 0, offset_,
-               kNoChecksum, metaindex_block_handle);
+  Status s = footer.Build(kPlainTableMagicNumber, /* format_version */ 0,
+                          offset_, kNoChecksum, metaindex_block_handle);
+  if (!s.ok()) {
+    status_ = s;
+    return status_;
+  }
   io_status_ = file_->Append(footer.GetSlice());
   if (io_status_.ok()) {
     offset_ += footer.GetSlice().size();

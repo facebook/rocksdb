@@ -22,9 +22,11 @@ class ChargedCache : public CacheWrapper {
   ChargedCache(std::shared_ptr<Cache> cache,
                std::shared_ptr<Cache> block_cache);
 
-  Status Insert(const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
-                size_t charge, Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
+  Status Insert(
+      const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+      size_t charge, Handle** handle = nullptr,
+      Priority priority = Priority::LOW, const Slice& compressed_val = Slice(),
+      CompressionType type = CompressionType::kNoCompression) override;
 
   Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                         CreateContext* create_context,

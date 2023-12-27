@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * The logical mapping of tickers defined in rocksdb::Tickers.
- *
+ * <p>
  * Java byte value mappings don't align 1:1 to the c++ values. c++ rocksdb::Tickers enumeration type
  * is uint32_t and java org.rocksdb.TickerType is byte, this causes mapping issues when
  * rocksdb::Tickers value is greater then 127 (0x7F) for jbyte jni interface as range greater is not
@@ -708,6 +708,9 @@ public enum TickerType {
     NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
     NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
 
+    /**
+     * Number of block checksum verifications
+     */
     BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
 
     /**
@@ -753,6 +756,25 @@ public enum TickerType {
      * that finds its data for table open
      */
     TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
+
+    /**
+     * Number of times RocksDB detected a corruption while verifying a block
+     * checksum. RocksDB does not remember corruptions that happened during user
+     * reads so the same block corruption may be detected multiple times.
+     */
+    BLOCK_CHECKSUM_MISMATCH_COUNT((byte) -0x3C),
+
+    READAHEAD_TRIMMED((byte) -0x3D),
+
+    FIFO_MAX_SIZE_COMPACTIONS((byte) -0x3E),
+
+    FIFO_TTL_COMPACTIONS((byte) -0x3F),
+
+    PREFETCH_BYTES((byte) -0x40),
+
+    PREFETCH_BYTES_USEFUL((byte) -0x41),
+
+    PREFETCH_HITS((byte) -0x42),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 

@@ -279,8 +279,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   using HashCref = uint32_t;
 
  public:  // Function definitions expected as parameter to ShardedCache
-  static inline HashVal ComputeHash(const Slice& key) {
-    return Lower32of64(GetSliceNPHash64(key));
+  static inline HashVal ComputeHash(const Slice& key, uint32_t seed) {
+    return Lower32of64(GetSliceNPHash64(key, seed));
   }
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -446,12 +446,7 @@ class LRUCache
 #endif
     : public ShardedCache<LRUCacheShard> {
  public:
-  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           double high_pri_pool_ratio, double low_pri_pool_ratio,
-           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-           bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-           CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata);
+  explicit LRUCache(const LRUCacheOptions& opts);
   const char* Name() const override { return "LRUCache"; }
   ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;

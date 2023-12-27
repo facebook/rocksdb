@@ -186,13 +186,30 @@ class CompactionJob {
 
   // REQUIRED: mutex held
   // Add compaction input/output to the current version
-  Status Install(const MutableCFOptions& mutable_cf_options);
+  // Releases compaction file through Compaction::ReleaseCompactionFiles().
+  // Sets *compaction_released to true if compaction is released.
+  Status Install(const MutableCFOptions& mutable_cf_options,
+                 bool* compaction_released);
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  void UpdateCompactionStats();
+  // Update the following stats in compaction_stats_.stats
+  // - num_input_files_in_non_output_levels
+  // - num_input_files_in_output_level
+  // - bytes_read_non_output_levels
+  // - bytes_read_output_level
+  // - num_input_records
+  // - bytes_read_blob
+  // - num_dropped_records
+  //
+  // @param num_input_range_del if non-null, will be set to the number of range
+  // deletion entries in this compaction input.
+  //
+  // Returns true iff compaction_stats_.stats.num_input_records and
+  // num_input_range_del are calculated successfully.
+  bool UpdateCompactionStats(uint64_t* num_input_range_del = nullptr);
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
@@ -259,16 +276,14 @@ class CompactionJob {
                                     const Slice& next_table_min_key,
                                     const Slice* comp_start_user_key,
                                     const Slice* comp_end_user_key);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
+  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
+                                  bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
   void UpdateCompactionJobStats(
       const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
-
-  void UpdateCompactionInputStatsHelper(int* num_files, uint64_t* bytes_read,
-                                        int input_level);
 
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 
@@ -335,7 +350,7 @@ class CompactionJob {
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
-  SeqnoToTimeMapping seqno_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Minimal sequence number for preserving the time information. The time info
   // older than this sequence number won't be preserved after the compaction and

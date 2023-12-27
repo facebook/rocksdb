@@ -37,6 +37,7 @@
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
 #include "rocksjni/table_filter_jnicallback.h"
+#include "rocksjni/table_properties_collector_factory.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -3904,6 +3905,85 @@ jbyte Java_org_rocksdb_Options_prepopulateBlobCache(JNIEnv*, jobject,
       opts->prepopulate_blob_cache);
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMemtableMaxRangeDeletions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMemtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle, jint jmemtable_max_range_deletions) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->memtable_max_range_deletions =
+      static_cast<int32_t>(jmemtable_max_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    memtableMaxRangeDeletions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_memtableMaxRangeDeletions(JNIEnv*, jobject,
+                                                        jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jint>(opts->memtable_max_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    tablePropertiesCollectorFactory
+ * Signature: (J)[J
+ */
+jlongArray Java_org_rocksdb_Options_tablePropertiesCollectorFactory(
+    JNIEnv* env, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  const size_t size = opt->table_properties_collector_factories.size();
+  jlongArray retVal = env->NewLongArray(static_cast<jsize>(size));
+  if (retVal == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  jlong* buf = env->GetLongArrayElements(retVal, NULL);
+  if (buf == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < size; i++) {
+    auto* wrapper = new TablePropertiesCollectorFactoriesJniWrapper();
+    wrapper->table_properties_collector_factories =
+        opt->table_properties_collector_factories[i];
+    buf[i] = GET_CPLUSPLUS_POINTER(wrapper);
+  }
+  env->ReleaseLongArrayElements(retVal, buf, 0);
+  return retVal;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setTablePropertiesCollectorFactory
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_Options_setTablePropertiesCollectorFactory(
+    JNIEnv* env, jclass, jlong jhandle, jlongArray j_factory_handles) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  const jsize size = env->GetArrayLength(j_factory_handles);
+
+  jlong* buf = env->GetLongArrayElements(j_factory_handles, NULL);
+  if (buf == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  opt->table_properties_collector_factories.clear();
+  for (jsize i = 0; i < size; i++) {
+    auto* wrapper =
+        reinterpret_cast<TablePropertiesCollectorFactoriesJniWrapper*>(buf[i]);
+    opt->table_properties_collector_factories.emplace_back(
+        wrapper->table_properties_collector_factories);
+  }
+  env->ReleaseLongArrayElements(j_factory_handles, buf, JNI_ABORT);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ColumnFamilyOptions
 
@@ -5768,6 +5848,30 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_prepopulateBlobCache(JNIEnv*,
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toJavaPrepopulateBlobCache(
       opts->prepopulate_blob_cache);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMemtableMaxRangeDeletions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMemtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle, jint jmemtable_max_range_deletions) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->memtable_max_range_deletions = jmemtable_max_range_deletions;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    memtableMaxRangeDeletions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_memtableMaxRangeDeletions(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jint>(opts->memtable_max_range_deletions);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -8516,6 +8620,27 @@ void Java_org_rocksdb_ReadOptions_setValueSizeSoftLimit(
     JNIEnv*, jobject, jlong jhandle, jlong jvalue_size_soft_limit) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   opt->value_size_soft_limit = static_cast<uint64_t>(jvalue_size_soft_limit);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    asyncIO
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_asyncIO(JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  return static_cast<jboolean>(opt->async_io);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setAsyncIO
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setAsyncIO(JNIEnv*, jobject, jlong jhandle,
+                                             jboolean jasync_io) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  opt->async_io = static_cast<bool>(jasync_io);
 }
 
 /////////////////////////////////////////////////////////////////////

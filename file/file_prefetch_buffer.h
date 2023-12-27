@@ -15,7 +15,7 @@
 #include <string>
 
 #include "file/readahead_file_info.h"
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -32,6 +32,11 @@ struct IOOptions;
 class RandomAccessFileReader;
 
 struct BufferInfo {
+  void ClearBuffer() {
+    buffer_.Clear();
+    initial_end_offset_ = 0;
+  }
+
   AlignedBuffer buffer_;
 
   uint64_t offset_ = 0;
@@ -52,10 +57,23 @@ struct BufferInfo {
 
   // pos represents the index of this buffer in vector of BufferInfo.
   uint32_t pos_ = 0;
+
+  // initial_end_offset is used to keep track of the end offset of the buffer
+  // that was originally called. It's helpful in case of autotuning of readahead
+  // size when callback is made to BlockBasedTableIterator.
+  // initial end offset of this buffer which will be the starting
+  // offset of next prefetch.
+  //
+  // For example - if end offset of previous buffer was 100 and because of
+  // readahead_size optimization, end_offset was trimmed to 60. Then for next
+  // prefetch call, start_offset should be intialized to 100 i.e  start_offset =
+  // buf->initial_end_offset_.
+  uint64_t initial_end_offset_ = 0;
 };
 
 enum class FilePrefetchBufferUsage {
   kTableOpenPrefetchTail,
+  kUserScanPrefetch,
   kUnknown,
 };
 
@@ -89,6 +107,7 @@ class FilePrefetchBuffer {
       bool implicit_auto_readahead = false, uint64_t num_file_reads = 0,
       uint64_t num_file_reads_for_auto_readahead = 0, FileSystem* fs = nullptr,
       SystemClock* clock = nullptr, Statistics* stats = nullptr,
+      const std::function<void(bool, uint64_t&, uint64_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -106,7 +125,8 @@ class FilePrefetchBuffer {
         fs_(fs),
         clock_(clock),
         stats_(stats),
-        usage_(usage) {
+        usage_(usage),
+        readaheadsize_cb_(cb) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
     // If ReadOptions.async_io is enabled, data is asynchronously filled in
@@ -180,15 +200,15 @@ class FilePrefetchBuffer {
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
   }
 
+  bool Enabled() const { return enable_; }
+
   // Load data into the buffer from a file.
+  // opts                  : the IO options to use.
   // reader                : the file reader.
   // offset                : the file offset to start reading from.
   // n                     : the number of bytes to read.
-  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
-  //                         bypass.
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
-                  uint64_t offset, size_t n,
-                  Env::IOPriority rate_limiter_priority);
+                  uint64_t offset, size_t n);
 
   // Request for reading the data from a file asynchronously.
   // If data already exists in the buffer, result will be updated.
@@ -215,30 +235,25 @@ class FilePrefetchBuffer {
   // n                     : the number of bytes.
   // result                : output buffer to put the data into.
   // s                     : output status.
-  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
-  //                         bypass.
   // for_compaction        : true if cache read is done for compaction read.
   bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
                         uint64_t offset, size_t n, Slice* result, Status* s,
-                        Env::IOPriority rate_limiter_priority,
                         bool for_compaction = false);
 
   bool TryReadFromCacheAsync(const IOOptions& opts,
                              RandomAccessFileReader* reader, uint64_t offset,
-                             size_t n, Slice* result, Status* status,
-                             Env::IOPriority rate_limiter_priority);
+                             size_t n, Slice* result, Status* status);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
+  size_t GetPrefetchOffset() const { return bufs_[curr_].offset_; }
+
   // Called in case of implicit auto prefetching.
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool decrease_readaheadsize) {
     if (decrease_readaheadsize) {
-      // Since this block was eligible for prefetch but it was found in
-      // cache, so check and decrease the readahead_size by 8KB (default)
-      // if eligible.
       DecreaseReadAheadIfEligible(offset, len);
     }
     prev_offset_ = offset;
@@ -279,6 +294,12 @@ class FilePrefetchBuffer {
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
+  void TEST_GetBufferOffsetandSize(uint32_t index, uint64_t& offset,
+                                   size_t& len) {
+    offset = bufs_[index].offset_;
+    len = bufs_[index].buffer_.CurrentSize();
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
@@ -291,25 +312,24 @@ class FilePrefetchBuffer {
 
   void AbortAllIOs();
 
-  void UpdateBuffersIfNeeded(uint64_t offset);
+  void UpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   // It calls Poll API if any there is any pending asynchronous request. It then
   // checks if data is in any buffer. It clears the outdated data and swaps the
   // buffers if required.
-  void PollAndUpdateBuffersIfNeeded(uint64_t offset);
+  void PollAndUpdateBuffersIfNeeded(uint64_t offset, size_t len);
 
   Status PrefetchAsyncInternal(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
                                size_t length, size_t readahead_size,
-                               Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
-              Env::IOPriority rate_limiter_priority, uint64_t read_len,
-              uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
+              uint64_t read_len, uint64_t chunk_len, uint64_t start_offset,
+              uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   uint64_t read_len, uint64_t rounddown_start, uint32_t index);
+                   uint64_t read_len, uint64_t start_offset, uint32_t index);
 
   // Copy the data from src to third buffer.
   void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);
@@ -389,7 +409,13 @@ class FilePrefetchBuffer {
          bufs_[second].offset_)) {
       return false;
     }
-    bufs_[second].buffer_.Clear();
+
+    // Readahead size can be 0 because of trimming.
+    if (readahead_size_ == 0) {
+      return false;
+    }
+
+    bufs_[second].ClearBuffer();
     return true;
   }
 
@@ -405,7 +431,6 @@ class FilePrefetchBuffer {
   Status HandleOverlappingData(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
                                size_t length, size_t readahead_size,
-                               Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer, uint64_t& tmp_offset,
                                size_t& tmp_length);
 
@@ -413,14 +438,35 @@ class FilePrefetchBuffer {
                                  RandomAccessFileReader* reader,
                                  uint64_t offset, size_t n, Slice* result,
                                  Status* s,
-                                 Env::IOPriority rate_limiter_priority,
                                  bool for_compaction = false);
 
   bool TryReadFromCacheAsyncUntracked(const IOOptions& opts,
                                       RandomAccessFileReader* reader,
                                       uint64_t offset, size_t n, Slice* result,
-                                      Status* status,
-                                      Env::IOPriority rate_limiter_priority);
+                                      Status* status);
+
+  void ReadAheadSizeTuning(bool read_curr_block, bool refit_tail,
+                           uint64_t prev_buf_end_offset, uint32_t index,
+                           size_t alignment, size_t length,
+                           size_t readahead_size, uint64_t& offset,
+                           uint64_t& end_offset, size_t& read_len,
+                           uint64_t& chunk_len);
+
+  void UpdateStats(bool found_in_buffer, size_t length_found) {
+    if (found_in_buffer) {
+      RecordTick(stats_, PREFETCH_HITS);
+    }
+    if (length_found > 0) {
+      RecordTick(stats_, PREFETCH_BYTES_USEFUL, length_found);
+    }
+  }
+
+  void UpdateReadAheadTrimmedStat(size_t initial_length,
+                                  size_t updated_length) {
+    if (initial_length != updated_length) {
+      RecordTick(stats_, READAHEAD_TRIMMED);
+    }
+  }
 
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
@@ -463,5 +509,7 @@ class FilePrefetchBuffer {
   Statistics* stats_;
 
   FilePrefetchBufferUsage usage_;
+
+  std::function<void(bool, uint64_t&, uint64_t&)> readaheadsize_cb_;
 };
 }  // namespace ROCKSDB_NAMESPACE

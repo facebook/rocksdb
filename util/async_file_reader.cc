@@ -26,6 +26,11 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
           FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
           read_req->status = req.status;
           read_req->result = req.result;
+          if (req.fs_scratch != nullptr) {
+            // TODO akanksha: Revisit to remove the const in the callback.
+            FSReadRequest& req_tmp = const_cast<FSReadRequest&>(req);
+            read_req->fs_scratch = std::move(req_tmp.fs_scratch);
+          }
         },
         &awaiter->read_reqs_[i], &awaiter->io_handle_[i], &awaiter->del_fn_[i],
         /*aligned_buf=*/nullptr);

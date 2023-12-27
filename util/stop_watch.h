@@ -4,28 +4,38 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto-scoped.
-// Records the measure time into the corresponding histogram if statistics
-// is not nullptr. It is also saved into *elapsed if the pointer is not nullptr
-// and overwrite is true, it will be added to *elapsed if overwrite is false.
+// When statistics is not nullptr, records the measured time into any enabled
+// histograms supplied to the constructor. A histogram argument may be omitted
+// by setting it to Histograms::HISTOGRAM_ENUM_MAX. It is also saved into
+// *elapsed if the pointer is not nullptr and overwrite is true, it will be
+// added to *elapsed if overwrite is false.
 class StopWatch {
  public:
   StopWatch(SystemClock* clock, Statistics* statistics,
-            const uint32_t hist_type, uint64_t* elapsed = nullptr,
-            bool overwrite = true, bool delay_enabled = false)
+            const uint32_t hist_type_1,
+            const uint32_t hist_type_2 = Histograms::HISTOGRAM_ENUM_MAX,
+            uint64_t* elapsed = nullptr, bool overwrite = true,
+            bool delay_enabled = false)
       : clock_(clock),
         statistics_(statistics),
-        hist_type_(hist_type),
+        hist_type_1_(statistics && statistics->HistEnabledForType(hist_type_1)
+                         ? hist_type_1
+                         : Histograms::HISTOGRAM_ENUM_MAX),
+        hist_type_2_(statistics && statistics->HistEnabledForType(hist_type_2)
+                         ? hist_type_2
+                         : Histograms::HISTOGRAM_ENUM_MAX),
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
-                       statistics->get_stats_level() >=
+                       statistics->get_stats_level() >
                            StatsLevel::kExceptTimers &&
-                       statistics->HistEnabledForType(hist_type)),
+                       (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX ||
+                        hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX)),
         delay_enabled_(delay_enabled),
         total_delay_(0),
         delay_start_time_(0),
@@ -44,10 +54,15 @@ class StopWatch {
       *elapsed_ -= total_delay_;
     }
     if (stats_enabled_) {
-      statistics_->reportTimeToHistogram(
-          hist_type_, (elapsed_ != nullptr)
-                          ? *elapsed_
-                          : (clock_->NowMicros() - start_time_));
+      const auto time = (elapsed_ != nullptr)
+                            ? *elapsed_
+                            : (clock_->NowMicros() - start_time_);
+      if (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX) {
+        statistics_->reportTimeToHistogram(hist_type_1_, time);
+      }
+      if (hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX) {
+        statistics_->reportTimeToHistogram(hist_type_2_, time);
+      }
     }
   }
 
@@ -75,7 +90,8 @@ class StopWatch {
  private:
   SystemClock* clock_;
   Statistics* statistics_;
-  const uint32_t hist_type_;
+  const uint32_t hist_type_1_;
+  const uint32_t hist_type_2_;
   uint64_t* elapsed_;
   bool overwrite_;
   bool stats_enabled_;
@@ -109,6 +125,8 @@ class StopWatchNano {
   uint64_t ElapsedNanosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
+
+  bool IsStarted() { return start_ != 0; }
 
  private:
   SystemClock* clock_;

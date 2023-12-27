@@ -14,7 +14,7 @@
 #include <string>
 
 #include "logging/logging.h"
-#include "memory/memory_allocator.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
@@ -33,10 +33,14 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
     if (read_options_.verify_checksums) {
-      io_status_ = status_to_io_status(VerifyBlockChecksum(
-          footer_.checksum_type(), slice_.data(), block_size_,
-          file_->file_name(), handle_.offset()));
+      io_status_ = status_to_io_status(
+          VerifyBlockChecksum(footer_, slice_.data(), block_size_,
+                              file_->file_name(), handle_.offset()));
       RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+      if (!io_status_.ok()) {
+        assert(io_status_.IsCorruption());
+        RecordTick(ioptions_.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+      }
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -76,11 +80,11 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
       if (read_options_.async_io && !for_compaction_) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority);
+            &io_s);
       } else {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_);
+            &io_s, for_compaction_);
       }
       if (read_from_prefetch_buffer) {
         ProcessTrailerIfPresent();
@@ -254,17 +258,23 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        io_status_ = file_->Read(
-            opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
-            &direct_io_buf_, read_options_.rate_limiter_priority);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+        io_status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, nullptr, &direct_io_buf_);
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
-        io_status_ = file_->Read(opts, handle_.offset(),
-                                 block_size_with_trailer_, &slice_, used_buf_,
-                                 nullptr, read_options_.rate_limiter_priority);
+        PERF_CPU_TIMER_GUARD(
+            block_read_cpu_time,
+            ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+        io_status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, used_buf_, nullptr);
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
@@ -330,9 +340,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
-    compression_type_ = kNoCompression;
+    // Save the compressed block without trailer
+    slice_ = Slice(slice_.data(), block_size_);
   } else {
     GetBlockContents();
+    slice_ = Slice();
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
@@ -381,7 +393,6 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif
-          compression_type_ = kNoCompression;
         } else {
           GetBlockContents();
         }

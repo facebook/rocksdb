@@ -96,6 +96,7 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
 // * prefix_extractor
 // * table_factory
 // * merge_operator
+// * persist_user_defined_timestamps
 Status CheckOptionsCompatibility(
     const ConfigOptions& config_options, const std::string& dbpath,
     const DBOptions& db_options,
