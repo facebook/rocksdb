@@ -40,7 +40,7 @@ enum CacheDumpUnitType : unsigned char {
   kBlockTypeMax,
 };
 
-// The metadata of a dump unit. After it is serilized, its size is fixed 16
+// The metadata of a dump unit. After it is serialized, its size is fixed 16
 // bytes.
 struct DumpUnitMeta {
   // sequence number is a monotonically increasing number to indicate the order
@@ -48,7 +48,7 @@ struct DumpUnitMeta {
   uint32_t sequence_num;
   // The Crc32c checksum of its dump unit.
   uint32_t dump_unit_checksum;
-  // The dump unit size after the dump unit is serilized to a string.
+  // The dump unit size after the dump unit is serialized to a string.
   uint64_t dump_unit_size;
 
   void reset() {
