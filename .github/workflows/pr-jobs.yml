@@ -1,5 +1,7 @@
 name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
+env:
+  GLOBAL_ENABLE: ${{ github.repository_owner == 'facebook' }}
 jobs:
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
@@ -18,6 +20,7 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4.1.0
@@ -41,6 +44,7 @@ jobs:
       run: make check-sources
   # ========================= Linux With Tests ======================== #
   build-linux:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -52,6 +56,7 @@ jobs:
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -70,6 +75,7 @@ jobs:
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -83,6 +89,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-lite-no-test:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -95,6 +102,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -108,6 +116,7 @@ jobs:
     - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -120,6 +129,7 @@ jobs:
     - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -136,6 +146,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -147,6 +158,7 @@ jobs:
     - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -160,6 +172,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -185,6 +198,7 @@ jobs:
     - run: if ./db_stress --version; then false; else true; fi
     - uses: "./.github/actions/post-steps"
   build-linux-release-rtti:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 8-core-ubuntu
     container:
@@ -199,6 +213,7 @@ jobs:
     - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
     - run: if ./db_stress --version; then false; else true; fi
   build-examples:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -211,6 +226,7 @@ jobs:
       run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
     - uses: "./.github/actions/post-steps"
   build-fuzzers:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -225,6 +241,7 @@ jobs:
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
   build-linux-clang-no_test_run:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 8-core-ubuntu
     container:
@@ -235,6 +252,7 @@ jobs:
     - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -246,6 +264,7 @@ jobs:
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-8-no_test_run:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -257,6 +276,7 @@ jobs:
     - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-10-cxx20-no_test_run:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -268,6 +288,7 @@ jobs:
     - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-11-no_test_run:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -280,6 +301,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux Other Checks ======================= #
   build-linux-clang10-clang-analyze:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -297,6 +319,7 @@ jobs:
       with:
         path: scan_build_report.tar.gz
   build-linux-unity-and-headers:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -310,6 +333,7 @@ jobs:
     - run: make V=1 -j8 -k check-headers
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -322,6 +346,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang10-asan:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -333,6 +358,7 @@ jobs:
     - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-ubsan:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -344,6 +370,7 @@ jobs:
     - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-mini-tsan:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -355,6 +382,7 @@ jobs:
     - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-static_lib-alt_namespace-status_checked:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -367,6 +395,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: macos-13
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
@@ -382,6 +411,7 @@ jobs:
       run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
     - uses: "./.github/actions/post-steps"
   build-macos-cmake:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: macos-13
     strategy:
       matrix:
@@ -408,6 +438,7 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-vs2019:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: windows-2019
     env:
       CMAKE_GENERATOR: Visual Studio 16 2019
@@ -417,6 +448,7 @@ jobs:
     - uses: "./.github/actions/windows-build-steps"
   # ============================ Java Jobs ============================ #
   build-linux-java:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -434,6 +466,7 @@ jobs:
       run: make V=1 J=8 -j8 jtest
     - uses: "./.github/actions/post-steps"
   build-linux-java-static:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -462,6 +495,7 @@ jobs:
       run: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
     # NOTE: post-steps skipped because of compatibility issues with docker image
   build-macos-java:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -484,6 +518,7 @@ jobs:
       run: make V=1 J=16 -j16 jtest
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -505,6 +540,7 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -526,6 +562,7 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
+    if: ${{ env.GLOBAL_ENABLE }}
     runs-on:
       labels: 4-core-ubuntu
     steps:
