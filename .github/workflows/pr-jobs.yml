@@ -1,5 +1,7 @@
 name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
+env:
+  ENABLED_OWNER: facebook
 jobs:
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
@@ -17,7 +19,7 @@ jobs:
   #      limit-access-to-actor: true
 
   check-format-and-targets:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == env.ENABLED_OWNER }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4.1.0
@@ -40,7 +42,7 @@ jobs:
     - name: Simple source code checks
       run: make check-sources
   build-linux:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == env.ENABLED_OWNER }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -52,7 +54,7 @@ jobs:
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
-    if: ${{ github.repository_owner == 'facebook' }}
+    if: ${{ github.repository_owner == env.ENABLED_OWNER }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
