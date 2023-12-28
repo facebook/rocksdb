@@ -7,6 +7,17 @@ jobs:
   # workflow minimizes the problem because it will be suspicious if there are
   # no GHA results.
   #
+  # The if: ${{ github.repository_owner == 'facebook' }} lines prevent the
+  # jobs from attempting to run on repo forks, because of a few problems:
+  # * runs-on labels are repository (owner) specific, so the job might wait
+  # for days waiting for a runner that simply isn't available.
+  # * Pushes to branches on forks for pull requests (the normal process) would
+  # run the workflow jobs twice: once in the pull-from fork and once for the PR
+  # destination repo. This is wasteful and dumb.
+  # * It is not known how to avoid copy-pasting the line to each job,
+  # increasing the risk of misconfiguration, especially on forks that might
+  # want to run with this GHA setup.
+  #
   # DEBUGGING WITH SSH: Temporarily add this as a job step, either before the
   # step of interest without the "if:" line or after the failing step with the
   # "if:" line. Then use ssh command printed in CI output.
@@ -18,6 +29,7 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4.1.0
@@ -26,7 +38,7 @@ jobs:
         fetch-tags: true
     - uses: "./.github/actions/setup-upstream"
     - name: Setup Python
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v5
     - name: Install Dependencies
       run: python -m pip install --upgrade pip
     - name: Install argparse
@@ -41,6 +53,7 @@ jobs:
       run: make check-sources
   # ========================= Linux With Tests ======================== #
   build-linux:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -52,6 +65,7 @@ jobs:
     - run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -70,6 +84,7 @@ jobs:
         mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -83,6 +98,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-lite-no-test:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -95,6 +111,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -108,6 +125,7 @@ jobs:
     - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-7-with-folly-lite-no-test:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -120,6 +138,7 @@ jobs:
     - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -136,6 +155,7 @@ jobs:
     - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -147,6 +167,7 @@ jobs:
     - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
     - uses: "./.github/actions/post-steps"
   build-linux-encrypted_env-no_compression:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -160,6 +181,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -185,6 +207,7 @@ jobs:
     - run: if ./db_stress --version; then false; else true; fi
     - uses: "./.github/actions/post-steps"
   build-linux-release-rtti:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 8-core-ubuntu
     container:
@@ -199,6 +222,7 @@ jobs:
     - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
     - run: if ./db_stress --version; then false; else true; fi
   build-examples:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -211,6 +235,7 @@ jobs:
       run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
     - uses: "./.github/actions/post-steps"
   build-fuzzers:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -225,6 +250,7 @@ jobs:
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
   build-linux-clang-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 8-core-ubuntu
     container:
@@ -235,6 +261,7 @@ jobs:
     - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -246,6 +273,7 @@ jobs:
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-8-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -257,6 +285,7 @@ jobs:
     - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-10-cxx20-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -268,6 +297,7 @@ jobs:
     - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-11-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -280,6 +310,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux Other Checks ======================= #
   build-linux-clang10-clang-analyze:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -297,6 +328,7 @@ jobs:
       with:
         path: scan_build_report.tar.gz
   build-linux-unity-and-headers:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -310,6 +342,7 @@ jobs:
     - run: make V=1 -j8 -k check-headers
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -322,6 +355,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang10-asan:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -333,6 +367,7 @@ jobs:
     - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-ubsan:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -344,6 +379,7 @@ jobs:
     - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
     - uses: "./.github/actions/post-steps"
   build-linux-clang10-mini-tsan:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
     container:
@@ -355,6 +391,7 @@ jobs:
     - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-static_lib-alt_namespace-status_checked:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -367,6 +404,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
     env:
       ROCKSDB_DISABLE_JEMALLOC: 1
@@ -382,6 +420,7 @@ jobs:
       run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j16 all
     - uses: "./.github/actions/post-steps"
   build-macos-cmake:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
     strategy:
       matrix:
@@ -408,6 +447,7 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-vs2019:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: windows-2019
     env:
       CMAKE_GENERATOR: Visual Studio 16 2019
@@ -417,6 +457,7 @@ jobs:
     - uses: "./.github/actions/windows-build-steps"
   # ============================ Java Jobs ============================ #
   build-linux-java:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -434,6 +475,7 @@ jobs:
       run: make V=1 J=8 -j8 jtest
     - uses: "./.github/actions/post-steps"
   build-linux-java-static:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     container:
@@ -462,6 +504,7 @@ jobs:
       run: scl enable devtoolset-7 'make V=1 J=8 -j8 rocksdbjavastatic'
     # NOTE: post-steps skipped because of compatibility issues with docker image
   build-macos-java:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -484,6 +527,7 @@ jobs:
       run: make V=1 J=16 -j16 jtest
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -505,6 +549,7 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: macos-13
     env:
       JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
@@ -526,6 +571,7 @@ jobs:
       run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 4-core-ubuntu
     steps:
