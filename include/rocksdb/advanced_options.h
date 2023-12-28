@@ -914,7 +914,9 @@ struct AdvancedColumnFamilyOptions {
   //
   // Leveled: files older than `periodic_compaction_seconds` will be picked up
   //    for compaction and will be re-written to the same level as they were
-  //    before.
+  //    before if level_compaction_dynamic_level_bytes is disabled. Otherwise,
+  //    it will rewrite files to the next level except for the last level files
+  //    to the same level.
   //
   // FIFO: not supported. Setting this option has no effect for FIFO compaction.
   //

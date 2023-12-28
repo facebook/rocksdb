@@ -48,7 +48,7 @@ Updating HISTORY.md with release notes
 --------------------------------------
 
 The script unreleased_history/release.sh does this. Run the script before
-updating version.h to the next develpment release, so that the script will pick
+updating version.h to the next development release, so that the script will pick
 up the version being released. You might want to start with
 
 $ DRY_RUN=1 unreleased_history/release.sh | less
@@ -68,6 +68,6 @@ First, it was common to hit unnecessary merge conflicts when adding entries to
 HISTORY.md, which slowed development. Second, when a PR was opened before a
 release cut and landed after the release cut, it was easy to add the HISTORY
 entry to the wrong version's history. This new setup completely fixes both of
-those issues, with perhaps slighly more initial work to create each entry.
+those issues, with perhaps slightly more initial work to create each entry.
 There is also now an extra step in using `git blame` to map a release note
 to its source code implementation, but that is a relatively rare operation.
