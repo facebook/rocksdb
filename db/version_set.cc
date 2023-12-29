@@ -5106,8 +5106,7 @@ VersionSet::VersionSet(
 
 Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
   Status s;
-  if (closed_ || read_only_ || !manifest_file_number_ ||
-      !descriptor_log_) {
+  if (closed_ || read_only_ || !manifest_file_number_ || !descriptor_log_) {
     return s;
   }
 
