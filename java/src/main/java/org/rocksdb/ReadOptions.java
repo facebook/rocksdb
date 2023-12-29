@@ -751,7 +751,6 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * <p>
    * If async_io is enabled, RocksDB will prefetch some of data asynchronously.
    * RocksDB apply it if reads are sequential and its internal automatic
    * prefetching.
@@ -766,7 +765,6 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * <p>
    * If async_io is enabled, RocksDB will prefetch some of data asynchronously.
    * RocksDB apply it if reads are sequential and its internal automatic
    * prefetching.
