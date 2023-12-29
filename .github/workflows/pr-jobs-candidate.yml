@@ -5,6 +5,7 @@ jobs:
   # some reason.
   # =========================== ARM Jobs ============================ #
   build-linux-arm:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: arm64large # GitHub hosted ARM runners do not yet exist
     steps:
@@ -14,6 +15,7 @@ jobs:
     - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
     - uses: "./.github/actions/post-steps"
   build-linux-arm-cmake-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: arm64large # GitHub hosted ARM runners do not yet exist
     env:

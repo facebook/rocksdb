@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 jobs:
   build-format-compatible:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -26,6 +27,7 @@ jobs:
         tools/check_format_compatible.sh
     - uses: "./.github/actions/post-steps"
   build-linux-run-microbench:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -37,6 +39,7 @@ jobs:
     - run: DEBUG_LEVEL=0 make -j32 run_microbench
     - uses: "./.github/actions/post-steps"
   build-linux-non-shm:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -50,6 +53,7 @@ jobs:
     - run: make V=1 -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-asan-ubsan-with-folly:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -63,6 +67,7 @@ jobs:
     - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-valgrind:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
@@ -74,6 +79,7 @@ jobs:
     - run: PORTABLE=1 make V=1 -j32 valgrind_test
     - uses: "./.github/actions/post-steps"
   build-windows-vs2022-avx2:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: windows-2022
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
@@ -82,6 +88,7 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/windows-build-steps"
   build-windows-vs2022:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on: windows-2022
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022

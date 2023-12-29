@@ -4,6 +4,7 @@ jobs:
   # These jobs would be in nightly but are failing or otherwise broken for
   # some reason.
   build-linux-arm-test-full:
+    if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: arm64large
     container:
