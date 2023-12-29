@@ -182,7 +182,7 @@ TEST_F(CuckooBuilderTest, SuccessWithEmptyFile) {
   ASSERT_OK(builder.status());
   ASSERT_EQ(0UL, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   CheckFileContents({}, {}, {}, "", 2, 2, false);
 }
 
@@ -229,7 +229,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
     size_t bucket_size = keys[0].size() + values[0].size();
     ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
     ASSERT_OK(builder.Finish());
-    ASSERT_OK(file_writer->Close());
+    ASSERT_OK(file_writer->Close(IOOptions()));
     ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
     std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -277,7 +277,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -325,7 +325,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -374,7 +374,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -420,7 +420,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   size_t bucket_size = keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = GetInternalKey("key00", true);
@@ -463,7 +463,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -507,7 +507,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -550,7 +550,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
   size_t bucket_size = user_keys[0].size() + values[0].size();
   ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
   std::string expected_unused_bucket = "key00";
@@ -589,7 +589,7 @@ TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
     ASSERT_OK(builder.status());
   }
   ASSERT_TRUE(builder.Finish().IsNotSupported());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
 }
 
 TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
@@ -619,7 +619,7 @@ TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
   ASSERT_OK(builder.status());
 
   ASSERT_TRUE(builder.Finish().IsNotSupported());
-  ASSERT_OK(file_writer->Close());
+  ASSERT_OK(file_writer->Close(IOOptions()));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

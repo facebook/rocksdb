@@ -41,7 +41,11 @@ struct SstFileWriter::Rep {
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
         skip_filters(_skip_filters),
-        db_session_id(_db_session_id) {}
+        db_session_id(_db_session_id) {
+    // TODO (hx235): pass in `WriteOptions` instead of `rate_limiter_priority`
+    // during construction
+    write_options.rate_limiter_priority = io_priority;
+  }
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -49,6 +53,7 @@ struct SstFileWriter::Rep {
   ImmutableOptions ioptions;
   MutableCFOptions mutable_cf_options;
   Env::IOPriority io_priority;
+  WriteOptions write_options;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
   InternalKey ikey;
@@ -343,13 +348,15 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   // TODO: it would be better to set oldest_key_time to be used for getting the
   //  approximate time of ingested keys.
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   TableBuilderOptions table_builder_options(
-      r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type, compression_opts,
-      cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
-      0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
-      0 /* target_file_size */, r->next_file_number);
+      r->ioptions, r->mutable_cf_options, ReadOptions(), r->write_options,
+      r->internal_comparator, &int_tbl_prop_collector_factories,
+      compression_type, compression_opts, cf_id, r->column_family_name,
+      unknown_level, false /* is_bottommost */, TableFileCreationReason::kMisc,
+      0 /* oldest_key_time */, 0 /* file_creation_time */,
+      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
+      r->next_file_number);
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep
@@ -361,8 +368,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
-      nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory.get(),
+      nullptr /* io_tracer */, r->ioptions.stats, Histograms::SST_WRITE_MICROS,
+      r->ioptions.listeners, r->ioptions.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
@@ -430,11 +437,13 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Status s = r->builder->Finish();
   r->file_info.file_size = r->builder->FileSize();
 
+  IOOptions opts;
+  s = WritableFileWriter::PrepareIOOptions(r->write_options, opts);
   if (s.ok()) {
-    s = r->file_writer->Sync(r->ioptions.use_fsync);
+    s = r->file_writer->Sync(opts, r->ioptions.use_fsync);
     r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
     if (s.ok()) {
-      s = r->file_writer->Close();
+      s = r->file_writer->Close(opts);
     }
   }
   if (s.ok()) {

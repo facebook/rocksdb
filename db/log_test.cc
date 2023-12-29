@@ -185,9 +185,10 @@ class LogTest
   void Write(const std::string& msg,
              const UnorderedMap<uint32_t, size_t>* cf_to_ts_sz = nullptr) {
     if (cf_to_ts_sz != nullptr && !cf_to_ts_sz->empty()) {
-      ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(*cf_to_ts_sz));
+      ASSERT_OK(writer_->MaybeAddUserDefinedTimestampSizeRecord(WriteOptions(),
+                                                                *cf_to_ts_sz));
     }
-    ASSERT_OK(writer_->AddRecord(Slice(msg)));
+    ASSERT_OK(writer_->AddRecord(WriteOptions(), Slice(msg)));
   }
 
   size_t WrittenBytes() const { return dest_contents().size(); }
@@ -732,8 +733,8 @@ TEST_P(LogTest, Recycle) {
   std::unique_ptr<WritableFileWriter> dest_holder(new WritableFileWriter(
       std::move(sink), "" /* don't care */, FileOptions()));
   Writer recycle_writer(std::move(dest_holder), 123, true);
-  ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
-  ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
+  ASSERT_OK(recycle_writer.AddRecord(WriteOptions(), Slice("foooo")));
+  ASSERT_OK(recycle_writer.AddRecord(WriteOptions(), Slice("bar")));
   ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
   ASSERT_EQ("foooo", Read());
   ASSERT_EQ("bar", Read());
@@ -764,9 +765,10 @@ TEST_P(LogTest, RecycleWithTimestampSize) {
   UnorderedMap<uint32_t, size_t> ts_sz_two = {
       {2, sizeof(uint64_t)},
   };
-  ASSERT_OK(recycle_writer.MaybeAddUserDefinedTimestampSizeRecord(ts_sz_two));
-  ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
-  ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
+  ASSERT_OK(recycle_writer.MaybeAddUserDefinedTimestampSizeRecord(
+      WriteOptions(), ts_sz_two));
+  ASSERT_OK(recycle_writer.AddRecord(WriteOptions(), Slice("foooo")));
+  ASSERT_OK(recycle_writer.AddRecord(WriteOptions(), Slice("bar")));
   ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
   CheckRecordAndTimestampSize("foooo", ts_sz_two);
   CheckRecordAndTimestampSize("bar", ts_sz_two);
@@ -853,12 +855,12 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   std::string contents() { return sink_->contents_; }
 
   void Encode(const std::string& msg) {
-    ASSERT_OK(log_writer_->AddRecord(Slice(msg)));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), Slice(msg)));
   }
 
   void Write(const Slice& data) {
-    ASSERT_OK(writer_->Append(data));
-    ASSERT_OK(writer_->Sync(true));
+    ASSERT_OK(writer_->Append(IOOptions(), data));
+    ASSERT_OK(writer_->Sync(IOOptions(), true));
   }
 
   bool TryRead(std::string* result) {
@@ -991,7 +993,9 @@ INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
 class CompressionLogTest : public LogTest {
  public:
-  Status SetupTestEnv() { return writer_->AddCompressionTypeRecord(); }
+  Status SetupTestEnv() {
+    return writer_->AddCompressionTypeRecord(WriteOptions());
+  }
 };
 
 TEST_P(CompressionLogTest, Empty) {
@@ -1109,7 +1113,7 @@ TEST_P(CompressionLogTest, AlignedFragmentation) {
   // beginning of the block.
   while ((WrittenBytes() & (kBlockSize - 1)) >= kHeaderSize) {
     char entry = 'a';
-    ASSERT_OK(writer_->AddRecord(Slice(&entry, 1)));
+    ASSERT_OK(writer_->AddRecord(WriteOptions(), Slice(&entry, 1)));
     num_filler_records++;
   }
   const std::vector<std::string> wal_entries = {

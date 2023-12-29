@@ -703,4 +703,11 @@ ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
 ReadOptions::ReadOptions(Env::IOActivity _io_activity)
     : io_activity(_io_activity) {}
 
+WriteOptions::WriteOptions(Env::IOActivity _io_activity)
+    : io_activity(_io_activity) {}
+
+WriteOptions::WriteOptions(Env::IOPriority _rate_limiter_priority,
+                           Env::IOActivity _io_activity)
+    : rate_limiter_priority(_rate_limiter_priority),
+      io_activity(_io_activity) {}
 }  // namespace ROCKSDB_NAMESPACE

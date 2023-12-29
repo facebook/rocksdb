@@ -2195,6 +2195,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
       rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
                    : kDefaultCopyFileBufferSize;
 
+  // TODO: pass in Histograms if the destination file is sst or blob
   std::unique_ptr<WritableFileWriter> dest_writer(
       new WritableFileWriter(std::move(dst_file), dst, dst_file_options));
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -2209,6 +2210,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   Slice data;
+  const IOOptions opts;
   do {
     if (stop_backup_.load(std::memory_order_acquire)) {
       return status_to_io_status(Status::Incomplete("Backup stopped"));
@@ -2238,7 +2240,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     if (checksum_hex != nullptr) {
       checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
-    io_s = dest_writer->Append(data);
+
+    io_s = dest_writer->Append(opts, data);
 
     if (rate_limiter != nullptr) {
       if (!src.empty()) {
@@ -2275,10 +2278,10 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   if (io_s.ok() && sync) {
-    io_s = dest_writer->Sync(false);
+    io_s = dest_writer->Sync(opts, false);
   }
   if (io_s.ok()) {
-    io_s = dest_writer->Close();
+    io_s = dest_writer->Close(opts);
   }
   return io_s;
 }
@@ -3352,4 +3355,3 @@ void TEST_SetDefaultRateLimitersClock(
                                          restore_rate_limiter_clock);
 }
 }  // namespace ROCKSDB_NAMESPACE
-

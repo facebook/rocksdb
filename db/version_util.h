@@ -36,15 +36,17 @@ class OfflineManifestWriter {
                              /*no_error_if_files_missing*/ true);
   }
 
-  Status LogAndApply(const ReadOptions& read_options, ColumnFamilyData* cfd,
+  Status LogAndApply(const ReadOptions& read_options,
+                     const WriteOptions& write_options, ColumnFamilyData* cfd,
                      VersionEdit* edit,
                      FSDirectory* dir_contains_current_file) {
     // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
     InstrumentedMutex mutex;
     mutex.Lock();
-    Status s = versions_.LogAndApply(
-        cfd, *cfd->GetLatestMutableCFOptions(), read_options, edit, &mutex,
-        dir_contains_current_file, false /* new_descriptor_log */);
+    Status s = versions_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                     read_options, write_options, edit, &mutex,
+                                     dir_contains_current_file,
+                                     false /* new_descriptor_log */);
     mutex.Unlock();
     return s;
   }
