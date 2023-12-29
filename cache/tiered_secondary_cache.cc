@@ -5,6 +5,8 @@
 
 #include "cache/tiered_secondary_cache.h"
 
+#include "monitoring/statistics_impl.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // Creation callback for use in the lookup path. It calls the upper layer
@@ -29,6 +31,9 @@ Status TieredSecondaryCache::MaybeInsertAndCreate(
     // TODO: Don't hardcode the source
     context->comp_sec_cache->InsertSaved(*context->key, data, type, source)
         .PermitUncheckedError();
+    RecordTick(context->stats, COMPRESSED_SECONDARY_CACHE_PROMOTIONS);
+  } else {
+    RecordTick(context->stats, COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS);
   }
   // Primary cache will accept the object, so call its helper to create
   // the object
@@ -43,10 +48,10 @@ Status TieredSecondaryCache::MaybeInsertAndCreate(
 std::unique_ptr<SecondaryCacheResultHandle> TieredSecondaryCache::Lookup(
     const Slice& key, const Cache::CacheItemHelper* helper,
     Cache::CreateContext* create_context, bool wait, bool advise_erase,
-    bool& kept_in_sec_cache) {
+    Statistics* stats, bool& kept_in_sec_cache) {
   bool dummy = false;
   std::unique_ptr<SecondaryCacheResultHandle> result =
-      target()->Lookup(key, helper, create_context, wait, advise_erase,
+      target()->Lookup(key, helper, create_context, wait, advise_erase, stats,
                        /*kept_in_sec_cache=*/dummy);
   // We never want the item to spill back into the secondary cache
   kept_in_sec_cache = true;
@@ -66,9 +71,10 @@ std::unique_ptr<SecondaryCacheResultHandle> TieredSecondaryCache::Lookup(
     ctx.helper = helper;
     ctx.inner_ctx = create_context;
     ctx.comp_sec_cache = target();
+    ctx.stats = stats;
 
     return nvm_sec_cache_->Lookup(key, outer_helper, &ctx, wait, advise_erase,
-                                  kept_in_sec_cache);
+                                  stats, kept_in_sec_cache);
   }
 
   // If wait is false, i.e its an async lookup, we have to allocate a result
@@ -80,8 +86,10 @@ std::unique_ptr<SecondaryCacheResultHandle> TieredSecondaryCache::Lookup(
   handle->ctx()->helper = helper;
   handle->ctx()->inner_ctx = create_context;
   handle->ctx()->comp_sec_cache = target();
-  handle->SetInnerHandle(nvm_sec_cache_->Lookup(
-      key, outer_helper, handle->ctx(), wait, advise_erase, kept_in_sec_cache));
+  handle->ctx()->stats = stats;
+  handle->SetInnerHandle(
+      nvm_sec_cache_->Lookup(key, outer_helper, handle->ctx(), wait,
+                             advise_erase, stats, kept_in_sec_cache));
   if (!handle->inner_handle()) {
     handle.reset();
   } else {
@@ -109,10 +117,8 @@ void TieredSecondaryCache::WaitAll(
   }
   nvm_sec_cache_->WaitAll(nvm_handles);
   for (auto handle : my_handles) {
-    assert(handle->IsReady());
-    auto nvm_handle = handle->inner_handle();
-    handle->SetSize(nvm_handle->Size());
-    handle->SetValue(nvm_handle->Value());
+    assert(handle->inner_handle()->IsReady());
+    handle->Complete();
   }
 }
 

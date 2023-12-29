@@ -577,7 +577,7 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   std::map<std::string, std::map<uint64_t, uint64_t>> label_bucket_naccesses;
   std::vector<std::pair<std::string, uint64_t>> pairs;
   for (auto const& itr : label_naccesses) {
-    pairs.push_back(itr);
+    pairs.emplace_back(itr);
   }
   // Sort in descending order.
   sort(pairs.begin(), pairs.end(),

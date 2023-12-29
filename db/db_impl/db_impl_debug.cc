@@ -309,6 +309,10 @@ SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   return seqno_to_time_mapping_;
 }
 
+const autovector<uint64_t>& DBImpl::TEST_GetFilesToQuarantine() const {
+  InstrumentedMutexLock l(&mutex_);
+  return error_handler_.GetFilesToQuarantine();
+}
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
   InstrumentedMutexLock l(&const_cast<DBImpl*>(this)->stats_history_mutex_);

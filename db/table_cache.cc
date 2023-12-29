@@ -85,7 +85,7 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
   }
 }
 
-TableCache::~TableCache() {}
+TableCache::~TableCache() = default;
 
 Status TableCache::GetTableReader(
     const ReadOptions& ro, const FileOptions& file_options,

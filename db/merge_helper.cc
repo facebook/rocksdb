@@ -12,7 +12,6 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
-#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -111,9 +110,9 @@ Status MergeHelper::TimedFullMergeImpl(
     const MergeOperator* merge_operator, const Slice& key,
     MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
     const std::vector<Slice>& operands, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats, std::string* result,
-    Slice* result_operand, ValueType* result_type,
-    MergeOperator::OpFailureScope* op_failure_scope) {
+    SystemClock* clock, bool update_num_ops_stats,
+    MergeOperator::OpFailureScope* op_failure_scope, std::string* result,
+    Slice* result_operand, ValueType* result_type) {
   assert(result);
   assert(result_type);
 
@@ -173,9 +172,9 @@ Status MergeHelper::TimedFullMergeImpl(
     const MergeOperator* merge_operator, const Slice& key,
     MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
     const std::vector<Slice>& operands, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats, std::string* result_value,
-    PinnableWideColumns* result_entity,
-    MergeOperator::OpFailureScope* op_failure_scope) {
+    SystemClock* clock, bool update_num_ops_stats,
+    MergeOperator::OpFailureScope* op_failure_scope, std::string* result_value,
+    PinnableWideColumns* result_entity) {
   assert(result_value || result_entity);
   assert(!result_value || !result_entity);
 
@@ -245,141 +244,6 @@ Status MergeHelper::TimedFullMergeImpl(
                                   op_failure_scope, std::move(visitor));
 }
 
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, NoBaseValueTag,
-    const std::vector<Slice>& operands, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats, std::string* result,
-    Slice* result_operand, ValueType* result_type,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value;
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result, result_operand,
-                            result_type, op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, PlainBaseValueTag,
-    const Slice& value, const std::vector<Slice>& operands, Logger* logger,
-    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
-    std::string* result, Slice* result_operand, ValueType* result_type,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(value);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result, result_operand,
-                            result_type, op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
-    const Slice& entity, const std::vector<Slice>& operands, Logger* logger,
-    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
-    std::string* result, Slice* result_operand, ValueType* result_type,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value;
-
-  Slice entity_copy(entity);
-  WideColumns existing_columns;
-
-  const Status s =
-      WideColumnSerialization::Deserialize(entity_copy, existing_columns);
-  if (!s.ok()) {
-    return s;
-  }
-
-  existing_value = std::move(existing_columns);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result, result_operand,
-                            result_type, op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
-    const WideColumns& columns, const std::vector<Slice>& operands,
-    Logger* logger, Statistics* statistics, SystemClock* clock,
-    bool update_num_ops_stats, std::string* result, Slice* result_operand,
-    ValueType* result_type, MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(columns);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result, result_operand,
-                            result_type, op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, NoBaseValueTag,
-    const std::vector<Slice>& operands, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats, std::string* result_value,
-    PinnableWideColumns* result_entity,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value;
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result_value, result_entity,
-                            op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, PlainBaseValueTag,
-    const Slice& value, const std::vector<Slice>& operands, Logger* logger,
-    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
-    std::string* result_value, PinnableWideColumns* result_entity,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(value);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result_value, result_entity,
-                            op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
-    const Slice& entity, const std::vector<Slice>& operands, Logger* logger,
-    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
-    std::string* result_value, PinnableWideColumns* result_entity,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value;
-
-  Slice entity_copy(entity);
-  WideColumns existing_columns;
-
-  const Status s =
-      WideColumnSerialization::Deserialize(entity_copy, existing_columns);
-  if (!s.ok()) {
-    return s;
-  }
-
-  existing_value = std::move(existing_columns);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result_value, result_entity,
-                            op_failure_scope);
-}
-
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, WideBaseValueTag,
-    const WideColumns& columns, const std::vector<Slice>& operands,
-    Logger* logger, Statistics* statistics, SystemClock* clock,
-    bool update_num_ops_stats, std::string* result_value,
-    PinnableWideColumns* result_entity,
-    MergeOperator::OpFailureScope* op_failure_scope) {
-  MergeOperator::MergeOperationInputV3::ExistingValue existing_value(columns);
-
-  return TimedFullMergeImpl(merge_operator, key, std::move(existing_value),
-                            operands, logger, statistics, clock,
-                            update_num_ops_stats, result_value, result_entity,
-                            op_failure_scope);
-}
-
 // PRE:  iter points to the first merge type entry
 // POST: iter points to the first entry beyond the merge process (or the end)
 //       keys_, operands_ are updated to reflect the merge result.
@@ -428,7 +292,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
   Status s = ParseInternalKey(original_key, &orig_ikey, allow_data_in_errors);
   assert(s.ok());
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   assert(kTypeMerge == orig_ikey.type);
 
@@ -517,14 +383,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kNoBaseValue,
                            merge_context_.GetOperands(), logger_, stats_,
                            clock_, /* update_num_ops_stats */ false,
-                           &merge_result, /* result_operand */ nullptr,
-                           &merge_result_type, &op_failure_scope);
+                           &op_failure_scope, &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeValue) {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kPlainBaseValue,
                            iter->value(), merge_context_.GetOperands(), logger_,
                            stats_, clock_, /* update_num_ops_stats */ false,
-                           &merge_result, /* result_operand */ nullptr,
-                           &merge_result_type, &op_failure_scope);
+                           &op_failure_scope, &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeBlobIndex) {
         BlobIndex blob_index;
 
@@ -557,20 +423,20 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kPlainBaseValue,
                            blob_value, merge_context_.GetOperands(), logger_,
                            stats_, clock_, /* update_num_ops_stats */ false,
-                           &merge_result, /* result_operand */ nullptr,
-                           &merge_result_type, &op_failure_scope);
+                           &op_failure_scope, &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeWideColumnEntity) {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kWideBaseValue,
                            iter->value(), merge_context_.GetOperands(), logger_,
                            stats_, clock_, /* update_num_ops_stats */ false,
-                           &merge_result, /* result_operand */ nullptr,
-                           &merge_result_type, &op_failure_scope);
+                           &op_failure_scope, &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
       } else {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kNoBaseValue,
                            merge_context_.GetOperands(), logger_, stats_,
                            clock_, /* update_num_ops_stats */ false,
-                           &merge_result, /* result_operand */ nullptr,
-                           &merge_result_type, &op_failure_scope);
+                           &op_failure_scope, &merge_result,
+                           /* result_operand */ nullptr, &merge_result_type);
       }
 
       // We store the result in keys_.back() and operands_.back()
@@ -712,9 +578,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     MergeOperator::OpFailureScope op_failure_scope;
     s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, kNoBaseValue,
                        merge_context_.GetOperands(), logger_, stats_, clock_,
-                       /* update_num_ops_stats */ false, &merge_result,
-                       /* result_operand */ nullptr, &merge_result_type,
-                       &op_failure_scope);
+                       /* update_num_ops_stats */ false, &op_failure_scope,
+                       &merge_result,
+                       /* result_operand */ nullptr, &merge_result_type);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of

@@ -375,6 +375,14 @@ class Cache {
   // Returns the helper for the specified entry.
   virtual const CacheItemHelper* GetCacheItemHelper(Handle* handle) const = 0;
 
+  virtual Status GetSecondaryCacheCapacity(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
+  virtual Status GetSecondaryCachePinnedUsage(size_t& /*size*/) const {
+    return Status::NotSupported();
+  }
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
@@ -595,6 +603,14 @@ class CacheWrapper : public Cache {
     return target_->HasStrictCapacityLimit();
   }
 
+  size_t GetOccupancyCount() const override {
+    return target_->GetOccupancyCount();
+  }
+
+  size_t GetTableAddressCount() const override {
+    return target_->GetTableAddressCount();
+  }
+
   size_t GetCapacity() const override { return target_->GetCapacity(); }
 
   size_t GetUsage() const override { return target_->GetUsage(); }
@@ -629,6 +645,14 @@ class CacheWrapper : public Cache {
   void WaitAll(AsyncLookupHandle* async_handles, size_t count) override {
     target_->WaitAll(async_handles, count);
   }
+
+  uint32_t GetHashSeed() const override { return target_->GetHashSeed(); }
+
+  void ReportProblems(const std::shared_ptr<Logger>& info_log) const override {
+    target_->ReportProblems(info_log);
+  }
+
+  const std::shared_ptr<Cache>& GetTarget() { return target_; }
 
  protected:
   std::shared_ptr<Cache> target_;

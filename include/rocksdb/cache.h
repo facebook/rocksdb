@@ -380,9 +380,6 @@ inline std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // to find the appropriate balance automatically.
 // * Cache priorities are less aggressively enforced, which could cause
 // cache dilution from long range scans (unless they use fill_cache=false).
-// * Can be worse for small caches, because if almost all of a cache shard is
-// pinned (more likely with non-partitioned filters), then CLOCK eviction
-// becomes very CPU intensive.
 //
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
@@ -440,6 +437,43 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // indexing entries. The hash table is never allowed to exceed a certain safe
   // load factor for efficient Lookup, Insert, etc.
   size_t min_avg_entry_charge = 450;
+
+  // A tuning parameter to cap eviction CPU usage in a "thrashing" situation
+  // by allowing the memory capacity to be exceeded slightly as needed. The
+  // default setting should offer balanced protection against excessive CPU
+  // and memory usage under extreme stress conditions, with no effect on
+  // normal operation. Such stress conditions are proportionally more likely
+  // with small caches (10s of MB or less) vs. large caches (GB-scale).
+  // (NOTE: With the unusual setting of strict_capacity_limit=true, this
+  // parameter is ignored.)
+  //
+  // BACKGROUND: Without some kind of limiter, inserting into a CLOCK-based
+  // cache with no evictable entries (all "pinned") requires scanning the
+  // entire cache to determine that nothing can be evicted. (By contrast,
+  // LRU caches can determine no entries are evictable in O(1) time, but
+  // require more synchronization/coordination on that eviction metadata.)
+  // This aspect of a CLOCK cache can make a stressed situation worse by
+  // bogging down the CPU with repeated scans of the cache. And with
+  // strict_capacity_limit=false (normal setting), finding something evictable
+  // doesn't change the outcome of insertion: the entry is inserted anyway
+  // and the cache is allowed to exceed its target capacity if necessary.
+  //
+  // SOLUTION: Eviction is aborted upon seeing some number of pinned
+  // entries before evicting anything, or if the ratio of pinned to evicted
+  // is too high. This setting `eviction_effort_cap` essentially controls both
+  // that allowed initial number of pinned entries and the maximum allowed
+  // ratio. As the pinned size approaches the target cache capacity, roughly
+  // 1/eviction_effort_cap additional portion of the capacity might be kept
+  // in memory and evictable in order to keep CLOCK eviction reasonably
+  // performant. Under the default setting and high stress conditions, this
+  // memory overhead is around 3-5%. Under normal or even moderate stress
+  // conditions, the memory overhead is negligible to zero.
+  //
+  // A large value like 1000 offers some protection with essentially no
+  // memory overhead, while the minimum value of 1 could be useful for a
+  // small cache where roughly doubling in size under stress could be OK to
+  // keep operations very fast.
+  int eviction_effort_cap = 30;
 
   HyperClockCacheOptions(
       size_t _capacity, size_t _estimated_entry_charge,
@@ -499,6 +533,10 @@ enum TieredAdmissionPolicy {
 // allocations costed to the block cache, will be distributed
 // proportionally across both the primary and secondary.
 struct TieredCacheOptions {
+  // This should point to an instance of either LRUCacheOptions or
+  // HyperClockCacheOptions, depending on the cache_type. In either
+  // case, the capacity and secondary_cache fields in those options
+  // should not be set. If set, they will be ignored by NewTieredCache.
   ShardedCacheOptions* cache_opts = nullptr;
   PrimaryCacheType cache_type = PrimaryCacheType::kCacheTypeLRU;
   TieredAdmissionPolicy adm_policy = TieredAdmissionPolicy::kAdmPolicyAuto;

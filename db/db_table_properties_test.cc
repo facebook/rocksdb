@@ -22,6 +22,7 @@
 #include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/atomic.h"
 #include "util/random.h"
 
 
@@ -414,6 +415,71 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_OK(db_->GetDbSessionId(sid));
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
+  }
+}
+
+TEST_F(DBTablePropertiesTest, FactoryReturnsNull) {
+  struct JunkTablePropertiesCollector : public TablePropertiesCollector {
+    const char* Name() const override { return "JunkTablePropertiesCollector"; }
+    Status Finish(UserCollectedProperties* properties) override {
+      properties->insert({"Junk", "Junk"});
+      return Status::OK();
+    }
+    UserCollectedProperties GetReadableProperties() const override {
+      return {};
+    }
+  };
+
+  // Alternates between putting a "Junk" property and using `nullptr` to
+  // opt out.
+  static RelaxedAtomic<int> count{0};
+  struct SometimesTablePropertiesCollectorFactory
+      : public TablePropertiesCollectorFactory {
+    const char* Name() const override {
+      return "SometimesTablePropertiesCollectorFactory";
+    }
+    TablePropertiesCollector* CreateTablePropertiesCollector(
+        TablePropertiesCollectorFactory::Context /*context*/) override {
+      if (count.FetchAddRelaxed(1) & 1) {
+        return nullptr;
+      } else {
+        return new JunkTablePropertiesCollector();
+      }
+    }
+  };
+
+  Options options = CurrentOptions();
+  options.table_properties_collector_factories.emplace_back(
+      std::make_shared<SometimesTablePropertiesCollectorFactory>());
+  // For plain table
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  for (std::shared_ptr<TableFactory> tf :
+       {options.table_factory,
+        std::shared_ptr<TableFactory>(NewPlainTableFactory({}))}) {
+    SCOPED_TRACE("Table factory = " + std::string(tf->Name()));
+    options.table_factory = tf;
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("key0", "value1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("key0", "value2"));
+    ASSERT_OK(Flush());
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    int no_junk_count = 0;
+    int junk_count = 0;
+    for (const auto& item : props) {
+      if (item.second->user_collected_properties.find("Junk") !=
+          item.second->user_collected_properties.end()) {
+        junk_count++;
+      } else {
+        no_junk_count++;
+      }
+    }
+    EXPECT_EQ(1, no_junk_count);
+    EXPECT_EQ(1, junk_count);
   }
 }
 

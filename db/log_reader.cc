@@ -9,7 +9,7 @@
 
 #include "db/log_reader.h"
 
-#include <stdio.h>
+#include <cstdio>
 
 #include "file/sequence_file_reader.h"
 #include "port/lang.h"
@@ -21,7 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace log {
 
-Reader::Reporter::~Reporter() {}
+Reader::Reporter::~Reporter() = default;
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
@@ -469,12 +469,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
     const unsigned int type = header[6];
     const uint32_t length = a | (b << 8);
     int header_size = kHeaderSize;
-    if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
-        type == kRecyclableUserDefinedTimestampSizeType) {
+    const bool is_recyclable_type =
+        ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
+         type == kRecyclableUserDefinedTimestampSizeType);
+    if (is_recyclable_type) {
+      header_size = kRecyclableHeaderSize;
       if (end_of_buffer_offset_ - buffer_.size() == 0) {
         recycled_ = true;
       }
-      header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r = kEof;
@@ -483,11 +485,8 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
         }
         continue;
       }
-      const uint32_t log_num = DecodeFixed32(header + 7);
-      if (log_num != log_number_) {
-        return kOldRecord;
-      }
     }
+
     if (header_size + length > buffer_.size()) {
       assert(buffer_.size() >= static_cast<size_t>(header_size));
       *drop_size = buffer_.size();
@@ -497,6 +496,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
       // higher layers can decide how to handle it based on the recovery mode,
       // whether this occurred at EOF, whether this is the final WAL, etc.
       return kBadRecordLen;
+    }
+
+    if (is_recyclable_type) {
+      const uint32_t log_num = DecodeFixed32(header + 7);
+      if (log_num != log_number_) {
+        buffer_.remove_prefix(header_size + length);
+        return kOldRecord;
+      }
     }
 
     if (type == kZeroType && length == 0) {

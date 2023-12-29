@@ -163,6 +163,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "options/configurable.cc",
         "options/customizable.cc",
         "options/db_options.cc",
+        "options/offpeak_time_info.cc",
         "options/options.cc",
         "options/options_helper.cc",
         "options/options_parser.cc",
@@ -5620,3 +5621,5 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
+
+export_file(name = "tools/db_crashtest.py")

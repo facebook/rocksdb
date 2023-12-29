@@ -396,15 +396,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
 
-  if (!recovery_disabled_file_deletion_ &&
-      (BackgroundErrorReason::kManifestWrite == reason ||
-       BackgroundErrorReason::kManifestWriteNoWAL == reason)) {
-    // Always returns ok
-    ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
-    db_->DisableFileDeletionsWithLock().PermitUncheckedError();
-    recovery_disabled_file_deletion_ = true;
-  }
-
   Status new_bg_io_err = bg_io_err;
   DBRecoverContext context;
   if (bg_io_err.GetScope() != IOStatus::IOErrorScope::kIOErrorScopeFile &&
@@ -505,6 +496,31 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
   }
 }
 
+void ErrorHandler::AddFilesToQuarantine(
+    autovector<const autovector<uint64_t>*> files_to_quarantine) {
+  db_mutex_->AssertHeld();
+  std::ostringstream quarantine_files_oss;
+  bool is_first_one = true;
+  for (const auto* files : files_to_quarantine) {
+    assert(files);
+    for (uint64_t file_number : *files) {
+      files_to_quarantine_.push_back(file_number);
+      quarantine_files_oss << (is_first_one ? "" : ", ") << file_number;
+      is_first_one = false;
+    }
+  }
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "ErrorHandler: added file numbers %s to quarantine.\n",
+                 quarantine_files_oss.str().c_str());
+}
+
+void ErrorHandler::ClearFilesToQuarantine() {
+  db_mutex_->AssertHeld();
+  files_to_quarantine_.clear();
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "ErrorHandler: cleared files in quarantine.\n");
+}
+
 Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
                                           bool* auto_recovery) {
   if (bg_error.severity() >= Status::Severity::kFatalError) {
@@ -552,28 +568,18 @@ Status ErrorHandler::ClearBGError() {
 
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
+    assert(files_to_quarantine_.empty());
     Status old_bg_error = bg_error_;
     // old_bg_error is only for notifying listeners, so may not be checked
     old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
+    is_db_stopped_.store(false, std::memory_order_release);
     bg_error_ = Status::OK();
     recovery_error_ = IOStatus::OK();
     bg_error_.PermitUncheckedError();
     recovery_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
-    if (recovery_disabled_file_deletion_) {
-      recovery_disabled_file_deletion_ = false;
-      int remain_counter = db_->EnableFileDeletionsWithLock();
-      if (remain_counter == 0) {
-        ROCKS_LOG_INFO(db_options_.info_log, "File Deletions Enabled");
-      } else {
-        ROCKS_LOG_WARN(
-            db_options_.info_log,
-            "File Deletions Enable, but not really enabled. Counter: %d",
-            remain_counter);
-      }
-    }
     EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
                                            bg_error_, db_mutex_);
   }
@@ -645,6 +651,13 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
+  } else if (end_recovery_) {
+    // Can temporarily release db mutex
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                           Status::ShutdownInProgress(),
+                                           db_mutex_);
+    db_mutex_->AssertHeld();
+    return bg_error_;
   }
   if (bg_error_stats_ != nullptr) {
     RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
@@ -664,11 +677,14 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     // wait the previous recover thread to finish and create a new thread
     // to recover from the bg error.
     db_mutex_->Unlock();
+    TEST_SYNC_POINT(
+        "StartRecoverFromRetryableBGIOError:BeforeWaitingForOtherThread");
     old_recovery_thread->join();
+    TEST_SYNC_POINT(
+        "StartRecoverFromRetryableBGIOError:AfterWaitingForOtherThread");
     db_mutex_->Lock();
   }
 
-  TEST_SYNC_POINT("StartRecoverFromRetryableBGIOError::in_progress");
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
 
@@ -682,6 +698,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 // Automatic recover from Retryable BG IO error. Must be called after db
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
+  assert(recovery_in_prog_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart2");
   InstrumentedMutexLock l(db_mutex_);
@@ -747,21 +764,11 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // recover from the retryable IO error and no other BG errors. Clean
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
-        Status old_bg_error = bg_error_;
-        is_db_stopped_.store(false, std::memory_order_release);
-        bg_error_ = Status::OK();
-        bg_error_.PermitUncheckedError();
-        EventHelpers::NotifyOnErrorRecoveryEnd(
-            db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
         if (bg_error_stats_ != nullptr) {
           RecordTick(bg_error_stats_.get(),
                      ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
           RecordInHistogram(bg_error_stats_.get(),
                             ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
-        }
-        recovery_in_prog_ = false;
-        if (soft_error_no_bg_work_) {
-          soft_error_no_bg_work_ = false;
         }
         return;
       } else {
@@ -819,6 +826,7 @@ void ErrorHandler::EndAutoRecovery() {
     old_recovery_thread->join();
     db_mutex_->Lock();
   }
+  TEST_SYNC_POINT("PostEndAutoRecovery");
   return;
 }
 

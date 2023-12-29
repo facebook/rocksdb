@@ -9,10 +9,9 @@
 
 #include "table/block_based/block_based_table_builder.h"
 
-#include <assert.h>
-#include <stdio.h>
-
 #include <atomic>
+#include <cassert>
+#include <cstdio>
 #include <list>
 #include <map>
 #include <memory>
@@ -231,7 +230,6 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
                         uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
-    return;
   }
 
   Status Finish(UserCollectedProperties* properties) override {
@@ -579,9 +577,12 @@ struct BlockBasedTableBuilder::Rep {
     for (auto& factory : *tbo.int_tbl_prop_collector_factories) {
       assert(factory);
 
-      table_properties_collectors.emplace_back(
+      std::unique_ptr<IntTblPropCollector> collector{
           factory->CreateIntTblPropCollector(tbo.column_family_id,
-                                             tbo.level_at_creation));
+                                             tbo.level_at_creation)};
+      if (collector) {
+        table_properties_collectors.emplace_back(std::move(collector));
+      }
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -985,7 +986,9 @@ BlockBasedTableBuilder::~BlockBasedTableBuilder() {
 void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) return;
+  if (!ok()) {
+    return;
+  }
   ValueType value_type = ExtractValueType(key);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
@@ -1097,8 +1100,12 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);
-  if (!ok()) return;
-  if (r->data_block.empty()) return;
+  if (!ok()) {
+    return;
+  }
+  if (r->data_block.empty()) {
+    return;
+  }
   if (r->IsParallelCompressionEnabled() &&
       r->state == Rep::State::kUnbuffered) {
     r->data_block.Finish();
@@ -1710,9 +1717,10 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     property_block_builder.AddTableProperty(rep_->props);
 
     // Add use collected properties
-    NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
-                                         rep_->ioptions.logger,
-                                         &property_block_builder);
+    NotifyCollectTableCollectorsOnFinish(
+        rep_->table_properties_collectors, rep_->ioptions.logger,
+        &property_block_builder, rep_->props.user_collected_properties,
+        rep_->props.readable_properties);
 
     Slice block_data = property_block_builder.Finish();
     TEST_SYNC_POINT_CALLBACK(
@@ -2061,14 +2069,7 @@ bool BlockBasedTableBuilder::NeedCompact() const {
 }
 
 TableProperties BlockBasedTableBuilder::GetTableProperties() const {
-  TableProperties ret = rep_->props;
-  for (const auto& collector : rep_->table_properties_collectors) {
-    for (const auto& prop : collector->GetReadableProperties()) {
-      ret.readable_properties.insert(prop);
-    }
-    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
-  }
-  return ret;
+  return rep_->props;
 }
 
 std::string BlockBasedTableBuilder::GetFileChecksum() const {

@@ -2971,6 +2971,43 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
+TEST_P(ColumnFamilyTest, CompactionSpeedupForCompactionDebt) {
+  db_options_.max_background_compactions = 6;
+  Open();
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+  MutableCFOptions mutable_cf_options(column_family_options_);
+  mutable_cf_options.soft_pending_compaction_bytes_limit =
+      std::numeric_limits<uint64_t>::max();
+
+  {
+    // No bottommost data, so debt ratio cannot trigger speedup.
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  }
+
+  // Add a tiny amount of bottommost data.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  {
+    // 1MB debt is way bigger than bottommost data so definitely triggers
+    // speedup.
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
+
+    // Eight bytes is way smaller than bottommost data so definitely does not
+    // trigger speedup.
+    vstorage->TEST_set_estimated_compaction_needed_bytes(8);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  }
+}
+
 TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;

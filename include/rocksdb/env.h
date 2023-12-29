@@ -280,7 +280,7 @@ class Env : public Customizable {
                                    const EnvOptions& options);
 
   // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
+  // will not be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
@@ -1001,7 +1001,7 @@ class WritableFile {
   /*
    * Get the size of valid data in the file.
    */
-  virtual uint64_t GetFileSize() { return 0; };
+  virtual uint64_t GetFileSize() { return 0; }
 
   /*
    * Get and set the default pre-allocation block size for writes to

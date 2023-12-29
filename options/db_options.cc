@@ -995,8 +995,7 @@ MutableDBOptions::MutableDBOptions()
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
-      max_background_flushes(-1),
-      daily_offpeak_time_utc("") {}
+      max_background_flushes(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -1064,38 +1063,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
-}
-
-bool MutableDBOptions::IsNowOffPeak(SystemClock* clock) const {
-  if (daily_offpeak_time_utc.empty()) {
-    return false;
-  }
-  int64_t now;
-  if (clock->GetCurrentTime(&now).ok()) {
-    constexpr int kSecondsPerDay = 86400;
-    constexpr int kSecondsPerMinute = 60;
-    int seconds_since_midnight_to_nearest_minute =
-        (static_cast<int>(now % kSecondsPerDay) / kSecondsPerMinute) *
-        kSecondsPerMinute;
-    int start_time = 0, end_time = 0;
-    bool success =
-        TryParseTimeRangeString(daily_offpeak_time_utc, start_time, end_time);
-    assert(success);
-    assert(start_time != end_time);
-    if (!success) {
-      // If the validation was done properly, we should never reach here
-      return false;
-    }
-    // if the offpeak duration spans overnight (i.e. 23:30 - 4:30 next day)
-    if (start_time > end_time) {
-      return start_time <= seconds_since_midnight_to_nearest_minute ||
-             seconds_since_midnight_to_nearest_minute <= end_time;
-    } else {
-      return start_time <= seconds_since_midnight_to_nearest_minute &&
-             seconds_since_midnight_to_nearest_minute <= end_time;
-    }
-  }
-  return false;
 }
 
 Status GetMutableDBOptionsFromStrings(

@@ -40,7 +40,10 @@ set(JNI_NATIVE_SOURCES
         rocksjni/env_options.cc
         rocksjni/event_listener.cc
         rocksjni/event_listener_jnicallback.cc
+        rocksjni/export_import_files_metadatajni.cc
         rocksjni/filter.cc
+        rocksjni/import_column_family_options.cc
+        rocksjni/hyper_clock_cache.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
         rocksjni/jnicallback.cc
@@ -74,6 +77,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
+        rocksjni/table_properties_collector_factory.cc
         rocksjni/testable_event_listener.cc
         rocksjni/thread_status.cc
         rocksjni/trace_writer.cc
@@ -157,6 +161,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/EnvOptions.java
   src/main/java/org/rocksdb/EventListener.java
   src/main/java/org/rocksdb/Experimental.java
+  src/main/java/org/rocksdb/ExportImportFilesMetaData.java
   src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
   src/main/java/org/rocksdb/Filter.java
   src/main/java/org/rocksdb/FilterPolicyType.java
@@ -164,11 +169,14 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java
   src/main/java/org/rocksdb/FlushOptions.java
+  src/main/java/org/rocksdb/GetStatus.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
+  src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
+  src/main/java/org/rocksdb/HyperClockCache.java
   src/main/java/org/rocksdb/IndexShorteningMode.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
@@ -250,6 +258,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/TableFileDeletionInfo.java
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
+  src/main/java/org/rocksdb/TablePropertiesCollectorFactory.java
   src/main/java/org/rocksdb/TableFormatConfig.java
   src/main/java/org/rocksdb/ThreadType.java
   src/main/java/org/rocksdb/ThreadStatus.java
@@ -279,6 +288,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBufferManager.java
   src/main/java/org/rocksdb/WriteStallCondition.java
   src/main/java/org/rocksdb/WriteStallInfo.java
+  src/main/java/org/rocksdb/util/BufferUtil.java
   src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
@@ -332,6 +342,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/VerifyChecksumsTest.java
   src/test/java/org/rocksdb/MultiColumnRegressionTest.java
   src/test/java/org/rocksdb/FlushTest.java
+  src/test/java/org/rocksdb/HyperClockCacheTest.java
   src/test/java/org/rocksdb/PutMultiplePartsTest.java
   src/test/java/org/rocksdb/StatisticsCollectorTest.java
   src/test/java/org/rocksdb/LRUCacheTest.java
@@ -441,6 +452,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.VerifyChecksumsTest
   org.rocksdb.MultiColumnRegressionTest
   org.rocksdb.FlushTest
+  org.rocksdb.HyperClockCacheTest
   org.rocksdb.PutMultiplePartsTest
   org.rocksdb.StatisticsCollectorTest
   org.rocksdb.LRUCacheTest
@@ -557,13 +569,12 @@ else ()
 
 endif()
 
-get_target_property(ROCKSDBJNI_CLASSES_JAR_FILE rocksdbjni_classes JAR_FILE)
 add_jar(
     rocksdbjni_test_classes
     SOURCES
     ${JAVA_MAIN_CLASSES}
     ${JAVA_TEST_CLASSES}
-    INCLUDE_JARS ${ROCKSDBJNI_CLASSES_JAR_FILE} ${JAVA_TESTCLASSPATH}
+    INCLUDE_JARS ${JAVA_TESTCLASSPATH}
     GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
 )
 
@@ -679,6 +690,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.FlushOptions
           org.rocksdb.HashLinkedListMemTableConfig
           org.rocksdb.HashSkipListMemTableConfig
+          org.rocksdb.HyperClockCache
           org.rocksdb.IngestExternalFileOptions
           org.rocksdb.Logger
           org.rocksdb.LRUCache

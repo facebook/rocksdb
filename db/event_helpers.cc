@@ -230,6 +230,8 @@ void EventHelpers::NotifyOnErrorRecoveryEnd(
     db_mutex->AssertHeld();
     // release lock while notifying events
     db_mutex->Unlock();
+    TEST_SYNC_POINT("NotifyOnErrorRecoveryEnd:MutexUnlocked:1");
+    TEST_SYNC_POINT("NotifyOnErrorRecoveryEnd:MutexUnlocked:2");
     for (auto& listener : listeners) {
       BackgroundErrorRecoveryInfo info;
       info.old_bg_error = old_bg_error;

@@ -1227,7 +1227,7 @@ void CompactionIterator::DecideOutputLevel() {
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
     bool safe_to_penultimate_level =
-        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
+        compaction_->WithinPenultimateLevelOutputRange(ikey_);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
       // It could happen when disable/enable `last_level_temperature` while
@@ -1256,10 +1256,13 @@ void CompactionIterator::PrepareOutput() {
       } else if (ikey_.type == kTypeBlobIndex) {
         GarbageCollectBlobIfNeeded();
       }
-    }
 
-    if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
-      DecideOutputLevel();
+      // For range del sentinel, we don't use it to cut files for bottommost
+      // compaction. So it should not make a difference which output level we
+      // decide.
+      if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
+        DecideOutputLevel();
+      }
     }
 
     // Zeroing out the sequence number leads to better compression.

@@ -937,12 +937,21 @@ INSTANTIATE_TEST_CASE_P(DBWALTestWithParam, DBWALTestWithParam,
                         ::testing::Values(std::make_tuple("", true),
                                           std::make_tuple("_wal_dir", false)));
 
-TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
+TEST_F(DBSSTTest, OpenDBWithExistingTrashAndObsoleteSstFile) {
   Options options = CurrentOptions();
-
   options.sst_file_manager.reset(
       NewSstFileManager(env_, nullptr, "", 1024 * 1024 /* 1 MB/sec */));
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  // Set an extra high trash ratio to prevent immediate/non-rate limited
+  // deletions
+  sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
+
+  int bg_delete_file = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
+      [&](void* /*arg*/) { bg_delete_file++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Destroy(last_options_);
 
@@ -951,13 +960,22 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
+  // Manually add an obsolete sst file. Obsolete SST files are discovered and
+  // deleted upon recovery.
+  constexpr uint64_t kSstFileNumber = 100;
+  const std::string kObsoleteSstFile =
+      MakeTableFileName(dbname_, kSstFileNumber);
+  ASSERT_OK(WriteStringToFile(env_, "abc", kObsoleteSstFile));
 
-  // Reopen the DB and verify that it deletes existing trash files
+  // Reopen the DB and verify that it deletes existing trash files and obsolete
+  // SST files with rate limiting.
   Reopen(options);
   sfm->WaitForEmptyTrash();
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "001.sst.trash"));
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "002.sst.trash"));
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
+  ASSERT_NOK(env_->FileExists(kObsoleteSstFile));
+  ASSERT_EQ(bg_delete_file, 4);
 }
 
 // Create a DB with 2 db_paths, and generate multiple files in the 2
@@ -1520,6 +1538,11 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSize) {
+  // FIXME: L0 file and L1+ file also differ in size of `oldest_key_time`.
+  //  L0 file has non-zero `oldest_key_time` while L1+ files have 0.
+  //  The test passes since L1+ file uses current time instead of 0
+  //  as oldest_ancestor_time.
+  //
   // We don't propagate oldest-key-time table property on compaction and
   // just write 0 as default value. This affect the exact table size, since
   // we encode table properties as varint64. Force time to be 0 to work around

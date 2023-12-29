@@ -10,8 +10,10 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/wide/wide_columns_helper.h"
 #include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
@@ -253,6 +255,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeRollbackXID:
       case kTypeNoop:
         break;
+      case kTypeColumnFamilyWideColumnEntity:
+      case kTypeWideColumnEntity:
+        found++;
+        if (!UpdateExistingEntryWithCfId(column_family_id, key,
+                                         kPutEntityRecord)) {
+          AddNewEntry(column_family_id);
+        }
+        break;
       default:
         return Status::Corruption(
             "unknown WriteBatch tag in ReBuildIndex",
@@ -350,6 +360,22 @@ Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
   }
   // TODO: support WBWI::Put() with timestamp.
   return Status::NotSupported();
+}
+
+Status WriteBatchWithIndex::PutEntity(ColumnFamilyHandle* column_family,
+                                      const Slice& key,
+                                      const WideColumns& columns) {
+  assert(rep);
+
+  rep->SetLastEntryOffset();
+
+  const Status s = rep->write_batch.PutEntity(column_family, key, columns);
+
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key, kPutEntityRecord);
+  }
+
+  return s;
 }
 
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
@@ -509,6 +535,43 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                            nullptr);
 }
 
+void WriteBatchWithIndex::MergeAcrossBatchAndDB(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const PinnableWideColumns& existing, const MergeContext& merge_context,
+    PinnableSlice* value, Status* status) {
+  assert(value);
+  assert(status);
+  assert(status->ok() || status->IsNotFound());
+
+  std::string result_value;
+
+  if (status->ok()) {
+    if (WideColumnsHelper::HasDefaultColumnOnly(existing.columns())) {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kPlainBaseValue,
+          WideColumnsHelper::GetDefaultColumn(existing.columns()),
+          merge_context, &result_value,
+          static_cast<PinnableWideColumns*>(nullptr));
+    } else {
+      *status = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
+          column_family, key, MergeHelper::kWideBaseValue, existing.columns(),
+          merge_context, &result_value,
+          static_cast<PinnableWideColumns*>(nullptr));
+    }
+  } else {
+    assert(status->IsNotFound());
+    *status = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
+        column_family, key, merge_context, &result_value,
+        static_cast<PinnableWideColumns*>(nullptr));
+  }
+
+  if (status->ok()) {
+    value->Reset();
+    *value->GetSelf() = std::move(result_value);
+    value->PinSelf();
+  }
+}
+
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
@@ -537,45 +600,39 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
     return s;
-  } else if (!s.ok() || result == WBWIIteratorImpl::kError) {
+  }
+
+  if (!s.ok() || result == WBWIIteratorImpl::kError) {
     return s;
-  } else if (result == WBWIIteratorImpl::kDeleted) {
+  }
+
+  if (result == WBWIIteratorImpl::kDeleted) {
     return Status::NotFound();
   }
-  assert(result == WBWIIteratorImpl::kMergeInProgress ||
-         result == WBWIIteratorImpl::kNotFound);
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  if (!callback) {
-    s = static_cast_with_check<DBImpl>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+
+  // Note: we have to retrieve all columns if we have to merge KVs from the
+  // batch and the DB; otherwise, the default column is sufficient.
+  PinnableWideColumns existing;
+
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    get_impl_options.columns = &existing;
   } else {
-    DBImpl::GetImplOptions get_impl_options;
-    get_impl_options.column_family = column_family;
+    assert(result == WBWIIteratorImpl::kNotFound);
     get_impl_options.value = pinnable_val;
-    get_impl_options.callback = callback;
-    s = static_cast_with_check<DBImpl>(db->GetRootDB())
-            ->GetImpl(read_options, key, get_impl_options);
   }
 
-  if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
-    if (result == WBWIIteratorImpl::kMergeInProgress) {
-      // Merge result from DB with merges in Batch
-      std::string merge_result;
+  get_impl_options.callback = callback;
+  s = static_cast_with_check<DBImpl>(db->GetRootDB())
+          ->GetImpl(read_options, key, get_impl_options);
 
-      if (s.ok()) {
-        s = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
-            column_family, key, *pinnable_val, merge_context, &merge_result);
-      } else {
-        assert(s.IsNotFound());
-        s = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-            column_family, key, merge_context, &merge_result);
-      }
-      if (s.ok()) {
-        pinnable_val->Reset();
-        *pinnable_val->GetSelf() = std::move(merge_result);
-        pinnable_val->PinSelf();
-      }
+  if (result == WBWIIteratorImpl::kMergeInProgress) {
+    if (s.ok() || s.IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, key, existing, merge_context,
+                            pinnable_val, &s);
     }
   }
 
@@ -612,80 +669,101 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     return;
   }
 
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  // To hold merges from the write batch
-  autovector<std::pair<WBWIIteratorImpl::Result, MergeContext>,
-             MultiGetContext::MAX_BATCH_SIZE>
-      merges;
+  struct MergeTuple {
+    MergeTuple(const Slice& _key, Status* _s, MergeContext&& _merge_context,
+               PinnableSlice* _value)
+        : key(_key),
+          s(_s),
+          merge_context(std::move(_merge_context)),
+          value(_value) {
+      assert(s);
+      assert(value);
+    }
+
+    Slice key;
+    Status* s;
+    PinnableWideColumns existing;
+    MergeContext merge_context;
+    PinnableSlice* value;
+  };
+
+  autovector<MergeTuple, MultiGetContext::MAX_BATCH_SIZE> merges;
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_contexts;
+
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
+    const Slice& key = keys[i];
     MergeContext merge_context;
     std::string batch_value;
-    Status* s = &statuses[i];
-    PinnableSlice* pinnable_val = &values[i];
-    pinnable_val->Reset();
+    Status* const s = &statuses[i];
     auto result = WriteBatchWithIndexInternal::GetFromBatch(
-        this, column_family, keys[i], &merge_context, &batch_value, s);
+        this, column_family, key, &merge_context, &batch_value, s);
+
+    PinnableSlice* const pinnable_val = &values[i];
+    pinnable_val->Reset();
 
     if (result == WBWIIteratorImpl::kFound) {
       *pinnable_val->GetSelf() = std::move(batch_value);
       pinnable_val->PinSelf();
       continue;
     }
+
     if (result == WBWIIteratorImpl::kDeleted) {
       *s = Status::NotFound();
       continue;
     }
+
     if (result == WBWIIteratorImpl::kError) {
       continue;
     }
-    assert(result == WBWIIteratorImpl::kMergeInProgress ||
-           result == WBWIIteratorImpl::kNotFound);
-    key_context.emplace_back(column_family, keys[i], &values[i],
-                             /* columns */ nullptr, /* timestamp */ nullptr,
-                             &statuses[i]);
-    merges.emplace_back(result, std::move(merge_context));
+
+    // Note: we have to retrieve all columns if we have to merge KVs from the
+    // batch and the DB; otherwise, the default column is sufficient.
+    // The columns field will be populated by the loop below to prevent issues
+    // with dangling pointers.
+    if (result == WBWIIteratorImpl::kMergeInProgress) {
+      merges.emplace_back(key, s, std::move(merge_context), pinnable_val);
+      key_contexts.emplace_back(column_family, key, /* value */ nullptr,
+                                /* columns */ nullptr, /* timestamp */ nullptr,
+                                s);
+      continue;
+    }
+
+    assert(result == WBWIIteratorImpl::kNotFound);
+    key_contexts.emplace_back(column_family, key, pinnable_val,
+                              /* columns */ nullptr,
+                              /* timestamp */ nullptr, s);
   }
 
-  for (KeyContext& key : key_context) {
-    sorted_keys.emplace_back(&key);
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.reserve(key_contexts.size());
+
+  size_t merges_idx = 0;
+  for (KeyContext& key_context : key_contexts) {
+    if (!key_context.value) {
+      assert(*key_context.key == merges[merges_idx].key);
+
+      key_context.columns = &merges[merges_idx].existing;
+      ++merges_idx;
+    }
+
+    sorted_keys.emplace_back(&key_context);
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+      ->PrepareMultiGetKeys(sorted_keys.size(), sorted_input, &sorted_keys);
   static_cast_with_check<DBImpl>(db->GetRootDB())
       ->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 
-  for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
-    KeyContext& key = *iter;
-    if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
-      size_t index = iter - key_context.begin();
-      std::pair<WBWIIteratorImpl::Result, MergeContext>& merge_result =
-          merges[index];
-      if (merge_result.first == WBWIIteratorImpl::kMergeInProgress) {
-        // Merge result from DB with merges in Batch
-        std::string merged_value;
-
-        if (key.s->ok()) {
-          *key.s = WriteBatchWithIndexInternal::MergeKeyWithPlainBaseValue(
-              column_family, *key.key, *key.value, merge_result.second,
-              &merged_value);
-        } else {
-          assert(key.s->IsNotFound());
-          *key.s = WriteBatchWithIndexInternal::MergeKeyWithNoBaseValue(
-              column_family, *key.key, merge_result.second, &merged_value);
-        }
-        if (key.s->ok()) {
-          key.value->Reset();
-          *key.value->GetSelf() = std::move(merged_value);
-          key.value->PinSelf();
-        }
-      }
+  for (const auto& merge : merges) {
+    if (merge.s->ok() || merge.s->IsNotFound()) {  // DB lookup succeeded
+      MergeAcrossBatchAndDB(column_family, merge.key, merge.existing,
+                            merge.merge_context, merge.value, merge.s);
     }
   }
 }

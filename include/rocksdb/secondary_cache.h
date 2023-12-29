@@ -114,7 +114,7 @@ class SecondaryCache : public Customizable {
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& kept_in_sec_cache) = 0;
+      Statistics* stats, bool& kept_in_sec_cache) = 0;
 
   // Indicate whether a handle can be erased in this secondary cache.
   [[nodiscard]] virtual bool SupportForceErase() const = 0;
@@ -176,9 +176,9 @@ class SecondaryCacheWrapper : public SecondaryCache {
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& kept_in_sec_cache) override {
+      Statistics* stats, bool& kept_in_sec_cache) override {
     return target()->Lookup(key, helper, create_context, wait, advise_erase,
-                            kept_in_sec_cache);
+                            stats, kept_in_sec_cache);
   }
 
   virtual bool SupportForceErase() const override {

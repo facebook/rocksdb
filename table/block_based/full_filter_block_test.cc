@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class TestFilterBitsBuilder : public FilterBitsBuilder {
  public:
-  explicit TestFilterBitsBuilder() {}
+  explicit TestFilterBitsBuilder() = default;
 
   // Add Key to filter
   void AddKey(const Slice& key) override {
@@ -197,7 +197,7 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
  public:
   explicit CountUniqueFilterBitsBuilderWrapper(FilterBitsBuilder* b) : b_(b) {}
 
-  ~CountUniqueFilterBitsBuilderWrapper() override {}
+  ~CountUniqueFilterBitsBuilderWrapper() override = default;
 
   void AddKey(const Slice& key) override {
     b_->AddKey(key);

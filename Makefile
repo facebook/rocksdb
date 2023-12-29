@@ -539,7 +539,7 @@ endif
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
-	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator
+	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator -Wimplicit-fallthrough
 endif
 
 ifeq ($(PLATFORM), OS_OPENBSD)
@@ -994,7 +994,7 @@ endif
 
 .PHONY: check_0
 check_0:
-	printf '%s\n' ''						\
+	@printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{ \
@@ -1016,7 +1016,7 @@ valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.
 .PHONY: valgrind_check_0
 valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
-	printf '%s\n' ''						\
+	@printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{								\
@@ -2060,7 +2060,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 sparc64 loongarch64, $(MACHINE)))
+	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 riscv64 sparc64 loongarch64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -2081,7 +2081,7 @@ ifneq ($(origin JNI_LIBC), undefined)
 endif
 
 ifeq (,$(ROCKSDBJNILIB))
-ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64 loongarch64, $(MACHINE)))
+ifneq (,$(filter ppc% s390x arm64 aarch64 riscv64 sparc64 loongarch64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
@@ -2107,7 +2107,7 @@ LZ4_VER ?= 1.9.4
 LZ4_SHA256 ?= 0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 ZSTD_VER ?= 1.5.5
-ZSTD_SHA256 ?= 9c4396cc829cfae319a6e2615202e82aad41372073482fce286fac78646d3ee4
+ZSTD_SHA256 ?= 98e9c3d949d1b924e28e01eccb7deed865eefebf25c2f21c702e5cd5b63b85e1
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
@@ -2345,6 +2345,10 @@ rocksdbjavastaticdockerarm64v8:
 rocksdbjavastaticdockers390x:
 	mkdir -p java/target
 	docker run --rm --name rocksdb_linux_s390x-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:ubuntu18_s390x-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
+
+rocksdbjavastaticdockerriscv64:
+	mkdir -p java/target
+	docker run --rm --name rocksdb_linux_riscv64-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:ubuntu20_riscv64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerx86musl:
 	mkdir -p java/target

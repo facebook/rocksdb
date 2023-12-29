@@ -4415,6 +4415,8 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.env = env_;
+  options.enable_blob_files = true;
+  options.blob_file_size = 0;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
@@ -4435,6 +4437,11 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+  // The IO error was a mocked one from the `AfterSyncManifest` callback. The
+  // Flush's VersionEdit actually made it into the Manifest. So these keys can
+  // be read back. Read them to check all live sst files and blob files.
+  ASSERT_EQ("bar", Get("foo"));
+  ASSERT_EQ("value", Get("key"));
 }
 
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {

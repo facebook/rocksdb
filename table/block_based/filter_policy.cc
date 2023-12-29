@@ -72,7 +72,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         detect_filter_construct_corruption_(
             detect_filter_construct_corruption) {}
 
-  ~XXPH3FilterBitsBuilder() override {}
+  ~XXPH3FilterBitsBuilder() override = default;
 
   virtual void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
@@ -321,7 +321,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
   FastLocalBloomBitsBuilder(const FastLocalBloomBitsBuilder&) = delete;
   void operator=(const FastLocalBloomBitsBuilder&) = delete;
 
-  ~FastLocalBloomBitsBuilder() override {}
+  ~FastLocalBloomBitsBuilder() override = default;
 
   using FilterBitsBuilder::Finish;
 
@@ -525,7 +525,7 @@ class FastLocalBloomBitsReader : public BuiltinFilterBitsReader {
   FastLocalBloomBitsReader(const FastLocalBloomBitsReader&) = delete;
   void operator=(const FastLocalBloomBitsReader&) = delete;
 
-  ~FastLocalBloomBitsReader() override {}
+  ~FastLocalBloomBitsReader() override = default;
 
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
@@ -606,7 +606,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
   Standard128RibbonBitsBuilder(const Standard128RibbonBitsBuilder&) = delete;
   void operator=(const Standard128RibbonBitsBuilder&) = delete;
 
-  ~Standard128RibbonBitsBuilder() override {}
+  ~Standard128RibbonBitsBuilder() override = default;
 
   using FilterBitsBuilder::Finish;
 
@@ -967,7 +967,7 @@ class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
   Standard128RibbonBitsReader(const Standard128RibbonBitsReader&) = delete;
   void operator=(const Standard128RibbonBitsReader&) = delete;
 
-  ~Standard128RibbonBitsReader() override {}
+  ~Standard128RibbonBitsReader() override = default;
 
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
@@ -1070,7 +1070,7 @@ LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
   assert(bits_per_key_);
 }
 
-LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() {}
+LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() = default;
 
 void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
   uint32_t hash = BloomHash(key);
@@ -1220,7 +1220,7 @@ class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
   LegacyBloomBitsReader(const LegacyBloomBitsReader&) = delete;
   void operator=(const LegacyBloomBitsReader&) = delete;
 
-  ~LegacyBloomBitsReader() override {}
+  ~LegacyBloomBitsReader() override = default;
 
   // "contents" contains the data built by a preceding call to
   // FilterBitsBuilder::Finish. MayMatch must return true if the key was
@@ -1359,7 +1359,7 @@ BloomLikeFilterPolicy::BloomLikeFilterPolicy(double bits_per_key)
   whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
 }
 
-BloomLikeFilterPolicy::~BloomLikeFilterPolicy() {}
+BloomLikeFilterPolicy::~BloomLikeFilterPolicy() = default;
 const char* BloomLikeFilterPolicy::kClassName() {
   return "rocksdb.internal.BloomLikeFilter";
 }
@@ -1805,7 +1805,7 @@ FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
 
-FilterPolicy::~FilterPolicy() {}
+FilterPolicy::~FilterPolicy() = default;
 
 std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
     const std::string& name, double bits_per_key) {

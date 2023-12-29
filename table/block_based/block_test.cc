@@ -6,9 +6,8 @@
 
 #include "table/block_based/block.h"
 
-#include <stdio.h>
-
 #include <algorithm>
+#include <cstdio>
 #include <set>
 #include <string>
 #include <unordered_set>

@@ -149,6 +149,8 @@ class GetContext {
 
   bool NeedTimestamp() { return timestamp_ != nullptr; }
 
+  inline size_t TimestampSize() { return ucmp_->timestamp_size(); }
+
   void SetTimestampFromRangeTombstone(const Slice& timestamp) {
     assert(timestamp_);
     timestamp_->assign(timestamp.data(), timestamp.size());
@@ -203,6 +205,8 @@ class GetContext {
 
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
                     PinnableSlice* blob_value);
+
+  void appendToReplayLog(ValueType type, Slice value, Slice ts);
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;

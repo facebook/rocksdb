@@ -186,7 +186,8 @@ Status ImportColumnFamilyJob::Run() {
       cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
       nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
       EpochNumberRequirement::kMightMissing, cfd_->ioptions()->clock,
-      cfd_->GetLatestMutableCFOptions()->bottommost_file_compaction_delay);
+      cfd_->GetLatestMutableCFOptions()->bottommost_file_compaction_delay,
+      cfd_->current()->version_set()->offpeak_time_option());
   Status s;
 
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
@@ -365,9 +366,35 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
     bool bound_set = false;
     if (iter->Valid()) {
       file_to_import->smallest_internal_key.DecodeFrom(iter->key());
-      iter->SeekToLast();
-      file_to_import->largest_internal_key.DecodeFrom(iter->key());
+      Slice largest;
+      if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+        // PlainTable iterator does not support SeekToLast().
+        largest = iter->key();
+        for (; iter->Valid(); iter->Next()) {
+          if (cfd_->internal_comparator().Compare(iter->key(), largest) > 0) {
+            largest = iter->key();
+          }
+        }
+        if (!iter->status().ok()) {
+          return iter->status();
+        }
+      } else {
+        iter->SeekToLast();
+        if (!iter->Valid()) {
+          if (iter->status().ok()) {
+            // The file contains at least 1 key since iter is valid after
+            // SeekToFirst().
+            return Status::Corruption("Can not find largest key in sst file");
+          } else {
+            return iter->status();
+          }
+        }
+        largest = iter->key();
+      }
+      file_to_import->largest_internal_key.DecodeFrom(largest);
       bound_set = true;
+    } else if (!iter->status().ok()) {
+      return iter->status();
     }
 
     std::unique_ptr<InternalIterator> range_del_iter{
