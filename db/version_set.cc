@@ -5073,7 +5073,7 @@ VersionSet::VersionSet(
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
     const std::string& db_session_id, const std::string& daily_offpeak_time_utc,
-    ErrorHandler* const error_handler)
+    ErrorHandler* const error_handler, const bool read_only)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
@@ -5100,7 +5100,58 @@ VersionSet::VersionSet(
       io_tracer_(io_tracer),
       db_session_id_(db_session_id),
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
-      error_handler_(error_handler) {}
+      error_handler_(error_handler),
+      read_only_(read_only),
+      closed_(false) {}
+
+Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
+  Status s;
+  if (closed_ || read_only_ || !manifest_file_number_ || !descriptor_log_) {
+    return s;
+  }
+
+  std::string manifest_file_name =
+      DescriptorFileName(dbname_, manifest_file_number_);
+  uint64_t size = 0;
+  IOStatus io_s = descriptor_log_->Close();
+  descriptor_log_.reset();
+  TEST_SYNC_POINT("VersionSet::Close:AfterClose");
+  if (io_s.ok()) {
+    io_s = fs_->GetFileSize(manifest_file_name, IOOptions(), &size, nullptr);
+  }
+  if (!io_s.ok() || size != manifest_file_size_) {
+    if (io_s.ok()) {
+      // This means the size is not as expected. So we treat it as a
+      // corruption and set io_s appropriately
+      io_s = IOStatus::Corruption();
+    }
+    ColumnFamilyData* cfd = GetColumnFamilySet()->GetDefault();
+    const ImmutableOptions* ioptions = cfd->ioptions();
+    IOErrorInfo io_error_info(io_s, FileOperationType::kVerify,
+                              manifest_file_name, /*length=*/size,
+                              /*offset=*/0);
+
+    for (auto& listener : ioptions->listeners) {
+      listener->OnIOError(io_error_info);
+    }
+    io_s.PermitUncheckedError();
+    io_error_info.io_status.PermitUncheckedError();
+    ROCKS_LOG_ERROR(db_options_->info_log,
+                    "MANIFEST verification on Close, "
+                    "filename %s, expected size %" PRIu64
+                    " failed with status %s and "
+                    "actual size %" PRIu64 "\n",
+                    manifest_file_name.c_str(), manifest_file_size_,
+                    io_s.ToString().c_str(), size);
+    VersionEdit edit;
+    assert(cfd);
+    const MutableCFOptions& cf_opts = *cfd->GetLatestMutableCFOptions();
+    s = LogAndApply(cfd, cf_opts, ReadOptions(), &edit, mu, db_dir);
+  }
+
+  closed_ = true;
+  return s;
+}
 
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
@@ -6244,7 +6295,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
-                      /*error_handler_*/ nullptr);
+                      /*error_handler_*/ nullptr, /*read_only=*/false);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -7286,7 +7337,7 @@ ReactiveVersionSet::ReactiveVersionSet(
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
-                 /*error_handler=*/nullptr) {}
+                 /*error_handler=*/nullptr, /*read_only=*/true) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 

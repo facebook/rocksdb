@@ -1543,7 +1543,7 @@ class RecoveryTestHelper {
         /*block_cache_tracer=*/nullptr,
         /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
         options.daily_offpeak_time_utc,
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));

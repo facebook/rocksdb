@@ -1160,12 +1160,14 @@ class VersionSet {
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_id, const std::string& db_session_id,
              const std::string& daily_offpeak_time_utc,
-             ErrorHandler* const error_handler);
+             ErrorHandler* const error_handler, const bool read_only);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
 
   virtual ~VersionSet();
+
+  virtual Status Close(FSDirectory* db_dir, InstrumentedMutex* mu);
 
   Status LogAndApplyToDefaultColumnFamily(
       const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
@@ -1693,6 +1695,9 @@ class VersionSet {
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, SequenceNumber* max_last_sequence,
                            InstrumentedMutex* mu);
+
+  const bool read_only_;
+  bool closed_;
 };
 
 // ReactiveVersionSet represents a collection of versions of the column
@@ -1709,6 +1714,10 @@ class ReactiveVersionSet : public VersionSet {
                      const std::shared_ptr<IOTracer>& io_tracer);
 
   ~ReactiveVersionSet() override;
+
+  Status Close(FSDirectory* /*db_dir*/, InstrumentedMutex* /*mu*/) override {
+    return Status::OK();
+  }
 
   Status ReadAndApply(
       InstrumentedMutex* mu,
