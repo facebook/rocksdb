@@ -1255,7 +1255,7 @@ class VersionSetTestBase {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_, nullptr);
@@ -1354,14 +1354,29 @@ class VersionSetTestBase {
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
 
+  void CloseDB() {
+    mutex_.Lock();
+    versions_->Close(nullptr, &mutex_).PermitUncheckedError();
+    versions_.reset();
+    mutex_.Unlock();
+  }
+
   void ReopenDB() {
     versions_.reset(new VersionSet(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     EXPECT_OK(versions_->Recover(column_families_, false));
+  }
+
+  void GetManifestPath(std::string* manifest_path) const {
+    assert(manifest_path != nullptr);
+    uint64_t manifest_file_number = 0;
+    Status s = versions_->GetCurrentManifestPath(
+        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+    ASSERT_OK(s);
   }
 
   void VerifyManifest(std::string* manifest_path) const {
@@ -1873,7 +1888,7 @@ TEST_F(VersionSetTest, WalAddition) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1941,7 +1956,7 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -1995,7 +2010,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2034,7 +2049,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2155,7 +2170,7 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2192,7 +2207,7 @@ TEST_F(VersionSetTest, DeleteAllWals) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 0);
@@ -2235,7 +2250,7 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     std::string db_id;
     ASSERT_OK(
         new_versions->Recover(column_families_, /*read_only=*/false, &db_id));
@@ -2343,6 +2358,28 @@ TEST_F(VersionSetTest, OffpeakTimeInfoTest) {
       versions_->offpeak_time_option().GetOffpeakTimeInfo(now).is_now_offpeak);
 }
 
+TEST_F(VersionSetTest, ManifestTruncateAfterClose) {
+  std::string manifest_path;
+  VersionEdit edit;
+
+  NewDB();
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:AfterClose", [&](void*) {
+        GetManifestPath(&manifest_path);
+        std::unique_ptr<WritableFile> manifest_file;
+        EXPECT_OK(env_->ReopenWritableFile(manifest_path, &manifest_file,
+                                           EnvOptions()));
+        EXPECT_OK(manifest_file->Truncate(0));
+        EXPECT_OK(manifest_file->Close());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  ReopenDB();
+}
+
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
   // Tests that compensated range deletion size is added to compensated file
   // size.
@@ -2394,7 +2431,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
     ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {

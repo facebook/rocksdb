@@ -1347,6 +1347,34 @@ public class RocksDBTest {
     }
   }
 
+  @Test
+  public void getLiveFilesMetadataWithChecksum() throws RocksDBException {
+    final Properties props = new Properties();
+    final byte[] key1 = "key1".getBytes(UTF_8);
+    props.put("file_checksum_gen_factory", "FileChecksumGenCrc32cFactory");
+
+    try (final DBOptions dbOptions = DBOptions.getDBOptionsFromProps(props);
+         final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
+         final Options options = new Options(dbOptions, cfOptions).setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+
+      // disable WAL so we have a deterministic checksum
+      try (final RocksDB db = RocksDB.open(options, dbPath);
+           final WriteOptions writeOptions = new WriteOptions().setDisableWAL(true)) {
+        db.put(writeOptions, key1, key1);
+      }
+
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        final List<LiveFileMetaData> expectedFileMetadata = db.getLiveFilesMetaData();
+        assertThat(expectedFileMetadata).hasSize(1);
+        // ideally we could re-compute here, but CRC32C is a Java 9 feature, so we have no CRC32C
+        // implementation available here
+        final LiveFileMetaData sstFile = expectedFileMetadata.get(0);
+        assertThat(sstFile.fileChecksum()).isNotEmpty();
+      }
+    }
+  }
+
   @Ignore("TODO(AR) re-enable when ready!")
   @Test
   public void compactFiles() throws RocksDBException {
