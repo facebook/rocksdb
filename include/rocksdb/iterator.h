@@ -112,6 +112,9 @@ class Iterator : public Cleanable {
   // Regardless of whether the iterator was created/refreshed previously
   // with or without a snapshot, the iterator will be reading the
   // latest DB state after this call.
+  // Note that you will need to call a Seek*() function to get the iterator
+  // back into a valid state before calling a function that assumes the
+  // state is already valid, like Next().
   virtual Status Refresh() { return Refresh(nullptr); }
 
   // Similar to Refresh() but the iterator will be reading the latest DB state

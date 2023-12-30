@@ -86,7 +86,9 @@ SimulatedHybridFileSystem::~SimulatedHybridFileSystem() {
     metadata += f;
     metadata += "\n";
   }
-  IOStatus s = WriteStringToFile(target(), metadata, metadata_file_name_, true);
+  IOOptions opts;
+  IOStatus s =
+      WriteStringToFile(target(), metadata, metadata_file_name_, true, opts);
   if (!s.ok()) {
     fprintf(stderr, "Error writing to file %s: %s", metadata_file_name_.c_str(),
             s.ToString().c_str());
@@ -240,4 +242,3 @@ IOStatus SimulatedWritableFile::Sync(const IOOptions& options,
   return target()->Sync(options, dbg);
 }
 }  // namespace ROCKSDB_NAMESPACE
-

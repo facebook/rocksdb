@@ -251,7 +251,8 @@ enum class FileOperationType {
   kRangeSync,
   kAppend,
   kPositionedAppend,
-  kOpen
+  kOpen,
+  kVerify
 };
 
 struct FileOperationInfo {

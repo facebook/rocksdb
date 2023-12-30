@@ -705,6 +705,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/table.cc                                      \
   java/rocksjni/table_filter.cc                               \
   java/rocksjni/table_filter_jnicallback.cc                   \
+  java/rocksjni/table_properties_collector_factory.cc         \
   java/rocksjni/thread_status.cc                              \
   java/rocksjni/trace_writer.cc                               \
   java/rocksjni/trace_writer_jnicallback.cc                   \

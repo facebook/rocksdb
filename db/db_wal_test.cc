@@ -1543,7 +1543,7 @@ class RecoveryTestHelper {
         /*block_cache_tracer=*/nullptr,
         /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"",
         options.daily_offpeak_time_utc,
-        /*error_handler=*/nullptr));
+        /*error_handler=*/nullptr, /*read_only=*/false));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1561,7 +1561,7 @@ class RecoveryTestHelper {
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0, false,
                           db_options.wal_compression);
-      ASSERT_OK(log_writer->AddCompressionTypeRecord());
+      ASSERT_OK(log_writer->AddCompressionTypeRecord(WriteOptions()));
       current_log_writer.reset(log_writer);
 
       WriteBatch batch;
@@ -1574,7 +1574,7 @@ class RecoveryTestHelper {
         ASSERT_OK(batch.Put(key, value));
         WriteBatchInternal::SetSequence(&batch, seq);
         ASSERT_OK(current_log_writer->AddRecord(
-            WriteBatchInternal::Contents(&batch)));
+            WriteOptions(), WriteBatchInternal::Contents(&batch)));
         versions->SetLastAllocatedSequence(seq);
         versions->SetLastPublishedSequence(seq);
         versions->SetLastSequence(seq);

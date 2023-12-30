@@ -1623,7 +1623,7 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
 
   std::stringstream ss;
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     for (const auto& file_meta : storage_info_.files_[level]) {
@@ -3975,13 +3975,19 @@ void SortFileByOverlappingRatio(
                       // This makes the algorithm more deterministic, and also
                       // help the trivial move case to have more files to
                       // extend.
-                      if (file_to_order[f1.file->fd.GetNumber()] ==
-                          file_to_order[f2.file->fd.GetNumber()]) {
-                        return icmp.Compare(f1.file->smallest,
-                                            f2.file->smallest) < 0;
+                      if (f1.file->marked_for_compaction ==
+                          f2.file->marked_for_compaction) {
+                        if (file_to_order[f1.file->fd.GetNumber()] ==
+                            file_to_order[f2.file->fd.GetNumber()]) {
+                          return icmp.Compare(f1.file->smallest,
+                                              f2.file->smallest) < 0;
+                        }
+                        return file_to_order[f1.file->fd.GetNumber()] <
+                               file_to_order[f2.file->fd.GetNumber()];
+                      } else {
+                        return f1.file->marked_for_compaction >
+                               f2.file->marked_for_compaction;
                       }
-                      return file_to_order[f1.file->fd.GetNumber()] <
-                             file_to_order[f2.file->fd.GetNumber()];
                     });
 }
 
@@ -5067,7 +5073,7 @@ VersionSet::VersionSet(
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
     const std::string& db_session_id, const std::string& daily_offpeak_time_utc,
-    ErrorHandler* const error_handler)
+    ErrorHandler* const error_handler, const bool read_only)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
@@ -5094,7 +5100,59 @@ VersionSet::VersionSet(
       io_tracer_(io_tracer),
       db_session_id_(db_session_id),
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
-      error_handler_(error_handler) {}
+      error_handler_(error_handler),
+      read_only_(read_only),
+      closed_(false) {}
+
+Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
+  Status s;
+  if (closed_ || read_only_ || !manifest_file_number_ || !descriptor_log_) {
+    return s;
+  }
+
+  std::string manifest_file_name =
+      DescriptorFileName(dbname_, manifest_file_number_);
+  uint64_t size = 0;
+  IOStatus io_s = descriptor_log_->Close(WriteOptions());
+  descriptor_log_.reset();
+  TEST_SYNC_POINT("VersionSet::Close:AfterClose");
+  if (io_s.ok()) {
+    io_s = fs_->GetFileSize(manifest_file_name, IOOptions(), &size, nullptr);
+  }
+  if (!io_s.ok() || size != manifest_file_size_) {
+    if (io_s.ok()) {
+      // This means the size is not as expected. So we treat it as a
+      // corruption and set io_s appropriately
+      io_s = IOStatus::Corruption();
+    }
+    ColumnFamilyData* cfd = GetColumnFamilySet()->GetDefault();
+    const ImmutableOptions* ioptions = cfd->ioptions();
+    IOErrorInfo io_error_info(io_s, FileOperationType::kVerify,
+                              manifest_file_name, /*length=*/size,
+                              /*offset=*/0);
+
+    for (auto& listener : ioptions->listeners) {
+      listener->OnIOError(io_error_info);
+    }
+    io_s.PermitUncheckedError();
+    io_error_info.io_status.PermitUncheckedError();
+    ROCKS_LOG_ERROR(db_options_->info_log,
+                    "MANIFEST verification on Close, "
+                    "filename %s, expected size %" PRIu64
+                    " failed with status %s and "
+                    "actual size %" PRIu64 "\n",
+                    manifest_file_name.c_str(), manifest_file_size_,
+                    io_s.ToString().c_str(), size);
+    VersionEdit edit;
+    assert(cfd);
+    const MutableCFOptions& cf_opts = *cfd->GetLatestMutableCFOptions();
+    s = LogAndApply(cfd, cf_opts, ReadOptions(), WriteOptions(), &edit, mu,
+                    db_dir);
+  }
+
+  closed_ = true;
+  return s;
+}
 
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
@@ -5173,8 +5231,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* dir_contains_current_file, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options,
-    const ReadOptions& read_options) {
+    const ColumnFamilyOptions* new_cf_options, const ReadOptions& read_options,
+    const WriteOptions& write_options) {
   mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
@@ -5448,13 +5506,15 @@ Status VersionSet::ProcessManifestWrites(
         FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
-            io_tracer_, nullptr, db_options_->listeners, nullptr,
+            io_tracer_, nullptr, Histograms::HISTOGRAM_ENUM_MAX /* hist_type */,
+            db_options_->listeners, nullptr,
             tmp_set.Contains(FileType::kDescriptorFile),
             tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, wal_additions,
-                                        descriptor_log_.get(), io_s);
+        s = WriteCurrentStateToManifest(write_options, curr_state,
+                                        wal_additions, descriptor_log_.get(),
+                                        io_s);
       } else {
         manifest_io_status = io_s;
         s = io_s;
@@ -5498,7 +5558,7 @@ Status VersionSet::ProcessManifestWrites(
         }
         ++idx;
 #endif /* !NDEBUG */
-        io_s = descriptor_log_->AddRecord(record);
+        io_s = descriptor_log_->AddRecord(write_options, record);
         if (!io_s.ok()) {
           s = io_s;
           manifest_io_status = io_s;
@@ -5507,7 +5567,8 @@ Status VersionSet::ProcessManifestWrites(
       }
 
       if (s.ok()) {
-        io_s = SyncManifest(db_options_, descriptor_log_->file());
+        io_s =
+            SyncManifest(db_options_, write_options, descriptor_log_->file());
         manifest_io_status = io_s;
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
@@ -5525,7 +5586,8 @@ Status VersionSet::ProcessManifestWrites(
       assert(manifest_io_status.ok());
     }
     if (s.ok() && new_descriptor_log) {
-      io_s = SetCurrentFile(fs_.get(), dbname_, pending_manifest_file_number_,
+      io_s = SetCurrentFile(write_options, fs_.get(), dbname_,
+                            pending_manifest_file_number_,
                             dir_contains_current_file);
       if (!io_s.ok()) {
         s = io_s;
@@ -5765,7 +5827,7 @@ void VersionSet::WakeUpWaitingManifestWriters() {
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
-    const ReadOptions& read_options,
+    const ReadOptions& read_options, const WriteOptions& write_options,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
@@ -5843,8 +5905,8 @@ Status VersionSet::LogAndApply(
     return Status::ColumnFamilyDropped();
   }
   return ProcessManifestWrites(writers, mu, dir_contains_current_file,
-                               new_descriptor_log, new_cf_options,
-                               read_options);
+                               new_descriptor_log, new_cf_options, read_options,
+                               write_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
@@ -6181,7 +6243,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
 Status VersionSet::ListColumnFamiliesFromManifest(
     const std::string& manifest_path, FileSystem* fs,
     std::vector<std::string>* column_families) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
@@ -6225,8 +6287,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
         "Number of levels needs to be bigger than 1");
   }
 
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+  const WriteOptions write_options;
 
   ImmutableDBOptions db_options(*options);
   ColumnFamilyOptions cf_options(*options);
@@ -6238,7 +6301,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
                       /*db_id*/ "",
                       /*db_session_id*/ "", options->daily_offpeak_time_utc,
-                      /*error_handler_*/ nullptr);
+                      /*error_handler_*/ nullptr, /*read_only=*/false);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -6316,8 +6379,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(),
-                              mutable_cf_options, read_options, &ve,
-                              &dummy_mutex, nullptr, true);
+                              mutable_cf_options, read_options, write_options,
+                              &ve, &dummy_mutex, nullptr, true);
 }
 
 // Get the checksum information including the checksum and checksum function
@@ -6391,7 +6454,7 @@ Status VersionSet::DumpManifest(
     Options& options, std::string& dscname, bool verbose, bool hex, bool json,
     const std::vector<ColumnFamilyDescriptor>& cf_descs) {
   assert(options.env);
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
 
   std::vector<std::string> column_families;
@@ -6458,6 +6521,7 @@ void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
 }
 
 Status VersionSet::WriteCurrentStateToManifest(
+    const WriteOptions& write_options,
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
     const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
@@ -6478,7 +6542,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       return Status::Corruption("Unable to Encode VersionEdit:" +
                                 edit_for_db_id.DebugString(true));
     }
-    io_s = log->AddRecord(db_id_record);
+    io_s = log->AddRecord(write_options, db_id_record);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -6493,7 +6557,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       return Status::Corruption("Unable to Encode VersionEdit: " +
                                 wal_additions.DebugString(true));
     }
-    io_s = log->AddRecord(record);
+    io_s = log->AddRecord(write_options, record);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -6510,7 +6574,7 @@ Status VersionSet::WriteCurrentStateToManifest(
     return Status::Corruption("Unable to Encode VersionEdit: " +
                               wal_deletions.DebugString(true));
   }
-  io_s = log->AddRecord(wal_deletions_record);
+  io_s = log->AddRecord(write_options, wal_deletions_record);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -6540,7 +6604,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         return Status::Corruption("Unable to Encode VersionEdit:" +
                                   edit.DebugString(true));
       }
-      io_s = log->AddRecord(record);
+      io_s = log->AddRecord(write_options, record);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -6622,7 +6686,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         return Status::Corruption("Unable to Encode VersionEdit:" +
                                   edit.DebugString(true));
       }
-      io_s = log->AddRecord(record);
+      io_s = log->AddRecord(write_options, record);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -7280,7 +7344,7 @@ ReactiveVersionSet::ReactiveVersionSet(
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
-                 /*error_handler=*/nullptr) {}
+                 /*error_handler=*/nullptr, /*read_only=*/true) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 

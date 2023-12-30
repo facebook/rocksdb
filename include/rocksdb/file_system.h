@@ -1918,7 +1918,8 @@ class FSDirectoryWrapper : public FSDirectory {
 // A utility routine: write "data" to the named file.
 extern IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
                                   const std::string& fname,
-                                  bool should_sync = false);
+                                  bool should_sync = false,
+                                  const IOOptions& io_options = IOOptions());
 
 // A utility routine: read contents of named file into *data
 extern IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,

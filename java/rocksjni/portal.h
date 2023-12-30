@@ -5716,10 +5716,17 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::
           FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS:
         return 0x41;
+      case ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS:
+        return 0x42;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS:
+        return 0x43;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS:
+        return 0x44;
+      case ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS:
+        return 0x45;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
-
       default:
         // undefined/default
         return 0x0;
@@ -5853,6 +5860,14 @@ class HistogramTypeJni {
       case 0x41:
         return ROCKSDB_NAMESPACE::Histograms::
             FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
+      case 0x42:
+        return ROCKSDB_NAMESPACE::Histograms::SST_WRITE_MICROS;
+      case 0x43:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_FLUSH_MICROS;
+      case 0x44:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_COMPACTION_MICROS;
+      case 0x45:
+        return ROCKSDB_NAMESPACE::Histograms::FILE_WRITE_DB_OPEN_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -7447,7 +7462,7 @@ class LiveFileMetaDataJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+        "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ[B)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -7498,6 +7513,18 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
+    jbyteArray jfile_checksum = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, live_file_meta_data->file_checksum);
+    if (env->ExceptionCheck()) {
+      // exception occurred creating java string
+      env->DeleteLocalRef(jcolumn_family_name);
+      env->DeleteLocalRef(jfile_name);
+      env->DeleteLocalRef(jpath);
+      env->DeleteLocalRef(jsmallest_key);
+      env->DeleteLocalRef(jlargest_key);
+      return nullptr;
+    }
+
     jobject jlive_file_meta_data = env->NewObject(
         jclazz, mid, jcolumn_family_name,
         static_cast<jint>(live_file_meta_data->level), jfile_name, jpath,
@@ -7508,7 +7535,7 @@ class LiveFileMetaDataJni : public JavaClass {
         static_cast<jlong>(live_file_meta_data->num_reads_sampled),
         static_cast<jboolean>(live_file_meta_data->being_compacted),
         static_cast<jlong>(live_file_meta_data->num_entries),
-        static_cast<jlong>(live_file_meta_data->num_deletions));
+        static_cast<jlong>(live_file_meta_data->num_deletions), jfile_checksum);
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jcolumn_family_name);
@@ -7516,6 +7543,7 @@ class LiveFileMetaDataJni : public JavaClass {
       env->DeleteLocalRef(jpath);
       env->DeleteLocalRef(jsmallest_key);
       env->DeleteLocalRef(jlargest_key);
+      env->DeleteLocalRef(jfile_checksum);
       return nullptr;
     }
 
@@ -7525,6 +7553,7 @@ class LiveFileMetaDataJni : public JavaClass {
     env->DeleteLocalRef(jpath);
     env->DeleteLocalRef(jsmallest_key);
     env->DeleteLocalRef(jlargest_key);
+    env->DeleteLocalRef(jfile_checksum);
 
     return jlive_file_meta_data;
   }

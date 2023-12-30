@@ -352,6 +352,69 @@ public class RocksIteratorTest {
   }
 
   @Test
+  public void rocksIteratorSeekAndInsertOnSnapshot() throws RocksDBException {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key1".getBytes(), "value1".getBytes());
+      db.put("key2".getBytes(), "value2".getBytes());
+
+      try (final Snapshot snapshot = db.getSnapshot()) {
+        try (final RocksIterator iterator = db.newIterator()) {
+          // check for just keys 1 and 2
+          iterator.seek("key0".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+          iterator.seek("key2".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+          iterator.seek("key3".getBytes());
+          assertThat(iterator.isValid()).isFalse();
+        }
+
+        // add a new key (after the snapshot was taken)
+        db.put("key3".getBytes(), "value3".getBytes());
+
+        try (final RocksIterator iterator = db.newIterator()) {
+          // check for keys 1, 2, and 3
+          iterator.seek("key0".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+          iterator.seek("key2".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+          iterator.seek("key3".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key3".getBytes());
+
+          iterator.seek("key4".getBytes());
+          assertThat(iterator.isValid()).isFalse();
+
+          // reset iterator to snapshot, iterator should now only see keys
+          // there were present in the db when the snapshot was taken
+          iterator.refresh(snapshot);
+
+          // again check for just keys 1 and 2
+          iterator.seek("key0".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+          iterator.seek("key2".getBytes());
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+          iterator.seek("key3".getBytes());
+          assertThat(iterator.isValid()).isFalse();
+        }
+      }
+    }
+  }
+
+  @Test
   public void rocksIteratorReleaseAfterCfClose() throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)

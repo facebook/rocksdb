@@ -572,7 +572,7 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
     edit.SetColumnFamily(0);
     std::string buf;
     assert(edit.EncodeTo(&buf));
-    const Status s = log_writer->AddRecord(buf);
+    const Status s = log_writer->AddRecord(WriteOptions(), buf);
     ASSERT_NOK(s);
   }
 

@@ -2065,7 +2065,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
-        // TODO: plumb Env::IOActivity
+        // TODO: plumb Env::IOActivity, Env::IOPriority
         ReadOptions ropts;
         // it's going to be overwritten for sure, so no point caching data block
         // containing the old version
@@ -2512,7 +2512,7 @@ class MemTableInserter : public WriteBatch::Handler {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
 
-      // TODO: plumb Env::IOActivity
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 
