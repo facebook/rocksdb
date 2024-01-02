@@ -2922,7 +2922,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
                 "--------------------------------------\n";
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions ro;
   Status s = ReadMetaIndexBlock(ro, nullptr /* prefetch_buffer */, &metaindex,
                                 &metaindex_iter);
@@ -3027,7 +3027,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   out_stream << "Index Details:\n"
                 "--------------------------------------\n";
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
@@ -3078,7 +3078,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
 }
 
 Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(read_options, /*need_upper_bound_check=*/false,

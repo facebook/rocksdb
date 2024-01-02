@@ -58,6 +58,7 @@ SstFileDumper::SstFileDumper(const Options& options,
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
+      // TODO: plumb Env::IOActivity, Env::IOPriority
       read_options_(verify_checksum, false),
       internal_comparator_(BytewiseComparator()) {
   read_options_.readahead_size = readahead_size;
@@ -303,14 +304,18 @@ Status SstFileDumper::ShowCompressionSize(
   const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
   IntTblPropCollectorFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;
+
   TableBuilderOptions tb_opts(
-      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      compress_opt,
+      imoptions, moptions, read_options, write_options, ikc,
+      &block_based_table_factories, compress_type, compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
@@ -375,10 +380,8 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
-  // TODO: plumb Env::IOActivity
-  const ReadOptions read_options;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, read_options,
+      file, file_size, table_magic_number, ioptions_, read_options_,
       &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
   if (!s.ok()) {

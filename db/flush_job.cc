@@ -409,7 +409,7 @@ Status FlushJob::MemPurge() {
   // Create two iterators, one for the memtable data (contains
   // info from puts + deletes), and one for the memtable
   // Range Tombstones (from DeleteRanges).
-  // TODO: plumb Env::IOActivity
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -701,8 +701,8 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   // Cochran formula for determining sample size.
   // 95% confidence interval, 7% precision.
   //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
-  // TODO: plumb Env::IOActivity
   double n0 = 196.0;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
   ro.total_order_seek = true;
 
@@ -961,29 +961,30 @@ Status FlushJob::WriteLevel0Table() {
 
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      const WriteOptions write_options(io_priority, Env::IOActivity::kFlush);
       TableBuilderOptions tboptions(
-          *cfd_->ioptions(), mutable_cf_options_, cfd_->internal_comparator(),
-          cfd_->int_tbl_prop_collector_factories(), output_compression_,
-          mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
-          0 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kFlush, oldest_key_time, current_time,
-          db_id_, db_session_id_, 0 /* target_file_size */,
-          meta_.fd.GetNumber());
+          *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
+          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
+          output_compression_, mutable_cf_options_.compression_opts,
+          cfd_->GetID(), cfd_->GetName(), 0 /* level */,
+          false /* is_bottommost */, TableFileCreationReason::kFlush,
+          oldest_key_time, current_time, db_id_, db_session_id_,
+          0 /* target_file_size */, meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
-      const ReadOptions read_options(Env::IOActivity::kFlush);
-      s = BuildTable(dbname_, versions_, db_options_, tboptions, file_options_,
-                     read_options, cfd_->table_cache(), iter.get(),
-                     std::move(range_del_iters), &meta_, &blob_file_additions,
-                     existing_snapshots_, earliest_write_conflict_snapshot_,
-                     job_snapshot_seq, snapshot_checker_,
-                     mutable_cf_options_.paranoid_file_checks,
-                     cfd_->internal_stats(), &io_s, io_tracer_,
-                     BlobFileCreationReason::kFlush, seqno_to_time_mapping_,
-                     event_logger_, job_context_->job_id, io_priority,
-                     &table_properties_, write_hint, full_history_ts_low,
-                     blob_callback_, base_, &num_input_entries,
-                     &memtable_payload_bytes, &memtable_garbage_bytes);
+
+      s = BuildTable(
+          dbname_, versions_, db_options_, tboptions, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, existing_snapshots_,
+          earliest_write_conflict_snapshot_, job_snapshot_seq,
+          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
+          cfd_->internal_stats(), &io_s, io_tracer_,
+          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
+          job_context_->job_id, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_, base_, &num_input_entries,
+          &memtable_payload_bytes, &memtable_garbage_bytes);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
@@ -1177,8 +1178,9 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   return versions_->LogAndApply(cfd_, *cfd_->GetLatestMutableCFOptions(),
-                                ReadOptions(), &edit, db_mutex_,
+                                ReadOptions(), WriteOptions(), &edit, db_mutex_,
                                 output_file_directory_);
 }
 

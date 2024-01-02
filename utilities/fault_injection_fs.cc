@@ -917,9 +917,10 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
           return io_s;
         }
       } else {
+        IOOptions opts;
         IOStatus io_s =
             WriteStringToFile(target(), file_pair.second,
-                              pair.first + "/" + file_pair.first, true);
+                              pair.first + "/" + file_pair.first, true, opts);
         if (!io_s.ok()) {
           return io_s;
         }

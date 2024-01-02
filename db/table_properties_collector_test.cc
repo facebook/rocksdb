@@ -52,10 +52,13 @@ void MakeBuilder(
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+  const ReadOptions read_options;
+  const WriteOptions write_options;
   TableBuilderOptions tboptions(
-      ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
-      options.compression, options.compression_opts, kTestColumnFamilyId,
-      kTestColumnFamilyName, kTestLevel);
+      ioptions, moptions, read_options, write_options, internal_comparator,
+      int_tbl_prop_collector_factories, options.compression,
+      options.compression_opts, kTestColumnFamilyId, kTestColumnFamilyName,
+      kTestLevel);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
@@ -280,7 +283,7 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
-  ASSERT_OK(writer->Flush());
+  ASSERT_OK(writer->Flush(IOOptions()));
 
   // -- Step 2: Read properties
   test::StringSink* fwf =
@@ -419,7 +422,7 @@ void TestInternalKeyPropertiesCollector(
     }
 
     ASSERT_OK(builder->Finish());
-    ASSERT_OK(writable->Flush());
+    ASSERT_OK(writable->Flush(IOOptions()));
 
     test::StringSink* fwf =
         static_cast<test::StringSink*>(writable->writable_file());

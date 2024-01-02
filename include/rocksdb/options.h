@@ -1781,7 +1781,7 @@ struct WriteOptions {
   // system call followed by "fdatasync()".
   //
   // Default: false
-  bool sync;
+  bool sync = false;
 
   // If true, writes will not first go to the write ahead log,
   // and the write may get lost after a crash. The backup engine
@@ -1789,18 +1789,18 @@ struct WriteOptions {
   // you disable write-ahead logs, you must create backups with
   // flush_before_backup=true to avoid losing unflushed memtable data.
   // Default: false
-  bool disableWAL;
+  bool disableWAL = false;
 
   // If true and if user is trying to write to column families that don't exist
   // (they were dropped),  ignore the write (don't return an error). If there
   // are multiple writes in a WriteBatch, other writes will succeed.
   // Default: false
-  bool ignore_missing_column_families;
+  bool ignore_missing_column_families = false;
 
   // If true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete().
   // Default: false
-  bool no_slowdown;
+  bool no_slowdown = false;
 
   // If true, this write request is of lower priority if compaction is
   // behind. In this case, no_slowdown = true, the request will be canceled
@@ -1809,7 +1809,7 @@ struct WriteOptions {
   // it introduces minimum impacts to high priority writes.
   //
   // Default: false
-  bool low_pri;
+  bool low_pri = false;
 
   // If true, this writebatch will maintain the last insert positions of each
   // memtable as hints in concurrent write. It can improve write performance
@@ -1818,7 +1818,7 @@ struct WriteOptions {
   // option will be ignored.
   //
   // Default: false
-  bool memtable_insert_hint_per_batch;
+  bool memtable_insert_hint_per_batch = false;
 
   // For writes associated with this option, charge the internal rate
   // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
@@ -1833,24 +1833,25 @@ struct WriteOptions {
   // due to implementation constraints.
   //
   // Default: `Env::IO_TOTAL`
-  Env::IOPriority rate_limiter_priority;
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
   //
   // Default: zero (disabled).
-  size_t protection_bytes_per_key;
+  size_t protection_bytes_per_key = 0;
 
-  WriteOptions()
-      : sync(false),
-        disableWAL(false),
-        ignore_missing_column_families(false),
-        no_slowdown(false),
-        low_pri(false),
-        memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL),
-        protection_bytes_per_key(0) {}
+  // For RocksDB internal use only
+  //
+  // Default: Env::IOActivity::kUnknown.
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  WriteOptions() {}
+  explicit WriteOptions(Env::IOActivity _io_activity);
+  explicit WriteOptions(
+      Env::IOPriority _rate_limiter_priority,
+      Env::IOActivity _io_activity = Env::IOActivity::kUnknown);
 };
 
 // Options that control flush operations

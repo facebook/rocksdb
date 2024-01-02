@@ -306,6 +306,7 @@ Status WritePreparedTxn::RollbackInternal() {
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
   auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   auto read_at_seq = kMaxSequenceNumber;
+  // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions roptions;
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();

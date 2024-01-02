@@ -957,15 +957,18 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrashAndObsoleteSstFile) {
 
   // Add some trash files to the db directory so the DB can clean them up
   ASSERT_OK(env_->CreateDirIfMissing(dbname_));
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
+  ASSERT_OK(
+      WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash", false));
+  ASSERT_OK(
+      WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash", false));
+  ASSERT_OK(
+      WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash", false));
   // Manually add an obsolete sst file. Obsolete SST files are discovered and
   // deleted upon recovery.
   constexpr uint64_t kSstFileNumber = 100;
   const std::string kObsoleteSstFile =
       MakeTableFileName(dbname_, kSstFileNumber);
-  ASSERT_OK(WriteStringToFile(env_, "abc", kObsoleteSstFile));
+  ASSERT_OK(WriteStringToFile(env_, "abc", kObsoleteSstFile, false));
 
   // Reopen the DB and verify that it deletes existing trash files and obsolete
   // SST files with rate limiting.
