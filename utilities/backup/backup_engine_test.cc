@@ -499,6 +499,24 @@ class FileManager : public EnvWrapper {
     return WriteToFile(fname, file_contents);
   }
 
+  Status CorruptFileMiddle(const std::string& fname) {
+    std::string to_xor = "blah";
+    std::string file_contents;
+    Status s = ReadFileToString(this, fname, &file_contents);
+    if (!s.ok()) {
+      return s;
+    }
+    s = DeleteFile(fname);
+    if (!s.ok()) {
+      return s;
+    }
+    size_t middle = file_contents.size() / 2;
+    for (size_t i = 0; i < to_xor.size(); ++i) {
+      file_contents[middle + i] ^= to_xor[i];
+    }
+    return WriteToFile(fname, file_contents);
+  }
+
   Status CorruptChecksum(const std::string& fname, bool appear_valid) {
     std::string metadata;
     Status s = ReadFileToString(this, fname, &metadata);
@@ -2233,6 +2251,33 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
       DestroyDBWithoutCheck(dbname_, options_);
     }
   }
+}
+
+TEST_F(BackupEngineTest, PropertiesBlockCorruptionIncremental) {
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+  // A small SST file
+  ASSERT_OK(dbi->Put(WriteOptions(), "x", "y"));
+  ASSERT_OK(dbi->Flush(FlushOptions()));
+  ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  CloseBackupEngine();
+
+  std::vector<FileAttributes> table_files;
+  ASSERT_OK(GetDataFilesInDB(kTableFile, &table_files));
+  ASSERT_EQ(table_files.size(), 1);
+  std::string tf = dbname_ + "/" + table_files[0].name;
+  // Properties block should be in the middle of a small file
+  ASSERT_OK(db_file_manager_->CorruptFileMiddle(tf));
+
+  OpenBackupEngine();
+
+  Status s = backup_engine_->CreateNewBackup(db_.get());
+  ASSERT_TRUE(s.IsCorruption());
+
+  CloseDBAndBackupEngine();
 }
 
 // Test how naming options interact with detecting file size corruption
